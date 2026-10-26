@@ -456,7 +456,9 @@ void NvrhiRenderer::drawScene(ClearColor clearColor) {
         nvrhi::GraphicsState state;
         state.pipeline = rectPipeline;
         state.framebuffer = framebuffer;
-        state.viewport = nvrhi::ViewportState().addViewport(viewport);
+        // NVRHI's Vulkan backend keeps the scissor dynamic, so every draw has to supply one; without it the
+        // implementation draws nothing. Rect clipping already happened on the CPU, so the whole viewport is it.
+        state.viewport = nvrhi::ViewportState().addViewport(viewport).addScissorRect(nvrhi::Rect(viewport));
         state.bindings = {rectStorageSet, rectConstantsSet};
         commandList->setGraphicsState(state);
         commandList->draw(nvrhi::DrawArguments().setVertexCount(verticesPerQuad).setInstanceCount(
