@@ -26,6 +26,14 @@ constexpr float controlGap = 10.0f;
 constexpr float labelColumnWidth = 150.0f;
 constexpr std::array<KeyboardKey, 3> backendKeys{KEY_F1, KEY_F2, KEY_F3};
 
+constexpr int minimumProbeTargetFps = 10;
+constexpr int maximumProbeTargetFps = 1000;
+
+int refreshRateOrDefault() {
+    const int refresh = GetMonitorRefreshRate(GetCurrentMonitor());
+    return refresh > 0 ? refresh : static_cast<int>(defaultProbeTargetFps);
+}
+
 std::string spawnRateLabel(int rate) { return rate == 0 ? std::string("Max") : std::to_string(rate); }
 
 std::string ballLimitLabel(BallCount limit) {
@@ -55,15 +63,15 @@ std::string probeButtonLabel(const GameSession& session) {
                            probe.lastFps());
     }
     if (probe.phase() == ProbePhase::Done) {
-        return std::format("Machine max @60 FPS: {}", groupedBalls(probe.bestPassingCount()));
+        return std::format("Max @{:.0f} FPS: {}", probe.targetFps(), groupedBalls(probe.bestPassingCount()));
     }
-    return "Find max @60 FPS";
+    return "Find max balls";
 }
 
 }
 
 GameplayScreen::GameplayScreen(App& app, GameMode mode, LevelFiles files)
-    : app(app), mode(mode), files(std::move(files)) {
+    : app(app), mode(mode), files(std::move(files)), probeTargetFps(refreshRateOrDefault()) {
     loadSession();
     watcher.watch(this->files);
 }
@@ -84,9 +92,11 @@ void GameplayScreen::applyRememberedMachineLimit() {
         return;
     }
     if (const auto limit = app.machineProfile().ballLimit(session->backend())) {
-        session->useMachineBallLimit(*limit);
+        session->useMachineBallLimit(limit->balls);
     }
 }
+
+void GameplayScreen::startProbe() { session->startCapacityProbe(static_cast<double>(probeTargetFps)); }
 
 void GameplayScreen::rememberFinishedProbe() {
     const CapacityProbe& probe = session->capacityProbe();
@@ -95,9 +105,9 @@ void GameplayScreen::rememberFinishedProbe() {
         return;
     }
     if (!probeResultSaved && probe.phase() == ProbePhase::Done) {
-        app.machineProfile().rememberBallLimit(session->backend(), probe.bestPassingCount());
-        showToast(std::format("{} limit on this machine: {} balls @60 FPS", backendKindName(session->backend()),
-                              groupedBalls(probe.bestPassingCount())),
+        app.machineProfile().rememberBallLimit(session->backend(), probe.targetFps(), probe.bestPassingCount());
+        showToast(std::format("{} limit on this machine: {} balls @{:.0f} FPS", backendKindName(session->backend()),
+                              groupedBalls(probe.bestPassingCount()), probe.targetFps()),
                   false);
         probeResultSaved = true;
     }
@@ -240,8 +250,10 @@ void GameplayScreen::drawPerformanceControls(Rectangle area) {
     const std::string startLabel =
         ready ? std::string("Start (1 click)")
               : std::format("Auto releasing - {} launchers left", session->launchers().launcherCount());
-    const Rectangle startHalf = ui::columnSlice(startRow, 0, 2, controlGap);
-    const Rectangle probeHalf = ui::columnSlice(startRow, 1, 2, controlGap);
+    const Rectangle startHalf = ui::columnSlice(startRow, 0, 3, controlGap);
+    const Rectangle targetThird = ui::columnSlice(startRow, 1, 3, controlGap);
+    const Rectangle probeHalf = ui::columnSlice(startRow, 2, 3, controlGap);
+    ui::stepper(targetThird, "Target FPS", probeTargetFps, minimumProbeTargetFps, maximumProbeTargetFps);
     if (ui::button(startHalf, startLabel, ready)) {
         session->startAutoRelease();
     }
@@ -250,7 +262,7 @@ void GameplayScreen::drawPerformanceControls(Rectangle area) {
         if (probe.isActive()) {
             session->cancelCapacityProbe();
         } else {
-            session->startCapacityProbe();
+            startProbe();
         }
     }
 
@@ -286,7 +298,7 @@ void GameplayScreen::drawPerformanceControls(Rectangle area) {
         if (const auto measured = session->machineBallLimit()) {
             session->useMachineBallLimit(*measured);
         } else {
-            session->startCapacityProbe();
+            startProbe();
         }
     }
 
@@ -424,7 +436,7 @@ std::string GameplayScreen::stateJson() const {
         "{{\"mode\":\"{}\",\"level\":\"{}\",\"state\":\"{}\",\"paused\":{},\"backend\":\"{}\",\"backendFault\":\"{}\","
         "\"balls\":{},\"bricks\":{},\"launchersLeft\":{},\"pendingSpawn\":{},\"spawned\":{},\"hits\":{},"
         "\"physicsMs\":{:.3f},\"ticks\":{},\"spawnRate\":{},\"multiplier\":{},\"ballLimit\":{},\"elapsed\":{:.2f},"
-        "\"probe\":{{\"phase\":\"{}\",\"fps\":{:.1f},\"best\":{}}},"
+        "\"probe\":{{\"phase\":\"{}\",\"target\":{:.0f},\"fps\":{:.1f},\"best\":{}}},"
         "\"ballsByColor\":{{{}}},\"launchers\":[{}]}}",
         mode == GameMode::Normal ? "normal" : "performance", jsonEscape(files.name),
         stateNames[static_cast<int>(session->state())], paused, backendKindName(session->backend()),
@@ -432,7 +444,7 @@ std::string GameplayScreen::stateJson() const {
         launchers.launcherCount(), session->spawner().pendingBalls(), stats.totalBallsSpawned, stats.totalHits,
         stats.lastFramePhysicsMs, stats.ticksLastFrame, spawnRateOptions[session->spawnRateIndex()],
         ballMultiplierOptions[session->ballMultiplierIndex()], session->ballLimit(), session->elapsedSeconds(),
-        probePhaseName(probe.phase()), probe.lastFps(), probe.bestPassingCount(), ballsByColor, launcherColumns);
+        probePhaseName(probe.phase()), probe.targetFps(), probe.lastFps(), probe.bestPassingCount(), ballsByColor, launcherColumns);
 }
 
 std::optional<ControlResponse> GameplayScreen::handleControl(const ControlRequest& request) {
@@ -453,7 +465,9 @@ std::optional<ControlResponse> GameplayScreen::handleControl(const ControlReques
         if (request.integer("cancel").value_or(0) != 0) {
             session->cancelCapacityProbe();
         } else {
-            session->startCapacityProbe();
+            probeTargetFps = std::clamp(request.integer("fps").value_or(probeTargetFps), minimumProbeTargetFps,
+                                        maximumProbeTargetFps);
+            startProbe();
         }
         return done;
     }

@@ -53,7 +53,7 @@ void GameSession::startAutoRelease() {
     }
 }
 
-void GameSession::startCapacityProbe() {
+void GameSession::startCapacityProbe(double targetFps) {
     if (gameMode != GameMode::Performance) {
         return;
     }
@@ -62,7 +62,7 @@ void GameSession::startCapacityProbe() {
         sessionState = SessionState::Running;
     }
     probeColorIndex = 0;
-    probe.start();
+    probe.start(targetFps);
     pumpCapacityProbe();
 }
 

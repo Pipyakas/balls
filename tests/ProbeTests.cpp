@@ -64,7 +64,7 @@ TEST_CASE("probe backs off when fresh balls made a window look better than stead
     runProbe(probe, machine);
     EXPECT(probe.phase() == ProbePhase::Done);
     EXPECT(machine.liveBalls < cliffBalls);
-    EXPECT(probe.lastFps() >= probeTargetFps);
+    EXPECT(probe.lastFps() >= probe.targetFps() * probePassTolerance);
 }
 
 TEST_CASE("cancel returns the probe to idle") {

@@ -7,6 +7,16 @@
 
 #include <chrono>
 
+struct BallShader {
+    Shader shader{};
+    int mvp = -1;
+    int origin = -1;
+    int cellPixels = -1;
+    int radius = -1;
+    int unpackScale = -1;
+    int depthPerBall = -1;
+};
+
 class BallRenderer {
 public:
     void load();
@@ -18,13 +28,9 @@ private:
     bool ensureCapacity(size_t ballCount);
     void shareWith(PhysicsBackend& backend);
 
-    Shader shader{};
-    int mvpLocation = -1;
-    int originLocation = -1;
-    int cellPixelsLocation = -1;
-    int radiusLocation = -1;
-    int unpackScaleLocation = -1;
-    int paletteLocation = -1;
+    BallShader sparseShader;
+    BallShader denseShader;
+    bool denseUsesDepth = true;
     unsigned int vertexArray = 0;
     unsigned int packedBuffer = 0;
     size_t capacity = 0;

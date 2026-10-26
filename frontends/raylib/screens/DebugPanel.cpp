@@ -82,7 +82,8 @@ void drawDebugPanel(Rectangle area, const GameSession& session, const FrameTimin
     writer.row("Present", std::format("{:.2f} ms", sample.presentMs));
     const CapacityProbe& probe = session.capacityProbe();
     if (probe.phase() != ProbePhase::Idle) {
-        writer.row("Probe", std::format("{} @ {:.0f} fps", probePhaseName(probe.phase()), probe.lastFps()));
+        writer.row("Probe", std::format("{} {:.0f}/{:.0f} fps", probePhaseName(probe.phase()), probe.lastFps(),
+                                        probe.targetFps()));
     }
     writer.row("Backend", backendKindName(session.backend()));
     if (const std::string detail = backendDetail(session.backend()); !detail.empty()) {

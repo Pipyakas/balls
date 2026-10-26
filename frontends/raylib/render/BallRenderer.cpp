@@ -8,14 +8,18 @@
 
 #include <algorithm>
 #include <array>
+#include <string>
 
 namespace {
 
 constexpr unsigned int packedLocation = 0;
 constexpr size_t initialCapacity = 1 << 16;
 
+constexpr size_t denseBallThreshold = 100'000;
+
 constexpr const char* vertexShaderSource = R"(#version 330
 layout(location = 0) in uint packedBall;
+uniform float depthPerBall;
 uniform mat4 mvp;
 uniform vec2 boardOrigin;
 uniform float cellPixels;
@@ -27,11 +31,16 @@ void main() {
     vec2 cell = vec2(float(packedBall & 16383u), float((packedBall >> 14) & 16383u)) * unpackScale;
     tint = palette[min(packedBall >> 28, 6u)];
     gl_Position = mvp * vec4(boardOrigin + cell * cellPixels, 0.0, 1.0);
+    gl_Position.z = (float(gl_VertexID) * depthPerBall * 2.0 - 1.0) * gl_Position.w;
     gl_PointSize = max(2.0 * radius * cellPixels, 1.0);
 }
 )";
 
-constexpr const char* fragmentShaderSource = R"(#version 330
+constexpr const char* sparseFragmentHeader = "#version 330\n";
+constexpr const char* denseFragmentHeader =
+    "#version 330\n#extension GL_ARB_shader_image_load_store : require\nlayout(early_fragment_tests) in;\n";
+
+constexpr const char* fragmentShaderBody = R"(
 flat in vec3 tint;
 out vec4 finalColor;
 void main() {
@@ -45,18 +54,17 @@ void main() {
 }
 )";
 
-}
-
-void BallRenderer::load() {
-    glExtras::load();
-    shader = LoadShaderFromMemory(vertexShaderSource, fragmentShaderSource);
-    mvpLocation = GetShaderLocation(shader, "mvp");
-    originLocation = GetShaderLocation(shader, "boardOrigin");
-    cellPixelsLocation = GetShaderLocation(shader, "cellPixels");
-    radiusLocation = GetShaderLocation(shader, "radius");
-    unpackScaleLocation = GetShaderLocation(shader, "unpackScale");
-    paletteLocation = GetShaderLocation(shader, "palette");
-
+BallShader loadBallShader(const char* fragmentHeader) {
+    const std::string fragmentSource = std::string(fragmentHeader) + fragmentShaderBody;
+    BallShader program;
+    program.shader = LoadShaderFromMemory(vertexShaderSource, fragmentSource.c_str());
+    program.mvp = GetShaderLocation(program.shader, "mvp");
+    program.origin = GetShaderLocation(program.shader, "boardOrigin");
+    program.cellPixels = GetShaderLocation(program.shader, "cellPixels");
+    program.radius = GetShaderLocation(program.shader, "radius");
+    program.unpackScale = GetShaderLocation(program.shader, "unpackScale");
+    program.depthPerBall = GetShaderLocation(program.shader, "depthPerBall");
+    const int paletteLocation = GetShaderLocation(program.shader, "palette");
     std::array<float, ballColorCount * 3> colors{};
     for (int i = 0; i < ballColorCount; ++i) {
         const Color color = palette::ballColor(i);
@@ -64,7 +72,21 @@ void BallRenderer::load() {
         colors[i * 3 + 1] = color.g / 255.0f;
         colors[i * 3 + 2] = color.b / 255.0f;
     }
-    SetShaderValueV(shader, paletteLocation, colors.data(), SHADER_UNIFORM_VEC3, ballColorCount);
+    SetShaderValueV(program.shader, paletteLocation, colors.data(), SHADER_UNIFORM_VEC3, ballColorCount);
+    return program;
+}
+
+}
+
+void BallRenderer::load() {
+    glExtras::load();
+    sparseShader = loadBallShader(sparseFragmentHeader);
+    denseShader = loadBallShader(denseFragmentHeader);
+    if (!IsShaderValid(denseShader.shader) || denseShader.shader.id == rlGetShaderIdDefault()) {
+        denseShader = sparseShader;
+        denseUsesDepth = false;
+    }
+
     vertexArray = rlLoadVertexArray();
     ensureCapacity(initialCapacity);
 }
@@ -76,7 +98,10 @@ void BallRenderer::unload() {
     if (vertexArray) {
         rlUnloadVertexArray(vertexArray);
     }
-    UnloadShader(shader);
+    if (denseShader.shader.id != sparseShader.shader.id) {
+        UnloadShader(denseShader.shader);
+    }
+    UnloadShader(sparseShader.shader);
     capacity = 0;
 }
 
@@ -134,18 +159,29 @@ void BallRenderer::draw(PhysicsBackend& backend, const BoardTransform& transform
     const Matrix mvp = MatrixMultiply(rlGetMatrixModelview(), rlGetMatrixProjection());
     const float origin[2]{transform.origin.x, transform.origin.y};
     const float unpackScale[2]{1.0f / renderPackScale(balls.fieldWidth), 1.0f / renderPackScale(balls.fieldHeight)};
-    rlEnableShader(shader.id);
-    rlSetUniformMatrix(mvpLocation, mvp);
-    rlSetUniform(originLocation, origin, SHADER_UNIFORM_VEC2, 1);
-    rlSetUniform(cellPixelsLocation, &transform.cellPixels, SHADER_UNIFORM_FLOAT, 1);
-    rlSetUniform(radiusLocation, &radiusCells, SHADER_UNIFORM_FLOAT, 1);
-    rlSetUniform(unpackScaleLocation, unpackScale, SHADER_UNIFORM_VEC2, 1);
+    const bool dense = balls.count >= denseBallThreshold && denseUsesDepth;
+    const BallShader& program = dense ? denseShader : sparseShader;
+    const float depthPerBall = dense ? 1.0f / static_cast<float>(balls.count) : 0.0f;
+    rlEnableShader(program.shader.id);
+    rlSetUniformMatrix(program.mvp, mvp);
+    rlSetUniform(program.origin, origin, SHADER_UNIFORM_VEC2, 1);
+    rlSetUniform(program.cellPixels, &transform.cellPixels, SHADER_UNIFORM_FLOAT, 1);
+    rlSetUniform(program.radius, &radiusCells, SHADER_UNIFORM_FLOAT, 1);
+    rlSetUniform(program.unpackScale, unpackScale, SHADER_UNIFORM_VEC2, 1);
+    rlSetUniform(program.depthPerBall, &depthPerBall, SHADER_UNIFORM_FLOAT, 1);
+    if (dense) {
+        rlEnableDepthTest();
+        rlEnableDepthMask();
+    }
     rlDisableColorBlend();
     glExtras::enableProgramPointSize(true);
     rlEnableVertexArray(vertexArray);
     glExtras::drawPoints(0, static_cast<int>(balls.count));
     rlDisableVertexArray();
     glExtras::enableProgramPointSize(false);
+    if (dense) {
+        rlDisableDepthTest();
+    }
     rlEnableColorBlend();
     rlDisableShader();
 }

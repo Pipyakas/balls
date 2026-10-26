@@ -31,10 +31,11 @@ std::filesystem::path MachineProfile::filePath() const {
 void MachineProfile::load() {
     std::ifstream file(filePath());
     std::string backendName;
+    double targetFps = 0.0;
     BallCount limit = 0;
-    while (file >> backendName >> limit) {
+    while (file >> backendName >> targetFps >> limit) {
         if (const auto kind = parseBackendKind(backendName)) {
-            ballLimits[*kind] = limit;
+            ballLimits[*kind] = {targetFps, limit};
         }
     }
 }
@@ -44,16 +45,16 @@ void MachineProfile::save() const {
     std::filesystem::create_directories(filePath().parent_path(), error);
     std::ofstream file(filePath(), std::ios::trunc);
     for (const auto& [kind, limit] : ballLimits) {
-        file << backendKindName(kind) << ' ' << limit << '\n';
+        file << backendKindName(kind) << ' ' << limit.targetFps << ' ' << limit.balls << '\n';
     }
 }
 
-void MachineProfile::rememberBallLimit(BackendKind backend, BallCount limit) {
-    ballLimits[backend] = limit;
+void MachineProfile::rememberBallLimit(BackendKind backend, double targetFps, BallCount limit) {
+    ballLimits[backend] = {targetFps, limit};
     save();
 }
 
-std::optional<BallCount> MachineProfile::ballLimit(BackendKind backend) const {
+std::optional<MachineProfile::MeasuredLimit> MachineProfile::ballLimit(BackendKind backend) const {
     const auto it = ballLimits.find(backend);
-    return it == ballLimits.end() ? std::nullopt : std::optional<BallCount>(it->second);
+    return it == ballLimits.end() ? std::nullopt : std::optional<MeasuredLimit>(it->second);
 }
