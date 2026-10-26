@@ -2,6 +2,7 @@
 
 #include <immintrin.h>
 
+#include <algorithm>
 #include <bit>
 
 #if defined(_MSC_VER)
@@ -10,7 +11,7 @@
 
 namespace {
 
-constexpr size_t minimumBallsPerChunk = 2048;
+constexpr size_t ballsPerChunk = 16384;
 
 struct LaneConstants {
     __m256 deltaTime;
@@ -119,7 +120,6 @@ inline void considerCell(ContactSearch& best, const int32_t* paddedCells, __m256
 }
 
 Avx2Backend::Avx2Backend(size_t threadCount) : pool(std::make_unique<WorkerPool>(threadCount)) {
-    chunkHits.resize(pool->chunkCount());
 }
 
 bool Avx2Backend::isSupportedByCpu() {
@@ -140,18 +140,18 @@ void Avx2Backend::step(const StepParams& params, std::vector<BallHit>& hits) {
     if (store.count == 0) {
         return;
     }
-    if (store.count < minimumBallsPerChunk * 2) {
-        chunkHits[0].clear();
-        stepRange(params, 0, store.count, chunkHits[0]);
-        hits.insert(hits.end(), chunkHits[0].begin(), chunkHits[0].end());
+    if (store.count <= ballsPerChunk) {
+        stepRange(params, 0, store.count, hits);
         return;
     }
-    pool->runChunks(store.count, simdLaneCount, [&](size_t chunk, size_t begin, size_t end) {
+    chunkHits.resize(std::max(chunkHits.size(), WorkerPool::chunkCountFor(store.count, ballsPerChunk)));
+    pool->runChunks(store.count, ballsPerChunk, [&](size_t chunk, size_t begin, size_t end) {
         chunkHits[chunk].clear();
         stepRange(params, begin, end, chunkHits[chunk]);
     });
-    for (const auto& chunk : chunkHits) {
-        hits.insert(hits.end(), chunk.begin(), chunk.end());
+    const size_t usedChunks = WorkerPool::chunkCountFor(store.count, ballsPerChunk);
+    for (size_t chunk = 0; chunk < usedChunks; ++chunk) {
+        hits.insert(hits.end(), chunkHits[chunk].begin(), chunkHits[chunk].end());
     }
 }
 
