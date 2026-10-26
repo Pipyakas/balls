@@ -42,9 +42,42 @@ the SMs' instruction issue rate is the limit. The empty board, which is memory-b
 which confirms the test can tell the two cases apart.
 
 ```powershell
-python tools/bench/issue_slack.py --on-level --sm-clock-mhz 1920
+python tools/bench/issue_slack.py --on-level --sm-clock-mhz 1920 --ticks 400
 python tools/bench/issue_slack.py --sm-clock-mhz 1920
 ```
+
+## Spatial sorting
+
+Only 19% of ball-substeps are in a near-brick cell and 2.5% touch a brick. Yet with balls in arbitrary order almost
+every 32-lane warp contains one, so the near path ran at about 19% lane utilization. That was wasted issue, not a
+hardware limit. The backend now sorts balls by board cell on the GPU:
+
+- a block-aggregated counting pass (`countCellsKernel`, warp-aggregated shared atomics through `__match_any_sync`)
+  and a single-block scan give each cell its output range;
+- on a sort tick, `stepAndSortBallsKernel` steps 4096 balls per block and writes each one straight to its
+  cell-sorted slot in a second buffer, so sorting costs only the 4-byte counting pass instead of a separate
+  16-byte scatter pass.
+
+Coherence lasts a while because balls move about 0.23 cells per tick:
+
+| sort interval (400 ticks, brick level, 60M balls) | kernel |
+|---|---|
+| never | 15.5 ms |
+| every tick | 14.6 ms |
+| every 4 ticks | 10.0 ms |
+| every 8 ticks | **9.76 ms** |
+| every 16 ticks | 9.85 ms |
+| every 32 ticks | 10.8 ms |
+
+Sorting only costs time on an empty board, so the backend picks the interval itself. It trials {never, 8, 16} for
+32 measured ticks each, keeps the cheapest GPU time per ball, and re-trials every 1200 ticks. Over 400 ticks
+(trials included) the brick level drops from 16.8 ms to 10.2 ms (-39%), and the empty board stays at memory speed
+(7.0 ms incl. trials vs 6.5 ms). The in-game capacity probe at 60 FPS went from 130.0M to 140.9M balls.
+
+With sorting active the brick level uses about 80% of issue slots (marginal injection cost 79-85%) and about 63%
+of copy bandwidth. The remaining loss is divergence inside near-brick warps, between balls at a cell edge with an
+occupied neighbor and balls in the middle of the cell. Removing it needs sub-cell sort keys (about 10k bins),
+which exceed the shared memory the counting kernels can use at full occupancy.
 
 ## What did not help
 
@@ -55,9 +88,6 @@ Each of these was measured on the brick level and reverted:
 | neighbor-occupancy masks to skip the contact loop | 13.7 ms (no gain) |
 | streaming / read-only cache hints | 13.6 ms (no gain) |
 | edge-distance fast path for contact candidates | -48 static instructions, no measurable gain |
-| block-level compaction of near-brick balls through shared memory | 16.9 ms (barriers cost more than the saved lanes) |
-| balls sorted by cell once at upload | 6% faster, decays as balls move |
-
-Only 19% of ball-substeps are in a near-brick cell, and 2.5% touch a brick. Yet almost every 32-lane warp contains
-one, so the near path runs at about 19% lane utilization. Further gains need fewer instructions per ball, for
-example periodic spatial sorting so warps are coherent, not more hardware.
+| block-level compaction of near-brick balls through shared memory | 16.9 ms (per-substep barriers cost more than the saved lanes) |
+| sorting inside 256-thread step blocks | 11.8 ms (sorted writes scatter: 0.2 balls per cell per block) |
+| separate scatter pass instead of the fused sort | every tick 17.4 ms, every 4 ticks 10.7 ms (fused: 14.6 / 10.0) |
