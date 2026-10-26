@@ -168,8 +168,7 @@ void GameplayScreen::drawMainSection(const GameplayLayout& layout) {
                      static_cast<int>(layout.boardRect.width), static_cast<int>(layout.boardRect.height));
     drawBricks(simulation.board(), layout.board);
     drawLaunchPoint({simulation.launchX(), simulation.launchY()}, layout.board);
-    app.ballRenderer().draw(session->simulation().backend().snapshot(), layout.board,
-                            simulation.tuning().ballRadius);
+    app.ballRenderer().draw(session->simulation().backend(), layout.board, simulation.tuning().ballRadius);
     EndScissorMode();
 }
 

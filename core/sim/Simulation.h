@@ -52,6 +52,7 @@ public:
 private:
     void syncBoardIfChanged();
     void resolveHits();
+    void applyDeviceHits();
 
     SimulationTuning settings;
     std::unique_ptr<PhysicsBackend> physics;

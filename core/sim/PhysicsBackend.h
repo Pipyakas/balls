@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common/BallCount.h"
 #include "sim/BrickBoard.h"
 #include "sim/TargetField.h"
 #include "sim/kernels/BallStepCore.h"
@@ -28,6 +29,13 @@ struct BallSnapshot {
     size_t count = 0;
     float fieldWidth = 1.0f;
     float fieldHeight = 1.0f;
+    bool residentInRenderBuffer = false;
+};
+
+struct DeviceHitResults {
+    std::span<const int32_t> brickHitsLeft;
+    BallTally killsByColor{};
+    BallCount killed = 0;
 };
 
 inline float renderPackScale(float fieldExtent) {
@@ -48,4 +56,7 @@ public:
     virtual std::vector<BallSpawn> exportBalls() = 0;
     virtual void clear() = 0;
     virtual std::string_view faultMessage() const { return {}; }
+    virtual bool resolvesHitsOnDevice() const { return false; }
+    virtual DeviceHitResults deviceHitResults() const { return {}; }
+    virtual bool shareRenderBuffer(unsigned int, size_t) { return false; }
 };

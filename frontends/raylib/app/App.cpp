@@ -104,8 +104,10 @@ void App::run(const LaunchOptions& options) {
         const Clock::time_point presentStart = Clock::now();
         EndDrawing();
         const Clock::time_point frameEnd = Clock::now();
-        timings.record({millisecondsBetween(frameStart, frameEnd), millisecondsBetween(frameStart, presentStart),
-                        gpuTimer.lastFrameMs(), millisecondsBetween(presentStart, frameEnd)});
+        const double synchronizationMs = balls.takeSynchronizationMs();
+        timings.record({millisecondsBetween(frameStart, frameEnd),
+                        millisecondsBetween(frameStart, presentStart) - synchronizationMs, gpuTimer.lastFrameMs(),
+                        millisecondsBetween(presentStart, frameEnd) + synchronizationMs});
         frameStart = frameEnd;
         applyPendingScreen();
     }

@@ -64,6 +64,24 @@ void Simulation::syncBoardIfChanged() {
     uploadedRevision = brickBoard.revision();
 }
 
+void Simulation::applyDeviceHits() {
+    const DeviceHitResults results = physics->deviceHitResults();
+    bool anyDestroyed = false;
+    for (size_t brick = 0; brick < results.brickHitsLeft.size(); ++brick) {
+        const int index = static_cast<int>(brick);
+        const bool wasAlive = brickBoard.bricks()[index].isAlive();
+        brickBoard.applyHitsDownTo(index, results.brickHitsLeft[brick]);
+        anyDestroyed = anyDestroyed || (wasAlive && !brickBoard.bricks()[index].isAlive());
+    }
+    for (int color = 0; color < ballColorCount; ++color) {
+        statistics.ballsByColor[color] -= std::min(statistics.ballsByColor[color], results.killsByColor[color]);
+    }
+    statistics.totalHits += results.killed;
+    if (anyDestroyed) {
+        brickBoard.settleColumns();
+    }
+}
+
 void Simulation::resolveHits() {
     killedBalls.clear();
     bool anyDestroyed = false;
@@ -93,7 +111,11 @@ void Simulation::tick(int substeps) {
     syncBoardIfChanged();
     hits.clear();
     physics->step(stepParams(substeps), hits);
-    resolveHits();
+    if (physics->resolvesHitsOnDevice()) {
+        applyDeviceHits();
+    } else {
+        resolveHits();
+    }
 }
 
 void Simulation::advance(float frameSeconds) {

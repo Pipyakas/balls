@@ -27,6 +27,8 @@ public:
     void load(const BrickLayout& layout);
 
     bool applyHit(int brickIndex);
+    bool applyHitsDownTo(int brickIndex, int hitsLeft);
+    std::vector<int32_t> hitsLeftPerBrick() const;
     bool settleColumns();
     void animate(float deltaTime);
 

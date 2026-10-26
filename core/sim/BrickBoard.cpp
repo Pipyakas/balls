@@ -59,6 +59,23 @@ bool BrickBoard::applyHit(int brickIndex) {
     return true;
 }
 
+bool BrickBoard::applyHitsDownTo(int brickIndex, int hitsLeft) {
+    bool changed = false;
+    while (brickList[brickIndex].hitsLeft > std::max(hitsLeft, 0)) {
+        changed = applyHit(brickIndex) || changed;
+    }
+    return changed;
+}
+
+std::vector<int32_t> BrickBoard::hitsLeftPerBrick() const {
+    std::vector<int32_t> hits;
+    hits.reserve(brickList.size());
+    for (const Brick& brick : brickList) {
+        hits.push_back(brick.hitsLeft);
+    }
+    return hits;
+}
+
 void BrickBoard::placeBrick(int brickIndex, int32_t value) {
     for (const BrickCell& cell : brickList[brickIndex].cells) {
         cells[paddedIndex(cell.column, cell.row)] = value;

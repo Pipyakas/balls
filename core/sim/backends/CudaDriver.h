@@ -27,6 +27,11 @@ struct CudaDriverApi {
     decltype(&::cuLaunchKernel) launchKernel = nullptr;
     decltype(&::cuCtxSynchronize) contextSynchronize = nullptr;
     decltype(&::cuGetErrorString) getErrorString = nullptr;
+    CUresult(CUDAAPI* graphicsGlRegisterBuffer)(CUgraphicsResource*, unsigned int, unsigned int) = nullptr;
+    decltype(&::cuGraphicsUnregisterResource) graphicsUnregisterResource = nullptr;
+    decltype(&::cuGraphicsMapResources) graphicsMapResources = nullptr;
+    decltype(&::cuGraphicsUnmapResources) graphicsUnmapResources = nullptr;
+    decltype(&::cuGraphicsResourceGetMappedPointer_v2) graphicsResourceGetMappedPointer = nullptr;
 };
 
 class CudaDriver {
