@@ -1,6 +1,6 @@
 #pragma once
 
-#include "core/BallColor.h"
+#include "common/BallColor.h"
 
 #include <array>
 #include <filesystem>

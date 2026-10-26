@@ -1,4 +1,4 @@
-#include "core/BallColor.h"
+#include "common/BallColor.h"
 
 #include <algorithm>
 #include <cctype>

@@ -24,6 +24,7 @@ public:
     BallSnapshot snapshot() override;
     std::vector<BallSpawn> exportBalls() override;
     void clear() override { count = 0; }
+    std::string_view faultMessage() const override { return fault; }
 
 private:
     struct DeviceBalls {
@@ -40,6 +41,8 @@ private:
         size_t bytes = 0;
     };
 
+    bool succeeded(CUresult result, const char* what);
+    bool isFaulted() const { return !fault.empty(); }
     void ensureBallCapacity(size_t required);
     void ensureArray(DeviceArray& array, size_t bytes);
     void upload(DeviceArray& array, const void* data, size_t bytes);
@@ -63,4 +66,5 @@ private:
     std::vector<float> hostY;
     std::vector<int32_t> hostColor;
     bool snapshotFresh = false;
+    std::string fault;
 };

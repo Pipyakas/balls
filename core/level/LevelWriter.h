@@ -2,9 +2,9 @@
 
 #include "level/LevelData.h"
 
-#include <expected>
+#include "common/Result.h"
 #include <string>
 
 std::string formatBrickLayout(const BrickLayout& layout);
 std::string formatLauncherLayout(const LauncherLayout& layout);
-std::expected<void, std::string> saveLevel(const LevelData& level, const LevelFiles& files);
+Result<void> saveLevel(const LevelData& level, const LevelFiles& files);

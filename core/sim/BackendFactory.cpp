@@ -7,6 +7,8 @@
 #include "sim/backends/CudaBackend.h"
 #endif
 
+#include <algorithm>
+#include <format>
 #include <thread>
 
 std::string_view backendKindName(BackendKind kind) {
@@ -56,6 +58,22 @@ std::unique_ptr<PhysicsBackend> createBackend(BackendKind kind) {
 #endif
     }
     return nullptr;
+}
+
+std::string backendDetail(BackendKind kind) {
+    switch (kind) {
+    case BackendKind::Scalar:
+        return "1 thread";
+    case BackendKind::Avx2:
+        return std::format("{} threads", std::max(1u, std::thread::hardware_concurrency()));
+    case BackendKind::Cuda:
+#if defined(BALLS_HAS_CUDA)
+        return CudaDriver::instance().deviceName();
+#else
+        return {};
+#endif
+    }
+    return {};
 }
 
 BackendKind fastestAvailableCpuBackend() {

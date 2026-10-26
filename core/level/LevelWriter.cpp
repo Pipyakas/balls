@@ -7,20 +7,20 @@
 
 namespace {
 
-std::expected<void, std::string> writeTextFileAtomically(const std::filesystem::path& path, const std::string& text) {
+Result<void> writeTextFileAtomically(const std::filesystem::path& path, const std::string& text) {
     std::error_code error;
     std::filesystem::create_directories(path.parent_path(), error);
     const auto temporaryPath = std::filesystem::path(path).concat(".tmp");
     {
         std::ofstream file(temporaryPath, std::ios::binary | std::ios::trunc);
         if (!file) {
-            return std::unexpected(std::format("cannot write {}", temporaryPath.string()));
+            return Error{std::format("cannot write {}", temporaryPath.string())};
         }
         file << text;
     }
     std::filesystem::rename(temporaryPath, path, error);
     if (error) {
-        return std::unexpected(std::format("cannot replace {}: {}", path.string(), error.message()));
+        return Error{std::format("cannot replace {}: {}", path.string(), error.message())};
     }
     return {};
 }
@@ -64,7 +64,7 @@ std::string formatLauncherLayout(const LauncherLayout& layout) {
     return text;
 }
 
-std::expected<void, std::string> saveLevel(const LevelData& level, const LevelFiles& files) {
+Result<void> saveLevel(const LevelData& level, const LevelFiles& files) {
     if (auto result = writeTextFileAtomically(files.bricksPath, formatBrickLayout(level.bricks)); !result) {
         return result;
     }

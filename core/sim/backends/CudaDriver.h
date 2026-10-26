@@ -1,7 +1,10 @@
 #pragma once
 
+#include "common/DynamicLibrary.h"
+
 #include <cuda.h>
 
+#include <memory>
 #include <string>
 
 struct CudaDriverApi {
@@ -36,14 +39,15 @@ public:
     const CudaDriverApi& api() const { return functions; }
     CUfunction function(const char* name) const;
     void makeCurrent() const;
-    void check(CUresult result, const char* what) const;
+    std::string describe(CUresult result, const char* what) const;
 
 private:
     CudaDriver();
 
-    bool loadLibrary();
+    bool loadEntryPoints();
     bool createContextAndModule();
 
+    std::unique_ptr<DynamicLibrary> library;
     CudaDriverApi functions;
     CUcontext context = nullptr;
     CUmodule module = nullptr;

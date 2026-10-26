@@ -25,7 +25,7 @@ TEST_CASE("sample levels parse with matching ball and hit totals") {
     for (const auto& directory : {normalLevels, performanceLevels}) {
         for (const auto& files : findLevels(directory)) {
             auto level = loadLevel(files);
-            EXPECT(level.has_value());
+            EXPECT(level.hasValue());
             const ColorTally hits = countBrickHitsByColor(level->bricks);
             const ColorTally balls = countBallsByColor(level->launchers);
             for (int color = 0; color < ballColorCount; ++color) {
@@ -37,7 +37,7 @@ TEST_CASE("sample levels parse with matching ball and hit totals") {
 
 TEST_CASE("multi-cell bricks share one id") {
     auto level = loadLevel(levelFilesFor(normalLevels, "DA_49Bricks"));
-    EXPECT(level.has_value());
+    EXPECT(level.hasValue());
     EXPECT(level->bricks.cellId(4, 0) == 4);
     EXPECT(level->bricks.cellId(5, 1) == 4);
     EXPECT(level->bricks.findType(31)->hits == 10);
@@ -47,10 +47,10 @@ TEST_CASE("multi-cell bricks share one id") {
 
 TEST_CASE("writer output parses back to the same level") {
     auto level = loadLevel(levelFilesFor(normalLevels, "DA_49Bricks"));
-    EXPECT(level.has_value());
+    EXPECT(level.hasValue());
     auto bricks = parseBrickLayout(formatBrickLayout(level->bricks));
     auto launchers = parseLauncherLayout(formatLauncherLayout(level->launchers));
-    EXPECT(bricks.has_value() && launchers.has_value());
+    EXPECT(bricks.hasValue() && launchers.hasValue());
     EXPECT(bricks->cellIds == level->bricks.cellIds);
     EXPECT(bricks->playableHeight == level->bricks.playableHeight);
     EXPECT(countBrickHitsByColor(*bricks) == countBrickHitsByColor(level->bricks));
@@ -58,7 +58,7 @@ TEST_CASE("writer output parses back to the same level") {
 }
 
 TEST_CASE("parser reports malformed input") {
-    EXPECT(!parseBrickLayout("[Board]\nWidth 2\nHeight 1\nPlayableHeight 3\n[Layout]\n0\n[BrickTypes]\n").has_value());
-    EXPECT(!parseLauncherLayout("[Board]\nWidth 1\nHeight 1\n[Layout]\nPink(3)\n").has_value());
-    EXPECT(!parseLauncherLayout("[Board]\nWidth 1\nHeight 1\n[Layout]\nRed(0)\n").has_value());
+    EXPECT(!parseBrickLayout("[Board]\nWidth 2\nHeight 1\nPlayableHeight 3\n[Layout]\n0\n[BrickTypes]\n").hasValue());
+    EXPECT(!parseLauncherLayout("[Board]\nWidth 1\nHeight 1\n[Layout]\nPink(3)\n").hasValue());
+    EXPECT(!parseLauncherLayout("[Board]\nWidth 1\nHeight 1\n[Layout]\nRed(0)\n").hasValue());
 }

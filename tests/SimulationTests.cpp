@@ -94,7 +94,7 @@ TEST_CASE("multi-cell brick rises only when every column above is free") {
 
 TEST_CASE("every available backend matches the scalar reference") {
     auto level = loadLevel(levelFilesFor(std::filesystem::path(BALLS_ASSET_DIR) / "levels" / "performance", "DA_1000Bricks"));
-    EXPECT(level.has_value());
+    EXPECT(level.hasValue());
     for (BackendKind kind : allBackendKinds) {
         if (kind == BackendKind::Scalar || !isBackendAvailable(kind)) {
             continue;

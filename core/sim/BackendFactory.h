@@ -14,5 +14,6 @@ inline constexpr std::array<BackendKind, 3> allBackendKinds{BackendKind::Scalar,
 std::string_view backendKindName(BackendKind kind);
 bool isBackendAvailable(BackendKind kind);
 std::string backendUnavailableReason(BackendKind kind);
+std::string backendDetail(BackendKind kind);
 std::unique_ptr<PhysicsBackend> createBackend(BackendKind kind);
 BackendKind fastestAvailableCpuBackend();
