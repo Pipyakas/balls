@@ -1,0 +1,64 @@
+#include "TestFramework.h"
+
+#include "level/LevelParser.h"
+#include "level/LevelRepository.h"
+#include "level/LevelWriter.h"
+
+#include <filesystem>
+
+namespace {
+
+const std::filesystem::path normalLevels = std::filesystem::path(BALLS_ASSET_DIR) / "levels" / "normal";
+const std::filesystem::path performanceLevels = std::filesystem::path(BALLS_ASSET_DIR) / "levels" / "performance";
+
+}
+
+TEST_CASE("repository pairs brick and spawn files") {
+    const auto levels = findLevels(normalLevels);
+    EXPECT(levels.size() >= 2);
+    for (const auto& level : levels) {
+        EXPECT(std::filesystem::exists(level.launchersPath));
+    }
+}
+
+TEST_CASE("sample levels parse with matching ball and hit totals") {
+    for (const auto& directory : {normalLevels, performanceLevels}) {
+        for (const auto& files : findLevels(directory)) {
+            auto level = loadLevel(files);
+            EXPECT(level.has_value());
+            const ColorTally hits = countBrickHitsByColor(level->bricks);
+            const ColorTally balls = countBallsByColor(level->launchers);
+            for (int color = 0; color < ballColorCount; ++color) {
+                EXPECT(balls[color] >= hits[color]);
+            }
+        }
+    }
+}
+
+TEST_CASE("multi-cell bricks share one id") {
+    auto level = loadLevel(levelFilesFor(normalLevels, "DA_49Bricks"));
+    EXPECT(level.has_value());
+    EXPECT(level->bricks.cellId(4, 0) == 4);
+    EXPECT(level->bricks.cellId(5, 1) == 4);
+    EXPECT(level->bricks.findType(31)->hits == 10);
+    EXPECT(level->launchers.columns == 3);
+    EXPECT(!level->launchers.slot(1, 5).has_value());
+}
+
+TEST_CASE("writer output parses back to the same level") {
+    auto level = loadLevel(levelFilesFor(normalLevels, "DA_49Bricks"));
+    EXPECT(level.has_value());
+    auto bricks = parseBrickLayout(formatBrickLayout(level->bricks));
+    auto launchers = parseLauncherLayout(formatLauncherLayout(level->launchers));
+    EXPECT(bricks.has_value() && launchers.has_value());
+    EXPECT(bricks->cellIds == level->bricks.cellIds);
+    EXPECT(bricks->playableHeight == level->bricks.playableHeight);
+    EXPECT(countBrickHitsByColor(*bricks) == countBrickHitsByColor(level->bricks));
+    EXPECT(countBallsByColor(*launchers) == countBallsByColor(level->launchers));
+}
+
+TEST_CASE("parser reports malformed input") {
+    EXPECT(!parseBrickLayout("[Board]\nWidth 2\nHeight 1\nPlayableHeight 3\n[Layout]\n0\n[BrickTypes]\n").has_value());
+    EXPECT(!parseLauncherLayout("[Board]\nWidth 1\nHeight 1\n[Layout]\nPink(3)\n").has_value());
+    EXPECT(!parseLauncherLayout("[Board]\nWidth 1\nHeight 1\n[Layout]\nRed(0)\n").has_value());
+}
