@@ -54,6 +54,16 @@ add_dependencies(balls_bench balls_physics_plugins)
 target_compile_options(balls_bench PRIVATE ${BALLS_WARNINGS} ${BALLS_OPTIMIZE})
 target_link_options(balls_bench PRIVATE ${BALLS_LINK_OPTIMIZE})
 
+set(BALLS_CUPTI_DIR "${CMAKE_SOURCE_DIR}/.deps/cupti" CACHE PATH "CUPTI headers for the instruction counter (tools/FetchCudaSdk.ps1 -ProfilerTools)")
+if(WIN32 AND EXISTS "${BALLS_CUPTI_DIR}/include/cupti.h" AND EXISTS "${BALLS_CUDA_SDK_DIR}/include/cuda.h")
+    add_executable(balls_insncount tools/bench/InstructionCount.cpp)
+    target_include_directories(balls_insncount PRIVATE "${BALLS_CUPTI_DIR}/include" "${BALLS_CUDA_SDK_DIR}/include")
+    target_link_libraries(balls_insncount PRIVATE balls_core)
+    add_dependencies(balls_insncount balls_physics_plugins)
+    target_compile_options(balls_insncount PRIVATE ${BALLS_WARNINGS})
+    target_link_options(balls_insncount PRIVATE ${BALLS_LINK_OPTIMIZE})
+endif()
+
 enable_testing()
 add_executable(balls_tests tests/TestMain.cpp tests/LevelTests.cpp tests/SimulationTests.cpp tests/GameTests.cpp
     tests/ProbeTests.cpp tests/EditorTests.cpp)

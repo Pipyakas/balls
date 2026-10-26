@@ -1,6 +1,7 @@
 param(
     [string]$Destination = (Join-Path $PSScriptRoot '..\.deps\cuda'),
-    [string]$CudaMajor = '12'
+    [string]$CudaMajor = '12',
+    [switch]$ProfilerTools
 )
 
 $ErrorActionPreference = 'Stop'
@@ -34,3 +35,32 @@ Get-ChildItem (Join-Path $Destination 'unpacked') -Directory | ForEach-Object {
     }
 }
 Write-Host "CUDA SDK subset ready at $sdkRoot"
+
+if ($ProfilerTools) {
+    $cuptiRoot = Join-Path $PSScriptRoot '..\.deps\cupti'
+    $profilerWheels = Join-Path $cuptiRoot 'wheels'
+    New-Item -ItemType Directory -Force $profilerWheels | Out-Null
+    python -m pip download --no-deps --only-binary=:all: --platform win_amd64 "nvidia-cuda-cupti-cu$CudaMajor" "nvidia-cuda-nvcc-cu$CudaMajor" -d $profilerWheels
+    if ($LASTEXITCODE -ne 0) { throw 'pip download of profiler tools failed' }
+    Get-ChildItem $profilerWheels -Filter *.whl | ForEach-Object {
+        $extractDir = Join-Path $cuptiRoot ('unpacked' + $_.BaseName)
+        if (-not (Test-Path $extractDir)) {
+            Expand-Archive -Path $_.FullName -DestinationPath $extractDir
+        }
+    }
+    foreach ($sub in 'include', 'bin') {
+        New-Item -ItemType Directory -Force (Join-Path $cuptiRoot $sub) | Out-Null
+    }
+    Get-ChildItem (Join-Path $cuptiRoot 'unpacked') -Directory | ForEach-Object {
+        $cupti = Join-Path $_.FullName 'nvidia\cuda_cupti'
+        if (Test-Path $cupti) {
+            Copy-Item -Path (Join-Path $cupti 'include\*') -Destination (Join-Path $cuptiRoot 'include') -Recurse -Force
+            Copy-Item -Path (Join-Path $cupti 'bin\*') -Destination (Join-Path $cuptiRoot 'bin') -Recurse -Force
+        }
+        $crt = Join-Path $_.FullName 'nvidia\cuda_nvcc\include\crt'
+        if (Test-Path $crt) {
+            Copy-Item -Path $crt -Destination (Join-Path $cuptiRoot 'include') -Recurse -Force
+        }
+    }
+    Write-Host "CUPTI ready at $cuptiRoot (balls_insncount needs GPU performance counters enabled for all users)"
+}
