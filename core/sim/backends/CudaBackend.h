@@ -34,6 +34,7 @@ private:
         CUdeviceptr vy;
         CUdeviceptr color;
         CUdeviceptr bounces;
+        CUdeviceptr packed;
     };
 
     struct DeviceArray {
@@ -62,9 +63,9 @@ private:
     DeviceArray removeIndices;
     unsigned int hitCapacity = 0;
     std::vector<BallHit> hostHits;
-    std::vector<float> hostX;
-    std::vector<float> hostY;
-    std::vector<int32_t> hostColor;
+    std::vector<uint32_t> hostPacked;
+    float fieldWidth = 1.0f;
+    float fieldHeight = 1.0f;
     bool snapshotFresh = false;
     std::string fault;
 };

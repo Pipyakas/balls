@@ -45,8 +45,9 @@ public:
     float launchX() const { return static_cast<float>(brickBoard.columns()) * 0.5f; }
     float launchY() const { return static_cast<float>(brickBoard.rows()) - settings.ballRadius * 2.0f; }
 
-private:
     StepParams stepParams() const;
+
+private:
     void syncBoardIfChanged();
     void resolveHits();
 

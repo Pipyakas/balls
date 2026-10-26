@@ -101,11 +101,7 @@ void runRawStep(const BrickLayout& layout, BackendKind kind, size_t ballCount, i
     PhysicsBackend& backend = simulation.backend();
     const auto balls = scatterBalls(simulation.board(), ballCount, simulation.tuning().ballSpeed);
     backend.addBalls(balls);
-    const SimulationTuning& tuning = simulation.tuning();
-    const BrickBoard& board = simulation.board();
-    const StepParams params{tuning.tickSeconds, tuning.ballRadius, tuning.ballSpeed,
-                            static_cast<float>(board.columns()), static_cast<float>(board.rows()),
-                            board.paddedWidth(), board.paddedCellCount(), tuning.retargetBounceThreshold};
+    const StepParams params = simulation.stepParams();
     std::vector<BallHit> hits;
     for (int warmup = 0; warmup < 10; ++warmup) {
         hits.clear();

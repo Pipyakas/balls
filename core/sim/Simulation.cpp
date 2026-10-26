@@ -48,7 +48,9 @@ StepParams Simulation::stepParams() const {
             static_cast<float>(brickBoard.rows()),
             brickBoard.paddedWidth(),
             brickBoard.paddedCellCount(),
-            settings.retargetBounceThreshold};
+            settings.retargetBounceThreshold,
+            renderPackScale(static_cast<float>(brickBoard.columns())),
+            renderPackScale(static_cast<float>(brickBoard.rows()))};
 }
 
 void Simulation::syncBoardIfChanged() {

@@ -40,7 +40,7 @@ CudaBackend::CudaBackend() : driver(CudaDriver::instance()) {
 CudaBackend::~CudaBackend() {
     driver.makeCurrent();
     const auto& api = driver.api();
-    for (CUdeviceptr pointer : {balls.x, balls.y, balls.vx, balls.vy, balls.color, balls.bounces, paddedCells.pointer,
+    for (CUdeviceptr pointer : {balls.x, balls.y, balls.vx, balls.vy, balls.color, balls.bounces, balls.packed, paddedCells.pointer,
                                 brickColors.pointer, targetCells.pointer, hitBuffer.pointer, hitCounter.pointer,
                                 removeIndices.pointer}) {
         if (pointer) {
@@ -89,7 +89,7 @@ void CudaBackend::ensureBallCapacity(size_t required) {
     }
     const auto& api = driver.api();
     const size_t newCapacity = std::max(required, capacity * 2);
-    for (CUdeviceptr* field : {&balls.x, &balls.y, &balls.vx, &balls.vy, &balls.color, &balls.bounces}) {
+    for (CUdeviceptr* field : {&balls.x, &balls.y, &balls.vx, &balls.vy, &balls.color, &balls.bounces, &balls.packed}) {
         CUdeviceptr grown = 0;
         if (!succeeded(api.memAlloc(&grown, newCapacity * 4), "cuMemAlloc")) {
             return;
@@ -114,6 +114,8 @@ void CudaBackend::uploadBoard(const BrickBoard& board, const TargetField& field)
     const std::vector<int32_t>& colors = board.brickColors();
     upload(brickColors, colors.empty() ? nullptr : colors.data(), std::max<size_t>(colors.size(), 1) * sizeof(int32_t));
     upload(targetCells, field.targetCells().data(), field.targetCells().size() * sizeof(int32_t));
+    fieldWidth = static_cast<float>(board.columns());
+    fieldHeight = static_cast<float>(board.rows());
 }
 
 void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {
@@ -128,12 +130,14 @@ void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {
     const size_t added = spawns.size();
     std::vector<float> x(added), y(added), vx(added), vy(added);
     std::vector<int32_t> color(added), bounces(added, 0);
+    std::vector<uint32_t> packed(added);
     for (size_t i = 0; i < added; ++i) {
         x[i] = spawns[i].x;
         y[i] = spawns[i].y;
         vx[i] = spawns[i].vx;
         vy[i] = spawns[i].vy;
         color[i] = spawns[i].color;
+        packed[i] = packBallForRender(x[i], y[i], color[i], renderPackScale(fieldWidth), renderPackScale(fieldHeight));
     }
     const auto& api = driver.api();
     const size_t offset = count * 4;
@@ -143,6 +147,7 @@ void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {
     succeeded(api.memcpyHostToDevice(balls.vy + offset, vy.data(), added * 4), "upload vy");
     succeeded(api.memcpyHostToDevice(balls.color + offset, color.data(), added * 4), "upload color");
     succeeded(api.memcpyHostToDevice(balls.bounces + offset, bounces.data(), added * 4), "upload bounces");
+    succeeded(api.memcpyHostToDevice(balls.packed + offset, packed.data(), added * 4), "upload packed");
     count += added;
     snapshotFresh = false;
 }
@@ -206,21 +211,13 @@ void CudaBackend::removeBalls(std::span<const uint32_t> descendingIndices) {
 }
 
 void CudaBackend::downloadPositions() {
-    if (isFaulted()) {
-        return;
-    }
-    if (snapshotFresh) {
+    if (isFaulted() || snapshotFresh) {
         return;
     }
     driver.makeCurrent();
-    hostX.resize(count);
-    hostY.resize(count);
-    hostColor.resize(count);
+    hostPacked.resize(count);
     if (count > 0) {
-        const auto& api = driver.api();
-        succeeded(api.memcpyDeviceToHost(hostX.data(), balls.x, count * 4), "download x");
-        succeeded(api.memcpyDeviceToHost(hostY.data(), balls.y, count * 4), "download y");
-        succeeded(api.memcpyDeviceToHost(hostColor.data(), balls.color, count * 4), "download color");
+        succeeded(driver.api().memcpyDeviceToHost(hostPacked.data(), balls.packed, count * 4), "download packed");
     }
     snapshotFresh = true;
 }
@@ -230,23 +227,28 @@ BallSnapshot CudaBackend::snapshot() {
     if (isFaulted()) {
         return {};
     }
-    return {hostX.data(), hostY.data(), hostColor.data(), count};
+    return {hostPacked.data(), count, fieldWidth, fieldHeight};
 }
 
 std::vector<BallSpawn> CudaBackend::exportBalls() {
-    downloadPositions();
-    std::vector<float> vx(count), vy(count);
-    if (count > 0 && !isFaulted()) {
-        driver.makeCurrent();
-        succeeded(driver.api().memcpyDeviceToHost(vx.data(), balls.vx, count * 4), "download vx");
-        succeeded(driver.api().memcpyDeviceToHost(vy.data(), balls.vy, count * 4), "download vy");
+    if (isFaulted() || count == 0) {
+        return {};
     }
-    if (isFaulted()) {
+    driver.makeCurrent();
+    std::vector<float> x(count), y(count), vx(count), vy(count);
+    std::vector<int32_t> color(count);
+    const auto& api = driver.api();
+    const bool downloaded = succeeded(api.memcpyDeviceToHost(x.data(), balls.x, count * 4), "download x") &&
+                            succeeded(api.memcpyDeviceToHost(y.data(), balls.y, count * 4), "download y") &&
+                            succeeded(api.memcpyDeviceToHost(vx.data(), balls.vx, count * 4), "download vx") &&
+                            succeeded(api.memcpyDeviceToHost(vy.data(), balls.vy, count * 4), "download vy") &&
+                            succeeded(api.memcpyDeviceToHost(color.data(), balls.color, count * 4), "download color");
+    if (!downloaded) {
         return {};
     }
     std::vector<BallSpawn> exported(count);
     for (size_t i = 0; i < count; ++i) {
-        exported[i] = {hostX[i], hostY[i], vx[i], vy[i], hostColor[i]};
+        exported[i] = {x[i], y[i], vx[i], vy[i], color[i]};
     }
     return exported;
 }

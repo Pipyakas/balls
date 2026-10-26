@@ -5,4 +5,6 @@ void CpuBackendBase::uploadBoard(const BrickBoard& board, const TargetField& fie
     brickColors.assign(board.brickColors().begin(), board.brickColors().end());
     brickColors.push_back(-1);
     targetCells.assign(field.targetCells().begin(), field.targetCells().end());
+    store.fieldWidth = static_cast<float>(board.columns());
+    store.fieldHeight = static_cast<float>(board.rows());
 }

@@ -39,6 +39,9 @@ struct LaneConstants {
     __m256i oneInt;
     __m256i minusOneInt;
     __m256i sentinelBrick;
+    __m256 packScaleX;
+    __m256 packScaleY;
+    __m256 renderMax;
 
     LaneConstants(const StepParams& params, int sentinel)
         : deltaTime(_mm256_set1_ps(params.deltaTime)), radius(_mm256_set1_ps(params.radius)),
@@ -59,7 +62,9 @@ struct LaneConstants {
           paddedOffset(_mm256_set1_epi32(params.paddedWidth + 1)),
           paddedCellCount(_mm256_set1_epi32(params.paddedCellCount)),
           retargetThreshold(_mm256_set1_epi32(params.retargetBounceThreshold - 1)), oneInt(_mm256_set1_epi32(1)),
-          minusOneInt(_mm256_set1_epi32(-1)), sentinelBrick(_mm256_set1_epi32(sentinel)) {}
+          minusOneInt(_mm256_set1_epi32(-1)), sentinelBrick(_mm256_set1_epi32(sentinel)),
+          packScaleX(_mm256_set1_ps(params.packScaleX)), packScaleY(_mm256_set1_ps(params.packScaleY)),
+          renderMax(_mm256_set1_ps(static_cast<float>(renderCoordinateMax))) {}
 };
 
 inline __m256 select(__m256 mask, __m256 whenTrue, __m256 whenFalse) {
@@ -69,6 +74,13 @@ inline __m256 select(__m256 mask, __m256 whenTrue, __m256 whenFalse) {
 inline __m256i selectInt(__m256 mask, __m256i whenTrue, __m256i whenFalse) {
     return _mm256_castps_si256(
         _mm256_blendv_ps(_mm256_castsi256_ps(whenFalse), _mm256_castsi256_ps(whenTrue), mask));
+}
+
+inline __m256i packForRender(__m256 x, __m256 y, __m256i color, const LaneConstants& k) {
+    const __m256i packedX = _mm256_cvtps_epi32(_mm256_min_ps(_mm256_max_ps(_mm256_mul_ps(x, k.packScaleX), k.zero), k.renderMax));
+    const __m256i packedY = _mm256_cvtps_epi32(_mm256_min_ps(_mm256_max_ps(_mm256_mul_ps(y, k.packScaleY), k.zero), k.renderMax));
+    return _mm256_or_si256(_mm256_or_si256(packedX, _mm256_slli_epi32(packedY, renderCoordinateBits)),
+                           _mm256_slli_epi32(color, renderColorShift));
 }
 
 inline __m256 lessThan(__m256 a, __m256 b) { return _mm256_cmp_ps(a, b, _CMP_LT_OQ); }
@@ -153,6 +165,7 @@ void Avx2Backend::stepRange(const StepParams& params, size_t begin, size_t end, 
     float* const vys = store.vy.data();
     const int32_t* const colors = store.color.data();
     int32_t* const bounceCounts = store.bounces.data();
+    uint32_t* const packedPositions = store.packed.data();
     const size_t validCount = store.count;
 
     for (size_t i = begin; i < end; i += simdLaneCount) {
@@ -257,6 +270,7 @@ void Avx2Backend::stepRange(const StepParams& params, size_t begin, size_t end, 
         _mm256_store_ps(vxs + i, vx);
         _mm256_store_ps(vys + i, vy);
         _mm256_store_si256(reinterpret_cast<__m256i*>(bounceCounts + i), bounces);
+        _mm256_store_si256(reinterpret_cast<__m256i*>(packedPositions + i), packForRender(x, y, color, k));
 
         const unsigned laneLimit = i + simdLaneCount <= validCount ? 0xffu : ((1u << (validCount - i)) - 1u);
         unsigned embeddedLanes = static_cast<unsigned>(_mm256_movemask_ps(embedded)) & laneLimit;
@@ -270,6 +284,7 @@ void Avx2Backend::stepRange(const StepParams& params, size_t begin, size_t end, 
             const size_t ball = i + static_cast<size_t>(lane);
             resolveEmbeddedContact(xs[ball], ys[ball], vxs[ball], vys[ball], colors[ball], bounceCounts[ball],
                                    columns[lane], rows[lane], board, params);
+            packedPositions[ball] = packBallForRender(xs[ball], ys[ball], colors[ball], params.packScaleX, params.packScaleY);
         }
 
         unsigned hitLanes = static_cast<unsigned>(_mm256_movemask_ps(_mm256_and_ps(sameColor, contact))) & laneLimit;

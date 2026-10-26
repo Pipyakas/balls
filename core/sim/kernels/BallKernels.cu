@@ -12,6 +12,7 @@ struct DeviceBalls {
     float* vy;
     int* color;
     int* bounces;
+    unsigned int* packed;
 };
 
 extern "C" __global__ void stepBallsKernel(DeviceBalls balls, int count, BoardView board, StepParams params,
@@ -31,6 +32,7 @@ extern "C" __global__ void stepBallsKernel(DeviceBalls balls, int count, BoardVi
     balls.vx[index] = vx;
     balls.vy[index] = vy;
     balls.bounces[index] = bounces;
+    balls.packed[index] = packBallForRender(x, y, balls.color[index], params.packScaleX, params.packScaleY);
     if (brick != noBrickHit) {
         const unsigned int slot = atomicAdd(hitCount, 1u);
         if (slot < hitCapacity) {
@@ -55,5 +57,6 @@ extern "C" __global__ void removeBallsKernel(DeviceBalls balls, int count, const
         balls.vy[target] = balls.vy[last];
         balls.color[target] = balls.color[last];
         balls.bounces[target] = balls.bounces[last];
+        balls.packed[target] = balls.packed[last];
     }
 }

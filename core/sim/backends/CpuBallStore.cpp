@@ -15,6 +15,7 @@ void CpuBallStore::resize(size_t newCount) {
     vy.resize(padded, 0.0f);
     color.resize(padded, 0);
     bounces.resize(padded, 0);
+    packed.resize(padded, 0);
 }
 
 void CpuBallStore::add(std::span<const BallSpawn> spawns) {
@@ -28,6 +29,8 @@ void CpuBallStore::add(std::span<const BallSpawn> spawns) {
         vy[first + i] = spawn.vy;
         color[first + i] = spawn.color;
         bounces[first + i] = 0;
+        packed[first + i] = packBallForRender(spawn.x, spawn.y, spawn.color, renderPackScale(fieldWidth),
+                                              renderPackScale(fieldHeight));
     }
 }
 
@@ -41,6 +44,7 @@ void CpuBallStore::swapRemove(std::span<const uint32_t> descendingIndices) {
         vy[index] = vy[last];
         color[index] = color[last];
         bounces[index] = bounces[last];
+        packed[index] = packed[last];
     }
     resize(last);
 }
