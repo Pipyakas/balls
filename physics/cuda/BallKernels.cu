@@ -263,6 +263,8 @@ inline constexpr int stepSortBallsPerBlock = stepSortThreads * stepSortItemsPerT
 inline constexpr unsigned int rankBits = 12u;
 inline constexpr unsigned int rankMask = (1u << rankBits) - 1u;
 
+inline constexpr int ballsPerStepThread = 2;
+
 struct SortedOutput {
     unsigned int* cellCursors;
     unsigned int* position;
@@ -316,14 +318,24 @@ extern "C" __global__ void stepBallsKernel(DeviceBalls balls, int count, const i
                                            StepParams params, int* brickHitsLeft, unsigned int* killedIndices,
                                            unsigned int killedCapacity, FrameCounters* counters, VisibilityGrid grid,
                                            unsigned int packedCapacity) {
-    const int index = blockIdx.x * blockDim.x + threadIdx.x;
-    if (index >= count) {
-        return;
+    const int blockStart = static_cast<int>(blockIdx.x) * ballsPerStepThread * static_cast<int>(blockDim.x);
+    unsigned int positions[ballsPerStepThread];
+    unsigned int states[ballsPerStepThread];
+    for (int item = 0; item < ballsPerStepThread; ++item) {
+        const int index = blockStart + item * static_cast<int>(blockDim.x) + static_cast<int>(threadIdx.x);
+        positions[item] = index < count ? balls.position[index] : 0u;
+        states[item] = index < count ? balls.state[index] : 0u;
     }
     const CellBoard board{cellWords, targetCells};
-    stepOneBall(static_cast<unsigned int>(index), balls.position[index], balls.state[index], balls.position,
-                balls.state, false, balls.packed, board, params, brickHitsLeft, killedIndices, killedCapacity,
-                counters, grid, packedCapacity);
+    for (int item = 0; item < ballsPerStepThread; ++item) {
+        const int index = blockStart + item * static_cast<int>(blockDim.x) + static_cast<int>(threadIdx.x);
+        if (index >= count) {
+            return;
+        }
+        stepOneBall(static_cast<unsigned int>(index), positions[item], states[item], balls.position, balls.state,
+                    false, balls.packed, board, params, brickHitsLeft, killedIndices, killedCapacity, counters, grid,
+                    packedCapacity);
+    }
 }
 
 extern "C" __global__ void __launch_bounds__(stepSortThreads, 2)

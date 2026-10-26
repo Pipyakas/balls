@@ -24,6 +24,7 @@ constexpr unsigned int deadColor = 7u;
 constexpr int maxSortCells = 4096;
 constexpr size_t sortBallsPerBlock = 4096;
 constexpr unsigned int stepSortThreads = 512;
+constexpr size_t ballsPerStepThread = 2;
 constexpr std::array<int, 3> sortIntervalCandidates{0, 8, 16};
 constexpr int sortTrialWarmupTicks = 16;
 constexpr int sortTrialMeasuredTicks = 32;
@@ -408,7 +409,7 @@ void CudaBackend::step(const StepParams& params, std::vector<BallHit>&) {
                                              static_cast<unsigned int>((count + sortBallsPerBlock - 1) / sortBallsPerBlock),
                                              1, 1, stepSortThreads, 1, 1, 0, nullptr, arguments, nullptr),
                             "stepAndSortBallsKernel")
-                : launch(stepFunction, count, arguments, "stepBallsKernel");
+                : launch(stepFunction, (count + ballsPerStepThread - 1) / ballsPerStepThread, arguments, "stepBallsKernel");
     if (!launched) {
         return;
     }
