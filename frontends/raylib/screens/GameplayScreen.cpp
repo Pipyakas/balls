@@ -23,7 +23,8 @@ constexpr float overlayWidth = 420.0f;
 constexpr float overlayButtonHeight = 60.0f;
 constexpr float controlRowHeight = 44.0f;
 constexpr float controlGap = 10.0f;
-constexpr float labelColumnWidth = 150.0f;
+constexpr float groupLabelHeight = 26.0f;
+constexpr float groupGap = 14.0f;
 constexpr std::array<KeyboardKey, 3> backendKeys{KEY_F1, KEY_F2, KEY_F3};
 
 constexpr int minimumProbeTargetFps = 10;
@@ -213,10 +214,11 @@ void GameplayScreen::openNextLevel() {
 void GameplayScreen::drawHeader(const GameplayLayout& layout) {
     ui::drawPanel(layout.header, palette::panel, 0.25f);
     const char* modeName = mode == GameMode::Normal ? "Normal" : "Performance";
-    ui::drawTextInRect(std::format("{}  -  {}", modeName, files.name), ui::shrink(layout.header, 16.0f), 28.0f,
-                       palette::text, ui::Align::Left);
-    const Rectangle pauseRect{layout.header.x + layout.header.width - 130.0f, layout.header.y + 8.0f, 120.0f,
+    const Rectangle pauseRect{layout.header.x + layout.header.width - 110.0f, layout.header.y + 8.0f, 100.0f,
                               layout.header.height - 16.0f};
+    const Rectangle titleRect{layout.header.x + 14.0f, layout.header.y, pauseRect.x - layout.header.x - 24.0f,
+                              layout.header.height};
+    ui::drawTextInRect(std::format("{} - {}", modeName, files.name), titleRect, 22.0f, palette::text, ui::Align::Left);
     if (ui::button(pauseRect, paused ? "Resume" : "Pause")) {
         paused = !paused;
     }
@@ -235,65 +237,71 @@ void GameplayScreen::drawMainSection(const GameplayLayout& layout) {
 }
 
 void GameplayScreen::drawPerformanceControls(Rectangle area) {
-    const int rowCount = 5;
-    const Rectangle rows = ui::shrink(area, 14.0f);
-    auto labeledRow = [&](int index, const char* label) {
-        const Rectangle row = ui::rowSlice(rows, index, rowCount, controlGap);
-        const Rectangle clamped{row.x, row.y, row.width, std::min(row.height, controlRowHeight)};
-        ui::drawTextInRect(label, {clamped.x, clamped.y, labelColumnWidth, clamped.height}, 22.0f, palette::textMuted,
-                           ui::Align::Left);
-        return Rectangle{clamped.x + labelColumnWidth, clamped.y, clamped.width - labelColumnWidth, clamped.height};
+    const Rectangle inner = ui::shrink(area, 14.0f);
+    float cursor = inner.y;
+    auto group = [&](const char* label, int buttonRows) {
+        ui::drawText(label, {inner.x, cursor}, 20.0f, palette::textMuted);
+        cursor += groupLabelHeight;
+        const float height = static_cast<float>(buttonRows) * controlRowHeight +
+                             static_cast<float>(buttonRows - 1) * controlGap;
+        const Rectangle rows{inner.x, cursor, inner.width, height};
+        cursor += height + groupGap;
+        return rows;
+    };
+    auto buttonCell = [&](Rectangle rows, int index, int perRow, int rowCount) {
+        const Rectangle row = ui::rowSlice(rows, index / perRow, rowCount, controlGap);
+        return ui::columnSlice(row, index % perRow, perRow, controlGap);
     };
 
-    const Rectangle startRow = labeledRow(0, "Release");
     const bool ready = session->state() == SessionState::Ready;
     const std::string startLabel =
         ready ? std::string("Start (1 click)")
               : std::format("Auto releasing - {} launchers left", session->launchers().launcherCount());
-    const Rectangle startHalf = ui::columnSlice(startRow, 0, 3, controlGap);
-    const Rectangle targetThird = ui::columnSlice(startRow, 1, 3, controlGap);
-    const Rectangle probeHalf = ui::columnSlice(startRow, 2, 3, controlGap);
-    ui::stepper(targetThird, "Target FPS", probeTargetFps, minimumProbeTargetFps, maximumProbeTargetFps);
-    if (ui::button(startHalf, startLabel, ready)) {
+    if (ui::button(group("Release", 1), startLabel, ready)) {
         session->startAutoRelease();
     }
-    const CapacityProbe& probe = session->capacityProbe();
-    if (ui::button(probeHalf, probeButtonLabel(*session))) {
-        if (probe.isActive()) {
+
+    const Rectangle probeRows = group("Capacity probe", 2);
+    ui::stepper(ui::rowSlice(probeRows, 0, 2, controlGap), "Target FPS", probeTargetFps, minimumProbeTargetFps,
+                maximumProbeTargetFps);
+    if (ui::button(ui::rowSlice(probeRows, 1, 2, controlGap), probeButtonLabel(*session))) {
+        if (session->capacityProbe().isActive()) {
             session->cancelCapacityProbe();
         } else {
             startProbe();
         }
     }
 
-    const Rectangle rateRow = labeledRow(1, "Spawn / sec");
+    const Rectangle rateRows = group("Spawn / sec", 1);
     const int rateCount = static_cast<int>(spawnRateOptions.size());
     for (int i = 0; i < rateCount; ++i) {
-        if (ui::button(ui::columnSlice(rateRow, i, rateCount, controlGap), spawnRateLabel(spawnRateOptions[i]), true,
+        if (ui::button(buttonCell(rateRows, i, rateCount, 1), spawnRateLabel(spawnRateOptions[i]), true,
                        session->spawnRateIndex() == i)) {
             session->selectSpawnRate(i);
         }
     }
 
-    const Rectangle multiplierRow = labeledRow(2, "Ball count");
+    const Rectangle multiplierRows = group("Ball count", 1);
     const int multiplierCount = static_cast<int>(ballMultiplierOptions.size());
     for (int i = 0; i < multiplierCount; ++i) {
-        if (ui::button(ui::columnSlice(multiplierRow, i, multiplierCount, controlGap),
-                       std::format("x{}", ballMultiplierOptions[i]), true, session->ballMultiplierIndex() == i)) {
+        if (ui::button(buttonCell(multiplierRows, i, multiplierCount, 1), std::format("x{}", ballMultiplierOptions[i]),
+                       true, session->ballMultiplierIndex() == i)) {
             session->selectBallMultiplier(i);
         }
     }
 
-    const Rectangle limitRow = labeledRow(3, "Ball limit");
     const int limitCount = static_cast<int>(ballLimitOptions.size());
     const int limitSlots = limitCount + 1;
+    const int limitsPerRow = 3;
+    const int limitRowCount = (limitSlots + limitsPerRow - 1) / limitsPerRow;
+    const Rectangle limitRows = group("Ball limit", limitRowCount);
     for (int i = 0; i < limitCount; ++i) {
-        if (ui::button(ui::columnSlice(limitRow, i, limitSlots, controlGap), ballLimitLabel(ballLimitOptions[i]), true,
+        if (ui::button(buttonCell(limitRows, i, limitsPerRow, limitRowCount), ballLimitLabel(ballLimitOptions[i]), true,
                        !session->isUsingMachineBallLimit() && session->ballLimitIndex() == i)) {
             session->selectBallLimit(i);
         }
     }
-    if (ui::button(ui::columnSlice(limitRow, limitCount, limitSlots, controlGap), autoLimitLabel(*session), true,
+    if (ui::button(buttonCell(limitRows, limitCount, limitsPerRow, limitRowCount), autoLimitLabel(*session), true,
                    session->isUsingMachineBallLimit())) {
         if (const auto measured = session->machineBallLimit()) {
             session->useMachineBallLimit(*measured);
@@ -302,13 +310,12 @@ void GameplayScreen::drawPerformanceControls(Rectangle area) {
         }
     }
 
-    const Rectangle backendRow = labeledRow(4, "Physics");
+    const Rectangle backendRows = group("Physics", 1);
     const int backendCount = static_cast<int>(allBackendKinds.size());
     for (int i = 0; i < backendCount; ++i) {
         const BackendKind kind = allBackendKinds[i];
-        if (ui::button(ui::columnSlice(backendRow, i, backendCount, controlGap),
-                       std::format("{} (F{})", backendKindName(kind), i + 1), isBackendAvailable(kind),
-                       session->backend() == kind) &&
+        if (ui::button(buttonCell(backendRows, i, backendCount, 1), std::format("{} (F{})", backendKindName(kind), i + 1),
+                       isBackendAvailable(kind), session->backend() == kind) &&
             session->switchBackend(kind)) {
             app.setPreferredBackend(kind);
             applyRememberedMachineLimit();

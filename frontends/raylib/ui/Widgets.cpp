@@ -8,6 +8,7 @@
 namespace {
 
 constexpr int fontAtlasSize = 64;
+constexpr float buttonTextPadding = 12.0f;
 constexpr float textSpacing = 1.0f;
 constexpr const char* preferredFontPath = "C:/Windows/Fonts/segoeuib.ttf";
 
@@ -91,7 +92,10 @@ bool button(Rectangle rect, std::string_view label, bool enabled, bool selected)
     DrawRectangleRounded(shadow, 0.3f, 8, palette::shade(fill, 0.55f));
     DrawRectangleRounded(pressed ? shadow : rect, 0.3f, 8, fill);
     const Color textColor = selected ? palette::backgroundDeep : (enabled ? palette::text : palette::textMuted);
-    const float size = std::min(rect.height * 0.5f, 30.0f);
+    const float preferredSize = std::min(rect.height * 0.5f, 30.0f);
+    const float labelWidth = measureText(label, preferredSize).x;
+    const float availableWidth = rect.width - buttonTextPadding;
+    const float size = labelWidth > availableWidth ? preferredSize * availableWidth / labelWidth : preferredSize;
     drawTextInRect(label, pressed ? shadow : rect, size, textColor);
     return hovered && IsMouseButtonReleased(MOUSE_BUTTON_LEFT);
 }
