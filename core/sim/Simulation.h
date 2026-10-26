@@ -65,6 +65,7 @@ private:
     BrickBoard brickBoard;
     TargetField targetField;
     uint64_t uploadedRevision = ~0ull;
+    bool hostHitsPending = false;
     std::vector<BallSpawn> pendingSpawns;
     std::vector<BallHit> hits;
     std::vector<uint32_t> killedBalls;

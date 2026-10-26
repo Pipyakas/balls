@@ -704,22 +704,87 @@ BallSnapshot CudaBackend::snapshot() {
     return {hostPacked.data(), hostPacked.size(), fieldWidth, fieldHeight, false};
 }
 
-std::vector<BallSpawn> CudaBackend::exportBalls() {
-    if (isFaulted() || count == 0) {
+std::vector<BallSpawn> CudaBackend::exportBalls() { return exportRange(0); }
+
+std::vector<BallSpawn> CudaBackend::takeTail(size_t tailCount) {
+    const size_t first = count - std::min(tailCount, count);
+    std::vector<BallSpawn> tail = exportRange(first);
+    if (!isFaulted()) {
+        count = first;
+        snapshotFresh = false;
+    }
+    return tail;
+}
+
+bool CudaBackend::takeCompactTail(size_t tailCount, CompactBalls& taken) {
+    if (isFaulted()) {
+        return false;
+    }
+    driver.makeCurrent();
+    const size_t first = count - std::min(tailCount, count);
+    const size_t takenCount = count - first;
+    taken.position.resize(takenCount);
+    taken.state.resize(takenCount);
+    const auto& api = driver.api();
+    const bool downloaded =
+        takenCount == 0 ||
+        (succeeded(api.memcpyDeviceToHost(taken.position.data(), balls.position + first * 4, takenCount * 4),
+                   "download position") &&
+         succeeded(api.memcpyDeviceToHost(taken.state.data(), balls.state + first * 4, takenCount * 4), "download state"));
+    if (!downloaded) {
+        return false;
+    }
+    count = first;
+    snapshotFresh = false;
+    return true;
+}
+
+bool CudaBackend::addCompact(const CompactBalls& added) {
+    const size_t addedCount = std::min(added.position.size(), added.state.size());
+    if (isFaulted()) {
+        return false;
+    }
+    if (addedCount == 0) {
+        return true;
+    }
+    driver.makeCurrent();
+    ensureBallCapacity(count + addedCount);
+    if (isFaulted()) {
+        return false;
+    }
+    const auto& api = driver.api();
+    const size_t offset = count * 4;
+    succeeded(api.memcpyHostToDevice(balls.position + offset, added.position.data(), addedCount * 4), "upload position");
+    succeeded(api.memcpyHostToDevice(balls.state + offset, added.state.data(), addedCount * 4), "upload state");
+    if (count + addedCount <= packedCapacity) {
+        std::vector<uint32_t> packed(addedCount);
+        for (size_t i = 0; i < addedCount; ++i) {
+            packed[i] = packCompactForRender(added.position[i], added.state[i]);
+        }
+        succeeded(api.memcpyHostToDevice(balls.packed + offset, packed.data(), addedCount * 4), "upload packed");
+    }
+    count += addedCount;
+    snapshotFresh = false;
+    return !isFaulted();
+}
+
+std::vector<BallSpawn> CudaBackend::exportRange(size_t first) {
+    if (isFaulted() || first >= count) {
         return {};
     }
     driver.makeCurrent();
-    std::vector<uint32_t> positions(count), states(count);
+    const size_t rangeCount = count - first;
+    std::vector<uint32_t> positions(rangeCount), states(rangeCount);
     const auto& api = driver.api();
     const bool downloaded =
-        succeeded(api.memcpyDeviceToHost(positions.data(), balls.position, count * 4), "download position") &&
-        succeeded(api.memcpyDeviceToHost(states.data(), balls.state, count * 4), "download state");
+        succeeded(api.memcpyDeviceToHost(positions.data(), balls.position + first * 4, rangeCount * 4), "download position") &&
+        succeeded(api.memcpyDeviceToHost(states.data(), balls.state + first * 4, rangeCount * 4), "download state");
     if (!downloaded) {
         return {};
     }
     std::vector<BallSpawn> exported;
-    exported.reserve(count);
-    for (size_t i = 0; i < count; ++i) {
+    exported.reserve(rangeCount);
+    for (size_t i = 0; i < rangeCount; ++i) {
         const uint32_t color = stateColor(states[i]);
         if (color == deadColor) {
             continue;

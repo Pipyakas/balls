@@ -7,9 +7,10 @@
 #include <string>
 #include <string_view>
 
-enum class BackendKind { Scalar, Avx2, Cuda };
+enum class BackendKind { Scalar, Avx2, Cuda, Hybrid };
 
-inline constexpr std::array<BackendKind, 3> allBackendKinds{BackendKind::Scalar, BackendKind::Avx2, BackendKind::Cuda};
+inline constexpr std::array<BackendKind, 4> allBackendKinds{BackendKind::Scalar, BackendKind::Avx2, BackendKind::Cuda,
+                                                             BackendKind::Hybrid};
 
 std::string_view backendKindName(BackendKind kind);
 std::string_view backendPluginFileName(BackendKind kind);

@@ -1,6 +1,6 @@
 add_library(balls_physics_cpu SHARED
     cpu/CpuBallStore.cpp
-    cpu/CpuBackendBase.cpp
+    cpu/CompactBallStore.cpp
     cpu/ScalarBackend.cpp
     cpu/WorkerPool.cpp
     cpu/CpuPlugin.cpp

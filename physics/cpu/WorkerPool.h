@@ -8,11 +8,13 @@
 #include <thread>
 #include <vector>
 
+enum class WorkerPriority { Normal, Background };
+
 class WorkerPool {
 public:
     using ChunkTask = std::function<void(size_t chunkIndex, size_t begin, size_t end)>;
 
-    explicit WorkerPool(size_t threadCount);
+    explicit WorkerPool(size_t threadCount, WorkerPriority priority = WorkerPriority::Normal);
     ~WorkerPool();
     WorkerPool(const WorkerPool&) = delete;
     WorkerPool& operator=(const WorkerPool&) = delete;
@@ -22,7 +24,7 @@ public:
     void runChunks(size_t itemCount, size_t chunkSize, const ChunkTask& task);
 
 private:
-    void workerLoop();
+    void workerLoop(WorkerPriority priority);
     void drainChunks();
 
     std::vector<std::jthread> workers;

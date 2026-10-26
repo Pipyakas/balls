@@ -27,7 +27,8 @@ constexpr float controlRowHeight = 44.0f;
 constexpr float controlGap = 10.0f;
 constexpr float groupLabelHeight = 26.0f;
 constexpr float groupGap = 14.0f;
-constexpr std::array<SDL_Scancode, 3> backendKeys{SDL_SCANCODE_F1, SDL_SCANCODE_F2, SDL_SCANCODE_F3};
+constexpr std::array<SDL_Scancode, 4> backendKeys{SDL_SCANCODE_F1, SDL_SCANCODE_F2, SDL_SCANCODE_F3, SDL_SCANCODE_F4};
+constexpr int backendsPerRow = 2;
 
 constexpr double millisecondsPerSecond = 1000.0;
 constexpr int minimumProbeTargetFps = 10;
@@ -313,11 +314,12 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
         }
     }
 
-    const Rect backendRows = group("Physics", 1);
     const int backendCount = static_cast<int>(allBackendKinds.size());
+    const int backendRowCount = (backendCount + backendsPerRow - 1) / backendsPerRow;
+    const Rect backendRows = group("Physics", backendRowCount);
     for (int i = 0; i < backendCount; ++i) {
         const BackendKind kind = allBackendKinds[i];
-        if (ui::button(buttonCell(backendRows, i, backendCount, 1), std::format("{} (F{})", backendKindName(kind), i + 1),
+        if (ui::button(buttonCell(backendRows, i, backendsPerRow, backendRowCount), std::format("{} (F{})", backendKindName(kind), i + 1),
                        isBackendAvailable(kind), session->backend() == kind) &&
             session->switchBackend(kind)) {
             app.setPreferredBackend(kind);
@@ -481,6 +483,10 @@ std::optional<ControlResponse> GameplayScreen::handleControl(const ControlReques
     }
     if (path == "/rate") {
         session->selectSpawnRate(request.integer("index").value_or(session->spawnRateIndex()));
+        return done;
+    }
+    if (path == "/fill") {
+        session->fillWithBalls(static_cast<BallCount>(std::max<long long>(request.integer("count").value_or(0), 0)));
         return done;
     }
     if (path == "/limit") {

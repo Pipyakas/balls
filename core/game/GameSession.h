@@ -37,6 +37,7 @@ public:
     void cancelCapacityProbe();
     void reportFrameSeconds(double frameSeconds, double workSeconds);
     void useMachineBallLimit(BallCount limit);
+    void fillWithBalls(BallCount count);
     bool isUsingMachineBallLimit() const { return machineLimitSelected; }
     std::optional<BallCount> machineBallLimit() const { return measuredMachineLimit; }
 
@@ -58,6 +59,7 @@ public:
     const std::string& lastBackendFault() const { return backendFault; }
 
 private:
+    void scatterAcrossColors(BallCount count);
     void releaseLauncher(const Launcher& launcher);
     void recoverFromBackendFault();
     void pumpCapacityProbe();

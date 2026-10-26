@@ -22,6 +22,7 @@ struct BenchOptions {
     std::vector<size_t> ballCounts{2000, 20000, 200000, 1000000};
     int ticks = 240;
     bool fullSimulation = false;
+    bool scatterSimulation = false;
     bool roofline = false;
     bool rooflineOnLevel = false;
     int substeps = 2;
@@ -80,6 +81,8 @@ BenchOptions parseOptions(int argumentCount, char** arguments) {
             ++i;
         } else if (argument == "--full") {
             options.fullSimulation = true;
+        } else if (argument == "--scatter") {
+            options.scatterSimulation = true;
         }
     }
     return options;
@@ -147,6 +150,29 @@ void runFullSimulation(const BrickLayout& layout, BackendKind kind, size_t ballC
     std::printf("%-7s full balls=%9zu  %8.3f ms/tick  remaining balls=%zu bricks=%d\n",
                 std::string(backendKindName(kind)).c_str(), ballCount, seconds * 1000.0 / ticks,
                 simulation.backend().ballCount(), simulation.board().aliveBrickCount());
+}
+
+void runScatteredSimulation(const BrickLayout& layout, BackendKind kind, size_t ballCount, int ticks, int substeps) {
+    constexpr int warmupTicks = 30;
+    Simulation simulation(createBackend(kind));
+    simulation.load(layout);
+    const size_t perColor = ballCount / ballColorCount;
+    for (BallColor color : allBallColors) {
+        simulation.scatterBalls(color, static_cast<BallCount>(perColor));
+    }
+    for (int tick = 0; tick < warmupTicks; ++tick) {
+        simulation.tick(substeps);
+    }
+    const int bricksBefore = simulation.board().aliveBrickCount();
+    const auto start = std::chrono::steady_clock::now();
+    for (int tick = 0; tick < ticks; ++tick) {
+        simulation.tick(substeps);
+    }
+    const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    std::printf("%-7s scatter balls=%9zu  %8.3f ms/tick  %8.1f M ball-steps/s  bricks %d -> %d\n",
+                std::string(backendKindName(kind)).c_str(), ballCount, seconds * 1000.0 / ticks,
+                static_cast<double>(ballCount) * ticks / seconds / 1e6, bricksBefore,
+                simulation.board().aliveBrickCount());
 }
 
 BrickLayout emptyBoard(int width, int rows) {
@@ -218,7 +244,9 @@ int main(int argumentCount, char** arguments) {
             continue;
         }
         for (size_t count : options.ballCounts) {
-            if (options.fullSimulation) {
+            if (options.scatterSimulation) {
+                runScatteredSimulation(level->bricks, kind, count, options.ticks, options.substeps);
+            } else if (options.fullSimulation) {
                 runFullSimulation(level->bricks, kind, count, options.ticks);
             } else {
                 runRawStep(level->bricks, kind, count, options.ticks);
