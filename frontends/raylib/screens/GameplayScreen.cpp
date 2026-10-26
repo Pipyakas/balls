@@ -27,6 +27,7 @@ constexpr float groupLabelHeight = 26.0f;
 constexpr float groupGap = 14.0f;
 constexpr std::array<KeyboardKey, 3> backendKeys{KEY_F1, KEY_F2, KEY_F3};
 
+constexpr double millisecondsPerSecond = 1000.0;
 constexpr int minimumProbeTargetFps = 10;
 constexpr int maximumProbeTargetFps = 1000;
 
@@ -196,7 +197,8 @@ void GameplayScreen::update(float deltaTime) {
         {static_cast<float>(GetScreenWidth()), static_cast<float>(GetScreenHeight())},
         session->simulation().board().columns(), session->simulation().board().rows());
     handleLauncherClick(layout);
-    session->reportFrameSeconds(GetFrameTime());
+    const FrameSample& lastFrame = app.frameTimings().latest();
+    session->reportFrameSeconds(GetFrameTime(), std::max(lastFrame.cpuMs, lastFrame.gpuMs) / millisecondsPerSecond);
     session->update(deltaTime);
     rememberFinishedProbe();
 }

@@ -76,6 +76,24 @@ std::string backendDetail(BackendKind kind) {
     return {};
 }
 
+GpuRoofline measureGpuRoofline(size_t bufferBytes) {
+#if defined(BALLS_HAS_CUDA)
+    return CudaBackend::measureRoofline(bufferBytes);
+#else
+    static_cast<void>(bufferBytes);
+    return {};
+#endif
+}
+
+size_t gpuStreamedBytesPerBall(bool gridActive) {
+#if defined(BALLS_HAS_CUDA)
+    return CudaBackend::streamedBytesPerBall(gridActive);
+#else
+    static_cast<void>(gridActive);
+    return 0;
+#endif
+}
+
 BackendKind fastestAvailableCpuBackend() {
     return isBackendAvailable(BackendKind::Avx2) ? BackendKind::Avx2 : BackendKind::Scalar;
 }

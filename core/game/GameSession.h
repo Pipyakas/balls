@@ -35,7 +35,7 @@ public:
     bool switchBackend(BackendKind kind);
     void startCapacityProbe(double targetFps = defaultProbeTargetFps);
     void cancelCapacityProbe();
-    void reportFrameSeconds(double frameSeconds);
+    void reportFrameSeconds(double frameSeconds, double workSeconds);
     void useMachineBallLimit(BallCount limit);
     bool isUsingMachineBallLimit() const { return machineLimitSelected; }
     std::optional<BallCount> machineBallLimit() const { return measuredMachineLimit; }
@@ -75,6 +75,7 @@ private:
     bool autoRelease = false;
     double elapsed = 0.0;
     double latestFrameSeconds = 0.0;
+    double latestWorkSeconds = 0.0;
     CapacityProbe probe;
     int probeColorIndex = 0;
     std::optional<BallCount> measuredMachineLimit;

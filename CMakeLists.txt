@@ -19,6 +19,7 @@ endif()
 
 if(MSVC)
     set(BALLS_WARNINGS /W4 /permissive- /utf-8 /wd4324)
+    add_compile_options(/MP)
     set(BALLS_OPTIMIZE $<$<CONFIG:Release,RelWithDebInfo>:/O2 /Oi /fp:fast>)
     if(BALLS_LTO)
         list(APPEND BALLS_OPTIMIZE $<$<CONFIG:Release,RelWithDebInfo>:/GL>)

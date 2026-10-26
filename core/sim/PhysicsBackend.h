@@ -33,6 +33,15 @@ struct BallSnapshot {
     bool visibilityGrid = false;
 };
 
+struct GpuRoofline {
+    double theoreticalGigabytesPerSecond = 0.0;
+    double copyGigabytesPerSecond = 0.0;
+    int multiprocessors = 0;
+    double coreClockMegahertz = 0.0;
+    double memoryClockMegahertz = 0.0;
+    int memoryBusBits = 0;
+};
+
 struct DeviceHitResults {
     std::span<const int32_t> brickHitsLeft;
     BallTally killsByColor{};
@@ -62,4 +71,5 @@ public:
     virtual DeviceHitResults deviceHitResults() const { return {}; }
     virtual bool shareRenderBuffer(unsigned int, size_t) { return false; }
     virtual void setVisibilityGrid(int, int) {}
+    virtual double deviceStepMs() const { return 0.0; }
 };

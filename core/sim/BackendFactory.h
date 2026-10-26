@@ -17,3 +17,5 @@ std::string backendUnavailableReason(BackendKind kind);
 std::string backendDetail(BackendKind kind);
 std::unique_ptr<PhysicsBackend> createBackend(BackendKind kind);
 BackendKind fastestAvailableCpuBackend();
+GpuRoofline measureGpuRoofline(size_t bufferBytes);
+size_t gpuStreamedBytesPerBall(bool gridActive);

@@ -42,6 +42,7 @@ public:
 
     const BrickBoard& board() const { return brickBoard; }
     PhysicsBackend& backend() { return *physics; }
+    const PhysicsBackend& backend() const { return *physics; }
     const SimulationStats& stats() const { return statistics; }
     const SimulationTuning& tuning() const { return settings; }
     BallCount liveBallCount() const { return physics->ballCount() + pendingSpawns.size(); }

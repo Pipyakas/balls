@@ -50,6 +50,12 @@ bool CudaDriver::loadEntryPoints() {
                         driver.resolve("cuLaunchKernel", functions.launchKernel) &&
                         driver.resolve("cuCtxSynchronize", functions.contextSynchronize) &&
                         driver.resolve("cuGetErrorString", functions.getErrorString);
+    driver.resolve("cuEventCreate", functions.eventCreate);
+    driver.resolve("cuEventRecord", functions.eventRecord);
+    driver.resolve("cuEventSynchronize", functions.eventSynchronize);
+    driver.resolve("cuEventElapsedTime", functions.eventElapsedTime);
+    driver.resolve("cuEventDestroy_v2", functions.eventDestroy);
+    driver.resolve("cuDeviceGetAttribute", functions.deviceGetAttribute);
     driver.resolve("cuGraphicsGLRegisterBuffer", functions.graphicsGlRegisterBuffer);
     driver.resolve("cuGraphicsUnregisterResource", functions.graphicsUnregisterResource);
     driver.resolve("cuGraphicsMapResources", functions.graphicsMapResources);
@@ -71,7 +77,6 @@ bool CudaDriver::createContextAndModule() {
         errorMessage = "no CUDA device";
         return false;
     }
-    CUdevice device{};
     functions.deviceGet(&device, 0);
     char name[256]{};
     functions.deviceGetName(name, static_cast<int>(sizeof(name)), device);
@@ -95,6 +100,14 @@ CUfunction CudaDriver::function(const char* name) const {
         return nullptr;
     }
     return result;
+}
+
+int CudaDriver::deviceAttribute(CUdevice_attribute attribute) const {
+    int value = 0;
+    if (functions.deviceGetAttribute) {
+        functions.deviceGetAttribute(&value, attribute, device);
+    }
+    return value;
 }
 
 void CudaDriver::makeCurrent() const { functions.contextSetCurrent(context); }

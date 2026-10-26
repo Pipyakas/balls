@@ -16,9 +16,12 @@ inline constexpr double probeBackoffFactor = 0.93;
 inline constexpr int probeSlowWindowsToStop = 2;
 inline constexpr BallCount probeInitialBalls = 100'000;
 inline constexpr BallCount probeMinimumAddition = 1'000;
-inline constexpr double probeMinimumGrowth = 0.01;
+inline constexpr double probeMinimumGrowth = 0.05;
 inline constexpr double probeMaximumGrowth = 1.0;
 inline constexpr double probeGrowthResponse = 0.5;
+inline constexpr double probePredictionSafety = 0.97;
+inline constexpr double probeMaximumJump = 4.0;
+inline constexpr double probeBisectTolerance = 0.03;
 
 const char* probePhaseName(ProbePhase phase);
 
@@ -26,7 +29,7 @@ class CapacityProbe {
 public:
     void start(double targetFramesPerSecond = defaultProbeTargetFps);
     void cancel();
-    BallCount update(double frameSeconds, BallCount liveBalls);
+    BallCount update(double frameSeconds, double workSeconds, BallCount liveBalls);
     std::optional<BallCount> takeTrimRequest();
 
     bool isActive() const;
@@ -38,7 +41,8 @@ public:
 private:
     BallCount grownAddition(BallCount liveBalls) const;
     bool measuredFpsPasses() const;
-    bool measureWindow(double frameSeconds, double settleSeconds, double measureSeconds);
+    bool measureWindow(double frameSeconds, double workSeconds, double settleSeconds, double measureSeconds);
+    void handleSlowCount(BallCount liveBalls);
     void beginConfirmation(BallCount candidate);
     BallCount updateRamp(BallCount liveBalls);
     void updateConfirmation();
@@ -46,6 +50,9 @@ private:
     ProbePhase probePhase = ProbePhase::Idle;
     double windowElapsed = 0.0;
     double intervalTotal = 0.0;
+    double intervalWork = 0.0;
+    double measuredWorkSeconds = 0.0;
+    BallCount lowestFailing = 0;
     BallCount intervalFrames = 0;
     bool settled = false;
     bool firstAdditionDue = false;

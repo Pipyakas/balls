@@ -51,12 +51,78 @@ CudaBackend::CudaBackend() : driver(CudaDriver::instance()) {
     }
     ensureBallCapacity(initialBallCapacity);
     ensureArray(counters, sizeof(FrameCounters));
+    if (driver.api().eventCreate) {
+        driver.api().eventCreate(&stepStarted, CU_EVENT_DEFAULT);
+        driver.api().eventCreate(&stepFinished, CU_EVENT_DEFAULT);
+    }
+}
+
+size_t CudaBackend::streamedBytesPerBall(bool gridActive) {
+    constexpr size_t readBytes = 5 * sizeof(float);
+    constexpr size_t positionWriteBytes = 2 * sizeof(float);
+    constexpr size_t packedWriteBytes = sizeof(uint32_t);
+    return readBytes + positionWriteBytes + (gridActive ? 0 : packedWriteBytes);
+}
+
+GpuRoofline CudaBackend::measureRoofline(size_t bufferBytes) {
+    GpuRoofline roofline;
+    const CudaDriver& driver = CudaDriver::instance();
+    if (!driver.isReady() || !driver.api().eventCreate) {
+        return roofline;
+    }
+    driver.makeCurrent();
+    const auto& api = driver.api();
+    constexpr double kilohertzToMegahertz = 1.0e-3;
+    constexpr double bitsPerByte = 8.0;
+    constexpr double doubleDataRate = 2.0;
+    roofline.multiprocessors = driver.deviceAttribute(CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT);
+    roofline.coreClockMegahertz = driver.deviceAttribute(CU_DEVICE_ATTRIBUTE_CLOCK_RATE) * kilohertzToMegahertz;
+    roofline.memoryClockMegahertz = driver.deviceAttribute(CU_DEVICE_ATTRIBUTE_MEMORY_CLOCK_RATE) * kilohertzToMegahertz;
+    roofline.memoryBusBits = driver.deviceAttribute(CU_DEVICE_ATTRIBUTE_GLOBAL_MEMORY_BUS_WIDTH);
+    roofline.theoreticalGigabytesPerSecond =
+        doubleDataRate * roofline.memoryClockMegahertz * 1.0e6 * (roofline.memoryBusBits / bitsPerByte) / 1.0e9;
+
+    CUdeviceptr source = 0;
+    CUdeviceptr target = 0;
+    CUevent started = nullptr;
+    CUevent finished = nullptr;
+    if (api.memAlloc(&source, bufferBytes) != CUDA_SUCCESS || api.memAlloc(&target, bufferBytes) != CUDA_SUCCESS) {
+        return roofline;
+    }
+    api.eventCreate(&started, CU_EVENT_DEFAULT);
+    api.eventCreate(&finished, CU_EVENT_DEFAULT);
+    constexpr int warmupCopies = 2;
+    constexpr int timedCopies = 10;
+    for (int copy = 0; copy < warmupCopies; ++copy) {
+        api.memcpyDeviceToDevice(target, source, bufferBytes);
+    }
+    api.eventRecord(started, nullptr);
+    for (int copy = 0; copy < timedCopies; ++copy) {
+        api.memcpyDeviceToDevice(target, source, bufferBytes);
+    }
+    api.eventRecord(finished, nullptr);
+    api.eventSynchronize(finished);
+    float elapsedMs = 0.0f;
+    api.eventElapsedTime(&elapsedMs, started, finished);
+    constexpr double readPlusWrite = 2.0;
+    roofline.copyGigabytesPerSecond =
+        readPlusWrite * static_cast<double>(bufferBytes) * timedCopies / (static_cast<double>(elapsedMs) * 1.0e6);
+    api.eventDestroy(started);
+    api.eventDestroy(finished);
+    api.memFree(source);
+    api.memFree(target);
+    return roofline;
 }
 
 CudaBackend::~CudaBackend() {
     driver.makeCurrent();
     releaseRenderBuffer();
     const auto& api = driver.api();
+    for (CUevent event : {stepStarted, stepFinished}) {
+        if (event && api.eventDestroy) {
+            api.eventDestroy(event);
+        }
+    }
     for (CUdeviceptr pointer :
          {balls.x, balls.y, balls.vx, balls.vy, balls.meta, balls.packed, paddedCells.pointer,
           brickColors.pointer, targetCells.pointer, brickHitsLeft.pointer, killedIndices.pointer, holes.pointer,
@@ -226,11 +292,22 @@ void CudaBackend::step(const StepParams& params, std::vector<BallHit>&) {
     }
     void* arguments[] = {&balls, &ballCountArgument, &board, &stepArgument, &hitsLeftPointer, &killedPointer,
                          &countersPointer, &grid};
+    if (stepStarted) {
+        api.eventRecord(stepStarted, nullptr);
+    }
     if (!launch(stepFunction, count, arguments, "stepBallsKernel")) {
         return;
     }
+    if (stepFinished) {
+        api.eventRecord(stepFinished, nullptr);
+    }
     if (!succeeded(api.memcpyDeviceToHost(&lastCounters, counters.pointer, sizeof(FrameCounters)), "download counters")) {
         return;
+    }
+    if (stepStarted && stepFinished) {
+        float elapsedMs = 0.0f;
+        api.eventElapsedTime(&elapsedMs, stepStarted, stepFinished);
+        lastStepKernelMs = elapsedMs;
     }
     if (lastCounters.killedCount == 0) {
         return;

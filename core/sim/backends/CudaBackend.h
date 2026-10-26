@@ -15,6 +15,8 @@ public:
     CudaBackend& operator=(const CudaBackend&) = delete;
 
     static std::string unavailableReason();
+    static GpuRoofline measureRoofline(size_t bufferBytes);
+    static size_t streamedBytesPerBall(bool gridActive);
 
     std::string_view name() const override { return "CUDA"; }
     void uploadBoard(const BrickBoard& board, const TargetField& field) override;
@@ -31,6 +33,7 @@ public:
     DeviceHitResults deviceHitResults() const override;
     bool shareRenderBuffer(unsigned int openGlBuffer, size_t capacityBytes) override;
     void setVisibilityGrid(int width, int height) override;
+    double deviceStepMs() const override { return lastStepKernelMs; }
 
 private:
     struct DeviceBalls {
@@ -98,4 +101,7 @@ private:
     float fieldHeight = 1.0f;
     bool snapshotFresh = false;
     std::string fault;
+    CUevent stepStarted = nullptr;
+    CUevent stepFinished = nullptr;
+    double lastStepKernelMs = 0.0;
 };
