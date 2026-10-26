@@ -1,6 +1,6 @@
 #pragma once
 
-#include "common/BallColor.h"
+#include "common/BallCount.h"
 
 #include <deque>
 
@@ -8,22 +8,22 @@ class Simulation;
 
 class SpawnController {
 public:
-    void enqueue(BallColor color, long long count);
+    void enqueue(BallColor color, BallCount count);
     void setBallsPerSecond(float rate) { ballsPerSecond = rate; }
-    void update(float deltaTime, Simulation& simulation);
+    void update(float deltaTime, Simulation& simulation, BallCount capacityLeft);
     void clear();
 
-    long long pendingBalls() const { return pending; }
+    BallCount pendingBalls() const { return pending; }
     bool isIdle() const { return streams.empty(); }
 
 private:
     struct Stream {
         BallColor color;
-        long long remaining;
+        BallCount remaining;
     };
 
     std::deque<Stream> streams;
     float ballsPerSecond = 60.0f;
     double budget = 0.0;
-    long long pending = 0;
+    BallCount pending = 0;
 };

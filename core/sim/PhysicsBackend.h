@@ -24,11 +24,15 @@ struct BallHit {
 };
 
 struct BallSnapshot {
-    const float* x = nullptr;
-    const float* y = nullptr;
-    const int32_t* color = nullptr;
+    const uint32_t* packed = nullptr;
     size_t count = 0;
+    float fieldWidth = 1.0f;
+    float fieldHeight = 1.0f;
 };
+
+inline float renderPackScale(float fieldExtent) {
+    return static_cast<float>(renderCoordinateMax) / (fieldExtent > 0.0f ? fieldExtent : 1.0f);
+}
 
 class PhysicsBackend {
 public:

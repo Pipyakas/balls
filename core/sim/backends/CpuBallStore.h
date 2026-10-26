@@ -43,12 +43,15 @@ struct CpuBallStore {
     SimdVector<float> vy;
     SimdVector<int32_t> color;
     SimdVector<int32_t> bounces;
+    SimdVector<uint32_t> packed;
     size_t count = 0;
+    float fieldWidth = 1.0f;
+    float fieldHeight = 1.0f;
 
     void add(std::span<const BallSpawn> spawns);
     void swapRemove(std::span<const uint32_t> descendingIndices);
     void clear() { resize(0); }
-    BallSnapshot snapshot() const { return {x.data(), y.data(), color.data(), count}; }
+    BallSnapshot snapshot() const { return {packed.data(), count, fieldWidth, fieldHeight}; }
     std::vector<BallSpawn> exportBalls() const;
 
 private:

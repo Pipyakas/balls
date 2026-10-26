@@ -16,6 +16,9 @@ struct StepParams {
     int paddedWidth;
     int paddedCellCount;
     int retargetBounceThreshold;
+    float packScaleX;
+    float packScaleY;
+    int substeps;
 };
 
 struct BoardView {
@@ -25,6 +28,20 @@ struct BoardView {
 };
 
 inline constexpr int noBrickHit = -1;
+inline constexpr unsigned int renderCoordinateMax = 16383u;
+inline constexpr unsigned int renderCoordinateBits = 14u;
+inline constexpr unsigned int renderColorShift = 28u;
+
+BALLS_HOST_DEVICE unsigned int packRenderCoordinate(float value, float scale) {
+    const float scaled = value * scale;
+    const float clamped = scaled < 0.0f ? 0.0f : (scaled > static_cast<float>(renderCoordinateMax) ? static_cast<float>(renderCoordinateMax) : scaled);
+    return static_cast<unsigned int>(clamped + 0.5f);
+}
+
+BALLS_HOST_DEVICE unsigned int packBallForRender(float x, float y, int color, float scaleX, float scaleY) {
+    return packRenderCoordinate(x, scaleX) | (packRenderCoordinate(y, scaleY) << renderCoordinateBits) |
+           (static_cast<unsigned int>(color) << renderColorShift);
+}
 
 BALLS_HOST_DEVICE float clampFloat(float value, float low, float high) {
     return value < low ? low : (value > high ? high : value);
@@ -194,6 +211,17 @@ BALLS_HOST_DEVICE int stepBall(float& x, float& y, float& vx, float& vy, int col
         bounces += 1;
         if (bounces >= params.retargetBounceThreshold) {
             retargetTowardNearestBrick(x, y, vx, vy, color, normalX, normalY, board, params);
+        }
+    }
+    return noBrickHit;
+}
+
+BALLS_HOST_DEVICE int stepBallSubsteps(float& x, float& y, float& vx, float& vy, int color, int& bounces,
+                                       const BoardView& board, const StepParams& params) {
+    for (int substep = 0; substep < params.substeps; ++substep) {
+        const int brick = stepBall(x, y, vx, vy, color, bounces, board, params);
+        if (brick != noBrickHit) {
+            return brick;
         }
     }
     return noBrickHit;

@@ -422,7 +422,7 @@ void MapEditorScreen::drawPropertyPanel(Rectangle area) {
     if (ui::button(nextControl(area, cursor), editor.isDirty() ? "Save *  (Ctrl+S)" : "Save  (Ctrl+S)")) {
         save();
     }
-    if (ui::button(nextControl(area, cursor), "Save && Play", validation.isPlayable()) && save()) {
+    if (ui::button(nextControl(area, cursor), "Save & Play", validation.isPlayable()) && save()) {
         app.startGame(targetMode, levelFilesFor(levelDirectory(targetMode), levelName));
     }
     if (ui::button(nextControl(area, cursor), confirmLeave ? "Discard changes?" : "Back")) {

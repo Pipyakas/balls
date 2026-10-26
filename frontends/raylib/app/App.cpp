@@ -53,7 +53,7 @@ ControlResponse saveScreenshot(const std::string& path) {
 }
 
 void App::initializeWindow(const LaunchOptions& options) {
-    unsigned int flags = FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT;
+    unsigned int flags = FLAG_WINDOW_RESIZABLE;
     if (options.background) {
         flags |= FLAG_WINDOW_UNFOCUSED;
     }
@@ -127,7 +127,7 @@ void App::drawFrameTimingsOverlay() const {
     const std::string text = std::format("{:.0f} fps   cpu {:.2f}   gpu {:.2f}   present {:.2f} ms",
                                          timings.framesPerSecond(), sample.cpuMs, sample.gpuMs, sample.presentMs);
     const Vector2 extent = ui::measureText(text, 18.0f);
-    const float x = static_cast<float>(GetScreenWidth()) - extent.x - 16.0f;
+    const float x = 26.0f;
     const float y = static_cast<float>(GetScreenHeight()) - extent.y - 10.0f;
     DrawRectangleRounded({x - 10.0f, y - 4.0f, extent.x + 20.0f, extent.y + 8.0f}, 0.4f, 6,
                          Fade(palette::backgroundDeep, 0.85f));

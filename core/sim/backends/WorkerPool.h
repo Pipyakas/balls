@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <condition_variable>
 #include <cstddef>
 #include <functional>
@@ -16,12 +17,13 @@ public:
     WorkerPool(const WorkerPool&) = delete;
     WorkerPool& operator=(const WorkerPool&) = delete;
 
-    size_t chunkCount() const { return workers.size() + 1; }
-    void runChunks(size_t itemCount, size_t granularity, const ChunkTask& task);
+    size_t threadCount() const { return workers.size() + 1; }
+    static size_t chunkCountFor(size_t itemCount, size_t chunkSize);
+    void runChunks(size_t itemCount, size_t chunkSize, const ChunkTask& task);
 
 private:
-    void workerLoop(size_t workerIndex);
-    void runChunk(size_t chunkIndex);
+    void workerLoop();
+    void drainChunks();
 
     std::vector<std::jthread> workers;
     std::mutex mutex;
@@ -29,7 +31,8 @@ private:
     std::condition_variable doneCondition;
     const ChunkTask* currentTask = nullptr;
     size_t currentItemCount = 0;
-    size_t currentGranularity = 1;
+    size_t currentChunkSize = 1;
+    std::atomic<size_t> nextChunk = 0;
     size_t generation = 0;
     size_t pendingWorkers = 0;
     bool stopping = false;

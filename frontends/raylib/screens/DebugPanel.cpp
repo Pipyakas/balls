@@ -46,13 +46,15 @@ private:
     float cursor;
 };
 
-std::string withThousands(long long value) {
-    std::string digits = std::to_string(value < 0 ? -value : value);
+std::string withThousands(BallCount value) {
+    std::string digits = std::to_string(value);
     for (int insertAt = static_cast<int>(digits.size()) - 3; insertAt > 0; insertAt -= 3) {
         digits.insert(static_cast<size_t>(insertAt), ",");
     }
-    return value < 0 ? "-" + digits : digits;
+    return digits;
 }
+
+std::string ballLimitText(BallCount limit) { return limit == unlimitedBalls ? std::string("Max (2^64-1)") : withThousands(limit); }
 
 Color fpsColor(float fps) {
     constexpr float targetFps = 60.0f;
@@ -84,14 +86,17 @@ void drawDebugPanel(Rectangle area, const GameSession& session, const FrameTimin
     }
 
     writer.heading("Objects");
-    const long long balls = static_cast<long long>(stats.ballCount);
-    const long long bricks = simulation.board().aliveBrickCount();
-    const long long launchers = session.launchers().launcherCount();
+    const BallCount balls = stats.ballCount;
+    const BallCount bricks = static_cast<BallCount>(simulation.board().aliveBrickCount());
+    const BallCount launchers = static_cast<BallCount>(session.launchers().launcherCount());
     writer.row("Total objects", withThousands(balls + bricks + launchers));
     writer.row("Balls", withThousands(balls));
     writer.row("Bricks", withThousands(bricks));
     writer.row("Launchers", withThousands(launchers));
     writer.row("Waiting to spawn", withThousands(session.spawner().pendingBalls()));
+    if (session.mode() == GameMode::Performance) {
+        writer.row("Ball limit", ballLimitText(session.ballLimit()));
+    }
 
     writer.heading("Balls per color");
     for (int color = 0; color < ballColorCount; ++color) {

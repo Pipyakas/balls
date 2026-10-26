@@ -28,6 +28,13 @@ constexpr std::array<KeyboardKey, 3> backendKeys{KEY_F1, KEY_F2, KEY_F3};
 
 std::string spawnRateLabel(int rate) { return rate == 0 ? std::string("Max") : std::to_string(rate); }
 
+std::string ballLimitLabel(BallCount limit) {
+    if (limit == unlimitedBalls) {
+        return "Max 2^64-1";
+    }
+    return limit >= 1'000'000 ? std::format("{}M", limit / 1'000'000) : std::format("{}k", limit / 1'000);
+}
+
 }
 
 GameplayScreen::GameplayScreen(App& app, GameMode mode, LevelFiles files)
@@ -167,7 +174,7 @@ void GameplayScreen::drawMainSection(const GameplayLayout& layout) {
 }
 
 void GameplayScreen::drawPerformanceControls(Rectangle area) {
-    const int rowCount = 4;
+    const int rowCount = 5;
     const Rectangle rows = ui::shrink(area, 14.0f);
     auto labeledRow = [&](int index, const char* label) {
         const Rectangle row = ui::rowSlice(rows, index, rowCount, controlGap);
@@ -204,7 +211,16 @@ void GameplayScreen::drawPerformanceControls(Rectangle area) {
         }
     }
 
-    const Rectangle backendRow = labeledRow(3, "Physics");
+    const Rectangle limitRow = labeledRow(3, "Ball limit");
+    const int limitCount = static_cast<int>(ballLimitOptions.size());
+    for (int i = 0; i < limitCount; ++i) {
+        if (ui::button(ui::columnSlice(limitRow, i, limitCount, controlGap), ballLimitLabel(ballLimitOptions[i]), true,
+                       session->ballLimitIndex() == i)) {
+            session->selectBallLimit(i);
+        }
+    }
+
+    const Rectangle backendRow = labeledRow(4, "Physics");
     const int backendCount = static_cast<int>(allBackendKinds.size());
     for (int i = 0; i < backendCount; ++i) {
         const BackendKind kind = allBackendKinds[i];
@@ -335,14 +351,14 @@ std::string GameplayScreen::stateJson() const {
     return std::format(
         "{{\"mode\":\"{}\",\"level\":\"{}\",\"state\":\"{}\",\"paused\":{},\"backend\":\"{}\",\"backendFault\":\"{}\","
         "\"balls\":{},\"bricks\":{},\"launchersLeft\":{},\"pendingSpawn\":{},\"spawned\":{},\"hits\":{},"
-        "\"physicsMs\":{:.3f},\"ticks\":{},\"spawnRate\":{},\"multiplier\":{},\"elapsed\":{:.2f},"
+        "\"physicsMs\":{:.3f},\"ticks\":{},\"spawnRate\":{},\"multiplier\":{},\"ballLimit\":{},\"elapsed\":{:.2f},"
         "\"ballsByColor\":{{{}}},\"launchers\":[{}]}}",
         mode == GameMode::Normal ? "normal" : "performance", jsonEscape(files.name),
         stateNames[static_cast<int>(session->state())], paused, backendKindName(session->backend()),
         jsonEscape(session->lastBackendFault()), stats.ballCount, simulation.board().aliveBrickCount(),
         launchers.launcherCount(), session->spawner().pendingBalls(), stats.totalBallsSpawned, stats.totalHits,
         stats.lastFramePhysicsMs, stats.ticksLastFrame, spawnRateOptions[session->spawnRateIndex()],
-        ballMultiplierOptions[session->ballMultiplierIndex()], session->elapsedSeconds(), ballsByColor,
+        ballMultiplierOptions[session->ballMultiplierIndex()], session->ballLimit(), session->elapsedSeconds(), ballsByColor,
         launcherColumns);
 }
 
@@ -362,6 +378,10 @@ std::optional<ControlResponse> GameplayScreen::handleControl(const ControlReques
     }
     if (path == "/rate") {
         session->selectSpawnRate(request.integer("index").value_or(session->spawnRateIndex()));
+        return done;
+    }
+    if (path == "/limit") {
+        session->selectBallLimit(request.integer("index").value_or(session->ballLimitIndex()));
         return done;
     }
     if (path == "/multiplier") {

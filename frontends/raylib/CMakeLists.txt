@@ -19,6 +19,7 @@ add_executable(ColorBlastBalls WIN32
     render/Palette.cpp
     render/BallRenderer.cpp
     render/GpuTimer.cpp
+    render/GlExtras.cpp
     render/BoardRenderer.cpp
     render/LauncherRenderer.cpp
     render/ScreenLayout.cpp

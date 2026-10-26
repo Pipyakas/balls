@@ -20,13 +20,7 @@ BrickLayout makeLayout(const char* text) {
 
 const char* singleBrickLevel = "[Board]\nWidth 3\nHeight 1\nPlayableHeight 6\n[Layout]\n-1 0 -1\n[BrickTypes]\n0 Red 2\n";
 
-StepParams paramsFor(const Simulation& simulation) {
-    const SimulationTuning& tuning = simulation.tuning();
-    const BrickBoard& board = simulation.board();
-    return {tuning.tickSeconds, tuning.ballRadius, tuning.ballSpeed, static_cast<float>(board.columns()),
-            static_cast<float>(board.rows()), board.paddedWidth(), board.paddedCellCount(),
-            tuning.retargetBounceThreshold};
-}
+StepParams paramsFor(const Simulation& simulation) { return simulation.stepParams(); }
 
 }
 
