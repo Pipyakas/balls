@@ -10,6 +10,8 @@ struct LaunchOptions {
     std::optional<GameMode> playMode;
     std::string playLevel;
     std::string graphicsApi;
+    // Which Vulkan adapter renders: "auto" (default), "integrated", "discrete", an index, or a name substring.
+    std::string gpu;
     std::optional<BackendKind> backend;
     int controlPort = 0;
     bool background = false;

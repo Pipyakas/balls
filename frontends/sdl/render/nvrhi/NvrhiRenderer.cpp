@@ -579,8 +579,9 @@ void NvrhiRenderer::endFrame(ClearColor clearColor) {
 
 }
 
-std::unique_ptr<IRenderer> createNvrhiRenderer(SDL_Window* window, GraphicsApi api, std::string& error) {
-    auto graphics = createGraphicsDevice(api, window, error);
+std::unique_ptr<IRenderer> createNvrhiRenderer(SDL_Window* window, GraphicsApi api, std::string_view gpuPreference,
+                                               std::string& error) {
+    auto graphics = createGraphicsDevice(api, window, gpuPreference, error);
     if (!graphics) {
         return nullptr;
     }

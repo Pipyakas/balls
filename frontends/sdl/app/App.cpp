@@ -88,7 +88,7 @@ bool App::openWindowAndRenderer(const LaunchOptions& options, std::string_view a
         return false;
     }
     SDL_SetWindowMinimumSize(window, minimumWindowWidth, minimumWindowHeight);
-    renderer = createRenderer(window, api, error);
+    renderer = createRenderer(window, api, options.gpu, error);
     return renderer != nullptr;
 }
 

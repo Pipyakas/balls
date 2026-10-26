@@ -24,4 +24,7 @@ public:
 };
 
 SDL_WindowFlags windowFlagsFor(GraphicsApi api);
-std::unique_ptr<GraphicsDevice> createGraphicsDevice(GraphicsApi api, SDL_Window* window, std::string& error);
+// gpuPreference picks the Vulkan adapter: "auto" (default), "integrated", "discrete", an index, or a
+// case-insensitive substring of the adapter name. D3D12 ignores it.
+std::unique_ptr<GraphicsDevice> createGraphicsDevice(GraphicsApi api, SDL_Window* window, std::string_view gpuPreference,
+                                                     std::string& error);
