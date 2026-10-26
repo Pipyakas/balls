@@ -10,12 +10,17 @@
 class MachineProfile {
 public:
     void load();
-    void rememberBallLimit(BackendKind backend, BallCount limit);
-    std::optional<BallCount> ballLimit(BackendKind backend) const;
+    struct MeasuredLimit {
+        double targetFps = 0.0;
+        BallCount balls = 0;
+    };
+
+    void rememberBallLimit(BackendKind backend, double targetFps, BallCount limit);
+    std::optional<MeasuredLimit> ballLimit(BackendKind backend) const;
 
 private:
     std::filesystem::path filePath() const;
     void save() const;
 
-    std::map<BackendKind, BallCount> ballLimits;
+    std::map<BackendKind, MeasuredLimit> ballLimits;
 };

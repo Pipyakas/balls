@@ -33,7 +33,7 @@ public:
     void selectBallMultiplier(int optionIndex);
     void selectBallLimit(int optionIndex);
     bool switchBackend(BackendKind kind);
-    void startCapacityProbe();
+    void startCapacityProbe(double targetFps = defaultProbeTargetFps);
     void cancelCapacityProbe();
     void reportFrameSeconds(double frameSeconds);
     void useMachineBallLimit(BallCount limit);

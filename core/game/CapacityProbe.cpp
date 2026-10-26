@@ -18,12 +18,15 @@ const char* probePhaseName(ProbePhase phase) {
     return "idle";
 }
 
+bool CapacityProbe::measuredFpsPasses() const { return measuredFps >= targetFramesPerSecond * probePassTolerance; }
+
 bool CapacityProbe::isActive() const {
     return probePhase == ProbePhase::Settling || probePhase == ProbePhase::Measuring ||
            probePhase == ProbePhase::Confirming;
 }
 
-void CapacityProbe::start() {
+void CapacityProbe::start(double targetFramesPerSecondValue) {
+    targetFramesPerSecond = targetFramesPerSecondValue > 0.0 ? targetFramesPerSecondValue : defaultProbeTargetFps;
     probePhase = ProbePhase::Settling;
     windowElapsed = 0.0;
     intervalTotal = 0.0;
@@ -49,7 +52,7 @@ std::optional<BallCount> CapacityProbe::takeTrimRequest() {
 }
 
 BallCount CapacityProbe::grownAddition(BallCount liveBalls) const {
-    const double headroom = measuredFps / probeTargetFps - 1.0;
+    const double headroom = measuredFps / targetFramesPerSecond - 1.0;
     const double fraction = std::clamp(headroom * probeGrowthResponse, probeMinimumGrowth, probeMaximumGrowth);
     const BallCount scaled = static_cast<BallCount>(static_cast<double>(liveBalls) * fraction);
     return std::min(std::max(scaled, probeMinimumAddition), remainingCapacity(unlimitedBalls, liveBalls));
@@ -86,11 +89,15 @@ void CapacityProbe::beginConfirmation(BallCount candidate) {
 }
 
 BallCount CapacityProbe::updateRamp(BallCount liveBalls) {
-    if (measuredFps < probeTargetFps) {
+    if (!measuredFpsPasses()) {
         consecutiveSlowWindows += 1;
         if (consecutiveSlowWindows >= probeSlowWindowsToStop) {
             beginConfirmation(bestPassing);
         }
+        return 0;
+    }
+    if (consecutiveSlowWindows > 0) {
+        consecutiveSlowWindows = 0;
         return 0;
     }
     consecutiveSlowWindows = 0;
@@ -103,7 +110,7 @@ BallCount CapacityProbe::updateRamp(BallCount liveBalls) {
 }
 
 void CapacityProbe::updateConfirmation() {
-    if (measuredFps >= probeTargetFps) {
+    if (measuredFpsPasses()) {
         probePhase = ProbePhase::Done;
         return;
     }
@@ -125,7 +132,10 @@ BallCount CapacityProbe::update(double frameSeconds, BallCount liveBalls) {
         }
         return 0;
     }
-    const bool windowFinished = measureWindow(frameSeconds, probeSettleSeconds, probeMeasureSeconds);
+    const bool recheckingSlowWindow = consecutiveSlowWindows > 0;
+    const bool windowFinished =
+        measureWindow(frameSeconds, recheckingSlowWindow ? probeConfirmSettleSeconds : probeSettleSeconds,
+                      recheckingSlowWindow ? probeConfirmMeasureSeconds : probeMeasureSeconds);
     probePhase = settled ? ProbePhase::Measuring : ProbePhase::Settling;
     return windowFinished ? updateRamp(liveBalls) : 0;
 }

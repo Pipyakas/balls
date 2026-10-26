@@ -30,6 +30,7 @@ struct BallSnapshot {
     float fieldWidth = 1.0f;
     float fieldHeight = 1.0f;
     bool residentInRenderBuffer = false;
+    bool visibilityGrid = false;
 };
 
 struct DeviceHitResults {
@@ -60,4 +61,5 @@ public:
     virtual bool resolvesHitsOnDevice() const { return false; }
     virtual DeviceHitResults deviceHitResults() const { return {}; }
     virtual bool shareRenderBuffer(unsigned int, size_t) { return false; }
+    virtual void setVisibilityGrid(int, int) {}
 };

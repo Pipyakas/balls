@@ -34,6 +34,7 @@ public:
     void load(const BrickLayout& layout);
     void replaceBackend(std::unique_ptr<PhysicsBackend> backend);
     void launchBalls(BallColor color, BallCount count);
+    void scatterBalls(BallColor color, BallCount count);
     void trimBallsTo(BallCount limit);
     void advance(float frameSeconds);
     void tick(int substeps = 1);

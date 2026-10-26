@@ -38,6 +38,7 @@ private:
     void openNextLevel();
     void applyRememberedMachineLimit();
     void rememberFinishedProbe();
+    void startProbe();
 
     void drawHeader(const GameplayLayout& layout);
     void drawMainSection(const GameplayLayout& layout);
@@ -55,4 +56,5 @@ private:
     Toast toast;
     bool paused = false;
     bool probeResultSaved = true;
+    int probeTargetFps = 60;
 };

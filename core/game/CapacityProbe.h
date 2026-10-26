@@ -6,7 +6,8 @@
 
 enum class ProbePhase { Idle, Settling, Measuring, Confirming, Done };
 
-inline constexpr double probeTargetFps = 60.0;
+inline constexpr double defaultProbeTargetFps = 60.0;
+inline constexpr double probePassTolerance = 0.98;
 inline constexpr double probeSettleSeconds = 0.3;
 inline constexpr double probeMeasureSeconds = 0.5;
 inline constexpr double probeConfirmSettleSeconds = 1.0;
@@ -23,7 +24,7 @@ const char* probePhaseName(ProbePhase phase);
 
 class CapacityProbe {
 public:
-    void start();
+    void start(double targetFramesPerSecond = defaultProbeTargetFps);
     void cancel();
     BallCount update(double frameSeconds, BallCount liveBalls);
     std::optional<BallCount> takeTrimRequest();
@@ -31,10 +32,12 @@ public:
     bool isActive() const;
     ProbePhase phase() const { return probePhase; }
     double lastFps() const { return measuredFps; }
+    double targetFps() const { return targetFramesPerSecond; }
     BallCount bestPassingCount() const { return bestPassing; }
 
 private:
     BallCount grownAddition(BallCount liveBalls) const;
+    bool measuredFpsPasses() const;
     bool measureWindow(double frameSeconds, double settleSeconds, double measureSeconds);
     void beginConfirmation(BallCount candidate);
     BallCount updateRamp(BallCount liveBalls);
@@ -47,6 +50,7 @@ private:
     bool settled = false;
     bool firstAdditionDue = false;
     double measuredFps = 0.0;
+    double targetFramesPerSecond = defaultProbeTargetFps;
     BallCount bestPassing = 0;
     int consecutiveSlowWindows = 0;
     std::optional<BallCount> trimRequest;

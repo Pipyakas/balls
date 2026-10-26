@@ -53,7 +53,7 @@ void GameSession::startAutoRelease() {
     }
 }
 
-void GameSession::startCapacityProbe() {
+void GameSession::startCapacityProbe(double targetFps) {
     if (gameMode != GameMode::Performance) {
         return;
     }
@@ -62,7 +62,7 @@ void GameSession::startCapacityProbe() {
         sessionState = SessionState::Running;
     }
     probeColorIndex = 0;
-    probe.start();
+    probe.start(targetFps);
     pumpCapacityProbe();
 }
 
@@ -89,7 +89,7 @@ void GameSession::pumpCapacityProbe() {
         const BallColor color = ballColorFromIndex(probeColorIndex % ballColorCount);
         probeColorIndex = (probeColorIndex + 1) % ballColorCount;
         const BallCount batch = std::min(remaining, static_cast<BallCount>(1 << 20));
-        physicsSimulation.launchBalls(color, batch);
+        physicsSimulation.scatterBalls(color, batch);
         remaining -= batch;
     }
 }
