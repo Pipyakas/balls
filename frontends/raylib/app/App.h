@@ -2,6 +2,7 @@
 
 #include "app/FrameTimings.h"
 #include "app/LaunchOptions.h"
+#include "app/MachineProfile.h"
 #include "app/Paths.h"
 #include "app/Screen.h"
 #include "control/ControlServer.h"
@@ -28,6 +29,7 @@ public:
     BackendKind preferredBackend() const { return backendChoice; }
     void setPreferredBackend(BackendKind kind) { backendChoice = kind; }
     bool isVsyncEnabled() const { return vsyncEnabled; }
+    MachineProfile& machineProfile() { return profile; }
     void setVsync(bool enabled);
 
 private:
@@ -43,6 +45,7 @@ private:
     GpuTimer gpuTimer;
     FrameTimings timings;
     ControlServer controlServer;
+    MachineProfile profile;
     BackendKind backendChoice = BackendKind::Avx2;
     bool running = true;
     bool vsyncEnabled = false;

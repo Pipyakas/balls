@@ -69,6 +69,7 @@ void App::initializeWindow(const LaunchOptions& options) {
     ui::loadFonts();
     balls.load();
     gpuTimer.load();
+    profile.load();
     setVsync(options.vsync);
     backendChoice = options.backend && isBackendAvailable(*options.backend) ? *options.backend
                                                                             : fastestAvailableCpuBackend();

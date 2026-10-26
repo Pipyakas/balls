@@ -49,6 +49,17 @@ void CpuBallStore::swapRemove(std::span<const uint32_t> descendingIndices) {
     resize(last);
 }
 
+BallTally CpuBallStore::truncate(size_t newCount) {
+    BallTally removed{};
+    for (size_t i = newCount; i < count; ++i) {
+        ++removed[static_cast<size_t>(color[i])];
+    }
+    if (newCount < count) {
+        resize(newCount);
+    }
+    return removed;
+}
+
 std::vector<BallSpawn> CpuBallStore::exportBalls() const {
     std::vector<BallSpawn> balls(count);
     for (size_t i = 0; i < count; ++i) {

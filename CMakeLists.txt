@@ -44,7 +44,7 @@ target_link_options(balls_bench PRIVATE ${BALLS_LINK_OPTIMIZE})
 
 enable_testing()
 add_executable(balls_tests tests/TestMain.cpp tests/LevelTests.cpp tests/SimulationTests.cpp tests/GameTests.cpp
-    tests/EditorTests.cpp)
+    tests/ProbeTests.cpp tests/EditorTests.cpp)
 target_link_libraries(balls_tests PRIVATE balls_core)
 target_compile_options(balls_tests PRIVATE ${BALLS_WARNINGS})
 target_link_options(balls_tests PRIVATE ${BALLS_LINK_OPTIMIZE})

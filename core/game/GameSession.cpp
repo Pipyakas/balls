@@ -1,5 +1,7 @@
 #include "game/GameSession.h"
 
+#include "common/BallColor.h"
+
 #include <algorithm>
 
 GameSession::GameSession(GameMode mode, LevelData level, BackendKind backend)
@@ -51,6 +53,47 @@ void GameSession::startAutoRelease() {
     }
 }
 
+void GameSession::startCapacityProbe() {
+    if (gameMode != GameMode::Performance) {
+        return;
+    }
+    if (sessionState == SessionState::Ready) {
+        autoRelease = false;
+        sessionState = SessionState::Running;
+    }
+    probeColorIndex = 0;
+    probe.start();
+    pumpCapacityProbe();
+}
+
+void GameSession::cancelCapacityProbe() { probe.cancel(); }
+
+void GameSession::reportFrameSeconds(double frameSeconds) {
+    latestFrameSeconds = frameSeconds;
+    pumpCapacityProbe();
+}
+
+void GameSession::pumpCapacityProbe() {
+    if (!probe.isActive() || gameMode != GameMode::Performance || latestFrameSeconds <= 0.0) {
+        return;
+    }
+    const BallCount addition = probe.update(latestFrameSeconds, physicsSimulation.liveBallCount());
+    if (const auto trim = probe.takeTrimRequest()) {
+        physicsSimulation.trimBallsTo(*trim);
+    }
+    if (probe.phase() == ProbePhase::Done) {
+        useMachineBallLimit(probe.bestPassingCount());
+        return;
+    }
+    for (BallCount remaining = addition; remaining > 0;) {
+        const BallColor color = ballColorFromIndex(probeColorIndex % ballColorCount);
+        probeColorIndex = (probeColorIndex + 1) % ballColorCount;
+        const BallCount batch = std::min(remaining, static_cast<BallCount>(1 << 20));
+        physicsSimulation.launchBalls(color, batch);
+        remaining -= batch;
+    }
+}
+
 void GameSession::selectSpawnRate(int optionIndex) {
     selectedSpawnRate = std::clamp(optionIndex, 0, static_cast<int>(spawnRateOptions.size()) - 1);
     if (gameMode == GameMode::Performance) {
@@ -58,7 +101,14 @@ void GameSession::selectSpawnRate(int optionIndex) {
     }
 }
 
+void GameSession::useMachineBallLimit(BallCount limit) {
+    measuredMachineLimit = limit;
+    machineLimitSelected = true;
+    physicsSimulation.trimBallsTo(limit);
+}
+
 void GameSession::selectBallLimit(int optionIndex) {
+    machineLimitSelected = false;
     selectedBallLimit = std::clamp(optionIndex, 0, static_cast<int>(ballLimitOptions.size()) - 1);
 }
 

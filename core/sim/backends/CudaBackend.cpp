@@ -245,6 +245,26 @@ DeviceHitResults CudaBackend::deviceHitResults() const {
 
 void CudaBackend::removeBalls(std::span<const uint32_t>) {}
 
+BallTally CudaBackend::truncate(size_t newCount) {
+    BallTally removed{};
+    if (isFaulted() || newCount >= count) {
+        return removed;
+    }
+    driver.makeCurrent();
+    std::vector<int32_t> colors(count - newCount);
+    if (succeeded(driver.api().memcpyDeviceToHost(colors.data(), balls.color + newCount * 4, colors.size() * 4),
+                  "download truncated colors")) {
+        for (int32_t color : colors) {
+            if (color >= 0) {
+                ++removed[static_cast<size_t>(color)];
+            }
+        }
+    }
+    count = newCount;
+    snapshotFresh = false;
+    return removed;
+}
+
 void CudaBackend::releaseRenderBuffer() {
     if (renderResource) {
         driver.api().graphicsUnregisterResource(renderResource);

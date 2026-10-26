@@ -55,6 +55,7 @@ public:
     virtual BallSnapshot snapshot() = 0;
     virtual std::vector<BallSpawn> exportBalls() = 0;
     virtual void clear() = 0;
+    virtual BallTally truncate(size_t newCount) = 0;
     virtual std::string_view faultMessage() const { return {}; }
     virtual bool resolvesHitsOnDevice() const { return false; }
     virtual DeviceHitResults deviceHitResults() const { return {}; }

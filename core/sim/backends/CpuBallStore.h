@@ -51,6 +51,7 @@ struct CpuBallStore {
     void add(std::span<const BallSpawn> spawns);
     void swapRemove(std::span<const uint32_t> descendingIndices);
     void clear() { resize(0); }
+    BallTally truncate(size_t newCount);
     BallSnapshot snapshot() const { return {packed.data(), count, fieldWidth, fieldHeight}; }
     std::vector<BallSpawn> exportBalls() const;
 

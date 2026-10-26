@@ -80,6 +80,10 @@ void drawDebugPanel(Rectangle area, const GameSession& session, const FrameTimin
     writer.row("  Physics", std::format("{:.2f} ms  x{}", stats.lastFramePhysicsMs, stats.ticksLastFrame));
     writer.row("GPU", std::format("{:.2f} ms", sample.gpuMs));
     writer.row("Present", std::format("{:.2f} ms", sample.presentMs));
+    const CapacityProbe& probe = session.capacityProbe();
+    if (probe.phase() != ProbePhase::Idle) {
+        writer.row("Probe", std::format("{} @ {:.0f} fps", probePhaseName(probe.phase()), probe.lastFps()));
+    }
     writer.row("Backend", backendKindName(session.backend()));
     if (const std::string detail = backendDetail(session.backend()); !detail.empty()) {
         writer.row("Device", detail);
@@ -95,7 +99,9 @@ void drawDebugPanel(Rectangle area, const GameSession& session, const FrameTimin
     writer.row("Launchers", withThousands(launchers));
     writer.row("Waiting to spawn", withThousands(session.spawner().pendingBalls()));
     if (session.mode() == GameMode::Performance) {
-        writer.row("Ball limit", ballLimitText(session.ballLimit()));
+        writer.row("Ball limit", session.isUsingMachineBallLimit()
+                                     ? std::format("Auto {}", withThousands(session.ballLimit()))
+                                     : ballLimitText(session.ballLimit()));
     }
 
     writer.heading("Balls per color");

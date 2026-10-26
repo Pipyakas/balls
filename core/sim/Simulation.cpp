@@ -41,6 +41,21 @@ void Simulation::launchBalls(BallColor color, BallCount count) {
     statistics.totalBallsSpawned += count;
 }
 
+void Simulation::trimBallsTo(BallCount limit) {
+    if (!pendingSpawns.empty()) {
+        physics->addBalls(pendingSpawns);
+        pendingSpawns.clear();
+    }
+    if (physics->ballCount() <= limit) {
+        return;
+    }
+    const BallTally removed = physics->truncate(static_cast<size_t>(limit));
+    for (int color = 0; color < ballColorCount; ++color) {
+        statistics.ballsByColor[color] -= std::min(statistics.ballsByColor[color], removed[color]);
+    }
+    statistics.ballCount = liveBallCount();
+}
+
 StepParams Simulation::stepParams(int substeps) const {
     return {settings.tickSeconds,
             settings.ballRadius,

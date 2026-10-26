@@ -25,6 +25,7 @@ public:
     BallSnapshot snapshot() override;
     std::vector<BallSpawn> exportBalls() override;
     void clear() override { count = 0; }
+    BallTally truncate(size_t newCount) override;
     std::string_view faultMessage() const override { return fault; }
     bool resolvesHitsOnDevice() const override { return true; }
     DeviceHitResults deviceHitResults() const override;

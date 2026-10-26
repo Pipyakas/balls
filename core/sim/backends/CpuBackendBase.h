@@ -11,6 +11,7 @@ public:
     BallSnapshot snapshot() override { return store.snapshot(); }
     std::vector<BallSpawn> exportBalls() override { return store.exportBalls(); }
     void clear() override { store.clear(); }
+    BallTally truncate(size_t newCount) override { return store.truncate(newCount); }
 
 protected:
     BoardView boardView() const { return {paddedCells.data(), brickColors.data(), targetCells.data()}; }

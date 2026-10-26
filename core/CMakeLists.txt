@@ -15,6 +15,7 @@ add_library(balls_core STATIC
     sim/backends/ScalarBackend.cpp
     sim/backends/WorkerPool.cpp
     sim/backends/Avx2Backend.cpp
+    game/CapacityProbe.cpp
     game/LauncherQueue.cpp
     game/SpawnController.cpp
     game/GameSession.cpp

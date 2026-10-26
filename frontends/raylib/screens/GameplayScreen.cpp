@@ -35,6 +35,31 @@ std::string ballLimitLabel(BallCount limit) {
     return limit >= 1'000'000 ? std::format("{}M", limit / 1'000'000) : std::format("{}k", limit / 1'000);
 }
 
+std::string groupedBalls(BallCount value) {
+    std::string digits = std::to_string(value);
+    for (int insertAt = static_cast<int>(digits.size()) - 3; insertAt > 0; insertAt -= 3) {
+        digits.insert(static_cast<size_t>(insertAt), ",");
+    }
+    return digits;
+}
+
+std::string autoLimitLabel(const GameSession& session) {
+    const auto measured = session.machineBallLimit();
+    return measured ? std::format("Auto {}", groupedBalls(*measured)) : std::string("Auto (probe)");
+}
+
+std::string probeButtonLabel(const GameSession& session) {
+    const CapacityProbe& probe = session.capacityProbe();
+    if (probe.isActive()) {
+        return std::format("Probing... {} balls, {:.0f} fps", groupedBalls(session.simulation().liveBallCount()),
+                           probe.lastFps());
+    }
+    if (probe.phase() == ProbePhase::Done) {
+        return std::format("Machine max @60 FPS: {}", groupedBalls(probe.bestPassingCount()));
+    }
+    return "Find max @60 FPS";
+}
+
 }
 
 GameplayScreen::GameplayScreen(App& app, GameMode mode, LevelFiles files)
@@ -51,6 +76,31 @@ void GameplayScreen::loadSession() {
     }
     loadError.clear();
     session = std::make_unique<GameSession>(mode, std::move(*level), app.preferredBackend());
+    applyRememberedMachineLimit();
+}
+
+void GameplayScreen::applyRememberedMachineLimit() {
+    if (mode != GameMode::Performance) {
+        return;
+    }
+    if (const auto limit = app.machineProfile().ballLimit(session->backend())) {
+        session->useMachineBallLimit(*limit);
+    }
+}
+
+void GameplayScreen::rememberFinishedProbe() {
+    const CapacityProbe& probe = session->capacityProbe();
+    if (probe.isActive()) {
+        probeResultSaved = false;
+        return;
+    }
+    if (!probeResultSaved && probe.phase() == ProbePhase::Done) {
+        app.machineProfile().rememberBallLimit(session->backend(), probe.bestPassingCount());
+        showToast(std::format("{} limit on this machine: {} balls @60 FPS", backendKindName(session->backend()),
+                              groupedBalls(probe.bestPassingCount())),
+                  false);
+        probeResultSaved = true;
+    }
 }
 
 void GameplayScreen::hotReload() {
@@ -135,7 +185,9 @@ void GameplayScreen::update(float deltaTime) {
         {static_cast<float>(GetScreenWidth()), static_cast<float>(GetScreenHeight())},
         session->simulation().board().columns(), session->simulation().board().rows());
     handleLauncherClick(layout);
+    session->reportFrameSeconds(GetFrameTime());
     session->update(deltaTime);
+    rememberFinishedProbe();
 }
 
 void GameplayScreen::openNextLevel() {
@@ -188,8 +240,18 @@ void GameplayScreen::drawPerformanceControls(Rectangle area) {
     const std::string startLabel =
         ready ? std::string("Start (1 click)")
               : std::format("Auto releasing - {} launchers left", session->launchers().launcherCount());
-    if (ui::button(startRow, startLabel, ready)) {
+    const Rectangle startHalf = ui::columnSlice(startRow, 0, 2, controlGap);
+    const Rectangle probeHalf = ui::columnSlice(startRow, 1, 2, controlGap);
+    if (ui::button(startHalf, startLabel, ready)) {
         session->startAutoRelease();
+    }
+    const CapacityProbe& probe = session->capacityProbe();
+    if (ui::button(probeHalf, probeButtonLabel(*session))) {
+        if (probe.isActive()) {
+            session->cancelCapacityProbe();
+        } else {
+            session->startCapacityProbe();
+        }
     }
 
     const Rectangle rateRow = labeledRow(1, "Spawn / sec");
@@ -212,10 +274,19 @@ void GameplayScreen::drawPerformanceControls(Rectangle area) {
 
     const Rectangle limitRow = labeledRow(3, "Ball limit");
     const int limitCount = static_cast<int>(ballLimitOptions.size());
+    const int limitSlots = limitCount + 1;
     for (int i = 0; i < limitCount; ++i) {
-        if (ui::button(ui::columnSlice(limitRow, i, limitCount, controlGap), ballLimitLabel(ballLimitOptions[i]), true,
-                       session->ballLimitIndex() == i)) {
+        if (ui::button(ui::columnSlice(limitRow, i, limitSlots, controlGap), ballLimitLabel(ballLimitOptions[i]), true,
+                       !session->isUsingMachineBallLimit() && session->ballLimitIndex() == i)) {
             session->selectBallLimit(i);
+        }
+    }
+    if (ui::button(ui::columnSlice(limitRow, limitCount, limitSlots, controlGap), autoLimitLabel(*session), true,
+                   session->isUsingMachineBallLimit())) {
+        if (const auto measured = session->machineBallLimit()) {
+            session->useMachineBallLimit(*measured);
+        } else {
+            session->startCapacityProbe();
         }
     }
 
@@ -228,6 +299,7 @@ void GameplayScreen::drawPerformanceControls(Rectangle area) {
                        session->backend() == kind) &&
             session->switchBackend(kind)) {
             app.setPreferredBackend(kind);
+            applyRememberedMachineLimit();
         }
     }
 }
@@ -347,18 +419,20 @@ std::string GameplayScreen::stateJson() const {
         launcherColumns += "]";
     }
     constexpr std::array<const char*, 3> stateNames{"ready", "running", "won"};
+    const CapacityProbe& probe = session->capacityProbe();
     return std::format(
         "{{\"mode\":\"{}\",\"level\":\"{}\",\"state\":\"{}\",\"paused\":{},\"backend\":\"{}\",\"backendFault\":\"{}\","
         "\"balls\":{},\"bricks\":{},\"launchersLeft\":{},\"pendingSpawn\":{},\"spawned\":{},\"hits\":{},"
         "\"physicsMs\":{:.3f},\"ticks\":{},\"spawnRate\":{},\"multiplier\":{},\"ballLimit\":{},\"elapsed\":{:.2f},"
+        "\"probe\":{{\"phase\":\"{}\",\"fps\":{:.1f},\"best\":{}}},"
         "\"ballsByColor\":{{{}}},\"launchers\":[{}]}}",
         mode == GameMode::Normal ? "normal" : "performance", jsonEscape(files.name),
         stateNames[static_cast<int>(session->state())], paused, backendKindName(session->backend()),
         jsonEscape(session->lastBackendFault()), stats.ballCount, simulation.board().aliveBrickCount(),
         launchers.launcherCount(), session->spawner().pendingBalls(), stats.totalBallsSpawned, stats.totalHits,
         stats.lastFramePhysicsMs, stats.ticksLastFrame, spawnRateOptions[session->spawnRateIndex()],
-        ballMultiplierOptions[session->ballMultiplierIndex()], session->ballLimit(), session->elapsedSeconds(), ballsByColor,
-        launcherColumns);
+        ballMultiplierOptions[session->ballMultiplierIndex()], session->ballLimit(), session->elapsedSeconds(),
+        probePhaseName(probe.phase()), probe.lastFps(), probe.bestPassingCount(), ballsByColor, launcherColumns);
 }
 
 std::optional<ControlResponse> GameplayScreen::handleControl(const ControlRequest& request) {
@@ -373,6 +447,14 @@ std::optional<ControlResponse> GameplayScreen::handleControl(const ControlReques
     }
     if (path == "/start") {
         session->startAutoRelease();
+        return done;
+    }
+    if (path == "/probe") {
+        if (request.integer("cancel").value_or(0) != 0) {
+            session->cancelCapacityProbe();
+        } else {
+            session->startCapacityProbe();
+        }
         return done;
     }
     if (path == "/rate") {
@@ -393,6 +475,7 @@ std::optional<ControlResponse> GameplayScreen::handleControl(const ControlReques
             return ControlResponse::error(409, "backend unknown or unavailable");
         }
         app.setPreferredBackend(*kind);
+        applyRememberedMachineLimit();
         return done;
     }
     if (path == "/pause") {
