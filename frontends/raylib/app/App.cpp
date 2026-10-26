@@ -53,7 +53,7 @@ ControlResponse saveScreenshot(const std::string& path) {
 }
 
 void App::initializeWindow(const LaunchOptions& options) {
-    unsigned int flags = FLAG_WINDOW_RESIZABLE | FLAG_MSAA_4X_HINT;
+    unsigned int flags = FLAG_WINDOW_RESIZABLE;
     if (options.background) {
         flags |= FLAG_WINDOW_UNFOCUSED;
     }
