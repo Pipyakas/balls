@@ -1,0 +1,52 @@
+cmake_minimum_required(VERSION 3.25)
+project(ColorBlastBalls VERSION 0.1.0 LANGUAGES CXX C)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+option(BALLS_BUILD_GAME "Build the raylib front end" ON)
+option(BALLS_ENABLE_CUDA "Build the CUDA physics backend (needs NVRTC at build time)" ON)
+option(BALLS_STATIC_CRT "Link the static MSVC runtime (turn OFF when building balls_core for Unreal)" ON)
+option(BALLS_LTO "Enable whole-program optimization (turn OFF when building balls_core for Unreal)" ON)
+set(BALLS_CUDA_SDK_DIR "${CMAKE_SOURCE_DIR}/.deps/cuda/sdk" CACHE PATH "Directory with CUDA include/ and bin/ (tools/FetchCudaSdk.ps1)")
+
+if(BALLS_STATIC_CRT)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+else()
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
+endif()
+
+if(MSVC)
+    set(BALLS_WARNINGS /W4 /permissive- /utf-8 /wd4324)
+    set(BALLS_OPTIMIZE $<$<CONFIG:Release,RelWithDebInfo>:/O2 /Oi /fp:fast>)
+    if(BALLS_LTO)
+        list(APPEND BALLS_OPTIMIZE $<$<CONFIG:Release,RelWithDebInfo>:/GL>)
+        set(BALLS_LINK_OPTIMIZE $<$<CONFIG:Release,RelWithDebInfo>:/LTCG>)
+    endif()
+    set(BALLS_AVX2_FLAGS /arch:AVX2)
+else()
+    set(BALLS_WARNINGS -Wall -Wextra -Wpedantic)
+    set(BALLS_OPTIMIZE $<$<CONFIG:Release,RelWithDebInfo>:-O3 -ffast-math>)
+    set(BALLS_AVX2_FLAGS -mavx2 -mfma)
+endif()
+
+add_subdirectory(core)
+
+if(BALLS_BUILD_GAME)
+    add_subdirectory(frontends/raylib)
+endif()
+
+add_executable(balls_bench tools/bench/Bench.cpp)
+target_link_libraries(balls_bench PRIVATE balls_core)
+target_compile_options(balls_bench PRIVATE ${BALLS_WARNINGS} ${BALLS_OPTIMIZE})
+target_link_options(balls_bench PRIVATE ${BALLS_LINK_OPTIMIZE})
+
+enable_testing()
+add_executable(balls_tests tests/TestMain.cpp tests/LevelTests.cpp tests/SimulationTests.cpp tests/GameTests.cpp
+    tests/EditorTests.cpp)
+target_link_libraries(balls_tests PRIVATE balls_core)
+target_compile_options(balls_tests PRIVATE ${BALLS_WARNINGS})
+target_link_options(balls_tests PRIVATE ${BALLS_LINK_OPTIMIZE})
+target_compile_definitions(balls_tests PRIVATE BALLS_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")
+add_test(NAME balls_tests COMMAND balls_tests)
