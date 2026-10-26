@@ -16,6 +16,27 @@ struct VisibilityGrid {
     unsigned int bidderMask;
 };
 
+struct CellBoard {
+    const int* cellWords;
+    const int* targetCells;
+
+    __device__ __forceinline__ bool isNearBrick(int index) const { return cellWords[index] != emptyFarCell; }
+
+    __device__ __forceinline__ int occupant(int index, int& color) const {
+        const int word = cellWords[index];
+        color = word < 0 ? -1 : (word & cellColorMask);
+        return word < 0 ? -1 : (word >> cellBrickShift);
+    }
+
+    __device__ __forceinline__ int targetCell(int color, int index, int cellCount) const {
+        return targetCells[color * cellCount + index];
+    }
+
+    static constexpr int emptyFarCell = -1;
+    static constexpr int cellColorMask = 7;
+    static constexpr int cellBrickShift = 3;
+};
+
 struct FrameCounters {
     unsigned int killedCount;
     unsigned int holeCount;
@@ -123,14 +144,10 @@ __device__ __forceinline__ bool tryConsumeHit(int* hitsLeft) {
     return false;
 }
 
-extern "C" __global__ void stepBallsKernel(DeviceBalls balls, int count, BoardView board, StepParams params,
-                                           int* brickHitsLeft, unsigned int* killedIndices,
-                                           unsigned int killedCapacity, FrameCounters* counters,
-                                           VisibilityGrid grid, unsigned int packedCapacity) {
-    const int index = blockIdx.x * blockDim.x + threadIdx.x;
-    if (index >= count) {
-        return;
-    }
+__device__ __forceinline__ void stepOneBall(int index, const DeviceBalls& balls, const CellBoard& board,
+                                            const StepParams& params, int* brickHitsLeft, unsigned int* killedIndices,
+                                            unsigned int killedCapacity, FrameCounters* counters,
+                                            const VisibilityGrid& grid, unsigned int packedCapacity) {
     const unsigned int startState = balls.state[index];
     const unsigned int color = stateColor(startState);
     float x = 0.0f;
@@ -163,6 +180,19 @@ extern "C" __global__ void stepBallsKernel(DeviceBalls balls, int count, BoardVi
             atomicAdd(&brickHitsLeft[brick], 1);
         }
     }
+}
+
+extern "C" __global__ void stepBallsKernel(DeviceBalls balls, int count, const int* cellWords, const int* targetCells,
+                                           StepParams params, int* brickHitsLeft, unsigned int* killedIndices,
+                                           unsigned int killedCapacity, FrameCounters* counters, VisibilityGrid grid,
+                                           unsigned int packedCapacity) {
+    const int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index >= count) {
+        return;
+    }
+    const CellBoard board{cellWords, targetCells};
+    stepOneBall(index, balls, board, params, brickHitsLeft, killedIndices, killedCapacity, counters, grid,
+                packedCapacity);
 }
 
 extern "C" __global__ void gridToRenderKernel(const unsigned long long* slots, int cells, unsigned int* renderSlots) {

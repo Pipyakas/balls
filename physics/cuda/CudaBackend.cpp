@@ -56,14 +56,22 @@ unsigned int bidderMaskFor(size_t balls, size_t cells) {
     return mask;
 }
 
-struct DeviceBoardView {
-    CUdeviceptr paddedCells;
-    CUdeviceptr brickColors;
-    CUdeviceptr targetCells;
-    CUdeviceptr nearBrickCells;
-};
+constexpr int emptyFarCell = -1;
+constexpr int emptyNearCell = -2;
+constexpr int cellBrickShift = 3;
 
-static_assert(sizeof(DeviceBoardView) == sizeof(BoardView));
+std::vector<int32_t> buildCellWords(const BoardUpload& board) {
+    std::vector<int32_t> words(board.paddedCells.size(), emptyFarCell);
+    for (size_t cell = 0; cell < words.size(); ++cell) {
+        const int32_t brick = board.paddedCells[cell];
+        if (brick >= 0) {
+            words[cell] = (brick << cellBrickShift) | board.brickColors[static_cast<size_t>(brick)];
+        } else if (board.nearBrickCells[cell] != 0) {
+            words[cell] = emptyNearCell;
+        }
+    }
+    return words;
+}
 
 unsigned int blocksFor(size_t threads) {
     return static_cast<unsigned int>((threads + threadsPerBlock - 1) / threadsPerBlock);
@@ -162,7 +170,7 @@ CudaBackend::~CudaBackend() {
     }
     for (CUdeviceptr pointer :
          {balls.position, balls.state, balls.packed, paddedCells.pointer,
-          brickColors.pointer, targetCells.pointer, nearBrickCells.pointer, brickHitsLeft.pointer, killedIndices.pointer, holes.pointer,
+          brickColors.pointer, targetCells.pointer, cellWords.pointer, brickHitsLeft.pointer, killedIndices.pointer, holes.pointer,
           counters.pointer, gridSlots.pointer}) {
         if (pointer) {
             api.memFree(pointer);
@@ -263,7 +271,8 @@ void CudaBackend::uploadBoard(const BoardUpload& board) {
     colors.push_back(-1);
     upload(brickColors, colors.data(), colors.size() * sizeof(int32_t));
     upload(targetCells, board.targetCells.data(), board.targetCells.size_bytes());
-    upload(nearBrickCells, board.nearBrickCells.data(), board.nearBrickCells.size_bytes());
+    const std::vector<int32_t> words = buildCellWords(board);
+    upload(cellWords, words.data(), words.size() * sizeof(int32_t));
     hostBrickHitsLeft.assign(board.brickHitsLeft.begin(), board.brickHitsLeft.end());
     brickCount = hostBrickHitsLeft.size();
     hostBrickHitsLeft.push_back(0);
@@ -332,7 +341,8 @@ void CudaBackend::step(const StepParams& params, std::vector<BallHit>&) {
     if (!succeeded(api.memsetD32(counters.pointer, 0, sizeof(FrameCounters) / 4), "reset counters")) {
         return;
     }
-    DeviceBoardView board{paddedCells.pointer, brickColors.pointer, targetCells.pointer, nearBrickCells.pointer};
+    CUdeviceptr cellWordsPointer = cellWords.pointer;
+    CUdeviceptr targetCellsPointer = targetCells.pointer;
     int ballCountArgument = static_cast<int>(count);
     StepParams stepArgument = params;
     CUdeviceptr hitsLeftPointer = brickHitsLeft.pointer;
@@ -355,9 +365,9 @@ void CudaBackend::step(const StepParams& params, std::vector<BallHit>&) {
     }
     unsigned int killedCapacityArgument = killedCapacity;
     unsigned int packedCapacityArgument = static_cast<unsigned int>(std::min<size_t>(packedCapacity, 0xFFFFFFFFu));
-    void* arguments[] = {&balls,           &ballCountArgument,      &board,          &stepArgument,
-                         &hitsLeftPointer, &killedPointer,          &killedCapacityArgument,
-                         &countersPointer, &grid,                   &packedCapacityArgument};
+    void* arguments[] = {&balls,           &ballCountArgument, &cellWordsPointer, &targetCellsPointer,
+                         &stepArgument,    &hitsLeftPointer,   &killedPointer,    &killedCapacityArgument,
+                         &countersPointer, &grid,              &packedCapacityArgument};
     if (stepStarted) {
         api.eventRecord(stepStarted, nullptr);
     }

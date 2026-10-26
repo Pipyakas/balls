@@ -23,6 +23,7 @@ struct BenchOptions {
     int ticks = 240;
     bool fullSimulation = false;
     bool roofline = false;
+    bool rooflineOnLevel = false;
     int substeps = 2;
 };
 
@@ -72,6 +73,8 @@ BenchOptions parseOptions(int argumentCount, char** arguments) {
             ++i;
         } else if (argument == "--roofline") {
             options.roofline = true;
+        } else if (argument == "--on-level") {
+            options.rooflineOnLevel = true;
         } else if (argument == "--substeps") {
             options.substeps = std::atoi(value);
             ++i;
@@ -155,7 +158,7 @@ BrickLayout emptyBoard(int width, int rows) {
     return layout;
 }
 
-void runRoofline(const BenchOptions& options) {
+void runRoofline(const BenchOptions& options, const BrickLayout* level) {
     constexpr size_t copyBufferBytes = size_t{512} << 20;
     constexpr int boardWidth = 30;
     constexpr int boardRows = 38;
@@ -168,7 +171,7 @@ void runRoofline(const BenchOptions& options) {
     const size_t bytesPerBall = gpuStreamedBytesPerBall(false);
     for (size_t ballCount : options.ballCounts) {
         Simulation simulation(createBackend(BackendKind::Cuda));
-        simulation.load(emptyBoard(boardWidth, boardRows));
+        simulation.load(level ? *level : emptyBoard(boardWidth, boardRows));
         PhysicsBackend& backend = simulation.backend();
         backend.addBalls(scatterBalls(simulation.board(), ballCount, simulation.tuning().ballSpeed));
         const StepParams params = simulation.stepParams(options.substeps);
@@ -196,7 +199,11 @@ void runRoofline(const BenchOptions& options) {
 int main(int argumentCount, char** arguments) {
     const BenchOptions options = parseOptions(argumentCount, arguments);
     if (options.roofline) {
-        runRoofline(options);
+        const bool onLevel = options.rooflineOnLevel;
+        auto rooflineLevel = onLevel ? loadLevel(levelFilesFor(options.levelDirectory, options.levelName))
+                                     : Result<LevelData>(Error{"empty board"});
+        std::printf("board: %s\n", onLevel ? options.levelName.c_str() : "empty");
+        runRoofline(options, rooflineLevel ? &rooflineLevel->bricks : nullptr);
         return 0;
     }
     auto level = loadLevel(levelFilesFor(options.levelDirectory, options.levelName));

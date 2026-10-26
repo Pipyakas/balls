@@ -81,7 +81,7 @@ private:
     DeviceArray paddedCells;
     DeviceArray brickColors;
     DeviceArray targetCells;
-    DeviceArray nearBrickCells;
+    DeviceArray cellWords;
     DeviceArray brickHitsLeft;
     DeviceArray killedIndices;
     DeviceArray holes;
