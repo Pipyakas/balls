@@ -1,0 +1,22 @@
+#pragma once
+
+#include "sim/backends/CpuBallStore.h"
+
+class CpuBackendBase : public PhysicsBackend {
+public:
+    void uploadBoard(const BrickBoard& board, const TargetField& field) override;
+    void addBalls(std::span<const BallSpawn> spawns) override { store.add(spawns); }
+    void removeBalls(std::span<const uint32_t> descendingIndices) override { store.swapRemove(descendingIndices); }
+    size_t ballCount() const override { return store.count; }
+    BallSnapshot snapshot() override { return store.snapshot(); }
+    std::vector<BallSpawn> exportBalls() override { return store.exportBalls(); }
+    void clear() override { store.clear(); }
+
+protected:
+    BoardView boardView() const { return {paddedCells.data(), brickColors.data(), targetCells.data()}; }
+
+    CpuBallStore store;
+    SimdVector<int32_t> paddedCells;
+    SimdVector<int32_t> brickColors;
+    SimdVector<int32_t> targetCells;
+};
