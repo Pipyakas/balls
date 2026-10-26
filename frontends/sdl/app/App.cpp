@@ -71,7 +71,7 @@ App::~App() {
 }
 
 bool App::initialize(const LaunchOptions& options, std::string& error) {
-    SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE;
+    SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | rendererWindowFlags(options.graphicsApi);
     if (options.hidden) {
         flags |= SDL_WINDOW_HIDDEN;
     }
@@ -97,7 +97,7 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
         font = io.Fonts->AddFontDefault();
     }
 
-    renderer = createSdlGpuRenderer(window, error);
+    renderer = createRenderer(window, options.graphicsApi, error);
     if (!renderer) {
         return false;
     }

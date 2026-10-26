@@ -9,6 +9,7 @@
 struct LaunchOptions {
     std::optional<GameMode> playMode;
     std::string playLevel;
+    std::string graphicsApi;
     std::optional<BackendKind> backend;
     int controlPort = 0;
     bool background = false;

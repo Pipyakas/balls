@@ -59,6 +59,8 @@ LaunchOptions parseLaunchOptions(int argumentCount, char** arguments) {
             options.windowWidth = parseInteger(arguments[i + 1], options.windowWidth);
             options.windowHeight = parseInteger(arguments[i + 2], options.windowHeight);
             i += 2;
+        } else if (argument == "--api" && hasValue) {
+            options.graphicsApi = lowercase(arguments[++i]);
         } else if (argument == "--background") {
             options.background = true;
         } else if (argument == "--vsync") {

@@ -14,6 +14,26 @@ FetchContent_Declare(SDL3
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
 FetchContent_MakeAvailable(SDL3)
 
+if(ANDROID OR EMSCRIPTEN OR IOS)
+    set(BALLS_DEFAULT_RENDERER "sdlgpu")
+else()
+    set(BALLS_DEFAULT_RENDERER "nvrhi")
+endif()
+set(BALLS_RENDERER "${BALLS_DEFAULT_RENDERER}" CACHE STRING "Renderer behind IRenderer: nvrhi (D3D12/Vulkan) or sdlgpu")
+set_property(CACHE BALLS_RENDERER PROPERTY STRINGS nvrhi sdlgpu)
+
+if(BALLS_RENDERER STREQUAL "nvrhi")
+    set(NVRHI_INSTALL OFF CACHE BOOL "" FORCE)
+    set(NVRHI_WITH_DX11 OFF CACHE BOOL "" FORCE)
+    set(NVRHI_WITH_VULKAN ON CACHE BOOL "" FORCE)
+    set(NVRHI_WITH_VALIDATION OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(nvrhi
+        GIT_REPOSITORY https://github.com/NVIDIA-RTX/NVRHI.git
+        GIT_TAG 6b96fb03e07539f08327aea76c56d55f1de9d906
+        GIT_SHALLOW FALSE)
+    FetchContent_MakeAvailable(nvrhi)
+endif()
+
 FetchContent_Declare(imgui
     URL https://github.com/ocornut/imgui/archive/refs/tags/v1.93.0.tar.gz
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
@@ -26,8 +46,10 @@ add_library(balls_imgui STATIC
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/imgui_demo.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
-    ${imgui_SOURCE_DIR}/backends/imgui_impl_sdlgpu3.cpp
 )
+if(BALLS_RENDERER STREQUAL "sdlgpu")
+    target_sources(balls_imgui PRIVATE ${imgui_SOURCE_DIR}/backends/imgui_impl_sdlgpu3.cpp)
+endif()
 target_include_directories(balls_imgui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
 target_link_libraries(balls_imgui PUBLIC SDL3::SDL3-static)
 
@@ -41,7 +63,7 @@ add_executable(ColorBlastBalls WIN32
     app/MachineProfile.cpp
     control/ControlProtocol.cpp
     control/ControlServer.cpp
-    render/SdlGpuRenderer.cpp
+    render/RendererFactory.cpp
     render/BallView.cpp
     render/Palette.cpp
     render/BoardRenderer.cpp
@@ -56,6 +78,27 @@ add_executable(ColorBlastBalls WIN32
     editor/MapEditorScreen.cpp
 )
 target_include_directories(ColorBlastBalls PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+if(BALLS_RENDERER STREQUAL "nvrhi")
+    target_sources(ColorBlastBalls PRIVATE
+        render/nvrhi/NvrhiRenderer.cpp
+        render/nvrhi/GraphicsDevice.cpp
+        render/nvrhi/VulkanDevice.cpp
+        render/nvrhi/ImguiNvrhi.cpp
+        render/nvrhi/ShaderBytecode.cpp)
+    target_compile_definitions(ColorBlastBalls PRIVATE BALLS_RENDERER_NVRHI)
+    target_link_libraries(ColorBlastBalls PRIVATE nvrhi nvrhi_vk)
+    if(TARGET Vulkan::Headers)
+        target_link_libraries(ColorBlastBalls PRIVATE Vulkan::Headers)
+    else()
+        target_link_libraries(ColorBlastBalls PRIVATE Vulkan-Headers)
+    endif()
+    if(WIN32)
+        target_sources(ColorBlastBalls PRIVATE render/nvrhi/D3d12Device.cpp)
+        target_link_libraries(ColorBlastBalls PRIVATE nvrhi_d3d12 dxgi d3d12)
+    endif()
+else()
+    target_sources(ColorBlastBalls PRIVATE render/SdlGpuRenderer.cpp)
+endif()
 target_link_libraries(ColorBlastBalls PRIVATE balls_core balls_imgui SDL3::SDL3-static)
 if(WIN32)
     target_link_libraries(ColorBlastBalls PRIVATE ws2_32)
