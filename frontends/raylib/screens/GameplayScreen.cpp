@@ -444,14 +444,14 @@ std::string GameplayScreen::stateJson() const {
     return std::format(
         "{{\"mode\":\"{}\",\"level\":\"{}\",\"state\":\"{}\",\"paused\":{},\"backend\":\"{}\",\"backendFault\":\"{}\","
         "\"balls\":{},\"bricks\":{},\"launchersLeft\":{},\"pendingSpawn\":{},\"spawned\":{},\"hits\":{},"
-        "\"physicsMs\":{:.3f},\"ticks\":{},\"spawnRate\":{},\"multiplier\":{},\"ballLimit\":{},\"elapsed\":{:.2f},"
+        "\"physicsMs\":{:.3f},\"kernelMs\":{:.3f},\"ticks\":{},\"spawnRate\":{},\"multiplier\":{},\"ballLimit\":{},\"elapsed\":{:.2f},"
         "\"probe\":{{\"phase\":\"{}\",\"target\":{:.0f},\"fps\":{:.1f},\"best\":{}}},"
         "\"ballsByColor\":{{{}}},\"launchers\":[{}]}}",
         mode == GameMode::Normal ? "normal" : "performance", jsonEscape(files.name),
         stateNames[static_cast<int>(session->state())], paused, backendKindName(session->backend()),
         jsonEscape(session->lastBackendFault()), stats.ballCount, simulation.board().aliveBrickCount(),
         launchers.launcherCount(), session->spawner().pendingBalls(), stats.totalBallsSpawned, stats.totalHits,
-        stats.lastFramePhysicsMs, stats.ticksLastFrame, spawnRateOptions[session->spawnRateIndex()],
+        stats.lastFramePhysicsMs, simulation.backend().deviceStepMs(), stats.ticksLastFrame, spawnRateOptions[session->spawnRateIndex()],
         ballMultiplierOptions[session->ballMultiplierIndex()], session->ballLimit(), session->elapsedSeconds(),
         probePhaseName(probe.phase()), probe.targetFps(), probe.lastFps(), probe.bestPassingCount(), ballsByColor, launcherColumns);
 }

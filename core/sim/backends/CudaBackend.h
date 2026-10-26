@@ -58,6 +58,7 @@ private:
     bool isFaulted() const { return !fault.empty(); }
     bool launch(CUfunction function, size_t threads, void** arguments, const char* what);
     void ensureBallCapacity(size_t required);
+    void ensurePackedCapacity(size_t required);
     void ensureArray(DeviceArray& array, size_t bytes);
     void upload(DeviceArray& array, const void* data, size_t bytes);
     void compactKilledBalls(unsigned int killed);
@@ -75,10 +76,12 @@ private:
     CUfunction gridToRenderFunction = nullptr;
     DeviceBalls balls{};
     size_t capacity = 0;
+    size_t packedCapacity = 0;
     size_t count = 0;
     DeviceArray paddedCells;
     DeviceArray brickColors;
     DeviceArray targetCells;
+    DeviceArray nearBrickCells;
     DeviceArray brickHitsLeft;
     DeviceArray killedIndices;
     DeviceArray holes;

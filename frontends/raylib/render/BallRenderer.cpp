@@ -148,7 +148,12 @@ void BallRenderer::draw(PhysicsBackend& backend, const BoardTransform& transform
     const float slotSize = std::max(radiusCells * visibilitySlotPerRadius, 1.0f / transform.cellPixels);
     backend.setVisibilityGrid(static_cast<int>(std::ceil(lastFieldWidth / slotSize)),
                               static_cast<int>(std::ceil(lastFieldHeight / slotSize)));
-    if (ensureCapacity(backend.ballCount()) || sharedBackend != &backend) {
+    const size_t requestedGridCells = static_cast<size_t>(std::ceil(lastFieldWidth / slotSize)) *
+                                      static_cast<size_t>(std::ceil(lastFieldHeight / slotSize));
+    const size_t wanted = sharedBufferAccepted && sharedBackend == &backend
+                              ? std::min(backend.ballCount(), std::max(requestedGridCells, initialCapacity))
+                              : backend.ballCount();
+    if (ensureCapacity(wanted) || sharedBackend != &backend) {
         shareWith(backend);
     }
     const auto snapshotStart = std::chrono::steady_clock::now();
@@ -165,6 +170,9 @@ void BallRenderer::draw(PhysicsBackend& backend, const BoardTransform& transform
     if (!balls.residentInRenderBuffer) {
         if (!balls.packed) {
             return;
+        }
+        if (ensureCapacity(balls.count)) {
+            shareWith(backend);
         }
         rlUpdateVertexBuffer(packedBuffer, balls.packed, static_cast<int>(balls.count * sizeof(uint32_t)), 0);
     }

@@ -45,6 +45,10 @@ def probe_backend(port, level, backend, timeout_seconds, steady_seconds, target_
         "cpuMs": steady["cpuMs"],
         "gpuMs": steady["gpuMs"],
         "physicsMs": steady["details"]["physicsMs"],
+        "kernelMs": steady["details"]["kernelMs"],
+        "balls": steady["details"]["balls"],
+        "fault": steady["details"]["backendFault"],
+        "backendNow": steady["details"]["backend"],
     }
 
 
@@ -56,6 +60,7 @@ def main():
     parser.add_argument("--backends", nargs="+", default=["cuda", "avx2"])
     parser.add_argument("--timeout", type=float, default=180.0)
     parser.add_argument("--steady", type=float, default=3.0)
+    parser.add_argument("--bytes-per-ball", type=int, default=12, help="bytes streamed per ball per frame by the physics kernel")
     parser.add_argument("--fps", type=int, default=0, help="probe target FPS; default is the monitor refresh rate")
     arguments = parser.parse_args()
 
@@ -71,7 +76,9 @@ def main():
             print(
                 f"{backend:7} limit={result['limit']:>11,} @{result['target']:.0f} ({result['phase']})  steady fps={result['fps']:5.1f} "
                 f"min={result['minFps']:5.1f}  cpu={result['cpuMs']:6.2f}  gpu={result['gpuMs']:6.2f}  "
-                f"physics={result['physicsMs']:6.2f}",
+                f"physics={result['physicsMs']:6.2f}  kernel={result['kernelMs']:6.2f}"
+                + (f"  {result['balls'] * arguments.bytes_per_ball / (result['kernelMs'] * 1e6):6.1f} GB/s" if result['kernelMs'] > 0 else "")
+                + f"  now={result['backendNow']} {result['fault']}",
                 flush=True,
             )
     finally:

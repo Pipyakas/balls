@@ -25,6 +25,7 @@ struct BoardView {
     const int* paddedCells;
     const int* brickColors;
     const int* targetCells;
+    const int* nearBrickCells;
 };
 
 inline constexpr int noBrickHit = -1;
@@ -158,6 +159,15 @@ BALLS_HOST_DEVICE int stepBall(float& x, float& y, float& vx, float& vy, int col
 
     const int column = static_cast<int>(floorf(x));
     const int row = static_cast<int>(floorf(y));
+    if (board.nearBrickCells[paddedCellIndex(column, row, params.paddedWidth)] == 0) {
+        if (bounced) {
+            bounces += 1;
+            if (bounces >= params.retargetBounceThreshold) {
+                retargetTowardNearestBrick(x, y, vx, vy, color, normalX, normalY, board, params);
+            }
+        }
+        return noBrickHit;
+    }
     const float fractionX = x - static_cast<float>(column);
     const float fractionY = y - static_cast<float>(row);
     const int neighborColumn = fractionX < radius ? -1 : (fractionX > 1.0f - radius ? 1 : 0);

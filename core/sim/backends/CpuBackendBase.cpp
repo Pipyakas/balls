@@ -5,6 +5,8 @@ void CpuBackendBase::uploadBoard(const BrickBoard& board, const TargetField& fie
     brickColors.assign(board.brickColors().begin(), board.brickColors().end());
     brickColors.push_back(-1);
     targetCells.assign(field.targetCells().begin(), field.targetCells().end());
+    const std::vector<int32_t> nearFlags = board.nearBrickFlags();
+    nearBrickCells.assign(nearFlags.begin(), nearFlags.end());
     store.fieldWidth = static_cast<float>(board.columns());
     store.fieldHeight = static_cast<float>(board.rows());
 }

@@ -14,10 +14,13 @@ public:
     BallTally truncate(size_t newCount) override { return store.truncate(newCount); }
 
 protected:
-    BoardView boardView() const { return {paddedCells.data(), brickColors.data(), targetCells.data()}; }
+    BoardView boardView() const {
+        return {paddedCells.data(), brickColors.data(), targetCells.data(), nearBrickCells.data()};
+    }
 
     CpuBallStore store;
     SimdVector<int32_t> paddedCells;
     SimdVector<int32_t> brickColors;
     SimdVector<int32_t> targetCells;
+    SimdVector<int32_t> nearBrickCells;
 };

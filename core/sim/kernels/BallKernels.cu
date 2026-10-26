@@ -13,6 +13,7 @@ struct VisibilityGrid {
     float scaleX;
     float scaleY;
     unsigned int frameSeed;
+    unsigned int bidderMask;
 };
 
 struct FrameCounters {
@@ -100,8 +101,11 @@ __device__ __forceinline__ int slotForPacked(unsigned int packed, const Visibili
 }
 
 __device__ __forceinline__ void bidForSlot(unsigned int packed, unsigned int index, const VisibilityGrid& grid) {
-    const int slot = slotForPacked(packed, grid);
     const unsigned int priority = slotPriority(index, grid.frameSeed);
+    if ((priority >> 1) & grid.bidderMask) {
+        return;
+    }
+    const int slot = slotForPacked(packed, grid);
     if (priority > static_cast<unsigned int>(grid.slots[slot] >> 32)) {
         atomicMax(&grid.slots[slot], (static_cast<unsigned long long>(priority) << 32) | packed);
     }
@@ -122,7 +126,7 @@ __device__ __forceinline__ bool tryConsumeHit(int* hitsLeft) {
 extern "C" __global__ void stepBallsKernel(DeviceBalls balls, int count, BoardView board, StepParams params,
                                            int* brickHitsLeft, unsigned int* killedIndices,
                                            unsigned int killedCapacity, FrameCounters* counters,
-                                           VisibilityGrid grid) {
+                                           VisibilityGrid grid, unsigned int packedCapacity) {
     const int index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index >= count) {
         return;
@@ -146,7 +150,7 @@ extern "C" __global__ void stepBallsKernel(DeviceBalls balls, int count, BoardVi
     const unsigned int packed = packFromPosition(position, color);
     if (grid.slots) {
         bidForSlot(packed, static_cast<unsigned int>(index), grid);
-    } else {
+    } else if (static_cast<unsigned int>(index) < packedCapacity) {
         balls.packed[index] = packed;
     }
     if (brick != noBrickHit && tryConsumeHit(&brickHitsLeft[brick])) {
@@ -184,7 +188,8 @@ extern "C" __global__ void collectHolesKernel(const unsigned int* killedIndices,
 }
 
 extern "C" __global__ void fillHolesKernel(DeviceBalls balls, unsigned int survivorCount, unsigned int oldCount,
-                                           const unsigned int* holes, FrameCounters* counters) {
+                                           const unsigned int* holes, FrameCounters* counters,
+                                           unsigned int packedCapacity) {
     const unsigned int source = survivorCount + blockIdx.x * blockDim.x + threadIdx.x;
     if (source >= oldCount || stateColor(balls.state[source]) == deadColor) {
         return;
@@ -192,5 +197,7 @@ extern "C" __global__ void fillHolesKernel(DeviceBalls balls, unsigned int survi
     const unsigned int target = holes[atomicAdd(&counters->holeCursor, 1u)];
     balls.position[target] = balls.position[source];
     balls.state[target] = balls.state[source];
-    balls.packed[target] = balls.packed[source];
+    if (source < packedCapacity) {
+        balls.packed[target] = balls.packed[source];
+    }
 }

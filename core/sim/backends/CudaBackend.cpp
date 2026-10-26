@@ -8,7 +8,9 @@ namespace {
 constexpr unsigned int threadsPerBlock = 256;
 constexpr size_t initialBallCapacity = 1 << 16;
 constexpr unsigned int writeDiscardFlag = 0x02;
-constexpr size_t ballArrayCount = 3;
+constexpr size_t stateArrayCount = 2;
+constexpr size_t capacityGranule = size_t{1} << 20;
+constexpr size_t growthDivisor = 4;
 constexpr unsigned int minimumKilledCapacity = 1024;
 constexpr float positionScale = 65535.0f;
 constexpr unsigned int positionMask = 0xFFFFu;
@@ -42,12 +44,23 @@ struct DeviceVisibilityGrid {
     float scaleX;
     float scaleY;
     unsigned int frameSeed;
+    unsigned int bidderMask;
 };
+
+unsigned int bidderMaskFor(size_t balls, size_t cells) {
+    constexpr size_t biddersPerSlot = 32;
+    unsigned int mask = 0;
+    while (mask < 0x3FFFFFFFu && (static_cast<size_t>(mask) + 1) * 2 * cells * biddersPerSlot <= balls) {
+        mask = mask * 2 + 1;
+    }
+    return mask;
+}
 
 struct DeviceBoardView {
     CUdeviceptr paddedCells;
     CUdeviceptr brickColors;
     CUdeviceptr targetCells;
+    CUdeviceptr nearBrickCells;
 };
 
 static_assert(sizeof(DeviceBoardView) == sizeof(BoardView));
@@ -149,7 +162,7 @@ CudaBackend::~CudaBackend() {
     }
     for (CUdeviceptr pointer :
          {balls.position, balls.state, balls.packed, paddedCells.pointer,
-          brickColors.pointer, targetCells.pointer, brickHitsLeft.pointer, killedIndices.pointer, holes.pointer,
+          brickColors.pointer, targetCells.pointer, nearBrickCells.pointer, brickHitsLeft.pointer, killedIndices.pointer, holes.pointer,
           counters.pointer, gridSlots.pointer}) {
         if (pointer) {
             api.memFree(pointer);
@@ -205,22 +218,39 @@ void CudaBackend::ensureBallCapacity(size_t required) {
         return;
     }
     const auto& api = driver.api();
-    const size_t newCapacity = std::max(required, capacity * 2);
-    const std::array<CUdeviceptr*, ballArrayCount> fields{&balls.position, &balls.state, &balls.packed};
+    const size_t grown = std::max(required, capacity + capacity / growthDivisor);
+    const size_t newCapacity = (grown + capacityGranule - 1) / capacityGranule * capacityGranule;
+    const std::array<CUdeviceptr*, stateArrayCount> fields{&balls.position, &balls.state};
     for (CUdeviceptr* field : fields) {
-        CUdeviceptr grown = 0;
-        if (!succeeded(api.memAlloc(&grown, newCapacity * 4), "cuMemAlloc")) {
+        CUdeviceptr grownArray = 0;
+        if (!succeeded(api.memAlloc(&grownArray, newCapacity * 4), "cuMemAlloc")) {
             return;
         }
         if (*field) {
             if (count > 0) {
-                succeeded(api.memcpyDeviceToDevice(grown, *field, count * 4), "cuMemcpyDtoD");
+                succeeded(api.memcpyDeviceToDevice(grownArray, *field, count * 4), "cuMemcpyDtoD");
             }
             api.memFree(*field);
         }
-        *field = grown;
+        *field = grownArray;
     }
     capacity = newCapacity;
+}
+
+void CudaBackend::ensurePackedCapacity(size_t required) {
+    if (isFaulted() || required <= packedCapacity) {
+        return;
+    }
+    const auto& api = driver.api();
+    const size_t newCapacity = (required + capacityGranule - 1) / capacityGranule * capacityGranule;
+    if (balls.packed) {
+        api.memFree(balls.packed);
+        balls.packed = 0;
+    }
+    packedCapacity = 0;
+    if (succeeded(api.memAlloc(&balls.packed, newCapacity * 4), "cuMemAlloc packed")) {
+        packedCapacity = newCapacity;
+    }
 }
 
 void CudaBackend::uploadBoard(const BrickBoard& board, const TargetField& field) {
@@ -233,6 +263,8 @@ void CudaBackend::uploadBoard(const BrickBoard& board, const TargetField& field)
     colors.push_back(-1);
     upload(brickColors, colors.data(), colors.size() * sizeof(int32_t));
     upload(targetCells, field.targetCells().data(), field.targetCells().size() * sizeof(int32_t));
+    const std::vector<int32_t> nearFlags = board.nearBrickFlags();
+    upload(nearBrickCells, nearFlags.data(), nearFlags.size() * sizeof(int32_t));
     hostBrickHitsLeft = board.hitsLeftPerBrick();
     brickCount = hostBrickHitsLeft.size();
     hostBrickHitsLeft.push_back(0);
@@ -275,7 +307,9 @@ void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {
     const size_t offset = count * 4;
     succeeded(api.memcpyHostToDevice(balls.position + offset, position.data(), added * 4), "upload position");
     succeeded(api.memcpyHostToDevice(balls.state + offset, state.data(), added * 4), "upload state");
-    succeeded(api.memcpyHostToDevice(balls.packed + offset, packed.data(), added * 4), "upload packed");
+    if (count + added <= packedCapacity) {
+        succeeded(api.memcpyHostToDevice(balls.packed + offset, packed.data(), added * 4), "upload packed");
+    }
     count += added;
     snapshotFresh = false;
 }
@@ -299,26 +333,32 @@ void CudaBackend::step(const StepParams& params, std::vector<BallHit>&) {
     if (!succeeded(api.memsetD32(counters.pointer, 0, sizeof(FrameCounters) / 4), "reset counters")) {
         return;
     }
-    DeviceBoardView board{paddedCells.pointer, brickColors.pointer, targetCells.pointer};
+    DeviceBoardView board{paddedCells.pointer, brickColors.pointer, targetCells.pointer, nearBrickCells.pointer};
     int ballCountArgument = static_cast<int>(count);
     StepParams stepArgument = params;
     CUdeviceptr hitsLeftPointer = brickHitsLeft.pointer;
     CUdeviceptr killedPointer = killedIndices.pointer;
     CUdeviceptr countersPointer = counters.pointer;
-    DeviceVisibilityGrid grid{0, gridWidth, gridHeight, 0.0f, 0.0f, 0};
+    DeviceVisibilityGrid grid{0, gridWidth, gridHeight, 0.0f, 0.0f, 0, 0};
     const size_t cells = gridCellCount();
     if (cells > 0 && count > cells && renderResource && renderCapacityBytes >= cells * 4) {
         ensureArray(gridSlots, cells * sizeof(unsigned long long));
         if (!isFaulted() && succeeded(api.memsetD32(gridSlots.pointer, 0, cells * 2), "clear grid")) {
             const float coordinateToSlotX = static_cast<float>(gridWidth) / static_cast<float>(renderCoordinateMax + 1);
             const float coordinateToSlotY = static_cast<float>(gridHeight) / static_cast<float>(renderCoordinateMax + 1);
-            grid = {gridSlots.pointer, gridWidth, gridHeight, coordinateToSlotX, coordinateToSlotY, ++frameSeed};
+            grid = {gridSlots.pointer, gridWidth,   gridHeight, coordinateToSlotX, coordinateToSlotY,
+                    ++frameSeed,       bidderMaskFor(count, cells)};
             gridFilled = true;
         }
     }
+    if (!gridFilled) {
+        ensurePackedCapacity(count);
+    }
     unsigned int killedCapacityArgument = killedCapacity;
-    void* arguments[] = {&balls,         &ballCountArgument,       &board,           &stepArgument, &hitsLeftPointer,
-                         &killedPointer, &killedCapacityArgument, &countersPointer, &grid};
+    unsigned int packedCapacityArgument = static_cast<unsigned int>(std::min<size_t>(packedCapacity, 0xFFFFFFFFu));
+    void* arguments[] = {&balls,           &ballCountArgument,      &board,          &stepArgument,
+                         &hitsLeftPointer, &killedPointer,          &killedCapacityArgument,
+                         &countersPointer, &grid,                   &packedCapacityArgument};
     if (stepStarted) {
         api.eventRecord(stepStarted, nullptr);
     }
@@ -358,7 +398,9 @@ void CudaBackend::compactKilledBalls(unsigned int killed) {
         return;
     }
     unsigned int oldCountArgument = oldCount;
-    void* fillArguments[] = {&balls, &survivorCount, &oldCountArgument, &holesPointer, &countersPointer};
+    unsigned int packedCapacityArgument = static_cast<unsigned int>(std::min<size_t>(packedCapacity, 0xFFFFFFFFu));
+    void* fillArguments[] = {&balls, &survivorCount, &oldCountArgument, &holesPointer, &countersPointer,
+                             &packedCapacityArgument};
     if (!launch(fillHolesFunction, killed, fillArguments, "fillHolesKernel")) {
         return;
     }
@@ -472,9 +514,10 @@ BallTally CudaBackend::downloadColorTally(size_t first, size_t last) {
 }
 
 void CudaBackend::downloadPacked() {
-    hostPacked.resize(count);
-    if (count > 0) {
-        succeeded(driver.api().memcpyDeviceToHost(hostPacked.data(), balls.packed, count * 4), "download packed");
+    hostPacked.resize(std::min(count, packedCapacity));
+    if (!hostPacked.empty()) {
+        succeeded(driver.api().memcpyDeviceToHost(hostPacked.data(), balls.packed, hostPacked.size() * 4),
+                  "download packed");
     }
 }
 
@@ -486,7 +529,7 @@ BallSnapshot CudaBackend::snapshot() {
     if (gridFilled && writeGridIntoRenderBuffer()) {
         return {nullptr, gridCellCount(), fieldWidth, fieldHeight, true, true};
     }
-    if (count > 0 && copyIntoRenderBuffer(balls.packed, count)) {
+    if (count > 0 && count <= packedCapacity && copyIntoRenderBuffer(balls.packed, count)) {
         return {nullptr, count, fieldWidth, fieldHeight, true, false};
     }
     if (!snapshotFresh) {
@@ -496,7 +539,7 @@ BallSnapshot CudaBackend::snapshot() {
     if (isFaulted()) {
         return {};
     }
-    return {hostPacked.data(), count, fieldWidth, fieldHeight, false};
+    return {hostPacked.data(), hostPacked.size(), fieldWidth, fieldHeight, false};
 }
 
 std::vector<BallSpawn> CudaBackend::exportBalls() {
