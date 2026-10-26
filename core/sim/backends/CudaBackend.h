@@ -37,11 +37,8 @@ public:
 
 private:
     struct DeviceBalls {
-        CUdeviceptr x;
-        CUdeviceptr y;
-        CUdeviceptr vx;
-        CUdeviceptr vy;
-        CUdeviceptr meta;
+        CUdeviceptr position;
+        CUdeviceptr state;
         CUdeviceptr packed;
     };
 
@@ -92,6 +89,8 @@ private:
     int gridHeight = 0;
     bool gridFilled = false;
     size_t brickCount = 0;
+    unsigned int killedCapacity = 0;
+    float ballSpeed = 1.0f;
     std::vector<int32_t> hostBrickHitsLeft;
     FrameCounters lastCounters{};
     std::vector<uint32_t> hostPacked;

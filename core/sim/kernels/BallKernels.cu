@@ -1,11 +1,8 @@
 #include "BallStepCore.h"
 
 struct DeviceBalls {
-    float* x;
-    float* y;
-    float* vx;
-    float* vy;
-    unsigned int* meta;
+    unsigned int* position;
+    unsigned int* state;
     unsigned int* packed;
 };
 
@@ -25,9 +22,63 @@ struct FrameCounters {
     unsigned int killsByColor[7];
 };
 
-inline constexpr unsigned int metaColorMask = 7u;
-inline constexpr unsigned int metaBounceShift = 3u;
+inline constexpr float positionScale = 65535.0f;
+inline constexpr unsigned int positionMask = 0xFFFFu;
+inline constexpr int directionBits = 13;
+inline constexpr unsigned int directionMask = (1u << directionBits) - 1u;
+inline constexpr float directionScale = 4095.0f;
+inline constexpr unsigned int colorShift = 26u;
+inline constexpr unsigned int colorMask = 7u;
+inline constexpr unsigned int bounceShift = 29u;
+inline constexpr unsigned int bounceMask = 3u;
 inline constexpr unsigned int deadColor = 7u;
+inline constexpr int savedBounceLimit = 3;
+
+__device__ __forceinline__ unsigned int stateColor(unsigned int state) { return (state >> colorShift) & colorMask; }
+
+__device__ __forceinline__ unsigned int encodeAxis(float value, float extent) {
+    const float scaled = value / extent * positionScale + 0.5f;
+    return static_cast<unsigned int>(fminf(fmaxf(scaled, 0.0f), positionScale));
+}
+
+__device__ __forceinline__ unsigned int encodePosition(float x, float y, const StepParams& params) {
+    return encodeAxis(x, params.fieldWidth) | (encodeAxis(y, params.fieldHeight) << 16);
+}
+
+__device__ __forceinline__ void decodePosition(unsigned int position, float& x, float& y, const StepParams& params) {
+    x = static_cast<float>(position & positionMask) * (params.fieldWidth / positionScale);
+    y = static_cast<float>(position >> 16) * (params.fieldHeight / positionScale);
+}
+
+__device__ __forceinline__ int signedComponent(unsigned int bits) {
+    return static_cast<int>(bits << (32 - directionBits)) >> (32 - directionBits);
+}
+
+__device__ __forceinline__ unsigned int encodeComponent(float value) {
+    const int quantized = __float2int_rn(fminf(fmaxf(value, -1.0f), 1.0f) * directionScale);
+    return static_cast<unsigned int>(quantized) & directionMask;
+}
+
+__device__ __forceinline__ unsigned int encodeState(float vx, float vy, unsigned int color, int bounces,
+                                                    const StepParams& params) {
+    const float inverseSpeed = 1.0f / params.speed;
+    const unsigned int savedBounces = static_cast<unsigned int>(min(bounces, savedBounceLimit));
+    return encodeComponent(vx * inverseSpeed) | (encodeComponent(vy * inverseSpeed) << directionBits) |
+           (color << colorShift) | (savedBounces << bounceShift);
+}
+
+__device__ __forceinline__ void decodeVelocity(unsigned int state, float& vx, float& vy, const StepParams& params) {
+    const float dx = static_cast<float>(signedComponent(state & directionMask));
+    const float dy = static_cast<float>(signedComponent((state >> directionBits) & directionMask));
+    const float scale = params.speed * rsqrtf(fmaxf(dx * dx + dy * dy, 1.0f));
+    vx = dx * scale;
+    vy = dy * scale;
+}
+
+__device__ __forceinline__ unsigned int packFromPosition(unsigned int position, unsigned int color) {
+    return ((position & positionMask) >> 2) | (((position >> 16) >> 2) << renderCoordinateBits) |
+           (color << renderColorShift);
+}
 
 __device__ __forceinline__ unsigned int slotPriority(unsigned int index, unsigned int frameSeed) {
     unsigned int hash = index ^ frameSeed;
@@ -70,39 +121,43 @@ __device__ __forceinline__ bool tryConsumeHit(int* hitsLeft) {
 
 extern "C" __global__ void stepBallsKernel(DeviceBalls balls, int count, BoardView board, StepParams params,
                                            int* brickHitsLeft, unsigned int* killedIndices,
-                                           FrameCounters* counters, VisibilityGrid grid) {
+                                           unsigned int killedCapacity, FrameCounters* counters,
+                                           VisibilityGrid grid) {
     const int index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index >= count) {
         return;
     }
-    float x = balls.x[index];
-    float y = balls.y[index];
-    const float startVx = balls.vx[index];
-    const float startVy = balls.vy[index];
-    const unsigned int meta = balls.meta[index];
-    const int color = static_cast<int>(meta & metaColorMask);
-    const int startBounces = static_cast<int>(meta >> metaBounceShift);
-    float vx = startVx;
-    float vy = startVy;
+    const unsigned int startState = balls.state[index];
+    const unsigned int color = stateColor(startState);
+    float x = 0.0f;
+    float y = 0.0f;
+    float vx = 0.0f;
+    float vy = 0.0f;
+    decodePosition(balls.position[index], x, y, params);
+    decodeVelocity(startState, vx, vy, params);
+    const int startBounces = static_cast<int>((startState >> bounceShift) & bounceMask);
     int bounces = startBounces;
-    const int brick = stepBallSubsteps(x, y, vx, vy, color, bounces, board, params);
-    balls.x[index] = x;
-    balls.y[index] = y;
+    const int brick = stepBallSubsteps(x, y, vx, vy, static_cast<int>(color), bounces, board, params);
+    const unsigned int position = encodePosition(x, y, params);
+    balls.position[index] = position;
     if (bounces != startBounces) {
-        balls.vx[index] = vx;
-        balls.vy[index] = vy;
-        balls.meta[index] = static_cast<unsigned int>(color) | (static_cast<unsigned int>(bounces) << metaBounceShift);
+        balls.state[index] = encodeState(vx, vy, color, bounces, params);
     }
-    const unsigned int packed = packBallForRender(x, y, color, params.packScaleX, params.packScaleY);
+    const unsigned int packed = packFromPosition(position, color);
     if (grid.slots) {
         bidForSlot(packed, static_cast<unsigned int>(index), grid);
     } else {
         balls.packed[index] = packed;
     }
     if (brick != noBrickHit && tryConsumeHit(&brickHitsLeft[brick])) {
-        balls.meta[index] = deadColor;
-        killedIndices[atomicAdd(&counters->killedCount, 1u)] = static_cast<unsigned int>(index);
-        atomicAdd(&counters->killsByColor[color], 1u);
+        const unsigned int slot = atomicAdd(&counters->killedCount, 1u);
+        if (slot < killedCapacity) {
+            balls.state[index] = deadColor << colorShift;
+            killedIndices[slot] = static_cast<unsigned int>(index);
+            atomicAdd(&counters->killsByColor[color], 1u);
+        } else {
+            atomicAdd(&brickHitsLeft[brick], 1);
+        }
     }
 }
 
@@ -131,14 +186,11 @@ extern "C" __global__ void collectHolesKernel(const unsigned int* killedIndices,
 extern "C" __global__ void fillHolesKernel(DeviceBalls balls, unsigned int survivorCount, unsigned int oldCount,
                                            const unsigned int* holes, FrameCounters* counters) {
     const unsigned int source = survivorCount + blockIdx.x * blockDim.x + threadIdx.x;
-    if (source >= oldCount || (balls.meta[source] & metaColorMask) == deadColor) {
+    if (source >= oldCount || stateColor(balls.state[source]) == deadColor) {
         return;
     }
     const unsigned int target = holes[atomicAdd(&counters->holeCursor, 1u)];
-    balls.x[target] = balls.x[source];
-    balls.y[target] = balls.y[source];
-    balls.vx[target] = balls.vx[source];
-    balls.vy[target] = balls.vy[source];
-    balls.meta[target] = balls.meta[source];
+    balls.position[target] = balls.position[source];
+    balls.state[target] = balls.state[source];
     balls.packed[target] = balls.packed[source];
 }

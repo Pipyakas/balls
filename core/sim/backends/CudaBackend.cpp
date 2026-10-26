@@ -1,15 +1,39 @@
 #include "sim/backends/CudaBackend.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace {
 
 constexpr unsigned int threadsPerBlock = 256;
 constexpr size_t initialBallCapacity = 1 << 16;
 constexpr unsigned int writeDiscardFlag = 0x02;
-constexpr size_t ballArrayCount = 6;
-constexpr unsigned int metaColorMask = 7u;
+constexpr size_t ballArrayCount = 3;
+constexpr unsigned int minimumKilledCapacity = 1024;
+constexpr float positionScale = 65535.0f;
+constexpr unsigned int positionMask = 0xFFFFu;
+constexpr int directionBits = 13;
+constexpr unsigned int directionMask = (1u << directionBits) - 1u;
+constexpr float directionScale = 4095.0f;
+constexpr unsigned int colorShift = 26u;
+constexpr unsigned int colorMask = 7u;
 constexpr unsigned int deadColor = 7u;
+
+uint32_t encodeAxis(float value, float extent) {
+    const float scaled = value / extent * positionScale + 0.5f;
+    return static_cast<uint32_t>(std::clamp(scaled, 0.0f, positionScale));
+}
+
+uint32_t encodeComponent(float value) {
+    const int quantized = static_cast<int>(std::lround(std::clamp(value, -1.0f, 1.0f) * directionScale));
+    return static_cast<uint32_t>(quantized) & directionMask;
+}
+
+int signedComponent(uint32_t bits) {
+    return static_cast<int32_t>(bits << (32 - directionBits)) >> (32 - directionBits);
+}
+
+uint32_t stateColor(uint32_t state) { return (state >> colorShift) & colorMask; }
 
 struct DeviceVisibilityGrid {
     CUdeviceptr slots;
@@ -58,8 +82,8 @@ CudaBackend::CudaBackend() : driver(CudaDriver::instance()) {
 }
 
 size_t CudaBackend::streamedBytesPerBall(bool gridActive) {
-    constexpr size_t readBytes = 5 * sizeof(float);
-    constexpr size_t positionWriteBytes = 2 * sizeof(float);
+    constexpr size_t readBytes = 2 * sizeof(uint32_t);
+    constexpr size_t positionWriteBytes = sizeof(uint32_t);
     constexpr size_t packedWriteBytes = sizeof(uint32_t);
     return readBytes + positionWriteBytes + (gridActive ? 0 : packedWriteBytes);
 }
@@ -124,7 +148,7 @@ CudaBackend::~CudaBackend() {
         }
     }
     for (CUdeviceptr pointer :
-         {balls.x, balls.y, balls.vx, balls.vy, balls.meta, balls.packed, paddedCells.pointer,
+         {balls.position, balls.state, balls.packed, paddedCells.pointer,
           brickColors.pointer, targetCells.pointer, brickHitsLeft.pointer, killedIndices.pointer, holes.pointer,
           counters.pointer, gridSlots.pointer}) {
         if (pointer) {
@@ -182,8 +206,7 @@ void CudaBackend::ensureBallCapacity(size_t required) {
     }
     const auto& api = driver.api();
     const size_t newCapacity = std::max(required, capacity * 2);
-    const std::array<CUdeviceptr*, ballArrayCount> fields{&balls.x,  &balls.y,    &balls.vx,
-                                                         &balls.vy, &balls.meta, &balls.packed};
+    const std::array<CUdeviceptr*, ballArrayCount> fields{&balls.position, &balls.state, &balls.packed};
     for (CUdeviceptr* field : fields) {
         CUdeviceptr grown = 0;
         if (!succeeded(api.memAlloc(&grown, newCapacity * 4), "cuMemAlloc")) {
@@ -198,8 +221,6 @@ void CudaBackend::ensureBallCapacity(size_t required) {
         *field = grown;
     }
     capacity = newCapacity;
-    ensureArray(killedIndices, capacity * 4);
-    ensureArray(holes, capacity * 4);
 }
 
 void CudaBackend::uploadBoard(const BrickBoard& board, const TargetField& field) {
@@ -217,6 +238,13 @@ void CudaBackend::uploadBoard(const BrickBoard& board, const TargetField& field)
     hostBrickHitsLeft.push_back(0);
     upload(brickHitsLeft, hostBrickHitsLeft.data(), hostBrickHitsLeft.size() * sizeof(int32_t));
     hostBrickHitsLeft.pop_back();
+    BallCount totalHits = 0;
+    for (int32_t hits : hostBrickHitsLeft) {
+        totalHits += static_cast<BallCount>(std::max(hits, 0));
+    }
+    killedCapacity = static_cast<unsigned int>(std::max<BallCount>(totalHits, minimumKilledCapacity));
+    ensureArray(killedIndices, static_cast<size_t>(killedCapacity) * 4);
+    ensureArray(holes, static_cast<size_t>(killedCapacity) * 4);
     fieldWidth = static_cast<float>(board.columns());
     fieldHeight = static_cast<float>(board.rows());
 }
@@ -231,24 +259,22 @@ void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {
         return;
     }
     const size_t added = spawns.size();
-    std::vector<float> x(added), y(added), vx(added), vy(added);
-    std::vector<uint32_t> meta(added);
-    std::vector<uint32_t> packed(added);
+    std::vector<uint32_t> position(added), state(added), packed(added);
+    ballSpeed = std::max(std::hypot(spawns.front().vx, spawns.front().vy), 1e-6f);
+    const float inverseSpeedScale = 1.0f / ballSpeed;
     for (size_t i = 0; i < added; ++i) {
-        x[i] = spawns[i].x;
-        y[i] = spawns[i].y;
-        vx[i] = spawns[i].vx;
-        vy[i] = spawns[i].vy;
-        meta[i] = static_cast<uint32_t>(spawns[i].color);
-        packed[i] = packBallForRender(x[i], y[i], spawns[i].color, renderPackScale(fieldWidth), renderPackScale(fieldHeight));
+        const BallSpawn& spawn = spawns[i];
+        const uint32_t color = static_cast<uint32_t>(spawn.color);
+        position[i] = encodeAxis(spawn.x, fieldWidth) | (encodeAxis(spawn.y, fieldHeight) << 16);
+        state[i] = encodeComponent(spawn.vx * inverseSpeedScale) |
+                   (encodeComponent(spawn.vy * inverseSpeedScale) << directionBits) | (color << colorShift);
+        packed[i] = packBallForRender(spawn.x, spawn.y, spawn.color, renderPackScale(fieldWidth),
+                                      renderPackScale(fieldHeight));
     }
     const auto& api = driver.api();
     const size_t offset = count * 4;
-    succeeded(api.memcpyHostToDevice(balls.x + offset, x.data(), added * 4), "upload x");
-    succeeded(api.memcpyHostToDevice(balls.y + offset, y.data(), added * 4), "upload y");
-    succeeded(api.memcpyHostToDevice(balls.vx + offset, vx.data(), added * 4), "upload vx");
-    succeeded(api.memcpyHostToDevice(balls.vy + offset, vy.data(), added * 4), "upload vy");
-    succeeded(api.memcpyHostToDevice(balls.meta + offset, meta.data(), added * 4), "upload meta");
+    succeeded(api.memcpyHostToDevice(balls.position + offset, position.data(), added * 4), "upload position");
+    succeeded(api.memcpyHostToDevice(balls.state + offset, state.data(), added * 4), "upload state");
     succeeded(api.memcpyHostToDevice(balls.packed + offset, packed.data(), added * 4), "upload packed");
     count += added;
     snapshotFresh = false;
@@ -290,8 +316,9 @@ void CudaBackend::step(const StepParams& params, std::vector<BallHit>&) {
             gridFilled = true;
         }
     }
-    void* arguments[] = {&balls, &ballCountArgument, &board, &stepArgument, &hitsLeftPointer, &killedPointer,
-                         &countersPointer, &grid};
+    unsigned int killedCapacityArgument = killedCapacity;
+    void* arguments[] = {&balls,         &ballCountArgument,       &board,           &stepArgument, &hitsLeftPointer,
+                         &killedPointer, &killedCapacityArgument, &countersPointer, &grid};
     if (stepStarted) {
         api.eventRecord(stepStarted, nullptr);
     }
@@ -309,6 +336,7 @@ void CudaBackend::step(const StepParams& params, std::vector<BallHit>&) {
         api.eventElapsedTime(&elapsedMs, stepStarted, stepFinished);
         lastStepKernelMs = elapsedMs;
     }
+    lastCounters.killedCount = std::min(lastCounters.killedCount, killedCapacity);
     if (lastCounters.killedCount == 0) {
         return;
     }
@@ -430,10 +458,11 @@ BallTally CudaBackend::downloadColorTally(size_t first, size_t last) {
     if (first >= last) {
         return tally;
     }
-    std::vector<uint32_t> meta(last - first);
-    if (succeeded(driver.api().memcpyDeviceToHost(meta.data(), balls.meta + first * 4, meta.size() * 4), "download meta")) {
-        for (uint32_t value : meta) {
-            const uint32_t color = value & metaColorMask;
+    std::vector<uint32_t> states(last - first);
+    if (succeeded(driver.api().memcpyDeviceToHost(states.data(), balls.state + first * 4, states.size() * 4),
+                  "download state")) {
+        for (uint32_t value : states) {
+            const uint32_t color = stateColor(value);
             if (color != deadColor) {
                 ++tally[color];
             }
@@ -475,20 +504,27 @@ std::vector<BallSpawn> CudaBackend::exportBalls() {
         return {};
     }
     driver.makeCurrent();
-    std::vector<float> x(count), y(count), vx(count), vy(count);
-    std::vector<uint32_t> meta(count);
+    std::vector<uint32_t> positions(count), states(count);
     const auto& api = driver.api();
-    const bool downloaded = succeeded(api.memcpyDeviceToHost(x.data(), balls.x, count * 4), "download x") &&
-                            succeeded(api.memcpyDeviceToHost(y.data(), balls.y, count * 4), "download y") &&
-                            succeeded(api.memcpyDeviceToHost(vx.data(), balls.vx, count * 4), "download vx") &&
-                            succeeded(api.memcpyDeviceToHost(vy.data(), balls.vy, count * 4), "download vy") &&
-                            succeeded(api.memcpyDeviceToHost(meta.data(), balls.meta, count * 4), "download meta");
+    const bool downloaded =
+        succeeded(api.memcpyDeviceToHost(positions.data(), balls.position, count * 4), "download position") &&
+        succeeded(api.memcpyDeviceToHost(states.data(), balls.state, count * 4), "download state");
     if (!downloaded) {
         return {};
     }
-    std::vector<BallSpawn> exported(count);
+    std::vector<BallSpawn> exported;
+    exported.reserve(count);
     for (size_t i = 0; i < count; ++i) {
-        exported[i] = {x[i], y[i], vx[i], vy[i], static_cast<int32_t>(meta[i] & metaColorMask)};
+        const uint32_t color = stateColor(states[i]);
+        if (color == deadColor) {
+            continue;
+        }
+        const float dx = static_cast<float>(signedComponent(states[i] & directionMask));
+        const float dy = static_cast<float>(signedComponent((states[i] >> directionBits) & directionMask));
+        const float length = std::max(std::hypot(dx, dy), 1.0f);
+        exported.push_back({static_cast<float>(positions[i] & positionMask) * fieldWidth / positionScale,
+                            static_cast<float>(positions[i] >> 16) * fieldHeight / positionScale,
+                            dx / length * ballSpeed, dy / length * ballSpeed, static_cast<int32_t>(color)});
     }
     return exported;
 }
