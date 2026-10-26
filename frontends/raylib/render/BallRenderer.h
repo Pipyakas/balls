@@ -5,14 +5,18 @@
 
 #include <raylib.h>
 
+#include <chrono>
+
 class BallRenderer {
 public:
     void load();
     void unload();
-    void draw(const BallSnapshot& balls, const BoardTransform& transform, float radiusCells);
+    void draw(PhysicsBackend& backend, const BoardTransform& transform, float radiusCells);
+    double takeSynchronizationMs();
 
 private:
-    void ensureCapacity(size_t ballCount);
+    bool ensureCapacity(size_t ballCount);
+    void shareWith(PhysicsBackend& backend);
 
     Shader shader{};
     int mvpLocation = -1;
@@ -24,4 +28,7 @@ private:
     unsigned int vertexArray = 0;
     unsigned int packedBuffer = 0;
     size_t capacity = 0;
+    const PhysicsBackend* sharedBackend = nullptr;
+    bool sharedBufferAccepted = false;
+    double synchronizationMs = 0.0;
 };

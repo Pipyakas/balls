@@ -14,6 +14,7 @@ add_executable(ColorBlastBalls WIN32
     app/Paths.cpp
     app/LaunchOptions.cpp
     app/FrameTimings.cpp
+    app/MachineProfile.cpp
     control/ControlProtocol.cpp
     control/ControlServer.cpp
     render/Palette.cpp

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "game/CapacityProbe.h"
 #include "game/GameMode.h"
 #include "game/LauncherQueue.h"
 #include "game/SpawnController.h"
@@ -8,6 +9,7 @@
 #include "sim/Simulation.h"
 
 #include <array>
+#include <optional>
 #include <string>
 
 enum class SessionState { Ready, Running, Won };
@@ -31,6 +33,12 @@ public:
     void selectBallMultiplier(int optionIndex);
     void selectBallLimit(int optionIndex);
     bool switchBackend(BackendKind kind);
+    void startCapacityProbe();
+    void cancelCapacityProbe();
+    void reportFrameSeconds(double frameSeconds);
+    void useMachineBallLimit(BallCount limit);
+    bool isUsingMachineBallLimit() const { return machineLimitSelected; }
+    std::optional<BallCount> machineBallLimit() const { return measuredMachineLimit; }
 
     GameMode mode() const { return gameMode; }
     SessionState state() const { return sessionState; }
@@ -40,10 +48,11 @@ public:
     const LauncherQueue& launchers() const { return launcherQueue; }
     const SpawnController& spawner() const { return spawnController; }
     BackendKind backend() const { return backendKind; }
+    const CapacityProbe& capacityProbe() const { return probe; }
     int spawnRateIndex() const { return selectedSpawnRate; }
     int ballMultiplierIndex() const { return selectedMultiplier; }
     int ballLimitIndex() const { return selectedBallLimit; }
-    BallCount ballLimit() const { return ballLimitOptions[selectedBallLimit]; }
+    BallCount ballLimit() const { return machineLimitSelected ? *measuredMachineLimit : ballLimitOptions[selectedBallLimit]; }
     bool isAutoReleasing() const { return autoRelease; }
     double elapsedSeconds() const { return elapsed; }
     const std::string& lastBackendFault() const { return backendFault; }
@@ -51,6 +60,7 @@ public:
 private:
     void releaseLauncher(const Launcher& launcher);
     void recoverFromBackendFault();
+    void pumpCapacityProbe();
 
     GameMode gameMode;
     LevelData levelData;
@@ -64,5 +74,10 @@ private:
     int selectedBallLimit = static_cast<int>(ballLimitOptions.size()) - 1;
     bool autoRelease = false;
     double elapsed = 0.0;
+    double latestFrameSeconds = 0.0;
+    CapacityProbe probe;
+    int probeColorIndex = 0;
+    std::optional<BallCount> measuredMachineLimit;
+    bool machineLimitSelected = false;
     std::string backendFault;
 };

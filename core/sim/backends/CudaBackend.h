@@ -3,6 +3,7 @@
 #include "sim/PhysicsBackend.h"
 #include "sim/backends/CudaDriver.h"
 
+#include <array>
 #include <string>
 #include <vector>
 
@@ -24,7 +25,11 @@ public:
     BallSnapshot snapshot() override;
     std::vector<BallSpawn> exportBalls() override;
     void clear() override { count = 0; }
+    BallTally truncate(size_t newCount) override;
     std::string_view faultMessage() const override { return fault; }
+    bool resolvesHitsOnDevice() const override { return true; }
+    DeviceHitResults deviceHitResults() const override;
+    bool shareRenderBuffer(unsigned int openGlBuffer, size_t capacityBytes) override;
 
 private:
     struct DeviceBalls {
@@ -42,28 +47,44 @@ private:
         size_t bytes = 0;
     };
 
+    struct FrameCounters {
+        unsigned int killedCount;
+        unsigned int holeCount;
+        unsigned int holeCursor;
+        std::array<unsigned int, ballColorCount> killsByColor;
+    };
+
     bool succeeded(CUresult result, const char* what);
     bool isFaulted() const { return !fault.empty(); }
+    bool launch(CUfunction function, size_t threads, void** arguments, const char* what);
     void ensureBallCapacity(size_t required);
     void ensureArray(DeviceArray& array, size_t bytes);
     void upload(DeviceArray& array, const void* data, size_t bytes);
-    void downloadPositions();
+    void compactKilledBalls(unsigned int killed);
+    void releaseRenderBuffer();
+    bool copyIntoRenderBuffer();
+    void downloadPacked();
 
     const CudaDriver& driver;
     CUfunction stepFunction = nullptr;
-    CUfunction removeFunction = nullptr;
+    CUfunction collectHolesFunction = nullptr;
+    CUfunction fillHolesFunction = nullptr;
     DeviceBalls balls{};
     size_t capacity = 0;
     size_t count = 0;
     DeviceArray paddedCells;
     DeviceArray brickColors;
     DeviceArray targetCells;
-    DeviceArray hitBuffer;
-    DeviceArray hitCounter;
-    DeviceArray removeIndices;
-    unsigned int hitCapacity = 0;
-    std::vector<BallHit> hostHits;
+    DeviceArray brickHitsLeft;
+    DeviceArray killedIndices;
+    DeviceArray holes;
+    DeviceArray counters;
+    size_t brickCount = 0;
+    std::vector<int32_t> hostBrickHitsLeft;
+    FrameCounters lastCounters{};
     std::vector<uint32_t> hostPacked;
+    CUgraphicsResource renderResource = nullptr;
+    size_t renderCapacityBytes = 0;
     float fieldWidth = 1.0f;
     float fieldHeight = 1.0f;
     bool snapshotFresh = false;

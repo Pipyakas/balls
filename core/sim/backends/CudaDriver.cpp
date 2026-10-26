@@ -50,6 +50,11 @@ bool CudaDriver::loadEntryPoints() {
                         driver.resolve("cuLaunchKernel", functions.launchKernel) &&
                         driver.resolve("cuCtxSynchronize", functions.contextSynchronize) &&
                         driver.resolve("cuGetErrorString", functions.getErrorString);
+    driver.resolve("cuGraphicsGLRegisterBuffer", functions.graphicsGlRegisterBuffer);
+    driver.resolve("cuGraphicsUnregisterResource", functions.graphicsUnregisterResource);
+    driver.resolve("cuGraphicsMapResources", functions.graphicsMapResources);
+    driver.resolve("cuGraphicsUnmapResources", functions.graphicsUnmapResources);
+    driver.resolve("cuGraphicsResourceGetMappedPointer_v2", functions.graphicsResourceGetMappedPointer);
     if (!loaded) {
         errorMessage = "NVIDIA driver is missing required entry points";
     }

@@ -80,9 +80,9 @@ void BallRenderer::unload() {
     capacity = 0;
 }
 
-void BallRenderer::ensureCapacity(size_t ballCount) {
+bool BallRenderer::ensureCapacity(size_t ballCount) {
     if (ballCount <= capacity) {
-        return;
+        return false;
     }
     capacity = std::max(ballCount, capacity * 2);
     rlEnableVertexArray(vertexArray);
@@ -93,15 +93,43 @@ void BallRenderer::ensureCapacity(size_t ballCount) {
     glExtras::vertexAttribIntegerPointer(packedLocation, 1, glExtras::unsignedIntType, 0, nullptr);
     rlEnableVertexAttribute(packedLocation);
     rlDisableVertexArray();
+    return true;
 }
 
-void BallRenderer::draw(const BallSnapshot& balls, const BoardTransform& transform, float radiusCells) {
-    if (balls.count == 0 || !balls.packed) {
+double BallRenderer::takeSynchronizationMs() {
+    const double taken = synchronizationMs;
+    synchronizationMs = 0.0;
+    return taken;
+}
+
+void BallRenderer::shareWith(PhysicsBackend& backend) {
+    sharedBackend = &backend;
+    sharedBufferAccepted = backend.shareRenderBuffer(packedBuffer, capacity * sizeof(uint32_t));
+}
+
+void BallRenderer::draw(PhysicsBackend& backend, const BoardTransform& transform, float radiusCells) {
+    if (backend.ballCount() == 0) {
         return;
     }
     rlDrawRenderBatchActive();
-    ensureCapacity(balls.count);
-    rlUpdateVertexBuffer(packedBuffer, balls.packed, static_cast<int>(balls.count * sizeof(uint32_t)), 0);
+    if (ensureCapacity(backend.ballCount()) || sharedBackend != &backend) {
+        shareWith(backend);
+    }
+    const auto snapshotStart = std::chrono::steady_clock::now();
+    const BallSnapshot balls = backend.snapshot();
+    if (balls.residentInRenderBuffer) {
+        synchronizationMs +=
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - snapshotStart).count();
+    }
+    if (balls.count == 0) {
+        return;
+    }
+    if (!balls.residentInRenderBuffer) {
+        if (!balls.packed) {
+            return;
+        }
+        rlUpdateVertexBuffer(packedBuffer, balls.packed, static_cast<int>(balls.count * sizeof(uint32_t)), 0);
+    }
 
     const Matrix mvp = MatrixMultiply(rlGetMatrixModelview(), rlGetMatrixProjection());
     const float origin[2]{transform.origin.x, transform.origin.y};

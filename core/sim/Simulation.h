@@ -34,6 +34,7 @@ public:
     void load(const BrickLayout& layout);
     void replaceBackend(std::unique_ptr<PhysicsBackend> backend);
     void launchBalls(BallColor color, BallCount count);
+    void trimBallsTo(BallCount limit);
     void advance(float frameSeconds);
     void tick(int substeps = 1);
     void animate(float frameSeconds) { brickBoard.animate(frameSeconds); }
@@ -52,6 +53,7 @@ public:
 private:
     void syncBoardIfChanged();
     void resolveHits();
+    void applyDeviceHits();
 
     SimulationTuning settings;
     std::unique_ptr<PhysicsBackend> physics;

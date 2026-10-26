@@ -41,6 +41,21 @@ void Simulation::launchBalls(BallColor color, BallCount count) {
     statistics.totalBallsSpawned += count;
 }
 
+void Simulation::trimBallsTo(BallCount limit) {
+    if (!pendingSpawns.empty()) {
+        physics->addBalls(pendingSpawns);
+        pendingSpawns.clear();
+    }
+    if (physics->ballCount() <= limit) {
+        return;
+    }
+    const BallTally removed = physics->truncate(static_cast<size_t>(limit));
+    for (int color = 0; color < ballColorCount; ++color) {
+        statistics.ballsByColor[color] -= std::min(statistics.ballsByColor[color], removed[color]);
+    }
+    statistics.ballCount = liveBallCount();
+}
+
 StepParams Simulation::stepParams(int substeps) const {
     return {settings.tickSeconds,
             settings.ballRadius,
@@ -62,6 +77,24 @@ void Simulation::syncBoardIfChanged() {
     targetField.rebuild(brickBoard);
     physics->uploadBoard(brickBoard, targetField);
     uploadedRevision = brickBoard.revision();
+}
+
+void Simulation::applyDeviceHits() {
+    const DeviceHitResults results = physics->deviceHitResults();
+    bool anyDestroyed = false;
+    for (size_t brick = 0; brick < results.brickHitsLeft.size(); ++brick) {
+        const int index = static_cast<int>(brick);
+        const bool wasAlive = brickBoard.bricks()[index].isAlive();
+        brickBoard.applyHitsDownTo(index, results.brickHitsLeft[brick]);
+        anyDestroyed = anyDestroyed || (wasAlive && !brickBoard.bricks()[index].isAlive());
+    }
+    for (int color = 0; color < ballColorCount; ++color) {
+        statistics.ballsByColor[color] -= std::min(statistics.ballsByColor[color], results.killsByColor[color]);
+    }
+    statistics.totalHits += results.killed;
+    if (anyDestroyed) {
+        brickBoard.settleColumns();
+    }
 }
 
 void Simulation::resolveHits() {
@@ -93,7 +126,11 @@ void Simulation::tick(int substeps) {
     syncBoardIfChanged();
     hits.clear();
     physics->step(stepParams(substeps), hits);
-    resolveHits();
+    if (physics->resolvesHitsOnDevice()) {
+        applyDeviceHits();
+    } else {
+        resolveHits();
+    }
 }
 
 void Simulation::advance(float frameSeconds) {

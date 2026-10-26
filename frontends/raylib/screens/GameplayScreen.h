@@ -36,6 +36,8 @@ private:
     void handleLauncherClick(const GameplayLayout& layout);
     void showToast(std::string text, bool isError);
     void openNextLevel();
+    void applyRememberedMachineLimit();
+    void rememberFinishedProbe();
 
     void drawHeader(const GameplayLayout& layout);
     void drawMainSection(const GameplayLayout& layout);
@@ -52,4 +54,5 @@ private:
     LevelWatcher watcher;
     Toast toast;
     bool paused = false;
+    bool probeResultSaved = true;
 };
