@@ -61,11 +61,13 @@ def summarize(samples):
 
 
 def run(arguments):
-    command = [str(Path(arguments.exe).resolve()), "--hidden", "--control-port", str(arguments.port), "--play", "performance", arguments.level]
-    process = subprocess.Popen(command)
+    process = None
+    if not arguments.attach:
+        command = [str(Path(arguments.exe).resolve()), "--hidden", "--control-port", str(arguments.port), "--play", "performance", arguments.level]
+        process = subprocess.Popen(command)
     results = []
     try:
-        wait_for_server(arguments.port)
+        wait_for_server(arguments.port, 60.0 if arguments.attach else 15.0)
         for backend in arguments.backends:
             for multiplier in arguments.multipliers:
                 call(arguments.port, f"/play?mode=performance&level={arguments.level}")
@@ -93,7 +95,8 @@ def run(arguments):
             call(arguments.port, "/quit")
         except OSError:
             pass
-        process.wait(timeout=15)
+        if process:
+            process.wait(timeout=15)
     if arguments.json:
         Path(arguments.json).write_text(json.dumps(results, indent=2))
     return results
@@ -109,6 +112,7 @@ def main():
     parser.add_argument("--settle", type=float, default=1.0)
     parser.add_argument("--seconds", type=float, default=3.0)
     parser.add_argument("--json")
+    parser.add_argument("--attach", action="store_true", help="drive an already running game instead of launching one")
     run(parser.parse_args())
 
 
