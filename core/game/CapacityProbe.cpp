@@ -96,6 +96,10 @@ BallCount CapacityProbe::updateRamp(BallCount liveBalls) {
         }
         return 0;
     }
+    if (consecutiveSlowWindows > 0) {
+        consecutiveSlowWindows = 0;
+        return 0;
+    }
     consecutiveSlowWindows = 0;
     bestPassing = liveBalls;
     const BallCount addition = grownAddition(liveBalls);
@@ -128,7 +132,10 @@ BallCount CapacityProbe::update(double frameSeconds, BallCount liveBalls) {
         }
         return 0;
     }
-    const bool windowFinished = measureWindow(frameSeconds, probeSettleSeconds, probeMeasureSeconds);
+    const bool recheckingSlowWindow = consecutiveSlowWindows > 0;
+    const bool windowFinished =
+        measureWindow(frameSeconds, recheckingSlowWindow ? probeConfirmSettleSeconds : probeSettleSeconds,
+                      recheckingSlowWindow ? probeConfirmMeasureSeconds : probeMeasureSeconds);
     probePhase = settled ? ProbePhase::Measuring : ProbePhase::Settling;
     return windowFinished ? updateRamp(liveBalls) : 0;
 }

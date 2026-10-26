@@ -67,16 +67,21 @@ extern "C" __global__ void stepBallsKernel(DeviceBalls balls, int count, BoardVi
     }
     float x = balls.x[index];
     float y = balls.y[index];
-    float vx = balls.vx[index];
-    float vy = balls.vy[index];
-    int bounces = balls.bounces[index];
+    const float startVx = balls.vx[index];
+    const float startVy = balls.vy[index];
+    const int startBounces = balls.bounces[index];
+    float vx = startVx;
+    float vy = startVy;
+    int bounces = startBounces;
     const int color = balls.color[index];
     const int brick = stepBallSubsteps(x, y, vx, vy, color, bounces, board, params);
     balls.x[index] = x;
     balls.y[index] = y;
-    balls.vx[index] = vx;
-    balls.vy[index] = vy;
-    balls.bounces[index] = bounces;
+    if (bounces != startBounces) {
+        balls.vx[index] = vx;
+        balls.vy[index] = vy;
+        balls.bounces[index] = bounces;
+    }
     const unsigned int packed = packBallForRender(x, y, color, params.packScaleX, params.packScaleY);
     balls.packed[index] = packed;
     if (grid.slots) {
