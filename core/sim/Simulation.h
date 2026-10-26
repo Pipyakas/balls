@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common/BallCount.h"
 #include "sim/BrickBoard.h"
 #include "sim/PhysicsBackend.h"
 #include "sim/TargetField.h"
@@ -18,12 +19,12 @@ struct SimulationTuning {
 };
 
 struct SimulationStats {
-    ColorTally ballsByColor{};
-    size_t ballCount = 0;
+    BallTally ballsByColor{};
+    BallCount ballCount = 0;
     double lastFramePhysicsMs = 0.0;
     int ticksLastFrame = 0;
-    uint64_t totalBallsSpawned = 0;
-    uint64_t totalHits = 0;
+    BallCount totalBallsSpawned = 0;
+    BallCount totalHits = 0;
 };
 
 class Simulation {
@@ -32,7 +33,7 @@ public:
 
     void load(const BrickLayout& layout);
     void replaceBackend(std::unique_ptr<PhysicsBackend> backend);
-    void launchBalls(BallColor color, int count);
+    void launchBalls(BallColor color, BallCount count);
     void advance(float frameSeconds);
     void tick(int substeps = 1);
     void animate(float frameSeconds) { brickBoard.animate(frameSeconds); }
@@ -41,6 +42,7 @@ public:
     PhysicsBackend& backend() { return *physics; }
     const SimulationStats& stats() const { return statistics; }
     const SimulationTuning& tuning() const { return settings; }
+    BallCount liveBallCount() const { return physics->ballCount() + pendingSpawns.size(); }
     bool isCleared() const { return brickBoard.aliveBrickCount() == 0; }
     float launchX() const { return static_cast<float>(brickBoard.columns()) * 0.5f; }
     float launchY() const { return static_cast<float>(brickBoard.rows()) - settings.ballRadius * 2.0f; }

@@ -28,8 +28,8 @@ void GameSession::reload(LevelData level) {
 }
 
 void GameSession::releaseLauncher(const Launcher& launcher) {
-    const long long multiplier = gameMode == GameMode::Performance ? ballMultiplierOptions[selectedMultiplier] : 1;
-    spawnController.enqueue(launcher.color, static_cast<long long>(launcher.ballCount) * multiplier);
+    const BallCount multiplier = gameMode == GameMode::Performance ? ballMultiplierOptions[selectedMultiplier] : 1;
+    spawnController.enqueue(launcher.color, saturatingMultiply(static_cast<BallCount>(launcher.ballCount), multiplier));
 }
 
 bool GameSession::chooseLauncher(int column, int row) {
@@ -58,6 +58,10 @@ void GameSession::selectSpawnRate(int optionIndex) {
     }
 }
 
+void GameSession::selectBallLimit(int optionIndex) {
+    selectedBallLimit = std::clamp(optionIndex, 0, static_cast<int>(ballLimitOptions.size()) - 1);
+}
+
 void GameSession::selectBallMultiplier(int optionIndex) {
     selectedMultiplier = std::clamp(optionIndex, 0, static_cast<int>(ballMultiplierOptions.size()) - 1);
 }
@@ -82,7 +86,8 @@ void GameSession::update(float deltaTime) {
                 releaseLauncher(*launcher);
             }
         }
-        spawnController.update(deltaTime, physicsSimulation);
+        const BallCount limit = gameMode == GameMode::Performance ? ballLimit() : unlimitedBalls;
+        spawnController.update(deltaTime, physicsSimulation, remainingCapacity(limit, physicsSimulation.liveBallCount()));
     }
     if (sessionState != SessionState::Ready) {
         physicsSimulation.advance(deltaTime);

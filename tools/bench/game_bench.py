@@ -7,7 +7,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-MULTIPLIER_INDEX = {1: 0, 10: 1, 100: 2, 1000: 3}
+MULTIPLIER_INDEX = {1: 0, 10: 1, 100: 2, 1000: 3, 10000: 4}
 MAX_SPAWN_RATE_INDEX = 5
 
 
