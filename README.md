@@ -73,8 +73,13 @@ python tools/shaders/CompileShaders.py
 ### CUDA limits
 
 `docs/cuda-limits.md` shows the CUDA step kernel at the GTX 1650's limits: DRAM bandwidth on an empty board (93.7% of
-copy bandwidth) and SM instruction issue on the brick level (no spare issue cycles, measured with
-`tools/bench/issue_slack.py`).
+copy bandwidth), and on the brick level DRAM bandwidth in isolation and the 82 W board power limit under
+sustained load.
+
+### Compute shaders instead of CUDA
+
+`docs/gpu-compute-apis.md` ports the step kernel and cell sort to HLSL and runs them through D3D11, D3D12 and
+Vulkan (`tools/gpucompute/`). Vulkan comes within 1.5% of CUDA on the brick level and 6% on the empty board.
 
 ## Physics plugins
 

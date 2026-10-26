@@ -64,6 +64,20 @@ if(WIN32 AND EXISTS "${BALLS_CUPTI_DIR}/include/cupti.h" AND EXISTS "${BALLS_CUD
     target_link_options(balls_insncount PRIVATE ${BALLS_LINK_OPTIMIZE})
 endif()
 
+if(WIN32 AND TARGET nvrhi_d3d11 AND TARGET nvrhi_d3d12 AND TARGET nvrhi_vk)
+    add_executable(balls_gpucompute tools/gpucompute/GpuComputeBench.cpp)
+    target_include_directories(balls_gpucompute PRIVATE tools/gpucompute)
+    target_link_libraries(balls_gpucompute PRIVATE balls_core nvrhi nvrhi_d3d11 nvrhi_d3d12 nvrhi_vk dxgi d3d11 d3d12)
+    if(TARGET Vulkan::Headers)
+        target_link_libraries(balls_gpucompute PRIVATE Vulkan::Headers)
+    else()
+        target_link_libraries(balls_gpucompute PRIVATE Vulkan-Headers)
+    endif()
+    add_dependencies(balls_gpucompute balls_physics_plugins)
+    target_compile_options(balls_gpucompute PRIVATE ${BALLS_WARNINGS} ${BALLS_OPTIMIZE})
+    target_link_options(balls_gpucompute PRIVATE ${BALLS_LINK_OPTIMIZE})
+endif()
+
 enable_testing()
 add_executable(balls_tests tests/TestMain.cpp tests/LevelTests.cpp tests/SimulationTests.cpp tests/GameTests.cpp
     tests/ProbeTests.cpp tests/EditorTests.cpp)
