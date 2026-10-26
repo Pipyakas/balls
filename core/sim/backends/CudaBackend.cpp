@@ -9,6 +9,16 @@ constexpr size_t initialBallCapacity = 1 << 16;
 constexpr unsigned int writeDiscardFlag = 0x02;
 constexpr size_t ballArrayCount = 7;
 
+struct DeviceVisibilityGrid {
+    CUdeviceptr slots;
+    CUdeviceptr priorities;
+    int width;
+    int height;
+    float scaleX;
+    float scaleY;
+    unsigned int frameSeed;
+};
+
 struct DeviceBoardView {
     CUdeviceptr paddedCells;
     CUdeviceptr brickColors;
@@ -33,7 +43,8 @@ CudaBackend::CudaBackend() : driver(CudaDriver::instance()) {
     stepFunction = driver.function("stepBallsKernel");
     collectHolesFunction = driver.function("collectHolesKernel");
     fillHolesFunction = driver.function("fillHolesKernel");
-    if (!stepFunction || !collectHolesFunction || !fillHolesFunction) {
+    resolveVisibilityFunction = driver.function("resolveVisibilityKernel");
+    if (!stepFunction || !collectHolesFunction || !fillHolesFunction || !resolveVisibilityFunction) {
         fault = "CUDA kernels missing from module";
         return;
     }
@@ -48,7 +59,7 @@ CudaBackend::~CudaBackend() {
     for (CUdeviceptr pointer :
          {balls.x, balls.y, balls.vx, balls.vy, balls.color, balls.bounces, balls.packed, paddedCells.pointer,
           brickColors.pointer, targetCells.pointer, brickHitsLeft.pointer, killedIndices.pointer, holes.pointer,
-          counters.pointer}) {
+          counters.pointer, gridSlots.pointer, gridPriorities.pointer}) {
         if (pointer) {
             api.memFree(pointer);
         }
@@ -177,8 +188,16 @@ void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {
     snapshotFresh = false;
 }
 
+size_t CudaBackend::gridCellCount() const { return static_cast<size_t>(gridWidth) * static_cast<size_t>(gridHeight); }
+
+void CudaBackend::setVisibilityGrid(int width, int height) {
+    gridWidth = std::max(width, 0);
+    gridHeight = std::max(height, 0);
+}
+
 void CudaBackend::step(const StepParams& params, std::vector<BallHit>&) {
     snapshotFresh = false;
+    gridFilled = false;
     lastCounters = {};
     if (count == 0 || isFaulted()) {
         return;
@@ -194,10 +213,31 @@ void CudaBackend::step(const StepParams& params, std::vector<BallHit>&) {
     CUdeviceptr hitsLeftPointer = brickHitsLeft.pointer;
     CUdeviceptr killedPointer = killedIndices.pointer;
     CUdeviceptr countersPointer = counters.pointer;
+    DeviceVisibilityGrid grid{0, 0, gridWidth, gridHeight, 0.0f, 0.0f, 0};
+    const size_t cells = gridCellCount();
+    if (cells > 0 && count > cells && renderResource && renderCapacityBytes >= cells * 4) {
+        ensureArray(gridSlots, cells * 4);
+        ensureArray(gridPriorities, cells * 4);
+        if (!isFaulted() && succeeded(api.memsetD32(gridSlots.pointer, emptyRenderSlot, cells), "clear grid") &&
+            succeeded(api.memsetD32(gridPriorities.pointer, 0, cells), "clear grid priorities")) {
+            const float coordinateToSlotX = static_cast<float>(gridWidth) / static_cast<float>(renderCoordinateMax + 1);
+            const float coordinateToSlotY = static_cast<float>(gridHeight) / static_cast<float>(renderCoordinateMax + 1);
+            grid = {gridSlots.pointer, gridPriorities.pointer, gridWidth, gridHeight, coordinateToSlotX,
+                    coordinateToSlotY, ++frameSeed};
+            gridFilled = true;
+        }
+    }
     void* arguments[] = {&balls, &ballCountArgument, &board, &stepArgument, &hitsLeftPointer, &killedPointer,
-                         &countersPointer};
+                         &countersPointer, &grid};
     if (!launch(stepFunction, count, arguments, "stepBallsKernel")) {
         return;
+    }
+    if (gridFilled) {
+        CUdeviceptr packedPointer = balls.packed;
+        void* visibilityArguments[] = {&packedPointer, &ballCountArgument, &grid};
+        if (!launch(resolveVisibilityFunction, count, visibilityArguments, "resolveVisibilityKernel")) {
+            return;
+        }
     }
     if (!succeeded(api.memcpyDeviceToHost(&lastCounters, counters.pointer, sizeof(FrameCounters)), "download counters")) {
         return;
@@ -287,8 +327,8 @@ bool CudaBackend::shareRenderBuffer(unsigned int openGlBuffer, size_t capacityBy
     return true;
 }
 
-bool CudaBackend::copyIntoRenderBuffer() {
-    if (!renderResource || count * 4 > renderCapacityBytes) {
+bool CudaBackend::copyIntoRenderBuffer(CUdeviceptr source, size_t elements) {
+    if (!renderResource || elements * 4 > renderCapacityBytes) {
         return false;
     }
     const auto& api = driver.api();
@@ -298,8 +338,8 @@ bool CudaBackend::copyIntoRenderBuffer() {
     CUdeviceptr mapped = 0;
     size_t mappedBytes = 0;
     bool copied = api.graphicsResourceGetMappedPointer(&mapped, &mappedBytes, renderResource) == CUDA_SUCCESS &&
-                  mappedBytes >= count * 4 &&
-                  succeeded(api.memcpyDeviceToDevice(mapped, balls.packed, count * 4), "copy to render buffer");
+                  mappedBytes >= elements * 4 &&
+                  succeeded(api.memcpyDeviceToDevice(mapped, source, elements * 4), "copy to render buffer");
     api.graphicsUnmapResources(1, &renderResource, nullptr);
     return copied;
 }
@@ -316,8 +356,11 @@ BallSnapshot CudaBackend::snapshot() {
         return {};
     }
     driver.makeCurrent();
-    if (count > 0 && copyIntoRenderBuffer()) {
-        return {nullptr, count, fieldWidth, fieldHeight, true};
+    if (gridFilled && copyIntoRenderBuffer(gridSlots.pointer, gridCellCount())) {
+        return {nullptr, gridCellCount(), fieldWidth, fieldHeight, true, true};
+    }
+    if (count > 0 && copyIntoRenderBuffer(balls.packed, count)) {
+        return {nullptr, count, fieldWidth, fieldHeight, true, false};
     }
     if (!snapshotFresh) {
         downloadPacked();

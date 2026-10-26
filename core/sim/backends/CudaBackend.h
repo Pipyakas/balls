@@ -30,6 +30,7 @@ public:
     bool resolvesHitsOnDevice() const override { return true; }
     DeviceHitResults deviceHitResults() const override;
     bool shareRenderBuffer(unsigned int openGlBuffer, size_t capacityBytes) override;
+    void setVisibilityGrid(int width, int height) override;
 
 private:
     struct DeviceBalls {
@@ -62,13 +63,15 @@ private:
     void upload(DeviceArray& array, const void* data, size_t bytes);
     void compactKilledBalls(unsigned int killed);
     void releaseRenderBuffer();
-    bool copyIntoRenderBuffer();
+    bool copyIntoRenderBuffer(CUdeviceptr source, size_t elements);
+    size_t gridCellCount() const;
     void downloadPacked();
 
     const CudaDriver& driver;
     CUfunction stepFunction = nullptr;
     CUfunction collectHolesFunction = nullptr;
     CUfunction fillHolesFunction = nullptr;
+    CUfunction resolveVisibilityFunction = nullptr;
     DeviceBalls balls{};
     size_t capacity = 0;
     size_t count = 0;
@@ -79,6 +82,12 @@ private:
     DeviceArray killedIndices;
     DeviceArray holes;
     DeviceArray counters;
+    DeviceArray gridSlots;
+    DeviceArray gridPriorities;
+    unsigned int frameSeed = 0;
+    int gridWidth = 0;
+    int gridHeight = 0;
+    bool gridFilled = false;
     size_t brickCount = 0;
     std::vector<int32_t> hostBrickHitsLeft;
     FrameCounters lastCounters{};

@@ -31,6 +31,7 @@ inline constexpr int noBrickHit = -1;
 inline constexpr unsigned int renderCoordinateMax = 16383u;
 inline constexpr unsigned int renderCoordinateBits = 14u;
 inline constexpr unsigned int renderColorShift = 28u;
+inline constexpr unsigned int emptyRenderSlot = 0xFFFFFFFFu;
 
 BALLS_HOST_DEVICE unsigned int packRenderCoordinate(float value, float scale) {
     const float scaled = value * scale;

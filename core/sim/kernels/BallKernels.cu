@@ -10,6 +10,35 @@ struct DeviceBalls {
     unsigned int* packed;
 };
 
+struct VisibilityGrid {
+    unsigned int* slots;
+    unsigned int* priorities;
+    int width;
+    int height;
+    float scaleX;
+    float scaleY;
+    unsigned int frameSeed;
+};
+
+__device__ __forceinline__ unsigned int slotPriority(unsigned int index, unsigned int frameSeed) {
+    unsigned int hash = index ^ frameSeed;
+    hash ^= hash >> 16;
+    hash *= 0x7feb352du;
+    hash ^= hash >> 15;
+    hash *= 0x846ca68bu;
+    hash ^= hash >> 16;
+    return hash | 1u;
+}
+
+__device__ __forceinline__ int slotForPacked(unsigned int packed, const VisibilityGrid& grid) {
+    const float cellsPerUnitX = grid.scaleX;
+    const float cellsPerUnitY = grid.scaleY;
+    const int column = min(static_cast<int>(static_cast<float>(packed & renderCoordinateMax) * cellsPerUnitX), grid.width - 1);
+    const int row = min(static_cast<int>(static_cast<float>((packed >> renderCoordinateBits) & renderCoordinateMax) * cellsPerUnitY),
+                        grid.height - 1);
+    return row * grid.width + column;
+}
+
 struct FrameCounters {
     unsigned int killedCount;
     unsigned int holeCount;
@@ -31,7 +60,7 @@ __device__ __forceinline__ bool tryConsumeHit(int* hitsLeft) {
 
 extern "C" __global__ void stepBallsKernel(DeviceBalls balls, int count, BoardView board, StepParams params,
                                            int* brickHitsLeft, unsigned int* killedIndices,
-                                           FrameCounters* counters) {
+                                           FrameCounters* counters, VisibilityGrid grid) {
     const int index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index >= count) {
         return;
@@ -48,11 +77,31 @@ extern "C" __global__ void stepBallsKernel(DeviceBalls balls, int count, BoardVi
     balls.vx[index] = vx;
     balls.vy[index] = vy;
     balls.bounces[index] = bounces;
-    balls.packed[index] = packBallForRender(x, y, color, params.packScaleX, params.packScaleY);
+    const unsigned int packed = packBallForRender(x, y, color, params.packScaleX, params.packScaleY);
+    balls.packed[index] = packed;
+    if (grid.slots) {
+        const int slot = slotForPacked(packed, grid);
+        const unsigned int priority = slotPriority(static_cast<unsigned int>(index), grid.frameSeed);
+        if (priority > grid.priorities[slot]) {
+            atomicMax(&grid.priorities[slot], priority);
+        }
+    }
     if (brick != noBrickHit && tryConsumeHit(&brickHitsLeft[brick])) {
         balls.color[index] = -1;
         killedIndices[atomicAdd(&counters->killedCount, 1u)] = static_cast<unsigned int>(index);
         atomicAdd(&counters->killsByColor[color], 1u);
+    }
+}
+
+extern "C" __global__ void resolveVisibilityKernel(const unsigned int* packedBalls, int count, VisibilityGrid grid) {
+    const int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index >= count) {
+        return;
+    }
+    const unsigned int packed = packedBalls[index];
+    const int slot = slotForPacked(packed, grid);
+    if (grid.priorities[slot] == slotPriority(static_cast<unsigned int>(index), grid.frameSeed)) {
+        grid.slots[slot] = packed;
     }
 }
 

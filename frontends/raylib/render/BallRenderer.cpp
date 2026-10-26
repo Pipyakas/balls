@@ -7,6 +7,7 @@
 #include <rlgl.h>
 
 #include <algorithm>
+#include <cmath>
 #include <array>
 #include <string>
 
@@ -16,6 +17,7 @@ constexpr unsigned int packedLocation = 0;
 constexpr size_t initialCapacity = 1 << 16;
 
 constexpr size_t denseBallThreshold = 100'000;
+constexpr float visibilitySlotPerRadius = 1.6f;
 
 constexpr const char* vertexShaderSource = R"(#version 330
 layout(location = 0) in uint packedBall;
@@ -28,6 +30,12 @@ uniform vec2 unpackScale;
 uniform vec3 palette[7];
 flat out vec3 tint;
 void main() {
+    if (packedBall == 0xFFFFFFFFu) {
+        gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+        gl_PointSize = 0.0;
+        tint = vec3(0.0);
+        return;
+    }
     vec2 cell = vec2(float(packedBall & 16383u), float((packedBall >> 14) & 16383u)) * unpackScale;
     tint = palette[min(packedBall >> 28, 6u)];
     gl_Position = mvp * vec4(boardOrigin + cell * cellPixels, 0.0, 1.0);
@@ -137,6 +145,9 @@ void BallRenderer::draw(PhysicsBackend& backend, const BoardTransform& transform
         return;
     }
     rlDrawRenderBatchActive();
+    const float slotSize = std::max(radiusCells * visibilitySlotPerRadius, 1.0f / transform.cellPixels);
+    backend.setVisibilityGrid(static_cast<int>(std::ceil(lastFieldWidth / slotSize)),
+                              static_cast<int>(std::ceil(lastFieldHeight / slotSize)));
     if (ensureCapacity(backend.ballCount()) || sharedBackend != &backend) {
         shareWith(backend);
     }
@@ -146,6 +157,8 @@ void BallRenderer::draw(PhysicsBackend& backend, const BoardTransform& transform
         synchronizationMs +=
             std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - snapshotStart).count();
     }
+    lastFieldWidth = balls.fieldWidth;
+    lastFieldHeight = balls.fieldHeight;
     if (balls.count == 0) {
         return;
     }
@@ -159,7 +172,7 @@ void BallRenderer::draw(PhysicsBackend& backend, const BoardTransform& transform
     const Matrix mvp = MatrixMultiply(rlGetMatrixModelview(), rlGetMatrixProjection());
     const float origin[2]{transform.origin.x, transform.origin.y};
     const float unpackScale[2]{1.0f / renderPackScale(balls.fieldWidth), 1.0f / renderPackScale(balls.fieldHeight)};
-    const bool dense = balls.count >= denseBallThreshold && denseUsesDepth;
+    const bool dense = !balls.visibilityGrid && balls.count >= denseBallThreshold && denseUsesDepth;
     const BallShader& program = dense ? denseShader : sparseShader;
     const float depthPerBall = dense ? 1.0f / static_cast<float>(balls.count) : 0.0f;
     rlEnableShader(program.shader.id);

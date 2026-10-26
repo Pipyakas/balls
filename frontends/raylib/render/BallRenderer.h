@@ -37,4 +37,6 @@ private:
     const PhysicsBackend* sharedBackend = nullptr;
     bool sharedBufferAccepted = false;
     double synchronizationMs = 0.0;
+    float lastFieldWidth = 0.0f;
+    float lastFieldHeight = 0.0f;
 };
