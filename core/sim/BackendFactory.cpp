@@ -10,8 +10,19 @@
 
 namespace {
 
+#if defined(_WIN32)
 constexpr std::string_view cpuPluginFile = "balls_physics_cpu.dll";
 constexpr std::string_view cudaPluginFile = "balls_physics_cuda.dll";
+constexpr bool usesShadowCopies = true;
+#elif defined(__APPLE__)
+constexpr std::string_view cpuPluginFile = "libballs_physics_cpu.dylib";
+constexpr std::string_view cudaPluginFile = "libballs_physics_cuda.dylib";
+constexpr bool usesShadowCopies = false;
+#else
+constexpr std::string_view cpuPluginFile = "libballs_physics_cpu.so";
+constexpr std::string_view cudaPluginFile = "libballs_physics_cuda.so";
+constexpr bool usesShadowCopies = false;
+#endif
 constexpr std::string_view shadowFolder = "ColorBlastBalls/physics-plugins";
 
 struct PluginModule {
@@ -52,14 +63,13 @@ std::filesystem::path makeShadowCopy(const std::filesystem::path& source) {
 
 std::shared_ptr<PluginModule> loadPlugin(std::string_view fileName, bool freshCopy) {
     auto module = std::make_shared<PluginModule>();
-    const std::filesystem::path source = DynamicLibrary::executableDirectory() / fileName;
-    if (!std::filesystem::exists(source)) {
-        module->error = std::format("{} not found next to the executable", fileName);
-        return module;
-    }
-    module->library = std::make_shared<DynamicLibrary>(freshCopy ? makeShadowCopy(source) : source);
+    const std::filesystem::path besideExecutable = DynamicLibrary::executableDirectory() / fileName;
+    const bool foundBesideExecutable = std::filesystem::exists(besideExecutable);
+    const std::filesystem::path source = foundBesideExecutable ? besideExecutable : std::filesystem::path(fileName);
+    const bool shadow = freshCopy && usesShadowCopies && foundBesideExecutable;
+    module->library = std::make_shared<DynamicLibrary>(shadow ? makeShadowCopy(source) : source);
     if (!module->library->isLoaded()) {
-        module->error = std::format("cannot load {}", fileName);
+        module->error = std::format("cannot load {} (looked next to the executable and on the library path)", fileName);
         return module;
     }
     InterfaceVersionFunction interfaceVersion = nullptr;

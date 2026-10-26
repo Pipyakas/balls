@@ -171,7 +171,7 @@ CudaBackend::~CudaBackend() {
     for (CUdeviceptr pointer :
          {balls.position, balls.state, balls.packed, paddedCells.pointer,
           brickColors.pointer, targetCells.pointer, cellWords.pointer, brickHitsLeft.pointer, killedIndices.pointer, holes.pointer,
-          counters.pointer, gridSlots.pointer}) {
+          counters.pointer, gridSlots.pointer, gridPacked.pointer}) {
         if (pointer) {
             api.memFree(pointer);
         }
@@ -350,7 +350,8 @@ void CudaBackend::step(const StepParams& params, std::vector<BallHit>&) {
     CUdeviceptr countersPointer = counters.pointer;
     DeviceVisibilityGrid grid{0, gridWidth, gridHeight, 0.0f, 0.0f, 0, 0};
     const size_t cells = gridCellCount();
-    if (cells > 0 && count > cells && renderResource && renderCapacityBytes >= cells * 4) {
+    const bool renderBufferFitsGrid = !renderResource || renderCapacityBytes >= cells * 4;
+    if (cells > 0 && count > cells && renderBufferFitsGrid) {
         ensureArray(gridSlots, cells * sizeof(unsigned long long));
         if (!isFaulted() && succeeded(api.memsetD32(gridSlots.pointer, 0, cells * 2), "clear grid")) {
             const float coordinateToSlotX = static_cast<float>(gridWidth) / static_cast<float>(renderCoordinateMax + 1);
@@ -530,13 +531,37 @@ void CudaBackend::downloadPacked() {
     }
 }
 
+bool CudaBackend::downloadGrid() {
+    const size_t cells = gridCellCount();
+    ensureArray(gridPacked, cells * 4);
+    if (isFaulted()) {
+        return false;
+    }
+    CUdeviceptr slotsPointer = gridSlots.pointer;
+    CUdeviceptr packedPointer = gridPacked.pointer;
+    int cellsArgument = static_cast<int>(cells);
+    void* arguments[] = {&slotsPointer, &cellsArgument, &packedPointer};
+    if (!launch(gridToRenderFunction, cells, arguments, "gridToRenderKernel")) {
+        return false;
+    }
+    hostPacked.resize(cells);
+    return succeeded(driver.api().memcpyDeviceToHost(hostPacked.data(), gridPacked.pointer, cells * 4), "download grid");
+}
+
 BallSnapshot CudaBackend::snapshot() {
     if (isFaulted()) {
         return {};
     }
     driver.makeCurrent();
-    if (gridFilled && writeGridIntoRenderBuffer()) {
+    if (gridFilled && renderResource && writeGridIntoRenderBuffer()) {
         return {nullptr, gridCellCount(), fieldWidth, fieldHeight, true, true};
+    }
+    if (gridFilled && !renderResource) {
+        if (!snapshotFresh && downloadGrid()) {
+            snapshotFresh = true;
+        }
+        return snapshotFresh ? BallSnapshot{hostPacked.data(), hostPacked.size(), fieldWidth, fieldHeight, false, true}
+                             : BallSnapshot{};
     }
     if (count > 0 && count <= packedCapacity && copyIntoRenderBuffer(balls.packed, count)) {
         return {nullptr, count, fieldWidth, fieldHeight, true, false};

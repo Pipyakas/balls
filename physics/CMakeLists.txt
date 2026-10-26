@@ -3,14 +3,17 @@ add_library(balls_physics_cpu SHARED
     cpu/CpuBackendBase.cpp
     cpu/ScalarBackend.cpp
     cpu/WorkerPool.cpp
-    cpu/Avx2Backend.cpp
     cpu/CpuPlugin.cpp
 )
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64|x86|i[3-6]86)$")
+    target_sources(balls_physics_cpu PRIVATE cpu/Avx2Backend.cpp)
+    target_compile_definitions(balls_physics_cpu PRIVATE BALLS_HAS_AVX2_BACKEND=1)
+    set_source_files_properties(cpu/Avx2Backend.cpp PROPERTIES COMPILE_OPTIONS "${BALLS_AVX2_FLAGS}")
+endif()
 target_include_directories(balls_physics_cpu PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(balls_physics_cpu PRIVATE balls_physics_interface)
 target_compile_options(balls_physics_cpu PRIVATE ${BALLS_WARNINGS} ${BALLS_OPTIMIZE})
 target_link_options(balls_physics_cpu PRIVATE ${BALLS_LINK_OPTIMIZE})
-set_source_files_properties(cpu/Avx2Backend.cpp PROPERTIES COMPILE_OPTIONS "${BALLS_AVX2_FLAGS}")
 set(BALLS_PHYSICS_PLUGINS balls_physics_cpu)
 
 if(BALLS_ENABLE_CUDA AND EXISTS "${BALLS_CUDA_SDK_DIR}/include/nvrtc.h")

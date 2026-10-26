@@ -1,8 +1,9 @@
 # Balls
 
 A ball-bouncing, brick-breaking color game for Windows, written in C++20.
-It has an engine-agnostic core (`core/`) and a raylib front end (`frontends/raylib/`). The physics can run
-on three interchangeable backends: a scalar reference, AVX2 multithreaded, and CUDA.
+It has an engine-agnostic core (`core/`) and an SDL3 front end (`frontends/sdl/`) that renders through SDL_GPU
+(Direct3D 12, Vulkan or Metal) with Dear ImGui for text and widgets. The physics can run on three
+interchangeable backends: a scalar reference, AVX2 multithreaded, and CUDA.
 
 ## Features
 
@@ -24,7 +25,9 @@ on three interchangeable backends: a scalar reference, AVX2 multithreaded, and C
 ## Build
 
 Requirements: Windows 10/11 x64, Visual Studio 2022 (C++ workload), CMake 3.25+, Python 3 (only to fetch the CUDA
-compiler pieces) and internet access on first configure (raylib 5.5 is downloaded).
+compiler pieces) and internet access on first configure (SDL 3.2.30 and Dear ImGui 1.93.0 are downloaded).
+
+`-DBALLS_FRONTEND=none` builds only the core, the physics plugins and the tools.
 
 ```powershell
 pwsh tools/FetchCudaSdk.ps1
@@ -51,6 +54,16 @@ build/bin/Release/balls_bench.exe --balls 2000,200000,1000000 --ticks 240
 build/bin/Release/balls_bench.exe --full --balls 100000
 build/bin/Release/balls_bench.exe --roofline --balls 4000000,40000000
 python tools/bench/probe_bench.py --backends cuda avx2 --fps 60
+```
+
+### Shaders
+
+The SDL front end ships its shaders precompiled in `frontends/sdl/shaders/generated/ShaderBlobs.h`, so builds
+need no shader compiler. After editing an `.hlsl` file, regenerate it with DXC
+(https://github.com/microsoft/DirectXShaderCompiler/releases, unpacked to `.deps/dxc`):
+
+```powershell
+python tools/shaders/CompileShaders.py
 ```
 
 ## Physics plugins
@@ -98,7 +111,7 @@ Colors: Red, Orange, Yellow, Green, Blue, Indigo, Violet.
 ## Project layout
 
 ```
-core/                 engine-agnostic library (no raylib, C++20, no exceptions)
+core/                 engine-agnostic library (no SDL, C++20, no exceptions)
   common/             BallColor, Result<T>, DynamicLibrary
   level/              parse / write / watch level files
   sim/                BrickBoard, TargetField, Simulation, physics backends, CUDA kernels
@@ -106,8 +119,10 @@ core/                 engine-agnostic library (no raylib, C++20, no exceptions)
   editor/             LevelEditor model used by any front end
 physics/cpu/          balls_physics_cpu.dll plugin: Scalar and AVX2 backends
 physics/cuda/         balls_physics_cuda.dll plugin: CUDA backend and kernels
-frontends/raylib/     window, rendering, screens, map editor UI
-tools/                bench, NVRTC PTX generator, CUDA SDK fetch script
+frontends/sdl/        SDL3 + SDL_GPU + Dear ImGui front end: screens, map editor UI, control API
+  render/             IRenderer, the SDL_GPU renderer (compute ball culling, impostor balls, instanced rects)
+  shaders/            HLSL sources; generated/ShaderBlobs.h holds SPIR-V and DXIL built by tools/shaders
+tools/                bench, NVRTC PTX generator, CUDA SDK fetch script, shader compiler script
 tests/                unit tests (balls_tests)
 assets/levels/        level files
 ```
