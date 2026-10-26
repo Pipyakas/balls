@@ -1,0 +1,23 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "",
+  "Category": "",
+  "Description": "Unreal Engine front end for Balls",
+  "Modules": [
+    {
+      "Name": "BallsRendering",
+      "Type": "Runtime",
+      "LoadingPhase": "PostConfigInit"
+    },
+    {
+      "Name": "ColorBlastBalls",
+      "Type": "Runtime",
+      "LoadingPhase": "Default"
+    }
+  ],
+  "PreBuildSteps": {
+    "Win64": [
+      "\"$(ProjectDir)\\BuildCore.bat\""
+    ]
+  }
+}

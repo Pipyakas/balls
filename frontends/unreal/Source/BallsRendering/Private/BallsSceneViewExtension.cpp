@@ -1,0 +1,149 @@
+#include "BallsSceneViewExtension.h"
+
+#include "BallsRenderer.h"
+#include "GlobalShader.h"
+#include "PipelineStateCache.h"
+#include "PostProcess/PostProcessMaterialInputs.h"
+#include "RenderGraphBuilder.h"
+#include "RenderGraphUtils.h"
+#include "RenderingThread.h"
+#include "SceneView.h"
+#include "ScreenPass.h"
+#include "ShaderParameterStruct.h"
+
+namespace {
+
+// Ball brightness in scene-linear units; above 1 so the bloom pass picks the balls up.
+constexpr float BallBrightness = 2.2f;
+
+BEGIN_SHADER_PARAMETER_STRUCT(FBallsDrawParameters, )
+    SHADER_PARAMETER_STRUCT_REF(FViewUniformShaderParameters, View)
+    SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, PackedBalls)
+    SHADER_PARAMETER(FMatrix44f, BoardToClip)
+    SHADER_PARAMETER(FVector2f, UnpackScale)
+    SHADER_PARAMETER(float, Radius)
+    SHADER_PARAMETER(float, Brightness)
+    SHADER_PARAMETER_ARRAY(FVector4f, Palette, [8])
+    RENDER_TARGET_BINDING_SLOTS()
+END_SHADER_PARAMETER_STRUCT()
+
+class FBallsVS final : public FGlobalShader {
+public:
+    DECLARE_GLOBAL_SHADER(FBallsVS);
+    SHADER_USE_PARAMETER_STRUCT(FBallsVS, FGlobalShader);
+    using FParameters = FBallsDrawParameters;
+};
+
+class FBallsPS final : public FGlobalShader {
+public:
+    DECLARE_GLOBAL_SHADER(FBallsPS);
+    SHADER_USE_PARAMETER_STRUCT(FBallsPS, FGlobalShader);
+    using FParameters = FBallsDrawParameters;
+};
+
+IMPLEMENT_GLOBAL_SHADER(FBallsVS, "/Balls/BallsDraw.usf", "MainVS", SF_Vertex);
+IMPLEMENT_GLOBAL_SHADER(FBallsPS, "/Balls/BallsDraw.usf", "MainPS", SF_Pixel);
+
+FMatrix44f BoardToClipMatrix(const FBallsDrawData& Data, const FSceneView& View) {
+    const FMatrix BoardToWorld(FPlane(FVector(Data.AxisX), 0.0), FPlane(FVector(Data.AxisY), 0.0),
+                               FPlane(0.0, 0.0, 0.0, 0.0), FPlane(FVector(Data.Origin), 1.0));
+    const FViewMatrices& Matrices = View.ViewMatrices;
+    return FMatrix44f(BoardToWorld * Matrices.GetWorldToView() * Matrices.GetViewToClipNoAA());
+}
+
+}
+
+void FBallsSceneViewExtension::SubscribeToPostProcessingPass(EPostProcessingPass Pass, const FSceneView& View,
+                                                             FPostProcessingPassDelegateArray& InOutPassCallbacks,
+                                                             bool bIsPassEnabled) {
+    // Drawing after motion blur keeps the balls in HDR scene color, so bloom and tonemapping apply to them.
+    if (Pass == EPostProcessingPass::MotionBlur) {
+        InOutPassCallbacks.Add(
+            FPostProcessingPassDelegate::CreateRaw(this, &FBallsSceneViewExtension::DrawBalls_RenderThread));
+    }
+}
+
+FScreenPassTexture FBallsSceneViewExtension::DrawBalls_RenderThread(FRDGBuilder& GraphBuilder, const FSceneView& View,
+                                                                     const FPostProcessMaterialInputs& Inputs) {
+    const FScreenPassTexture SceneColor =
+        FScreenPassTexture::CopyFromSlice(GraphBuilder, Inputs.GetInput(EPostProcessMaterialInput::SceneColor));
+    FScreenPassRenderTarget Output(SceneColor, ERenderTargetLoadAction::ELoad);
+    if (Inputs.OverrideOutput.IsValid()) {
+        AddDrawTexturePass(GraphBuilder, FScreenPassViewInfo(View), SceneColor, Inputs.OverrideOutput);
+        Output = Inputs.OverrideOutput;
+        Output.LoadAction = ERenderTargetLoadAction::ELoad;
+    }
+
+    const TSharedPtr<const FBallsDrawData, ESPMode::ThreadSafe> Data = DrawData;
+    if (!Data.IsValid() || Data->Packed.IsEmpty()) {
+        return MoveTemp(Output);
+    }
+
+    // The upload reads straight from the frame's array, so keep it alive until the graph executes.
+    GraphBuilder.AllocObject<TSharedPtr<const FBallsDrawData, ESPMode::ThreadSafe>>(Data);
+    FRDGBufferRef PackedBuffer = CreateStructuredBuffer(GraphBuilder, TEXT("Balls.Packed"), sizeof(uint32),
+                                                        Data->Packed.Num(), Data->Packed.GetData(),
+                                                        Data->Packed.Num() * sizeof(uint32), ERDGInitialDataFlags::NoCopy);
+
+    FBallsDrawParameters* Parameters = GraphBuilder.AllocParameters<FBallsDrawParameters>();
+    Parameters->View = View.ViewUniformBuffer;
+    Parameters->PackedBalls = GraphBuilder.CreateSRV(PackedBuffer);
+    Parameters->BoardToClip = BoardToClipMatrix(*Data, View);
+    Parameters->UnpackScale = Data->UnpackScale;
+    Parameters->Radius = Data->Radius;
+    Parameters->Brightness = BallBrightness;
+    for (int32 Index = 0; Index < 8; ++Index) {
+        Parameters->Palette[Index] = FVector4f(Data->Palette[Index]);
+    }
+    Parameters->RenderTargets[0] = Output.GetRenderTargetBinding();
+
+    const FGlobalShaderMap* ShaderMap = GetGlobalShaderMap(View.GetFeatureLevel());
+    TShaderMapRef<FBallsVS> VertexShader(ShaderMap);
+    TShaderMapRef<FBallsPS> PixelShader(ShaderMap);
+    const FIntRect Viewport = Output.ViewRect;
+    const uint32 BallCount = static_cast<uint32>(Data->Packed.Num());
+
+    GraphBuilder.AddPass(
+        RDG_EVENT_NAME("Balls %u", BallCount), Parameters, ERDGPassFlags::Raster,
+        [Parameters, VertexShader, PixelShader, Viewport, BallCount](FRHICommandList& RHICmdList) {
+            RHICmdList.SetViewport(Viewport.Min.X, Viewport.Min.Y, 0.0f, Viewport.Max.X, Viewport.Max.Y, 1.0f);
+
+            FGraphicsPipelineStateInitializer Pipeline;
+            RHICmdList.ApplyCachedRenderTargets(Pipeline);
+            Pipeline.BlendState = TStaticBlendState<CW_RGBA, BO_Add, BF_SourceAlpha, BF_InverseSourceAlpha, BO_Add,
+                                                    BF_Zero, BF_One>::GetRHI();
+            Pipeline.RasterizerState = TStaticRasterizerState<FM_Solid, CM_None>::GetRHI();
+            Pipeline.DepthStencilState = TStaticDepthStencilState<false, CF_Always>::GetRHI();
+            Pipeline.BoundShaderState.VertexDeclarationRHI = GEmptyVertexDeclaration.VertexDeclarationRHI;
+            Pipeline.BoundShaderState.VertexShaderRHI = VertexShader.GetVertexShader();
+            Pipeline.BoundShaderState.PixelShaderRHI = PixelShader.GetPixelShader();
+            Pipeline.PrimitiveType = PT_TriangleList;
+            SetGraphicsPipelineState(RHICmdList, Pipeline, 0);
+
+            SetShaderParameters(RHICmdList, VertexShader, VertexShader.GetVertexShader(), *Parameters);
+            SetShaderParameters(RHICmdList, PixelShader, PixelShader.GetPixelShader(), *Parameters);
+            RHICmdList.DrawPrimitive(0, 2, BallCount);
+        });
+
+    return MoveTemp(Output);
+}
+
+FBallsRenderer::FBallsRenderer() : Extension(FSceneViewExtensions::NewExtension<FBallsSceneViewExtension>()) {}
+
+FBallsRenderer::~FBallsRenderer() { Clear(); }
+
+void FBallsRenderer::Submit(FBallsDrawData&& Data) {
+    Extension->SetHasBalls(!Data.Packed.IsEmpty());
+    TSharedPtr<const FBallsDrawData, ESPMode::ThreadSafe> Frame =
+        MakeShared<FBallsDrawData, ESPMode::ThreadSafe>(MoveTemp(Data));
+    ENQUEUE_RENDER_COMMAND(BallsSubmit)
+    ([Extension = Extension, Frame = MoveTemp(Frame)](FRHICommandListImmediate&) mutable {
+        Extension->SetDrawData_RenderThread(MoveTemp(Frame));
+    });
+}
+
+void FBallsRenderer::Clear() {
+    Extension->SetHasBalls(false);
+    ENQUEUE_RENDER_COMMAND(BallsClear)
+    ([Extension = Extension](FRHICommandListImmediate&) { Extension->SetDrawData_RenderThread(nullptr); });
+}

@@ -1,0 +1,13 @@
+#pragma once
+
+// The core is plain C++20 built outside UBT; keep engine warning rules away from its headers.
+THIRD_PARTY_INCLUDES_START
+#include "common/BallColor.h"
+#include "common/BallCount.h"
+#include "game/GameSession.h"
+#include "level/LevelParser.h"
+#include "level/LevelRepository.h"
+#include "level/LevelWatcher.h"
+#include "sim/BackendFactory.h"
+#include "sim/Simulation.h"
+THIRD_PARTY_INCLUDES_END
