@@ -42,6 +42,26 @@ build/bin/Release/ColorBlastBalls.exe
 
 Or just `build.bat` / `run.bat`.
 
+### Linux and macOS
+
+Requirements: a C++20 compiler (GCC 12+ or Clang 15+), CMake 3.25+, Ninja or Make, and internet access on first
+configure (SDL 3.2.30, Dear ImGui 1.93.0 and NVRHI with the Vulkan headers are downloaded). Vulkan drivers are
+needed at runtime on Linux; macOS uses MoltenVK. There is no CUDA backend off Windows.
+
+```sh
+./build.sh                     # Release, NVRHI renderer, no CUDA
+./build.sh --debug -j 8        # Debug build with all CPUs
+./build.sh --renderer sdlgpu   # SDL_GPU instead of NVRHI
+./run.sh                       # run from build/bin
+./run.sh --play normal DA_49Bricks --backend avx2
+```
+
+`./build.sh --clean` reconfigures from scratch, and anything after `--` is passed to CMake. Tests and the
+benchmark build next to the game: `build/bin/balls_tests`, `build/bin/balls_bench`.
+
+To start it from the application menu or the desktop, run `tools/install-desktop-shortcut.sh` once; it writes a
+`.desktop` entry with this checkout's absolute paths.
+
 `FetchCudaSdk.ps1` downloads NVIDIA's NVRTC and runtime header wheels into `.deps/cuda`. The CUDA kernel is
 compiled at build time to SASS for sm_50, 60, 70, 75, 80, 86 and 89 plus `compute_75` and `compute_50` PTX, and
 all of it is embedded in the CUDA plugin, so the CUDA toolkit is not required. Without the SDK, or with
