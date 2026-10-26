@@ -76,8 +76,9 @@ Sorting only costs time on an empty board, so the backend picks the interval its
 
 With sorting active the brick level uses about 80% of issue slots (marginal injection cost 79-85%) and about 63%
 of copy bandwidth. The remaining loss is divergence inside near-brick warps, between balls at a cell edge with an
-occupied neighbor and balls in the middle of the cell. Removing it needs sub-cell sort keys (about 10k bins),
-which exceed the shared memory the counting kernels can use at full occupancy.
+occupied neighbor and balls in the middle of the cell. Sorting by edge band removes it only for about a tick,
+because balls cross a band nearly every tick (see below), so that divergence is a property of the motion, not of
+the memory layout.
 
 ## What did not help
 
@@ -91,3 +92,4 @@ Each of these was measured on the brick level and reverted:
 | block-level compaction of near-brick balls through shared memory | 16.9 ms (per-substep barriers cost more than the saved lanes) |
 | sorting inside 256-thread step blocks | 11.8 ms (sorted writes scatter: 0.2 balls per cell per block) |
 | separate scatter pass instead of the fused sort | every tick 17.4 ms, every 4 ticks 10.7 ms (fused: 14.6 / 10.0) |
+| sort key (cell, 3x3 edge band) instead of cell | 9.68 vs 10.36 ms when fresh (-6.5%), but balls cross a 0.2-cell band about every tick (0.23 cells/tick), so the order decays before a sort pays for itself |
