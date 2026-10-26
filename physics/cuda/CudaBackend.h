@@ -68,6 +68,7 @@ private:
     BallTally downloadColorTally(size_t first, size_t last);
     size_t gridCellCount() const;
     void downloadPacked();
+    bool downloadGrid();
 
     const CudaDriver& driver;
     CUfunction stepFunction = nullptr;
@@ -87,6 +88,7 @@ private:
     DeviceArray holes;
     DeviceArray counters;
     DeviceArray gridSlots;
+    DeviceArray gridPacked;
     unsigned int frameSeed = 0;
     int gridWidth = 0;
     int gridHeight = 0;
