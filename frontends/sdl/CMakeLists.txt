@@ -31,7 +31,7 @@ add_library(balls_imgui STATIC
 target_include_directories(balls_imgui PUBLIC ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
 target_link_libraries(balls_imgui PUBLIC SDL3::SDL3-static)
 
-add_executable(ColorBlastBallsSdl WIN32
+add_executable(ColorBlastBalls WIN32
     app/Main.cpp
     app/App.cpp
     app/Input.cpp
@@ -55,25 +55,25 @@ add_executable(ColorBlastBallsSdl WIN32
     screens/DebugPanel.cpp
     editor/MapEditorScreen.cpp
 )
-target_include_directories(ColorBlastBallsSdl PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(ColorBlastBallsSdl PRIVATE balls_core balls_imgui SDL3::SDL3-static)
+target_include_directories(ColorBlastBalls PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+target_link_libraries(ColorBlastBalls PRIVATE balls_core balls_imgui SDL3::SDL3-static)
 if(WIN32)
-    target_link_libraries(ColorBlastBallsSdl PRIVATE ws2_32)
+    target_link_libraries(ColorBlastBalls PRIVATE ws2_32)
 endif()
-target_compile_options(ColorBlastBallsSdl PRIVATE ${BALLS_WARNINGS} ${BALLS_OPTIMIZE})
-target_link_options(ColorBlastBallsSdl PRIVATE ${BALLS_LINK_OPTIMIZE})
+target_compile_options(ColorBlastBalls PRIVATE ${BALLS_WARNINGS} ${BALLS_OPTIMIZE})
+target_link_options(ColorBlastBalls PRIVATE ${BALLS_LINK_OPTIMIZE})
 option(BALLS_USE_SOURCE_ASSETS "Read and save levels in the source tree (turn OFF for release packages)" ON)
 if(BALLS_USE_SOURCE_ASSETS)
-    target_compile_definitions(ColorBlastBallsSdl PRIVATE BALLS_DEV_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")
+    target_compile_definitions(ColorBlastBalls PRIVATE BALLS_DEV_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")
 endif()
-add_dependencies(ColorBlastBallsSdl balls_physics_plugins)
+add_dependencies(ColorBlastBalls balls_physics_plugins)
 if(MSVC)
     set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP ON)
     include(InstallRequiredSystemLibraries)
     if(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS)
-        add_custom_command(TARGET ColorBlastBallsSdl POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS} "$<TARGET_FILE_DIR:ColorBlastBallsSdl>")
+        add_custom_command(TARGET ColorBlastBalls POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS} "$<TARGET_FILE_DIR:ColorBlastBalls>")
     endif()
 endif()
-add_custom_command(TARGET ColorBlastBallsSdl POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:ColorBlastBallsSdl>/assets")
+add_custom_command(TARGET ColorBlastBalls POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:ColorBlastBalls>/assets")
