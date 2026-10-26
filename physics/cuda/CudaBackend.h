@@ -69,12 +69,19 @@ private:
     size_t gridCellCount() const;
     void downloadPacked();
     bool downloadGrid();
+    bool ensureSortBuffers();
+    void releaseSortBuffers();
+    bool countBallsByCell();
+    void updateSortSchedule(double kernelMs);
 
     const CudaDriver& driver;
     CUfunction stepFunction = nullptr;
     CUfunction collectHolesFunction = nullptr;
     CUfunction fillHolesFunction = nullptr;
     CUfunction gridToRenderFunction = nullptr;
+    CUfunction countCellsFunction = nullptr;
+    CUfunction scanCellsFunction = nullptr;
+    CUfunction stepAndSortFunction = nullptr;
     DeviceBalls balls{};
     size_t capacity = 0;
     size_t packedCapacity = 0;
@@ -89,6 +96,17 @@ private:
     DeviceArray counters;
     DeviceArray gridSlots;
     DeviceArray gridPacked;
+    DeviceArray cellCursors;
+    CUdeviceptr sortedPosition = 0;
+    CUdeviceptr sortedState = 0;
+    size_t sortedCapacity = 0;
+    int ticksSinceSort = 0;
+    int sortIntervalTicks = 0;
+    size_t sortCandidate = 0;
+    int sortTrialTick = 0;
+    double sortTrialMsPerBall = 0.0;
+    int ticksUntilSortTrial = 0;
+    std::array<double, 3> sortCandidateCost{};
     unsigned int frameSeed = 0;
     int gridWidth = 0;
     int gridHeight = 0;

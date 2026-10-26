@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace {
 
@@ -20,6 +21,14 @@ constexpr float directionScale = 4095.0f;
 constexpr unsigned int colorShift = 26u;
 constexpr unsigned int colorMask = 7u;
 constexpr unsigned int deadColor = 7u;
+constexpr int maxSortCells = 4096;
+constexpr size_t sortBallsPerBlock = 4096;
+constexpr unsigned int stepSortThreads = 512;
+constexpr std::array<int, 3> sortIntervalCandidates{0, 8, 16};
+constexpr int sortTrialWarmupTicks = 16;
+constexpr int sortTrialMeasuredTicks = 32;
+constexpr int ticksBetweenSortTrials = 1200;
+constexpr size_t minimumBallsForSorting = size_t{1} << 20;
 
 uint32_t encodeAxis(float value, float extent) {
     const float scaled = value / extent * positionScale + 0.5f;
@@ -36,6 +45,14 @@ int signedComponent(uint32_t bits) {
 }
 
 uint32_t stateColor(uint32_t state) { return (state >> colorShift) & colorMask; }
+
+struct DeviceSortedOutput {
+    CUdeviceptr cellCursors;
+    CUdeviceptr position;
+    CUdeviceptr state;
+    int columns;
+    int rows;
+};
 
 struct DeviceVisibilityGrid {
     CUdeviceptr slots;
@@ -90,7 +107,11 @@ CudaBackend::CudaBackend() : driver(CudaDriver::instance()) {
     collectHolesFunction = driver.function("collectHolesKernel");
     fillHolesFunction = driver.function("fillHolesKernel");
     gridToRenderFunction = driver.function("gridToRenderKernel");
-    if (!stepFunction || !collectHolesFunction || !fillHolesFunction || !gridToRenderFunction) {
+    countCellsFunction = driver.function("countCellsKernel");
+    scanCellsFunction = driver.function("scanCellsKernel");
+    stepAndSortFunction = driver.function("stepAndSortBallsKernel");
+    if (!stepFunction || !collectHolesFunction || !fillHolesFunction || !gridToRenderFunction ||
+        !countCellsFunction || !scanCellsFunction || !stepAndSortFunction) {
         fault = "CUDA kernels missing from module";
         return;
     }
@@ -171,7 +192,7 @@ CudaBackend::~CudaBackend() {
     for (CUdeviceptr pointer :
          {balls.position, balls.state, balls.packed, paddedCells.pointer,
           brickColors.pointer, targetCells.pointer, cellWords.pointer, brickHitsLeft.pointer, killedIndices.pointer, holes.pointer,
-          counters.pointer, gridSlots.pointer, gridPacked.pointer}) {
+          counters.pointer, gridSlots.pointer, gridPacked.pointer, cellCursors.pointer, sortedPosition, sortedState}) {
         if (pointer) {
             api.memFree(pointer);
         }
@@ -225,6 +246,7 @@ void CudaBackend::ensureBallCapacity(size_t required) {
     if (isFaulted() || required <= capacity) {
         return;
     }
+    releaseSortBuffers();
     const auto& api = driver.api();
     const size_t grown = std::max(required, capacity + capacity / growthDivisor);
     const size_t newCapacity = (grown + capacityGranule - 1) / capacityGranule * capacityGranule;
@@ -366,14 +388,33 @@ void CudaBackend::step(const StepParams& params, std::vector<BallHit>&) {
     }
     unsigned int killedCapacityArgument = killedCapacity;
     unsigned int packedCapacityArgument = static_cast<unsigned int>(std::min<size_t>(packedCapacity, 0xFFFFFFFFu));
+    DeviceSortedOutput sorted{};
     void* arguments[] = {&balls,           &ballCountArgument, &cellWordsPointer, &targetCellsPointer,
                          &stepArgument,    &hitsLeftPointer,   &killedPointer,    &killedCapacityArgument,
-                         &countersPointer, &grid,              &packedCapacityArgument};
+                         &countersPointer, &grid,              &packedCapacityArgument, &sorted};
     if (stepStarted) {
         api.eventRecord(stepStarted, nullptr);
     }
-    if (!launch(stepFunction, count, arguments, "stepBallsKernel")) {
+    if (count >= minimumBallsForSorting && sortIntervalTicks > 0 && ++ticksSinceSort >= sortIntervalTicks) {
+        ticksSinceSort = 0;
+        if (countBallsByCell()) {
+            sorted = {cellCursors.pointer, sortedPosition, sortedState, static_cast<int>(fieldWidth),
+                      static_cast<int>(fieldHeight)};
+        }
+    }
+    const bool sorting = sorted.columns > 0;
+    const bool launched =
+        sorting ? succeeded(api.launchKernel(stepAndSortFunction,
+                                             static_cast<unsigned int>((count + sortBallsPerBlock - 1) / sortBallsPerBlock),
+                                             1, 1, stepSortThreads, 1, 1, 0, nullptr, arguments, nullptr),
+                            "stepAndSortBallsKernel")
+                : launch(stepFunction, count, arguments, "stepBallsKernel");
+    if (!launched) {
         return;
+    }
+    if (sorting) {
+        std::swap(balls.position, sortedPosition);
+        std::swap(balls.state, sortedState);
     }
     if (stepFinished) {
         api.eventRecord(stepFinished, nullptr);
@@ -385,6 +426,7 @@ void CudaBackend::step(const StepParams& params, std::vector<BallHit>&) {
         float elapsedMs = 0.0f;
         api.eventElapsedTime(&elapsedMs, stepStarted, stepFinished);
         lastStepKernelMs = elapsedMs;
+        updateSortSchedule(elapsedMs);
     }
     lastCounters.killedCount = std::min(lastCounters.killedCount, killedCapacity);
     if (lastCounters.killedCount == 0) {
@@ -546,6 +588,91 @@ bool CudaBackend::downloadGrid() {
     }
     hostPacked.resize(cells);
     return succeeded(driver.api().memcpyDeviceToHost(hostPacked.data(), gridPacked.pointer, cells * 4), "download grid");
+}
+
+void CudaBackend::releaseSortBuffers() {
+    for (CUdeviceptr* buffer : {&sortedPosition, &sortedState}) {
+        if (*buffer) {
+            driver.api().memFree(*buffer);
+            *buffer = 0;
+        }
+    }
+    sortedCapacity = 0;
+}
+
+bool CudaBackend::ensureSortBuffers() {
+    if (sortedCapacity == capacity && sortedPosition && sortedState) {
+        return true;
+    }
+    const auto& api = driver.api();
+    releaseSortBuffers();
+    if (api.memAlloc(&sortedPosition, capacity * 4) != CUDA_SUCCESS ||
+        api.memAlloc(&sortedState, capacity * 4) != CUDA_SUCCESS) {
+        releaseSortBuffers();
+        return false;
+    }
+    sortedCapacity = capacity;
+    return true;
+}
+
+void CudaBackend::updateSortSchedule(double kernelMs) {
+    if (count < minimumBallsForSorting) {
+        return;
+    }
+    if (ticksUntilSortTrial > 0) {
+        --ticksUntilSortTrial;
+        if (ticksUntilSortTrial == 0) {
+            sortCandidate = 0;
+            sortTrialTick = 0;
+            sortTrialMsPerBall = 0.0;
+            sortIntervalTicks = sortIntervalCandidates[0];
+            ticksSinceSort = sortIntervalTicks;
+        }
+        return;
+    }
+    if (sortTrialTick++ >= sortTrialWarmupTicks) {
+        sortTrialMsPerBall += kernelMs / static_cast<double>(count);
+    }
+    if (sortTrialTick < sortTrialWarmupTicks + sortTrialMeasuredTicks) {
+        return;
+    }
+    sortCandidateCost[sortCandidate] = sortTrialMsPerBall / sortTrialMeasuredTicks;
+    sortTrialTick = 0;
+    sortTrialMsPerBall = 0.0;
+    if (++sortCandidate < sortIntervalCandidates.size()) {
+        sortIntervalTicks = sortIntervalCandidates[sortCandidate];
+        ticksSinceSort = sortIntervalTicks;
+        return;
+    }
+    const auto cheapest = std::ranges::min_element(sortCandidateCost);
+    sortIntervalTicks = sortIntervalCandidates[static_cast<size_t>(cheapest - sortCandidateCost.begin())];
+    ticksSinceSort = 0;
+    ticksUntilSortTrial = ticksBetweenSortTrials;
+}
+
+bool CudaBackend::countBallsByCell() {
+    const int columns = static_cast<int>(fieldWidth);
+    const int rows = static_cast<int>(fieldHeight);
+    const int cellCount = columns * rows;
+    if (count == 0 || cellCount <= 0 || cellCount > maxSortCells || !ensureSortBuffers()) {
+        return false;
+    }
+    ensureArray(cellCursors, static_cast<size_t>(cellCount) * 4);
+    const auto& api = driver.api();
+    if (isFaulted() || !succeeded(api.memsetD32(cellCursors.pointer, 0, static_cast<size_t>(cellCount)), "clear cells")) {
+        return false;
+    }
+    CUdeviceptr positionPointer = balls.position;
+    CUdeviceptr cursorPointer = cellCursors.pointer;
+    int countArgument = static_cast<int>(count);
+    int columnsArgument = columns;
+    int rowsArgument = rows;
+    int cellCountArgument = cellCount;
+    const size_t countThreads = (count + sortBallsPerBlock - 1) / sortBallsPerBlock * threadsPerBlock;
+    void* countArguments[] = {&positionPointer, &countArgument, &columnsArgument, &rowsArgument, &cursorPointer};
+    void* scanArguments[] = {&cursorPointer, &cellCountArgument};
+    return launch(countCellsFunction, countThreads, countArguments, "countCellsKernel") &&
+           launch(scanCellsFunction, threadsPerBlock, scanArguments, "scanCellsKernel");
 }
 
 BallSnapshot CudaBackend::snapshot() {

@@ -144,57 +144,6 @@ __device__ __forceinline__ bool tryConsumeHit(int* hitsLeft) {
     return false;
 }
 
-__device__ __forceinline__ void stepOneBall(int index, const DeviceBalls& balls, const CellBoard& board,
-                                            const StepParams& params, int* brickHitsLeft, unsigned int* killedIndices,
-                                            unsigned int killedCapacity, FrameCounters* counters,
-                                            const VisibilityGrid& grid, unsigned int packedCapacity) {
-    const unsigned int startState = balls.state[index];
-    const unsigned int color = stateColor(startState);
-    float x = 0.0f;
-    float y = 0.0f;
-    float vx = 0.0f;
-    float vy = 0.0f;
-    decodePosition(balls.position[index], x, y, params);
-    decodeVelocity(startState, vx, vy, params);
-    const int startBounces = static_cast<int>((startState >> bounceShift) & bounceMask);
-    int bounces = startBounces;
-    const int brick = stepBallSubsteps(x, y, vx, vy, static_cast<int>(color), bounces, board, params);
-    const unsigned int position = encodePosition(x, y, params);
-    balls.position[index] = position;
-    if (bounces != startBounces) {
-        balls.state[index] = encodeState(vx, vy, color, bounces, params);
-    }
-    const unsigned int packed = packFromPosition(position, color);
-    if (grid.slots) {
-        bidForSlot(packed, static_cast<unsigned int>(index), grid);
-    } else if (static_cast<unsigned int>(index) < packedCapacity) {
-        balls.packed[index] = packed;
-    }
-    if (brick != noBrickHit && tryConsumeHit(&brickHitsLeft[brick])) {
-        const unsigned int slot = atomicAdd(&counters->killedCount, 1u);
-        if (slot < killedCapacity) {
-            balls.state[index] = deadColor << colorShift;
-            killedIndices[slot] = static_cast<unsigned int>(index);
-            atomicAdd(&counters->killsByColor[color], 1u);
-        } else {
-            atomicAdd(&brickHitsLeft[brick], 1);
-        }
-    }
-}
-
-extern "C" __global__ void stepBallsKernel(DeviceBalls balls, int count, const int* cellWords, const int* targetCells,
-                                           StepParams params, int* brickHitsLeft, unsigned int* killedIndices,
-                                           unsigned int killedCapacity, FrameCounters* counters, VisibilityGrid grid,
-                                           unsigned int packedCapacity) {
-    const int index = blockIdx.x * blockDim.x + threadIdx.x;
-    if (index >= count) {
-        return;
-    }
-    const CellBoard board{cellWords, targetCells};
-    stepOneBall(index, balls, board, params, brickHitsLeft, killedIndices, killedCapacity, counters, grid,
-                packedCapacity);
-}
-
 extern "C" __global__ void gridToRenderKernel(const unsigned long long* slots, int cells, unsigned int* renderSlots) {
     const int index = blockIdx.x * blockDim.x + threadIdx.x;
     if (index >= cells) {
@@ -229,5 +178,191 @@ extern "C" __global__ void fillHolesKernel(DeviceBalls balls, unsigned int survi
     balls.state[target] = balls.state[source];
     if (source < packedCapacity) {
         balls.packed[target] = balls.packed[source];
+    }
+}
+
+inline constexpr int maxSortCells = 4096;
+inline constexpr unsigned int fullSortMask = 0xFFFFFFFFu;
+inline constexpr int sortItemsPerThread = 16;
+inline constexpr int sortThreadsPerBlock = 256;
+inline constexpr int sortBallsPerBlock = sortItemsPerThread * sortThreadsPerBlock;
+
+__device__ __forceinline__ int sortCellOf(unsigned int position, int columns, int rows) {
+    const int column =
+        min(static_cast<int>(((position & positionMask) * static_cast<unsigned int>(columns)) >> 16), columns - 1);
+    const int row = min(static_cast<int>(((position >> 16) * static_cast<unsigned int>(rows)) >> 16), rows - 1);
+    return row * columns + column;
+}
+
+__device__ __forceinline__ unsigned int rankInCell(unsigned int* cellTotals, int cell, bool valid) {
+    const unsigned int voters = __ballot_sync(fullSortMask, valid);
+    if (!valid) {
+        return 0u;
+    }
+    const unsigned int peers = __match_any_sync(voters, cell);
+    const int lane = static_cast<int>(threadIdx.x) & 31;
+    const int leader = __ffs(peers) - 1;
+    unsigned int base = 0u;
+    if (lane == leader) {
+        base = atomicAdd(&cellTotals[cell], static_cast<unsigned int>(__popc(peers)));
+    }
+    base = __shfl_sync(peers, base, leader);
+    return base + static_cast<unsigned int>(__popc(peers & ((1u << lane) - 1u)));
+}
+
+__device__ __forceinline__ void clearSharedCells(unsigned int* cells, int cellCount) {
+    for (int cell = threadIdx.x; cell < cellCount; cell += blockDim.x) {
+        cells[cell] = 0u;
+    }
+}
+
+extern "C" __global__ void countCellsKernel(const unsigned int* position, int count, int columns, int rows,
+                                            unsigned int* cellCounts) {
+    __shared__ unsigned int local[maxSortCells];
+    const int cellCount = columns * rows;
+    clearSharedCells(local, cellCount);
+    __syncthreads();
+    const int blockStart = blockIdx.x * sortBallsPerBlock;
+    for (int item = 0; item < sortItemsPerThread; ++item) {
+        const int index = blockStart + item * sortThreadsPerBlock + threadIdx.x;
+        const bool valid = index < count;
+        rankInCell(local, valid ? sortCellOf(position[index], columns, rows) : 0, valid);
+    }
+    __syncthreads();
+    for (int cell = threadIdx.x; cell < cellCount; cell += blockDim.x) {
+        if (local[cell] != 0u) {
+            atomicAdd(&cellCounts[cell], local[cell]);
+        }
+    }
+}
+
+extern "C" __global__ void scanCellsKernel(unsigned int* cellCounts, int cellCount) {
+    __shared__ unsigned int local[maxSortCells];
+    for (int cell = threadIdx.x; cell < cellCount; cell += blockDim.x) {
+        local[cell] = cellCounts[cell];
+    }
+    __syncthreads();
+    if (threadIdx.x == 0) {
+        unsigned int running = 0u;
+        for (int cell = 0; cell < cellCount; ++cell) {
+            const unsigned int cellTotal = local[cell];
+            local[cell] = running;
+            running += cellTotal;
+        }
+    }
+    __syncthreads();
+    for (int cell = threadIdx.x; cell < cellCount; cell += blockDim.x) {
+        cellCounts[cell] = local[cell];
+    }
+}
+
+
+inline constexpr int stepSortThreads = 512;
+inline constexpr int stepSortItemsPerThread = 8;
+inline constexpr int stepSortBallsPerBlock = stepSortThreads * stepSortItemsPerThread;
+inline constexpr unsigned int rankBits = 12u;
+inline constexpr unsigned int rankMask = (1u << rankBits) - 1u;
+
+struct SortedOutput {
+    unsigned int* cellCursors;
+    unsigned int* position;
+    unsigned int* state;
+    int columns;
+    int rows;
+};
+
+__device__ __forceinline__ void stepOneBall(unsigned int target, unsigned int startPosition, unsigned int startState,
+                                            unsigned int* outPosition, unsigned int* outState, bool writeAllState,
+                                            unsigned int* packedOut, const CellBoard& board, const StepParams& params,
+                                            int* brickHitsLeft, unsigned int* killedIndices,
+                                            unsigned int killedCapacity, FrameCounters* counters,
+                                            const VisibilityGrid& grid, unsigned int packedCapacity) {
+    const unsigned int color = stateColor(startState);
+    float x = 0.0f;
+    float y = 0.0f;
+    float vx = 0.0f;
+    float vy = 0.0f;
+    decodePosition(startPosition, x, y, params);
+    decodeVelocity(startState, vx, vy, params);
+    const int startBounces = static_cast<int>((startState >> bounceShift) & bounceMask);
+    int bounces = startBounces;
+    const int brick = stepBallSubsteps(x, y, vx, vy, static_cast<int>(color), bounces, board, params);
+    const unsigned int position = encodePosition(x, y, params);
+    outPosition[target] = position;
+    if (bounces != startBounces) {
+        outState[target] = encodeState(vx, vy, color, bounces, params);
+    } else if (writeAllState) {
+        outState[target] = startState;
+    }
+    const unsigned int packed = packFromPosition(position, color);
+    if (grid.slots) {
+        bidForSlot(packed, target, grid);
+    } else if (target < packedCapacity) {
+        packedOut[target] = packed;
+    }
+    if (brick != noBrickHit && tryConsumeHit(&brickHitsLeft[brick])) {
+        const unsigned int slot = atomicAdd(&counters->killedCount, 1u);
+        if (slot < killedCapacity) {
+            outState[target] = deadColor << colorShift;
+            killedIndices[slot] = target;
+            atomicAdd(&counters->killsByColor[color], 1u);
+        } else {
+            atomicAdd(&brickHitsLeft[brick], 1);
+        }
+    }
+}
+
+extern "C" __global__ void stepBallsKernel(DeviceBalls balls, int count, const int* cellWords, const int* targetCells,
+                                           StepParams params, int* brickHitsLeft, unsigned int* killedIndices,
+                                           unsigned int killedCapacity, FrameCounters* counters, VisibilityGrid grid,
+                                           unsigned int packedCapacity) {
+    const int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index >= count) {
+        return;
+    }
+    const CellBoard board{cellWords, targetCells};
+    stepOneBall(static_cast<unsigned int>(index), balls.position[index], balls.state[index], balls.position,
+                balls.state, false, balls.packed, board, params, brickHitsLeft, killedIndices, killedCapacity,
+                counters, grid, packedCapacity);
+}
+
+extern "C" __global__ void __launch_bounds__(stepSortThreads, 2)
+    stepAndSortBallsKernel(DeviceBalls balls, int count, const int* cellWords, const int* targetCells,
+                           StepParams params, int* brickHitsLeft, unsigned int* killedIndices,
+                           unsigned int killedCapacity, FrameCounters* counters, VisibilityGrid grid,
+                           unsigned int packedCapacity, SortedOutput sorted) {
+    __shared__ unsigned int blockCells[maxSortCells];
+    __shared__ unsigned int cellAndRank[stepSortBallsPerBlock];
+    const int cellCount = sorted.columns * sorted.rows;
+    clearSharedCells(blockCells, cellCount);
+    __syncthreads();
+    const int blockStart = blockIdx.x * stepSortBallsPerBlock;
+    for (int item = 0; item < stepSortItemsPerThread; ++item) {
+        const int slot = item * stepSortThreads + threadIdx.x;
+        const int index = blockStart + slot;
+        const bool valid = index < count;
+        const int cell = valid ? sortCellOf(balls.position[index], sorted.columns, sorted.rows) : 0;
+        const unsigned int rank = rankInCell(blockCells, cell, valid);
+        cellAndRank[slot] = (static_cast<unsigned int>(cell) << rankBits) | rank;
+    }
+    __syncthreads();
+    for (int cell = threadIdx.x; cell < cellCount; cell += blockDim.x) {
+        if (blockCells[cell] != 0u) {
+            blockCells[cell] = atomicAdd(&sorted.cellCursors[cell], blockCells[cell]);
+        }
+    }
+    __syncthreads();
+    const CellBoard board{cellWords, targetCells};
+    for (int item = 0; item < stepSortItemsPerThread; ++item) {
+        const int slot = item * stepSortThreads + threadIdx.x;
+        const int index = blockStart + slot;
+        if (index >= count) {
+            break;
+        }
+        const unsigned int packedSlot = cellAndRank[slot];
+        const unsigned int target = blockCells[packedSlot >> rankBits] + (packedSlot & rankMask);
+        stepOneBall(target, balls.position[index], balls.state[index], sorted.position, sorted.state, true,
+                    balls.packed, board, params, brickHitsLeft, killedIndices, killedCapacity, counters, grid,
+                    packedCapacity);
     }
 }

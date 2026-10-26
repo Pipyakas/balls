@@ -13,14 +13,14 @@ INDEPENDENT_CHAINS = 4
 def injected_source(base, count):
     if count == 0:
         return base
-    lines = ["    unsigned int pad0 = index, pad1 = index ^ 1u, pad2 = index ^ 2u, pad3 = index ^ 3u;"]
+    lines = ["    unsigned int pad0 = target, pad1 = target ^ 1u, pad2 = target ^ 2u, pad3 = target ^ 3u;"]
     for step in range(count // INDEPENDENT_CHAINS):
-        lines.append('    asm volatile("mad.lo.u32 %0, %0, %0, %1;" : "+r"(pad0) : "r"(index));')
-        lines.append('    asm volatile("mad.lo.u32 %0, %0, %0, %1;" : "+r"(pad1) : "r"(index));')
+        lines.append('    asm volatile("mad.lo.u32 %0, %0, %0, %1;" : "+r"(pad0) : "r"(target));')
+        lines.append('    asm volatile("mad.lo.u32 %0, %0, %0, %1;" : "+r"(pad1) : "r"(target));')
         selector = PERMUTE_SELECTORS[step % len(PERMUTE_SELECTORS)]
-        lines.append(f'    asm volatile("prmt.b32 %0, %0, %1, {selector};" : "+r"(pad2) : "r"(index));')
-        lines.append(f'    asm volatile("prmt.b32 %0, %0, %1, {selector};" : "+r"(pad3) : "r"(index));')
-    lines.append("    if ((pad0 ^ pad1 ^ pad2 ^ pad3) == 0x7fffffffu) { balls.packed[0] = pad0; }")
+        lines.append(f'    asm volatile("prmt.b32 %0, %0, %1, {selector};" : "+r"(pad2) : "r"(target));')
+        lines.append(f'    asm volatile("prmt.b32 %0, %0, %1, {selector};" : "+r"(pad3) : "r"(target));')
+    lines.append("    if ((pad0 ^ pad1 ^ pad2 ^ pad3) == 0x7fffffffu) { packedOut[0] = pad0; }")
     return base.replace(ANCHOR, "\n".join(lines) + "\n" + ANCHOR, 1)
 
 
