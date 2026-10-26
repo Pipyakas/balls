@@ -26,6 +26,9 @@ public:
     size_t ballCount() const override { return count; }
     BallSnapshot snapshot() override;
     std::vector<BallSpawn> exportBalls() override;
+    std::vector<BallSpawn> takeTail(size_t count) override;
+    bool takeCompactTail(size_t count, CompactBalls& balls) override;
+    bool addCompact(const CompactBalls& balls) override;
     void clear() override { count = 0; }
     BallTally truncate(size_t newCount) override;
     std::string_view faultMessage() const override { return fault; }
@@ -36,6 +39,7 @@ public:
     double deviceStepMs() const override { return lastStepKernelMs; }
 
 private:
+    std::vector<BallSpawn> exportRange(size_t first);
     struct DeviceBalls {
         CUdeviceptr position;
         CUdeviceptr state;

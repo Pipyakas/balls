@@ -86,13 +86,24 @@ void GameSession::pumpCapacityProbe() {
         useMachineBallLimit(probe.bestPassingCount());
         return;
     }
-    for (BallCount remaining = addition; remaining > 0;) {
+    scatterAcrossColors(addition);
+}
+
+void GameSession::scatterAcrossColors(BallCount count) {
+    for (BallCount remaining = count; remaining > 0;) {
         const BallColor color = ballColorFromIndex(probeColorIndex % ballColorCount);
         probeColorIndex = (probeColorIndex + 1) % ballColorCount;
         const BallCount batch = std::min(remaining, static_cast<BallCount>(1 << 20));
         physicsSimulation.scatterBalls(color, batch);
         remaining -= batch;
     }
+}
+
+void GameSession::fillWithBalls(BallCount count) {
+    probe.cancel();
+    useMachineBallLimit(count);
+    const BallCount live = physicsSimulation.liveBallCount();
+    scatterAcrossColors(count > live ? count - live : 0);
 }
 
 void GameSession::selectSpawnRate(int optionIndex) {

@@ -3,6 +3,7 @@
 #include <immintrin.h>
 
 #include <algorithm>
+#include <atomic>
 #include <bit>
 
 #if defined(_MSC_VER)
@@ -43,6 +44,18 @@ struct LaneConstants {
     __m256 packScaleX;
     __m256 packScaleY;
     __m256 renderMax;
+    __m256 positionToX;
+    __m256 positionToY;
+    __m256 xToPosition;
+    __m256 yToPosition;
+    __m256 positionMax;
+    __m256 inverseSpeed;
+    __m256 directionScale;
+    __m256i positionMask;
+    __m256i directionMask;
+    __m256i colorMask;
+    __m256i bounceMask;
+    __m256i savedBounceLimit;
 
     LaneConstants(const StepParams& params, int sentinel)
         : deltaTime(_mm256_set1_ps(params.deltaTime)), radius(_mm256_set1_ps(params.radius)),
@@ -65,7 +78,18 @@ struct LaneConstants {
           retargetThreshold(_mm256_set1_epi32(params.retargetBounceThreshold - 1)), oneInt(_mm256_set1_epi32(1)),
           minusOneInt(_mm256_set1_epi32(-1)), sentinelBrick(_mm256_set1_epi32(sentinel)),
           packScaleX(_mm256_set1_ps(params.packScaleX)), packScaleY(_mm256_set1_ps(params.packScaleY)),
-          renderMax(_mm256_set1_ps(static_cast<float>(renderCoordinateMax))) {}
+          renderMax(_mm256_set1_ps(static_cast<float>(renderCoordinateMax))),
+          positionToX(_mm256_set1_ps(params.fieldWidth / compact::positionScale)),
+          positionToY(_mm256_set1_ps(params.fieldHeight / compact::positionScale)),
+          xToPosition(_mm256_set1_ps(compact::positionScale / params.fieldWidth)),
+          yToPosition(_mm256_set1_ps(compact::positionScale / params.fieldHeight)),
+          positionMax(_mm256_set1_ps(compact::positionScale)), inverseSpeed(_mm256_set1_ps(1.0f / params.speed)),
+          directionScale(_mm256_set1_ps(compact::directionScale)),
+          positionMask(_mm256_set1_epi32(static_cast<int>(compact::positionMask))),
+          directionMask(_mm256_set1_epi32(static_cast<int>(compact::directionMask))),
+          colorMask(_mm256_set1_epi32(static_cast<int>(compact::colorMask))),
+          bounceMask(_mm256_set1_epi32(static_cast<int>(compact::bounceMask))),
+          savedBounceLimit(_mm256_set1_epi32(compact::savedBounceLimit)) {}
 };
 
 inline __m256 select(__m256 mask, __m256 whenTrue, __m256 whenFalse) {
@@ -83,6 +107,62 @@ inline __m256i packForRender(__m256 x, __m256 y, __m256i color, const LaneConsta
     return _mm256_or_si256(_mm256_or_si256(packedX, _mm256_slli_epi32(packedY, renderCoordinateBits)),
                            _mm256_slli_epi32(color, renderColorShift));
 }
+
+struct GridTarget {
+    uint32_t* slots;
+    int width;
+    __m256i maxColumn;
+    __m256i maxRow;
+    __m256 coordinateToColumn;
+    __m256 coordinateToRow;
+    __m256i coordinateMask;
+    __m256i widthLanes;
+    __m256i seed;
+    __m256i bidderMask;
+    __m256i laneOffsets;
+
+    GridTarget(CompactBallStore& store)
+        : slots(store.gridFilled ? store.grid.data() : nullptr), width(store.gridWidth),
+          maxColumn(_mm256_set1_epi32(store.gridWidth - 1)), maxRow(_mm256_set1_epi32(store.gridHeight - 1)),
+          coordinateToColumn(_mm256_set1_ps(static_cast<float>(store.gridWidth) / (renderCoordinateMax + 1))),
+          coordinateToRow(_mm256_set1_ps(static_cast<float>(store.gridHeight) / (renderCoordinateMax + 1))),
+          coordinateMask(_mm256_set1_epi32(static_cast<int>(renderCoordinateMax))),
+          widthLanes(_mm256_set1_epi32(store.gridWidth)), seed(_mm256_set1_epi32(static_cast<int>(store.frameSeed))),
+          bidderMask(_mm256_set1_epi32(static_cast<int>(store.bidderMask))),
+          laneOffsets(_mm256_setr_epi32(0, 1, 2, 3, 4, 5, 6, 7)) {}
+
+    unsigned bidders(size_t first) const {
+        __m256i hash = _mm256_xor_si256(_mm256_add_epi32(_mm256_set1_epi32(static_cast<int>(first)), laneOffsets), seed);
+        hash = _mm256_xor_si256(hash, _mm256_srli_epi32(hash, 16));
+        hash = _mm256_mullo_epi32(hash, _mm256_set1_epi32(0x7feb352d));
+        hash = _mm256_xor_si256(hash, _mm256_srli_epi32(hash, 15));
+        hash = _mm256_mullo_epi32(hash, _mm256_set1_epi32(static_cast<int>(0x846ca68bu)));
+        hash = _mm256_xor_si256(hash, _mm256_srli_epi32(hash, 16));
+        const __m256i rejected = _mm256_and_si256(hash, bidderMask);
+        return static_cast<unsigned>(
+            _mm256_movemask_ps(_mm256_castsi256_ps(_mm256_cmpeq_epi32(rejected, _mm256_setzero_si256()))));
+    }
+
+    void place(__m256i packed, unsigned lanes) const {
+        const __m256i column = _mm256_min_epi32(
+            _mm256_cvttps_epi32(_mm256_mul_ps(_mm256_cvtepi32_ps(_mm256_and_si256(packed, coordinateMask)), coordinateToColumn)),
+            maxColumn);
+        const __m256i row = _mm256_min_epi32(
+            _mm256_cvttps_epi32(_mm256_mul_ps(
+                _mm256_cvtepi32_ps(_mm256_and_si256(_mm256_srli_epi32(packed, renderCoordinateBits), coordinateMask)),
+                coordinateToRow)),
+            maxRow);
+        alignas(32) int32_t slotIndex[simdLaneCount];
+        alignas(32) uint32_t values[simdLaneCount];
+        _mm256_store_si256(reinterpret_cast<__m256i*>(slotIndex), _mm256_add_epi32(_mm256_mullo_epi32(row, widthLanes), column));
+        _mm256_store_si256(reinterpret_cast<__m256i*>(values), packed);
+        while (lanes != 0) {
+            const int lane = std::countr_zero(lanes);
+            lanes &= lanes - 1;
+            std::atomic_ref<uint32_t>(slots[slotIndex[lane]]).store(values[lane], std::memory_order_relaxed);
+        }
+    }
+};
 
 inline __m256 lessThan(__m256 a, __m256 b) { return _mm256_cmp_ps(a, b, _CMP_LT_OQ); }
 inline __m256 greaterThan(__m256 a, __m256 b) { return _mm256_cmp_ps(a, b, _CMP_GT_OQ); }
@@ -122,6 +202,16 @@ inline void considerCell(ContactSearch& best, const int32_t* paddedCells, __m256
 Avx2Backend::Avx2Backend(size_t threadCount) : pool(std::make_unique<WorkerPool>(threadCount)) {
 }
 
+void Avx2Backend::setVisibilityGrid(int width, int height) {
+    store.gridWidth = std::max(width, 0);
+    store.gridHeight = std::max(height, 0);
+}
+
+void Avx2Backend::shareCoresWithGpu() {
+    const size_t threads = pool->threadCount();
+    pool = std::make_unique<WorkerPool>(threads > 1 ? threads - 1 : 1, WorkerPriority::Background);
+}
+
 bool Avx2Backend::isSupportedByCpu() {
 #if defined(_MSC_VER)
     int registers[4]{};
@@ -140,6 +230,8 @@ void Avx2Backend::step(const StepParams& params, std::vector<BallHit>& hits) {
     if (store.count == 0) {
         return;
     }
+    store.speed = params.speed;
+    store.prepareGrid();
     if (store.count <= ballsPerChunk) {
         stepRange(params, 0, store.count, hits);
         return;
@@ -208,34 +300,41 @@ LaneStepResult stepLanes(LaneState& state, const LaneConstants& k, const BoardVi
     const __m256i otherRow = _mm256_add_epi32(row, neighborRow);
 
     ContactSearch best{k.radiusSquared, k.zero, k.zero, column, row, k.minusOneInt};
-    considerCell(best, board.paddedCells, x, y, column, row, k);
-    considerCell(best, board.paddedCells, x, y, otherColumn, row, k);
-    considerCell(best, board.paddedCells, x, y, column, otherRow, k);
-    considerCell(best, board.paddedCells, x, y, otherColumn, otherRow, k);
+    __m256 sameColor = k.zero;
+    __m256 contact = k.zero;
+    __m256 embedded = k.zero;
+    const __m256i cellIndex = _mm256_add_epi32(_mm256_mullo_epi32(row, k.paddedWidth), _mm256_add_epi32(column, k.paddedOffset));
+    const __m256i nearBrick = _mm256_i32gather_epi32(board.nearBrickCells, cellIndex, 4);
+    if (!_mm256_testz_si256(nearBrick, nearBrick)) {
+        considerCell(best, board.paddedCells, x, y, column, row, k);
+        considerCell(best, board.paddedCells, x, y, otherColumn, row, k);
+        considerCell(best, board.paddedCells, x, y, column, otherRow, k);
+        considerCell(best, board.paddedCells, x, y, otherColumn, otherRow, k);
 
-    const __m256 contact = _mm256_castsi256_ps(_mm256_cmpgt_epi32(best.brick, k.minusOneInt));
-    const __m256i gatherIndex = selectInt(contact, best.brick, k.sentinelBrick);
-    const __m256i brickColor = _mm256_i32gather_epi32(board.brickColors, gatherIndex, 4);
-    const __m256 sameColor = _mm256_castsi256_ps(_mm256_cmpeq_epi32(brickColor, state.color));
-    const __m256 embedded = _mm256_andnot_ps(
-        sameColor, _mm256_and_ps(contact, _mm256_cmp_ps(best.distanceSquared, k.embeddedEpsilon, _CMP_LE_OQ)));
-    const __m256 reflect = _mm256_andnot_ps(embedded, _mm256_andnot_ps(sameColor, contact));
+        contact = _mm256_castsi256_ps(_mm256_cmpgt_epi32(best.brick, k.minusOneInt));
+        const __m256i gatherIndex = selectInt(contact, best.brick, k.sentinelBrick);
+        const __m256i brickColor = _mm256_i32gather_epi32(board.brickColors, gatherIndex, 4);
+        sameColor = _mm256_castsi256_ps(_mm256_cmpeq_epi32(brickColor, state.color));
+        embedded = _mm256_andnot_ps(
+            sameColor, _mm256_and_ps(contact, _mm256_cmp_ps(best.distanceSquared, k.embeddedEpsilon, _CMP_LE_OQ)));
+        const __m256 reflect = _mm256_andnot_ps(embedded, _mm256_andnot_ps(sameColor, contact));
 
-    const __m256 distance = _mm256_sqrt_ps(_mm256_max_ps(best.distanceSquared, k.embeddedEpsilon));
-    const __m256 inverseDistance = _mm256_div_ps(k.one, distance);
-    const __m256 contactNormalX = _mm256_mul_ps(best.offsetX, inverseDistance);
-    const __m256 contactNormalY = _mm256_mul_ps(best.offsetY, inverseDistance);
-    const __m256 push = _mm256_sub_ps(k.radius, distance);
-    x = select(reflect, _mm256_fmadd_ps(contactNormalX, push, x), x);
-    y = select(reflect, _mm256_fmadd_ps(contactNormalY, push, y), y);
-    normalX = select(reflect, contactNormalX, normalX);
-    normalY = select(reflect, contactNormalY, normalY);
-    const __m256 alongNormal = _mm256_fmadd_ps(vx, normalX, _mm256_mul_ps(vy, normalY));
-    const __m256 approaching = _mm256_and_ps(reflect, lessThan(alongNormal, k.zero));
-    const __m256 twiceAlong = _mm256_add_ps(alongNormal, alongNormal);
-    vx = select(approaching, _mm256_fnmadd_ps(twiceAlong, normalX, vx), vx);
-    vy = select(approaching, _mm256_fnmadd_ps(twiceAlong, normalY, vy), vy);
-    bounced = _mm256_andnot_ps(_mm256_or_ps(sameColor, embedded), _mm256_or_ps(bounced, reflect));
+        const __m256 distance = _mm256_sqrt_ps(_mm256_max_ps(best.distanceSquared, k.embeddedEpsilon));
+        const __m256 inverseDistance = _mm256_div_ps(k.one, distance);
+        const __m256 contactNormalX = _mm256_mul_ps(best.offsetX, inverseDistance);
+        const __m256 contactNormalY = _mm256_mul_ps(best.offsetY, inverseDistance);
+        const __m256 push = _mm256_sub_ps(k.radius, distance);
+        x = select(reflect, _mm256_fmadd_ps(contactNormalX, push, x), x);
+        y = select(reflect, _mm256_fmadd_ps(contactNormalY, push, y), y);
+        normalX = select(reflect, contactNormalX, normalX);
+        normalY = select(reflect, contactNormalY, normalY);
+        const __m256 alongNormal = _mm256_fmadd_ps(vx, normalX, _mm256_mul_ps(vy, normalY));
+        const __m256 approaching = _mm256_and_ps(reflect, lessThan(alongNormal, k.zero));
+        const __m256 twiceAlong = _mm256_add_ps(alongNormal, alongNormal);
+        vx = select(approaching, _mm256_fnmadd_ps(twiceAlong, normalX, vx), vx);
+        vy = select(approaching, _mm256_fnmadd_ps(twiceAlong, normalY, vy), vy);
+        bounced = _mm256_andnot_ps(_mm256_or_ps(sameColor, embedded), _mm256_or_ps(bounced, reflect));
+    }
 
     const __m256i bounces = _mm256_sub_epi32(state.bounces, _mm256_castps_si256(bounced));
     const __m256 retarget =
@@ -243,9 +342,9 @@ LaneStepResult stepLanes(LaneState& state, const LaneConstants& k, const BoardVi
     if (!_mm256_testz_ps(retarget, retarget)) {
         const __m256i cellColumn = _mm256_cvttps_epi32(_mm256_floor_ps(x));
         const __m256i cellRow = _mm256_cvttps_epi32(_mm256_floor_ps(y));
-        const __m256i cellIndex = _mm256_add_epi32(_mm256_mullo_epi32(cellRow, k.paddedWidth),
+        const __m256i targetCellIndex = _mm256_add_epi32(_mm256_mullo_epi32(cellRow, k.paddedWidth),
                                                    _mm256_add_epi32(cellColumn, k.paddedOffset));
-        const __m256i fieldIndex = _mm256_add_epi32(_mm256_mullo_epi32(state.color, k.paddedCellCount), cellIndex);
+        const __m256i fieldIndex = _mm256_add_epi32(_mm256_mullo_epi32(state.color, k.paddedCellCount), targetCellIndex);
         const __m256i target = _mm256_mask_i32gather_epi32(k.minusOneInt, board.targetCells, fieldIndex,
                                                            _mm256_castps_si256(retarget), 4);
         const __m256 targetFloat = _mm256_cvtepi32_ps(target);
@@ -274,6 +373,47 @@ LaneStepResult stepLanes(LaneState& state, const LaneConstants& k, const BoardVi
     state.vy = vy;
     state.bounces = bounces;
     return {_mm256_and_ps(sameColor, contact), embedded, best.brick, best.column, best.row};
+}
+
+LaneState decodeLanes(__m256i position, __m256i state, const LaneConstants& k) {
+    const __m256 x = _mm256_mul_ps(_mm256_cvtepi32_ps(_mm256_and_si256(position, k.positionMask)), k.positionToX);
+    const __m256 y = _mm256_mul_ps(_mm256_cvtepi32_ps(_mm256_srli_epi32(position, 16)), k.positionToY);
+    constexpr int signShift = 32 - compact::directionBits;
+    const __m256 dx = _mm256_cvtepi32_ps(_mm256_srai_epi32(_mm256_slli_epi32(state, signShift), signShift));
+    const __m256 dy = _mm256_cvtepi32_ps(
+        _mm256_srai_epi32(_mm256_slli_epi32(state, signShift - compact::directionBits), signShift));
+    const __m256 lengthSquared = _mm256_max_ps(_mm256_fmadd_ps(dx, dx, _mm256_mul_ps(dy, dy)), k.one);
+    const __m256 scale = _mm256_div_ps(k.speed, _mm256_sqrt_ps(lengthSquared));
+    return {x,
+            y,
+            _mm256_mul_ps(dx, scale),
+            _mm256_mul_ps(dy, scale),
+            _mm256_and_si256(_mm256_srli_epi32(state, compact::colorShift), k.colorMask),
+            _mm256_and_si256(_mm256_srli_epi32(state, compact::bounceShift), k.bounceMask)};
+}
+
+__m256i encodeAxisLanes(__m256 value, __m256 toPosition, const LaneConstants& k) {
+    const __m256 scaled = _mm256_fmadd_ps(value, toPosition, k.halfCell);
+    return _mm256_cvttps_epi32(_mm256_min_ps(_mm256_max_ps(scaled, k.zero), k.positionMax));
+}
+
+__m256i encodePositionLanes(const LaneState& lanes, const LaneConstants& k) {
+    return _mm256_or_si256(encodeAxisLanes(lanes.x, k.xToPosition, k),
+                           _mm256_slli_epi32(encodeAxisLanes(lanes.y, k.yToPosition, k), 16));
+}
+
+__m256i encodeComponentLanes(__m256 velocity, const LaneConstants& k) {
+    const __m256 unit = _mm256_min_ps(_mm256_max_ps(_mm256_mul_ps(velocity, k.inverseSpeed), k.minusOne), k.one);
+    return _mm256_and_si256(_mm256_cvtps_epi32(_mm256_mul_ps(unit, k.directionScale)), k.directionMask);
+}
+
+__m256i encodeStateLanes(const LaneState& lanes, const LaneConstants& k) {
+    const __m256i savedBounces = _mm256_min_epi32(lanes.bounces, k.savedBounceLimit);
+    return _mm256_or_si256(
+        _mm256_or_si256(encodeComponentLanes(lanes.vx, k),
+                        _mm256_slli_epi32(encodeComponentLanes(lanes.vy, k), compact::directionBits)),
+        _mm256_or_si256(_mm256_slli_epi32(lanes.color, compact::colorShift),
+                        _mm256_slli_epi32(savedBounces, compact::bounceShift)));
 }
 
 LaneState blendState(__m256 mask, const LaneState& whenTrue, const LaneState& whenFalse) {
@@ -317,25 +457,18 @@ void resolveEmbeddedLanes(LaneState& state, unsigned lanes, const LaneStepResult
 
 void Avx2Backend::stepRange(const StepParams& params, size_t begin, size_t end, std::vector<BallHit>& hits) {
     const BoardView board = boardView();
-    const int sentinel = static_cast<int>(brickColors.size()) - 1;
-    const LaneConstants k(params, sentinel);
-    float* const xs = store.x.data();
-    float* const ys = store.y.data();
-    float* const vxs = store.vx.data();
-    float* const vys = store.vy.data();
-    const int32_t* const colors = store.color.data();
-    int32_t* const bounceCounts = store.bounces.data();
+    const LaneConstants k(params, cells.sentinelBrick());
+    uint32_t* const positions = store.position.data();
+    uint32_t* const states = store.state.data();
     uint32_t* const packedPositions = store.packed.data();
     const size_t validCount = store.count;
+    const GridTarget grid(store);
     const __m256 allLanes = _mm256_castsi256_ps(k.minusOneInt);
 
     for (size_t i = begin; i < end; i += simdLaneCount) {
-        LaneState state{_mm256_load_ps(xs + i),
-                        _mm256_load_ps(ys + i),
-                        _mm256_load_ps(vxs + i),
-                        _mm256_load_ps(vys + i),
-                        _mm256_load_si256(reinterpret_cast<const __m256i*>(colors + i)),
-                        _mm256_load_si256(reinterpret_cast<const __m256i*>(bounceCounts + i))};
+        const __m256i startState = _mm256_load_si256(reinterpret_cast<const __m256i*>(states + i));
+        LaneState state = decodeLanes(_mm256_load_si256(reinterpret_cast<const __m256i*>(positions + i)), startState, k);
+        const __m256i startBounces = state.bounces;
         __m256 active = allLanes;
         __m256i hitBrick = k.minusOneInt;
         for (int substep = 0; substep < params.substeps; ++substep) {
@@ -355,15 +488,22 @@ void Avx2Backend::stepRange(const StepParams& params, size_t begin, size_t end, 
             }
         }
 
-        _mm256_store_ps(xs + i, state.x);
-        _mm256_store_ps(ys + i, state.y);
-        _mm256_store_ps(vxs + i, state.vx);
-        _mm256_store_ps(vys + i, state.vy);
-        _mm256_store_si256(reinterpret_cast<__m256i*>(bounceCounts + i), state.bounces);
-        _mm256_stream_si256(reinterpret_cast<__m256i*>(packedPositions + i),
-                            packForRender(state.x, state.y, state.color, k));
-
+        _mm256_store_si256(reinterpret_cast<__m256i*>(positions + i), encodePositionLanes(state, k));
+        const __m256i stateChanged = _mm256_xor_si256(_mm256_cmpeq_epi32(state.bounces, startBounces), k.minusOneInt);
+        if (!_mm256_testz_si256(stateChanged, stateChanged)) {
+            _mm256_maskstore_epi32(reinterpret_cast<int*>(states + i), stateChanged, encodeStateLanes(state, k));
+        }
         const unsigned laneLimit = i + simdLaneCount <= validCount ? 0xffu : ((1u << (validCount - i)) - 1u);
+        const __m256i packed = packForRender(state.x, state.y, state.color, k);
+        if (grid.slots) {
+            const unsigned bidding = grid.bidders(i) & laneLimit;
+            if (bidding != 0) {
+                grid.place(packed, bidding);
+            }
+        } else {
+            _mm256_stream_si256(reinterpret_cast<__m256i*>(packedPositions + i), packed);
+        }
+
         unsigned hitLanes = static_cast<unsigned>(_mm256_movemask_ps(
                                 _mm256_castsi256_ps(_mm256_cmpgt_epi32(hitBrick, k.minusOneInt)))) &
                             laneLimit;

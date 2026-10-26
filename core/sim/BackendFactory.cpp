@@ -1,5 +1,7 @@
 #include "sim/BackendFactory.h"
 
+#include "sim/HybridBackend.h"
+
 #include <atomic>
 #include <filesystem>
 #include <format>
@@ -114,6 +116,8 @@ std::string_view backendKindName(BackendKind kind) {
         return "AVX2";
     case BackendKind::Cuda:
         return "CUDA";
+    case BackendKind::Hybrid:
+        return "Hybrid";
     }
     return "?";
 }
@@ -125,6 +129,10 @@ std::string_view backendPluginFileName(BackendKind kind) {
 bool isBackendAvailable(BackendKind kind) { return backendUnavailableReason(kind).empty(); }
 
 std::string backendUnavailableReason(BackendKind kind) {
+    if (kind == BackendKind::Hybrid) {
+        const std::string gpuReason = backendUnavailableReason(BackendKind::Cuda);
+        return gpuReason.empty() ? backendUnavailableReason(BackendKind::Avx2) : gpuReason;
+    }
     const PluginModule& plugin = queryPlugin(kind);
     if (!plugin.error.empty()) {
         return plugin.error;
@@ -133,11 +141,17 @@ std::string backendUnavailableReason(BackendKind kind) {
 }
 
 std::string backendDetail(BackendKind kind) {
+    if (kind == BackendKind::Hybrid) {
+        return std::format("{} + {}", backendDetail(BackendKind::Cuda), backendDetail(BackendKind::Avx2));
+    }
     const PluginModule& plugin = queryPlugin(kind);
     return plugin.error.empty() ? std::string(plugin.detail(kindArgument(kind).c_str())) : std::string{};
 }
 
 BackendHandle createBackend(BackendKind kind) {
+    if (kind == BackendKind::Hybrid) {
+        return HybridBackend::create(createBackend(BackendKind::Cuda), createBackend(BackendKind::Avx2));
+    }
     const std::shared_ptr<PluginModule> plugin = loadPlugin(backendPluginFileName(kind), true);
     if (!plugin->error.empty() || std::string_view(plugin->unavailableReason(kindArgument(kind).c_str())) != "") {
         return BackendHandle(nullptr, BackendRelease{});

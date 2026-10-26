@@ -2,11 +2,31 @@
 
 #include <algorithm>
 
-WorkerPool::WorkerPool(size_t threadCount) {
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
+
+namespace {
+
+void applyPriority(WorkerPriority priority) {
+#if defined(_WIN32)
+    if (priority == WorkerPriority::Background) {
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
+    }
+#else
+    static_cast<void>(priority);
+#endif
+}
+
+}
+
+WorkerPool::WorkerPool(size_t threadCount, WorkerPriority priority) {
     const size_t helperCount = threadCount > 1 ? threadCount - 1 : 0;
     workers.reserve(helperCount);
     for (size_t i = 0; i < helperCount; ++i) {
-        workers.emplace_back([this] { workerLoop(); });
+        workers.emplace_back([this, priority] { workerLoop(priority); });
     }
 }
 
@@ -30,7 +50,8 @@ void WorkerPool::drainChunks() {
     }
 }
 
-void WorkerPool::workerLoop() {
+void WorkerPool::workerLoop(WorkerPriority priority) {
+    applyPriority(priority);
     size_t seenGeneration = 0;
     while (true) {
         {

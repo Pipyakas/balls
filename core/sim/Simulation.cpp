@@ -100,11 +100,15 @@ StepParams Simulation::stepParams(int substeps) const {
 }
 
 void Simulation::syncBoardIfChanged() {
-    if (uploadedRevision == brickBoard.revision()) {
+    const bool layoutChanged = uploadedRevision != brickBoard.revision();
+    if (!layoutChanged && !hostHitsPending) {
         return;
     }
-    targetField.rebuild(brickBoard);
-    uploadedNearBrickCells = brickBoard.nearBrickFlags();
+    if (layoutChanged) {
+        targetField.rebuild(brickBoard);
+        uploadedNearBrickCells = brickBoard.nearBrickFlags();
+    }
+    hostHitsPending = false;
     uploadedBrickHitsLeft = brickBoard.hitsLeftPerBrick();
     physics->uploadBoard({brickBoard.columns(), brickBoard.rows(), brickBoard.paddedCells(), brickBoard.brickColors(),
                           targetField.targetCells(), uploadedNearBrickCells, uploadedBrickHitsLeft});
@@ -160,6 +164,10 @@ void Simulation::tick(int substeps) {
     physics->step(stepParams(substeps), hits);
     if (physics->resolvesHitsOnDevice()) {
         applyDeviceHits();
+        if (!hits.empty()) {
+            resolveHits();
+            hostHitsPending = !killedBalls.empty();
+        }
     } else {
         resolveHits();
     }

@@ -15,7 +15,7 @@
 #define BALLS_PLUGIN_EXPORT extern "C" __attribute__((visibility("default")))
 #endif
 
-inline constexpr int physicsPluginInterfaceVersion = 1;
+inline constexpr int physicsPluginInterfaceVersion = 2;
 
 struct BallSpawn {
     float x = 0.0f;
@@ -29,6 +29,22 @@ struct BallHit {
     uint32_t ball = 0;
     int32_t brick = 0;
 };
+
+struct CompactBalls {
+    std::vector<uint32_t> position;
+    std::vector<uint32_t> state;
+};
+
+inline constexpr unsigned int compactColorShift = 26u;
+inline constexpr unsigned int compactColorMask = 7u;
+
+inline uint32_t packCompactForRender(uint32_t position, uint32_t state) {
+    constexpr uint32_t axisMask = 0xFFFFu;
+    constexpr uint32_t positionToRenderShift = 2u;
+    return ((position & axisMask) >> positionToRenderShift) |
+           ((position >> 16 >> positionToRenderShift) << renderCoordinateBits) |
+           (((state >> compactColorShift) & compactColorMask) << renderColorShift);
+}
 
 struct BallSnapshot {
     const uint32_t* packed = nullptr;
@@ -80,6 +96,7 @@ public:
     virtual size_t ballCount() const = 0;
     virtual BallSnapshot snapshot() = 0;
     virtual std::vector<BallSpawn> exportBalls() = 0;
+    virtual std::vector<BallSpawn> takeTail(size_t count) = 0;
     virtual void clear() = 0;
     virtual BallTally truncate(size_t newCount) = 0;
     virtual std::string_view faultMessage() const { return {}; }
@@ -88,6 +105,9 @@ public:
     virtual bool shareRenderBuffer(unsigned int, size_t) { return false; }
     virtual void setVisibilityGrid(int, int) {}
     virtual double deviceStepMs() const { return 0.0; }
+    virtual void shareCoresWithGpu() {}
+    virtual bool takeCompactTail(size_t, CompactBalls&) { return false; }
+    virtual bool addCompact(const CompactBalls&) { return false; }
 };
 
 using CreateBackendFunction = PhysicsBackend* (*)(const char* kindName);

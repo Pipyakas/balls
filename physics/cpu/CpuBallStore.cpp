@@ -1,5 +1,7 @@
 #include "cpu/CpuBallStore.h"
 
+#include <algorithm>
+
 namespace {
 
 size_t roundUpToLanes(size_t count) { return (count + simdLaneCount - 1) / simdLaneCount * simdLaneCount; }
@@ -60,10 +62,18 @@ BallTally CpuBallStore::truncate(size_t newCount) {
     return removed;
 }
 
-std::vector<BallSpawn> CpuBallStore::exportBalls() const {
-    std::vector<BallSpawn> balls(count);
-    for (size_t i = 0; i < count; ++i) {
-        balls[i] = {x[i], y[i], vx[i], vy[i], color[i]};
+std::vector<BallSpawn> CpuBallStore::exportBalls(size_t first) const {
+    std::vector<BallSpawn> balls;
+    balls.reserve(count - std::min(first, count));
+    for (size_t i = first; i < count; ++i) {
+        balls.push_back({x[i], y[i], vx[i], vy[i], color[i]});
     }
     return balls;
+}
+
+std::vector<BallSpawn> CpuBallStore::takeTail(size_t tailCount) {
+    const size_t first = count - std::min(tailCount, count);
+    std::vector<BallSpawn> tail = exportBalls(first);
+    resize(first);
+    return tail;
 }

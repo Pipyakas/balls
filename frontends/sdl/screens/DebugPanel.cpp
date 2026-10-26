@@ -1,6 +1,7 @@
 #include "screens/DebugPanel.h"
 
 #include "render/Palette.h"
+#include "sim/HybridBackend.h"
 #include "ui/Widgets.h"
 
 #include <algorithm>
@@ -81,6 +82,11 @@ void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& f
     writer.row("GPU", std::format("{:.2f} ms", sample.gpuMs));
     if (const double kernelMs = simulation.backend().deviceStepMs(); kernelMs > 0.0) {
         writer.row("  Physics kernel", std::format("{:.2f} ms", kernelMs));
+    }
+    if (const auto* hybrid = dynamic_cast<const HybridBackend*>(&simulation.backend())) {
+        writer.row("  CPU share", std::format("{:.1f}%", 100.0 * static_cast<double>(hybrid->cpuBallCount()) /
+                                                            static_cast<double>(std::max<size_t>(hybrid->ballCount(), 1))));
+        writer.row("  CPU / GPU step", std::format("{:.2f} / {:.2f} ms", hybrid->cpuStepMs(), hybrid->gpuStepMs()));
     }
     writer.row("Present", std::format("{:.2f} ms", sample.presentMs));
     const CapacityProbe& probe = session.capacityProbe();

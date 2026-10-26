@@ -3,8 +3,9 @@
 A ball-bouncing, brick-breaking color game for Windows, written in C++20.
 It has an engine-agnostic core (`core/`) and an SDL3 front end (`frontends/sdl/`) with Dear ImGui for text and
 widgets. Rendering sits behind `IRenderer`: NVRHI (Direct3D 12 or Vulkan) on Windows, Linux and macOS (via
-MoltenVK), and SDL_GPU for Android and other SDL targets. The physics can run on three
-interchangeable backends: a scalar reference, AVX2 multithreaded, and CUDA.
+MoltenVK), and SDL_GPU for Android and other SDL targets. The physics can run on four
+interchangeable backends: a scalar reference, AVX2 multithreaded, CUDA, and a hybrid that splits the balls
+between CUDA and AVX2 (see [docs/hybrid-physics.md](docs/hybrid-physics.md)).
 
 ## Features
 
@@ -13,7 +14,7 @@ interchangeable backends: a scalar reference, AVX2 multithreaded, and CUDA.
   bounce they home toward the nearest brick of their color.
 - **Performance mode.** Start with one click and launchers release automatically. Spawn speed can be set to
   10 / 50 / 200 / 1000 / 2000 balls per second or Max. A ball-count multiplier (x1 to x1000) scales the stress
-  test. You can switch the physics backend live with F1 (Scalar), F2 (AVX2) or F3 (CUDA).
+  test. You can switch the physics backend live with F1 (Scalar), F2 (AVX2), F3 (CUDA) or F4 (Hybrid).
 - **Three-section screen.** The main board, the user interaction section (the only place that accepts gameplay
   input) and a debug panel. The debug panel shows FPS, min FPS, total objects, the ball count per color and the
   backend.
@@ -86,7 +87,7 @@ cmake --build build --config Release --target balls_physics_cuda
 
 Every time a backend is selected the game loads a fresh shadow copy of its DLL from
 `%TEMP%\ColorBlastBalls\physics-plugins`, so a plugin can be rebuilt while the game runs and
-picked up with F1/F2/F3 (or `/backend?kind=cuda` on the control API). Plugins only see
+picked up with F1-F4 (or `/backend?kind=cuda` on the control API). Plugins only see
 `core/sim/PhysicsBackend.h` and `core/sim/kernels/BallStepCore.h`. The build uses the shared MSVC
 runtime and copies its DLLs next to the executable.
 
@@ -98,7 +99,7 @@ runtime and copies its DLLs next to the executable.
 | Performance mode | Start button / Space | Begin automatic release |
 | Any game | Esc / P | Pause menu |
 | Any game | R | Restart level |
-| Any game | F1 / F2 / F3 | Scalar / AVX2 / CUDA physics |
+| Any game | F1 / F2 / F3 / F4 | Scalar / AVX2 / CUDA / Hybrid physics |
 | Editor | L-drag / R-drag | Apply tool / erase |
 | Editor | 1-7, P/E/X/K | Color, tool |
 | Editor | Ctrl+Z / Ctrl+Y / Ctrl+S | Undo / redo / save |
