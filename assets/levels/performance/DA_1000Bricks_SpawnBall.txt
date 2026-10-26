@@ -1,0 +1,13 @@
+[Board]
+Width 3
+Height 6
+
+[Layout]
+Red(50) Yellow(50) Orange(50)
+Yellow(50) Green(50) Blue(50)
+Indigo(50) Violet(50) Red(100)
+Orange(100) Yellow(100) Green(100)
+Blue(100) Indigo(100) Violet(100)
+Red(250) Orange(250) Yellow(250)
+Green(250) Blue(250) Indigo(250)
+Violet(250) Empty Empty

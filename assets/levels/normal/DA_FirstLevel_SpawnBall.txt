@@ -1,0 +1,12 @@
+[Board]
+Width 1
+Height 3
+
+[Layout]
+Red(5)
+Orange(5)
+Yellow(5)
+Green(5)
+Blue(5)
+Indigo(5)
+Violet(5)
