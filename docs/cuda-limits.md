@@ -80,6 +80,28 @@ occupied neighbor and balls in the middle of the cell. Sorting by edge band remo
 because balls cross a band nearly every tick (see below), so that divergence is a property of the motion, not of
 the memory layout.
 
+## After sorting: what bounds the sorted step
+
+Per-tick split timing at sort-every-8 (brick level, 60M balls): normal ticks run the step kernel in 8.33 ms, sort
+ticks spend 2.16 ms counting plus 13.1 ms in the sorting step. Sort ticks therefore add about 0.9 ms per tick
+on average. On normal ticks:
+
+- DRAM is at about 70% of copy bandwidth (16 B per ball in 8.33 ms) and the injection test shows 68-83% marginal
+  issue cost, so neither is saturated;
+- occupancy is at Turing's maximum of 32 warps per SM, and capping it costs more than proportionally less work
+  would: 24 warps 9.60 ms, 16 warps 12.83 ms, 8 warps 23.30 ms (empty board: 6.24 / 7.86 / 10.61 / 19.14 ms);
+- more memory-level parallelism barely helps: 2 balls per thread 8.08 ms, 4 balls per thread 8.08 ms, a
+  persistent grid-stride kernel with one-ball prefetch 9.46 ms. Two balls per thread is kept (-1.4% bricks,
+  -3% empty board);
+- a near/far partition instead of a cell sort (13.4 ms, same as random order) shows that the cell sort's win comes
+  from lanes reading the same board words, not from branch coherence.
+
+What remains is the latency of the near path's dependent board loads and math at full occupancy, plus the load/store
+unit's throughput on board gathers. Telling those apart needs the GPU performance counters (stall reasons, LSU and
+L1 utilization), which Windows only exposes to administrators. `tools/bench/InstructionCount.cpp` (stashed) and
+Nsight Compute can read them once "Allow access to the GPU performance counters to all users" is enabled in the
+NVIDIA Control Panel.
+
 ## What did not help
 
 Each of these was measured on the brick level and reverted:
@@ -92,4 +114,7 @@ Each of these was measured on the brick level and reverted:
 | block-level compaction of near-brick balls through shared memory | 16.9 ms (per-substep barriers cost more than the saved lanes) |
 | sorting inside 256-thread step blocks | 11.8 ms (sorted writes scatter: 0.2 balls per cell per block) |
 | separate scatter pass instead of the fused sort | every tick 17.4 ms, every 4 ticks 10.7 ms (fused: 14.6 / 10.0) |
+| board cell words staged in shared memory | 10.67 vs 9.70 ms (slower; empty board 9.5 vs 6.4 ms) |
+| persistent grid-stride step kernel with prefetch | 9.46 vs 8.33 ms on normal ticks |
+| plain shared atomics instead of warp-aggregated ranking | count 4.0 vs 2.2 ms, sorting step 14.4 vs 13.1 ms |
 | sort key (cell, 3x3 edge band) instead of cell | 9.68 vs 10.36 ms when fresh (-6.5%), but balls cross a 0.2-cell band about every tick (0.23 cells/tick), so the order decays before a sort pays for itself |
