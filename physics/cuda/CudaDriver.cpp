@@ -6,6 +6,8 @@
 
 namespace {
 
+constexpr int warpMatchComputeMajor = 7;
+
 #if defined(_WIN32)
 constexpr const char* driverLibraryName = "nvcuda.dll";
 #else
@@ -86,7 +88,12 @@ bool CudaDriver::createContextAndModule() {
         return false;
     }
     functions.contextSetCurrent(context);
-    if (CUresult result = functions.moduleLoadDataEx(&module, ballKernelsPtx, 0, nullptr, nullptr);
+    int computeMajor = 0;
+    if (functions.deviceGetAttribute) {
+        functions.deviceGetAttribute(&computeMajor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, device);
+    }
+    const unsigned char* ptx = computeMajor >= warpMatchComputeMajor ? ballKernelsPtx : ballKernelsPtxCompute60;
+    if (CUresult result = functions.moduleLoadDataEx(&module, ptx, 0, nullptr, nullptr);
         result != CUDA_SUCCESS) {
         errorMessage = describe(result, "cuModuleLoadDataEx");
         return false;

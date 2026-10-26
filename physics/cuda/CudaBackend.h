@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sim/PhysicsBackend.h"
+#include "sim/SortSchedule.h"
 #include "cuda/CudaDriver.h"
 
 #include <array>
@@ -76,7 +77,6 @@ private:
     bool ensureSortBuffers();
     void releaseSortBuffers();
     bool countBallsByCell();
-    void updateSortSchedule(double kernelMs);
 
     const CudaDriver& driver;
     CUfunction stepFunction = nullptr;
@@ -104,13 +104,7 @@ private:
     CUdeviceptr sortedPosition = 0;
     CUdeviceptr sortedState = 0;
     size_t sortedCapacity = 0;
-    int ticksSinceSort = 0;
-    int sortIntervalTicks = 0;
-    size_t sortCandidate = 0;
-    int sortTrialTick = 0;
-    double sortTrialMsPerBall = 0.0;
-    int ticksUntilSortTrial = 0;
-    std::array<double, 3> sortCandidateCost{};
+    SortSchedule sortSchedule;
     unsigned int frameSeed = 0;
     int gridWidth = 0;
     int gridHeight = 0;

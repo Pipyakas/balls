@@ -38,10 +38,37 @@ So a Vulkan compute backend would carry nearly all of CUDA's throughput to any v
 gap on the empty board is the price of bounds-checked structured buffers and compiler differences, not
 the algorithm.
 
+## Tuning that is not tied to the 1650
+
+Constants hand-picked on one GPU do not carry to others, so the follow-up work either changes the work itself
+or measures on the running GPU:
+
+- **Shared sort schedule.** CUDA already timed sorting every 0, 8 and 16 ticks and kept the cheapest, retrying
+  every 1200 ticks. That logic now lives in `core/sim/SortSchedule.h` and drives both CUDA and the compute
+  shaders (`--sort-interval auto`, the default). It picks no sorting on the empty board and sorting on
+  the brick level on any GPU, instead of a fixed 8.
+- **Four balls per thread, processed in a real loop.** Loading four balls before stepping any of them keeps
+  more memory requests in flight. The first try unrolled the four calls into the step body, and the brick
+  level got 30-80% slower, because four copies of the step body spill registers and overflow the
+  instruction cache. With `[loop]` on the processing loop it wins on both boards and every API. CUDA's nvcc
+  build was already at its best with two, so CUDA keeps two.
+- **CUDA on pre-Turing GPUs.** The PTX was `compute_75` only, because `__match_any_sync` needs sm_70. The
+  build now also emits `compute_60` PTX that ranks balls inside a cell with a shared-memory `atomicAdd`, and
+  the driver picks a variant by compute capability. Forced onto the 1650, the fallback passes the tests
+  and is 2.3% slower (9.67 vs 9.45 ms per tick).
+
+Same three-round interleaving, 60M balls:
+
+| ms per tick | Brick level, sort every 8: before | after | Empty board: before (sort every 8) | after (adaptive) |
+|---|---|---|---|---|
+| Vulkan | 9.65-9.67 | 9.59-9.61 | 7.13 | 6.84-7.05 |
+| D3D12 | 10.42-10.46 | 10.18-10.20 | 7.61-7.63 | 7.15 |
+| D3D11 | 10.47-10.48 | 9.97-9.98 | 8.29 | 7.34-7.35 |
+
 ## Running it
 
 ```
 python tools/gpucompute/CompileBallStep.py
 cmake --build build --config Release --target balls_gpucompute
-build/bin/Release/balls_gpucompute --dir assets/levels/performance --level DA_1000Bricks --balls 60000000 --ticks 160 --sort-interval 8 --api all
+build/bin/Release/balls_gpucompute --dir assets/levels/performance --level DA_1000Bricks --balls 60000000 --ticks 400 --api all
 ```

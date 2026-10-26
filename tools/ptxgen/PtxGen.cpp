@@ -13,7 +13,16 @@
 
 namespace {
 
-constexpr const char* targetArchitecture = "--gpu-architecture=compute_75";
+struct PtxVariant {
+    const char* arrayName;
+    const char* architecture;
+    const char* define;
+};
+
+constexpr PtxVariant ptxVariants[] = {
+    {"ballKernelsPtx", "--gpu-architecture=compute_75", "-DBALLS_RANK_WITH_MATCH"},
+    {"ballKernelsPtxCompute60", "--gpu-architecture=compute_60", "-DBALLS_RANK_WITH_ATOMICS"},
+};
 constexpr const char* nvrtcLibraryName = "nvrtc64_120_0.dll";
 
 struct NvrtcApi {
@@ -66,9 +75,8 @@ bool check(nvrtcResult result, const char* what) {
     return true;
 }
 
-void writeByteArrayHeader(const std::filesystem::path& outputPath, const std::string& ptx) {
-    std::ofstream output(outputPath, std::ios::binary | std::ios::trunc);
-    output << "#pragma once\n\ninline constexpr unsigned char ballKernelsPtx[] = {\n";
+void writeByteArray(std::ofstream& output, const char* name, const std::string& ptx) {
+    output << "\ninline constexpr unsigned char " << name << "[] = {\n";
     for (size_t i = 0; i < ptx.size(); ++i) {
         output << static_cast<unsigned>(static_cast<unsigned char>(ptx[i])) << ',';
         if (i % 32 == 31) {
@@ -106,34 +114,39 @@ int main(int argumentCount, char** arguments) {
     }
 
     const std::string kernelSource = readFile(kernelPath);
-    nvrtcProgram program{};
-    if (!check(nvrtc.createProgram(&program, kernelSource.c_str(), kernelPath.filename().string().c_str(),
-                                  static_cast<int>(headerContents.size()), headerContentPointers.data(),
-                                  headerNamePointers.data()),
-               "nvrtcCreateProgram")) {
-        return 1;
-    }
-    const char* options[] = {targetArchitecture, "--std=c++17", "--use_fast_math", "-default-device"};
-    const nvrtcResult compileResult = nvrtc.compileProgram(program, static_cast<int>(std::size(options)), options);
-    size_t logSize = 0;
-    nvrtc.getProgramLogSize(program, &logSize);
-    if (logSize > 1) {
-        std::string log(logSize, '\0');
-        nvrtc.getProgramLog(program, log.data());
-        std::cerr << log << '\n';
-    }
-    if (!check(compileResult, "nvrtcCompileProgram")) {
-        return 1;
-    }
-    size_t ptxSize = 0;
-    nvrtc.getPtxSize(program, &ptxSize);
-    std::string ptx(ptxSize, '\0');
-    nvrtc.getPtx(program, ptx.data());
-    nvrtc.destroyProgram(&program);
-    if (!ptx.empty() && ptx.back() == '\0') {
-        ptx.pop_back();
-    }
     std::filesystem::create_directories(outputPath.parent_path());
-    writeByteArrayHeader(outputPath, ptx);
+    std::ofstream output(outputPath, std::ios::binary | std::ios::trunc);
+    output << "#pragma once\n";
+    for (const PtxVariant& variant : ptxVariants) {
+        nvrtcProgram program{};
+        if (!check(nvrtc.createProgram(&program, kernelSource.c_str(), kernelPath.filename().string().c_str(),
+                                      static_cast<int>(headerContents.size()), headerContentPointers.data(),
+                                      headerNamePointers.data()),
+                   "nvrtcCreateProgram")) {
+            return 1;
+        }
+        const char* options[] = {variant.architecture, variant.define, "--std=c++17", "--use_fast_math",
+                                 "-default-device"};
+        const nvrtcResult compileResult = nvrtc.compileProgram(program, static_cast<int>(std::size(options)), options);
+        size_t logSize = 0;
+        nvrtc.getProgramLogSize(program, &logSize);
+        if (logSize > 1) {
+            std::string log(logSize, '\0');
+            nvrtc.getProgramLog(program, log.data());
+            std::cerr << log << '\n';
+        }
+        if (!check(compileResult, "nvrtcCompileProgram")) {
+            return 1;
+        }
+        size_t ptxSize = 0;
+        nvrtc.getPtxSize(program, &ptxSize);
+        std::string ptx(ptxSize, '\0');
+        nvrtc.getPtx(program, ptx.data());
+        nvrtc.destroyProgram(&program);
+        if (!ptx.empty() && ptx.back() == '\0') {
+            ptx.pop_back();
+        }
+        writeByteArray(output, variant.arrayName, ptx);
+    }
     return 0;
 }

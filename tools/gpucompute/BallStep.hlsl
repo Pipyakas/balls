@@ -33,8 +33,12 @@ RWStructuredBuffer<uint> cellCursors : register(u6);
 RWStructuredBuffer<uint> sortedPositions : register(u7);
 RWStructuredBuffer<uint> sortedStates : register(u8);
 
+#ifndef THREADS_PER_GROUP
 #define THREADS_PER_GROUP 256
-#define BALLS_PER_THREAD 2
+#endif
+#ifndef BALLS_PER_THREAD
+#define BALLS_PER_THREAD 4
+#endif
 #define NO_BRICK_HIT -1
 #define EMPTY_FAR_CELL -1
 #define CELL_COLOR_MASK 7
@@ -55,10 +59,18 @@ RWStructuredBuffer<uint> sortedStates : register(u8);
 #define KILLED_COUNTER 0
 #define KILLS_BY_COLOR_COUNTER 3
 #define MAX_SORT_CELLS 4096
+#ifndef COUNT_THREADS
 #define COUNT_THREADS 256
+#endif
+#ifndef COUNT_ITEMS
 #define COUNT_ITEMS 16
+#endif
+#ifndef SORT_THREADS
 #define SORT_THREADS 512
+#endif
+#ifndef SORT_ITEMS
 #define SORT_ITEMS 8
+#endif
 #define SORT_BALLS_PER_GROUP (SORT_THREADS * SORT_ITEMS)
 #define RANK_BITS 12u
 #define RANK_MASK 0xFFFu
@@ -408,7 +420,7 @@ void computeMain(uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID) {
         }
     }
     GroupMemoryBarrierWithGroupSync();
-    for (uint ball = 0; ball < SORT_ITEMS; ++ball) {
+    [loop] for (uint ball = 0; ball < SORT_ITEMS; ++ball) {
         const uint slot = ball * SORT_THREADS + thread.x;
         const uint index = blockStart + slot;
         if (index < ballCount) {
@@ -430,7 +442,7 @@ void computeMain(uint3 group : SV_GroupID, uint3 thread : SV_GroupThreadID) {
         startPositions[item] = index < ballCount ? positions[index] : 0u;
         startStates[item] = index < ballCount ? states[index] : 0u;
     }
-    [unroll] for (uint ball = 0; ball < BALLS_PER_THREAD; ++ball) {
+    [loop] for (uint ball = 0; ball < BALLS_PER_THREAD; ++ball) {
         const uint index = blockStart + ball * THREADS_PER_GROUP + thread.x;
         if (index < ballCount) {
             stepOneBall(index, startPositions[ball], startStates[ball]);
