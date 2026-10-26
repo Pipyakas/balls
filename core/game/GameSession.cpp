@@ -89,7 +89,7 @@ void GameSession::pumpCapacityProbe() {
         const BallColor color = ballColorFromIndex(probeColorIndex % ballColorCount);
         probeColorIndex = (probeColorIndex + 1) % ballColorCount;
         const BallCount batch = std::min(remaining, static_cast<BallCount>(1 << 20));
-        physicsSimulation.launchBalls(color, batch);
+        physicsSimulation.scatterBalls(color, batch);
         remaining -= batch;
     }
 }

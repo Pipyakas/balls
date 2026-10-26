@@ -4,6 +4,12 @@
 #include <chrono>
 #include <numbers>
 
+namespace {
+
+constexpr int maximumScatterAttempts = 8;
+
+}
+
 Simulation::Simulation(std::unique_ptr<PhysicsBackend> backend, SimulationTuning tuning)
     : settings(tuning), physics(std::move(backend)) {}
 
@@ -35,6 +41,29 @@ void Simulation::launchBalls(BallColor color, BallCount count) {
         const float angle = angleDistribution(random);
         pendingSpawns.push_back({launchX() + jitterDistribution(random), launchY(),
                                  std::sin(angle) * settings.ballSpeed, -std::cos(angle) * settings.ballSpeed,
+                                 toIndex(color)});
+    }
+    statistics.ballsByColor[toIndex(color)] += count;
+    statistics.totalBallsSpawned += count;
+}
+
+void Simulation::scatterBalls(BallColor color, BallCount count) {
+    std::uniform_real_distribution<float> unit(0.0f, 1.0f);
+    const float width = static_cast<float>(brickBoard.columns());
+    const float height = static_cast<float>(brickBoard.rows());
+    pendingSpawns.reserve(pendingSpawns.size() + static_cast<size_t>(count));
+    for (BallCount i = 0; i < count; ++i) {
+        float x = 0.0f;
+        float y = 0.0f;
+        for (int attempt = 0; attempt < maximumScatterAttempts; ++attempt) {
+            x = settings.ballRadius + unit(random) * (width - 2.0f * settings.ballRadius);
+            y = settings.ballRadius + unit(random) * (height - 2.0f * settings.ballRadius);
+            if (brickBoard.brickAt(static_cast<int>(x), static_cast<int>(y)) < 0) {
+                break;
+            }
+        }
+        const float angle = unit(random) * 2.0f * std::numbers::pi_v<float>;
+        pendingSpawns.push_back({x, y, std::cos(angle) * settings.ballSpeed, std::sin(angle) * settings.ballSpeed,
                                  toIndex(color)});
     }
     statistics.ballsByColor[toIndex(color)] += count;

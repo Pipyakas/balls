@@ -38,8 +38,7 @@ private:
         CUdeviceptr y;
         CUdeviceptr vx;
         CUdeviceptr vy;
-        CUdeviceptr color;
-        CUdeviceptr bounces;
+        CUdeviceptr meta;
         CUdeviceptr packed;
     };
 
@@ -64,6 +63,8 @@ private:
     void compactKilledBalls(unsigned int killed);
     void releaseRenderBuffer();
     bool copyIntoRenderBuffer(CUdeviceptr source, size_t elements);
+    bool writeGridIntoRenderBuffer();
+    BallTally downloadColorTally(size_t first, size_t last);
     size_t gridCellCount() const;
     void downloadPacked();
 
@@ -71,7 +72,7 @@ private:
     CUfunction stepFunction = nullptr;
     CUfunction collectHolesFunction = nullptr;
     CUfunction fillHolesFunction = nullptr;
-    CUfunction resolveVisibilityFunction = nullptr;
+    CUfunction gridToRenderFunction = nullptr;
     DeviceBalls balls{};
     size_t capacity = 0;
     size_t count = 0;
@@ -83,7 +84,6 @@ private:
     DeviceArray holes;
     DeviceArray counters;
     DeviceArray gridSlots;
-    DeviceArray gridPriorities;
     unsigned int frameSeed = 0;
     int gridWidth = 0;
     int gridHeight = 0;
