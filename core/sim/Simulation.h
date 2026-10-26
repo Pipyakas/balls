@@ -34,7 +34,7 @@ public:
     void replaceBackend(std::unique_ptr<PhysicsBackend> backend);
     void launchBalls(BallColor color, int count);
     void advance(float frameSeconds);
-    void tick();
+    void tick(int substeps = 1);
     void animate(float frameSeconds) { brickBoard.animate(frameSeconds); }
 
     const BrickBoard& board() const { return brickBoard; }
@@ -45,7 +45,7 @@ public:
     float launchX() const { return static_cast<float>(brickBoard.columns()) * 0.5f; }
     float launchY() const { return static_cast<float>(brickBoard.rows()) - settings.ballRadius * 2.0f; }
 
-    StepParams stepParams() const;
+    StepParams stepParams(int substeps = 1) const;
 
 private:
     void syncBoardIfChanged();

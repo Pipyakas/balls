@@ -40,7 +40,7 @@ void Simulation::launchBalls(BallColor color, int count) {
     statistics.totalBallsSpawned += static_cast<uint64_t>(count);
 }
 
-StepParams Simulation::stepParams() const {
+StepParams Simulation::stepParams(int substeps) const {
     return {settings.tickSeconds,
             settings.ballRadius,
             settings.ballSpeed,
@@ -50,7 +50,8 @@ StepParams Simulation::stepParams() const {
             brickBoard.paddedCellCount(),
             settings.retargetBounceThreshold,
             renderPackScale(static_cast<float>(brickBoard.columns())),
-            renderPackScale(static_cast<float>(brickBoard.rows()))};
+            renderPackScale(static_cast<float>(brickBoard.rows())),
+            substeps};
 }
 
 void Simulation::syncBoardIfChanged() {
@@ -83,25 +84,24 @@ void Simulation::resolveHits() {
     }
 }
 
-void Simulation::tick() {
+void Simulation::tick(int substeps) {
     if (!pendingSpawns.empty()) {
         physics->addBalls(pendingSpawns);
         pendingSpawns.clear();
     }
     syncBoardIfChanged();
     hits.clear();
-    physics->step(stepParams(), hits);
+    physics->step(stepParams(substeps), hits);
     resolveHits();
 }
 
 void Simulation::advance(float frameSeconds) {
     const auto start = std::chrono::steady_clock::now();
     accumulator = std::min(accumulator + frameSeconds, settings.tickSeconds * settings.maxTicksPerFrame);
-    int ticks = 0;
-    while (accumulator >= settings.tickSeconds) {
-        accumulator -= settings.tickSeconds;
-        tick();
-        ++ticks;
+    const int ticks = static_cast<int>(accumulator / settings.tickSeconds);
+    accumulator -= static_cast<float>(ticks) * settings.tickSeconds;
+    if (ticks > 0) {
+        tick(ticks);
     }
     statistics.ticksLastFrame = ticks;
     statistics.ballCount = physics->ballCount() + pendingSpawns.size();

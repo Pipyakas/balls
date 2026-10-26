@@ -18,6 +18,7 @@ struct StepParams {
     int retargetBounceThreshold;
     float packScaleX;
     float packScaleY;
+    int substeps;
 };
 
 struct BoardView {
@@ -210,6 +211,17 @@ BALLS_HOST_DEVICE int stepBall(float& x, float& y, float& vx, float& vy, int col
         bounces += 1;
         if (bounces >= params.retargetBounceThreshold) {
             retargetTowardNearestBrick(x, y, vx, vy, color, normalX, normalY, board, params);
+        }
+    }
+    return noBrickHit;
+}
+
+BALLS_HOST_DEVICE int stepBallSubsteps(float& x, float& y, float& vx, float& vy, int color, int& bounces,
+                                       const BoardView& board, const StepParams& params) {
+    for (int substep = 0; substep < params.substeps; ++substep) {
+        const int brick = stepBall(x, y, vx, vy, color, bounces, board, params);
+        if (brick != noBrickHit) {
+            return brick;
         }
     }
     return noBrickHit;

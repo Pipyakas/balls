@@ -26,7 +26,7 @@ extern "C" __global__ void stepBallsKernel(DeviceBalls balls, int count, BoardVi
     float vx = balls.vx[index];
     float vy = balls.vy[index];
     int bounces = balls.bounces[index];
-    const int brick = stepBall(x, y, vx, vy, balls.color[index], bounces, board, params);
+    const int brick = stepBallSubsteps(x, y, vx, vy, balls.color[index], bounces, board, params);
     balls.x[index] = x;
     balls.y[index] = y;
     balls.vx[index] = vx;
