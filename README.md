@@ -1,8 +1,9 @@
 # Balls
 
 A ball-bouncing, brick-breaking color game for Windows, written in C++20.
-It has an engine-agnostic core (`core/`) and an SDL3 front end (`frontends/sdl/`) that renders through SDL_GPU
-(Direct3D 12, Vulkan or Metal) with Dear ImGui for text and widgets. The physics can run on three
+It has an engine-agnostic core (`core/`) and an SDL3 front end (`frontends/sdl/`) with Dear ImGui for text and
+widgets. Rendering sits behind `IRenderer`: NVRHI (Direct3D 12 or Vulkan) on Windows, Linux and macOS (via
+MoltenVK), and SDL_GPU for Android and other SDL targets. The physics can run on three
 interchangeable backends: a scalar reference, AVX2 multithreaded, and CUDA.
 
 ## Features
@@ -25,9 +26,11 @@ interchangeable backends: a scalar reference, AVX2 multithreaded, and CUDA.
 ## Build
 
 Requirements: Windows 10/11 x64, Visual Studio 2022 (C++ workload), CMake 3.25+, Python 3 (only to fetch the CUDA
-compiler pieces) and internet access on first configure (SDL 3.2.30 and Dear ImGui 1.93.0 are downloaded).
+compiler pieces) and internet access on first configure (SDL 3.2.30, Dear ImGui 1.93.0 and NVRHI with the Vulkan and DirectX headers are downloaded).
 
-`-DBALLS_FRONTEND=none` builds only the core, the physics plugins and the tools.
+`-DBALLS_FRONTEND=none` builds only the core, the physics plugins and the tools. `-DBALLS_RENDERER=nvrhi|sdlgpu`
+picks the renderer (default: `nvrhi`, or `sdlgpu` on Android). With NVRHI, Windows runs Direct3D 12 and
+`--api vulkan` switches to Vulkan; Linux and macOS always use Vulkan.
 
 ```powershell
 pwsh tools/FetchCudaSdk.ps1
@@ -65,6 +68,12 @@ need no shader compiler. After editing an `.hlsl` file, regenerate it with DXC
 ```powershell
 python tools/shaders/CompileShaders.py
 ```
+
+### CUDA limits
+
+`docs/cuda-limits.md` shows the CUDA step kernel at the GTX 1650's limits: DRAM bandwidth on an empty board (93.7% of
+copy bandwidth) and SM instruction issue on the brick level (no spare issue cycles, measured with
+`tools/bench/issue_slack.py`).
 
 ## Physics plugins
 
@@ -121,6 +130,7 @@ physics/cpu/          balls_physics_cpu.dll plugin: Scalar and AVX2 backends
 physics/cuda/         balls_physics_cuda.dll plugin: CUDA backend and kernels
 frontends/sdl/        SDL3 + SDL_GPU + Dear ImGui front end: screens, map editor UI, control API
   render/             IRenderer, the SDL_GPU renderer (compute ball culling, impostor balls, instanced rects)
+  render/nvrhi/       NVRHI renderer: D3D12 and Vulkan devices and swapchains, ImGui backend, GPU timer queries
   shaders/            HLSL sources; generated/ShaderBlobs.h holds SPIR-V and DXIL built by tools/shaders
 tools/                bench, NVRTC PTX generator, CUDA SDK fetch script, shader compiler script
 tests/                unit tests (balls_tests)

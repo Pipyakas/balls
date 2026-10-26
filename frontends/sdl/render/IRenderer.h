@@ -6,8 +6,9 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <string_view>
 
-struct SDL_Window;
+#include <SDL3/SDL_video.h>
 
 struct RendererRect {
     float x = 0.0f;
@@ -71,3 +72,5 @@ public:
 };
 
 std::unique_ptr<IRenderer> createSdlGpuRenderer(SDL_Window* window, std::string& error);
+SDL_WindowFlags rendererWindowFlags(std::string_view api);
+std::unique_ptr<IRenderer> createRenderer(SDL_Window* window, std::string_view api, std::string& error);

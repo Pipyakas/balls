@@ -18,6 +18,8 @@ SHADERS = [
     ("visibilityBid", "BallVisibility.hlsl", "computeMain", "cs_6_0", ["BID_PASS"]),
     ("visibilityResolve", "BallVisibility.hlsl", "computeMain", "cs_6_0", ["RESOLVE_PASS"]),
     ("visibilityCompact", "BallVisibility.hlsl", "computeMain", "cs_6_0", ["COMPACT_PASS"]),
+    ("imguiVertex", "Imgui.hlsl", "vertexMain", "vs_6_0", []),
+    ("imguiFragment", "Imgui.hlsl", "fragmentMain", "ps_6_0", []),
 ]
 
 TARGETS = [
