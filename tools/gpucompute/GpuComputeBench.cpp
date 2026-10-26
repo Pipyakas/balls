@@ -2,6 +2,7 @@
 #include "level/LevelRepository.h"
 #include "sim/BackendFactory.h"
 #include "sim/Simulation.h"
+#include "sim/SortSchedule.h"
 #include "sim/TargetField.h"
 
 #include "generated/BallStepBlobs.h"
@@ -29,6 +30,9 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <functional>
 #include <memory>
 #include <numbers>
@@ -43,13 +47,12 @@ namespace {
 using Microsoft::WRL::ComPtr;
 using Clock = std::chrono::steady_clock;
 
-constexpr uint32_t threadsPerGroup = 256;
-constexpr uint32_t ballsPerThread = 2;
 constexpr uint32_t maximumGroupsPerRow = 32768;
 constexpr int emptyFarCell = -1;
 constexpr int emptyNearCell = -2;
 constexpr int cellBrickShift = 3;
 constexpr int counterWords = 10;
+constexpr int automaticSortInterval = -1;
 constexpr int warmupTicks = 10;
 constexpr float positionScale = 65535.0f;
 constexpr int directionBits = 13;
@@ -57,7 +60,6 @@ constexpr uint32_t directionMask = (1u << directionBits) - 1u;
 constexpr float directionScale = 4095.0f;
 constexpr uint32_t colorShift = 26u;
 constexpr uint32_t minimumKilledCapacity = 1u << 16;
-constexpr uint32_t ballsPerSortGroup = 4096;
 constexpr size_t maximumSortCells = 4096;
 
 struct StepConstants {
@@ -80,7 +82,11 @@ struct Options {
     size_t balls = 16'000'000;
     int ticks = 200;
     int substeps = 2;
-    int sortInterval = 8;
+    int sortInterval = automaticSortInterval;
+    uint32_t ballsPerStepGroup = 1024;
+    uint32_t ballsPerCountGroup = 4096;
+    uint32_t ballsPerSortGroup = 4096;
+    std::string blobDirectory;
 };
 
 struct Workload {
@@ -290,6 +296,21 @@ std::unique_ptr<Device> createVulkan() {
     return result->device ? std::move(result) : nullptr;
 }
 
+std::vector<uint8_t> readFile(const std::filesystem::path& path) {
+    std::ifstream file(path, std::ios::binary);
+    return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+}
+
+void loadBlobOverrides(Device& target, const std::string& api, const std::string& directory) {
+    if (directory.empty()) {
+        return;
+    }
+    const std::string suffix = api == "d3d11" ? ".dxbc" : (api == "d3d12" ? ".dxil" : ".spv");
+    const std::filesystem::path root(directory);
+    target.shaders = {readFile(root / ("ballStep" + suffix)), readFile(root / ("countCells" + suffix)),
+                      readFile(root / ("scanCells" + suffix)), readFile(root / ("stepAndSort" + suffix))};
+}
+
 std::unique_ptr<Device> createDevice(const std::string& api) {
     if (api == "d3d11") {
         return createD3d11();
@@ -462,7 +483,9 @@ nvrhi::BufferHandle constantBuffer(nvrhi::IDevice* device, const char* name) {
 void runBench(Device& target, const Workload& work, const Options& options) {
     nvrhi::IDevice* device = target.device;
     const size_t count = work.positions.size();
-    const bool sorting = options.sortInterval > 0;
+    const bool sorting = options.sortInterval != 0;
+    const bool automaticSorting = options.sortInterval == automaticSortInterval;
+    SortSchedule schedule;
     nvrhi::BufferHandle cellWords = structuredBuffer(device, work.cellWords.size(), false, "cellWords");
     nvrhi::BufferHandle targetCells = structuredBuffer(device, work.targetCells.size(), false, "targetCells");
     nvrhi::BufferHandle positions[2] = {structuredBuffer(device, count, true, "positions"),
@@ -476,9 +499,11 @@ void runBench(Device& target, const Workload& work, const Options& options) {
     nvrhi::BufferHandle cellCursors = structuredBuffer(device, maximumSortCells, true, "cellCursors");
     nvrhi::BufferHandle stepConstantBuffer = constantBuffer(device, "stepConstants");
     nvrhi::BufferHandle sortConstantBuffer = constantBuffer(device, "sortConstants");
+    nvrhi::BufferHandle countConstantBuffer = constantBuffer(device, "countConstants");
 
-    const DispatchShape stepShape = shapeFor(count, threadsPerGroup * ballsPerThread);
-    const DispatchShape sortShape = shapeFor(count, ballsPerSortGroup);
+    const DispatchShape stepShape = shapeFor(count, options.ballsPerStepGroup);
+    const DispatchShape countShape = shapeFor(count, options.ballsPerCountGroup);
+    const DispatchShape sortShape = shapeFor(count, options.ballsPerSortGroup);
     const int sortColumns = static_cast<int>(work.params.fieldWidth);
     const int sortRows = static_cast<int>(work.params.fieldHeight);
     const StepConstants stepConstants{work.params,   static_cast<uint32_t>(count), work.killedCapacity,
@@ -487,6 +512,8 @@ void runBench(Device& target, const Workload& work, const Options& options) {
     StepConstants sortConstants = stepConstants;
     sortConstants.groupsPerRow = sortShape.groupsPerRow;
     sortConstants.toSorted = 1u;
+    StepConstants countConstants = sortConstants;
+    countConstants.groupsPerRow = countShape.groupsPerRow;
 
     nvrhi::CommandListHandle commands = device->createCommandList();
     commands->open();
@@ -497,6 +524,7 @@ void runBench(Device& target, const Workload& work, const Options& options) {
     commands->writeBuffer(hitsLeft, work.brickHitsLeft.data(), work.brickHitsLeft.size() * 4);
     commands->writeBuffer(stepConstantBuffer, &stepConstants, sizeof(stepConstants));
     commands->writeBuffer(sortConstantBuffer, &sortConstants, sizeof(sortConstants));
+    commands->writeBuffer(countConstantBuffer, &countConstants, sizeof(countConstants));
     commands->close();
     device->executeCommandList(commands);
     device->waitForIdle();
@@ -534,6 +562,8 @@ void runBench(Device& target, const Workload& work, const Options& options) {
     };
     const nvrhi::BindingSetHandle stepBindings[2] = {bindingSet(0, stepConstantBuffer), bindingSet(1, stepConstantBuffer)};
     const nvrhi::BindingSetHandle sortBindings[2] = {bindingSet(0, sortConstantBuffer), bindingSet(1, sortConstantBuffer)};
+    const nvrhi::BindingSetHandle countBindings[2] = {bindingSet(0, countConstantBuffer),
+                                                      bindingSet(1, countConstantBuffer)};
     const nvrhi::ComputePipelineHandle stepPipeline = computePipeline(device, target.shaders.step, layout);
     const nvrhi::ComputePipelineHandle countPipeline = computePipeline(device, target.shaders.count, layout);
     const nvrhi::ComputePipelineHandle scanPipeline = computePipeline(device, target.shaders.scan, layout);
@@ -562,7 +592,8 @@ void runBench(Device& target, const Workload& work, const Options& options) {
     double gpuSeconds = 0.0;
     double wallSeconds = 0.0;
     for (int tick = 0; tick < warmupTicks + options.ticks; ++tick) {
-        const bool sortThisTick = sorting && tick % options.sortInterval == 0;
+        const bool sortThisTick = automaticSorting ? schedule.sortThisTick(count)
+                                                   : sorting && tick % options.sortInterval == 0;
         const Clock::time_point start = Clock::now();
         commands->open();
         commands->writeBuffer(counters, zeroCounters, sizeof(zeroCounters));
@@ -571,9 +602,9 @@ void runBench(Device& target, const Workload& work, const Options& options) {
         }
         commands->beginTimerQuery(timer);
         if (sortThisTick) {
-            dispatch(countPipeline, sortBindings[current], sortShape);
+            dispatch(countPipeline, countBindings[current], countShape);
             waitForCursors();
-            dispatch(scanPipeline, sortBindings[current], DispatchShape{});
+            dispatch(scanPipeline, countBindings[current], DispatchShape{});
             waitForCursors();
             dispatch(sortPipeline, sortBindings[current], sortShape);
         } else {
@@ -586,6 +617,9 @@ void runBench(Device& target, const Workload& work, const Options& options) {
         const double elapsed = std::chrono::duration<double>(Clock::now() - start).count();
         const double kernel = device->getTimerQueryTime(timer);
         device->resetTimerQuery(timer);
+        if (automaticSorting) {
+            schedule.record(kernel * 1000.0, count);
+        }
         if (sortThisTick) {
             current = 1 - current;
         }
@@ -608,9 +642,10 @@ void runBench(Device& target, const Workload& work, const Options& options) {
         lost += before[color] - std::min(before[color], after[color]);
     }
     conserved = conserved && lost == after[7];
-    std::printf("%-34s balls=%9zu  kernel %8.3f ms  wall %8.3f ms  %8.1f M ball-steps/s  dead %zu %s\n",
+    std::printf("%-34s balls=%9zu  kernel %8.3f ms  wall %8.3f ms  %8.1f M ball-steps/s  dead %zu %s  sort every %d\n",
                 target.name.c_str(), count, kernelMs, wallMs, static_cast<double>(count) / (kernelMs / 1000.0) / 1e6,
-                after[7], conserved ? "conserved" : "MISMATCH");
+                after[7], conserved ? "conserved" : "MISMATCH",
+                automaticSorting ? schedule.interval() : std::max(options.sortInterval, 0));
     static_cast<void>(finalCounters);
 }
 
@@ -633,7 +668,15 @@ Options parseOptions(int argumentCount, char** arguments) {
         } else if (key == "--substeps") {
             options.substeps = std::atoi(value.c_str());
         } else if (key == "--sort-interval") {
-            options.sortInterval = std::atoi(value.c_str());
+            options.sortInterval = value == "auto" ? automaticSortInterval : std::atoi(value.c_str());
+        } else if (key == "--step-group-balls") {
+            options.ballsPerStepGroup = static_cast<uint32_t>(std::atoi(value.c_str()));
+        } else if (key == "--count-group-balls") {
+            options.ballsPerCountGroup = static_cast<uint32_t>(std::atoi(value.c_str()));
+        } else if (key == "--sort-group-balls") {
+            options.ballsPerSortGroup = static_cast<uint32_t>(std::atoi(value.c_str()));
+        } else if (key == "--blob-dir") {
+            options.blobDirectory = value;
         }
     }
     return options;
@@ -655,6 +698,7 @@ int main(int argumentCount, char** arguments) {
             std::printf("%-34s unavailable\n", api.c_str());
             continue;
         }
+        loadBlobOverrides(*target, api, options.blobDirectory);
         runBench(*target, work, options);
         target->device = nullptr;
         target->release();

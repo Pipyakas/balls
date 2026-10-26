@@ -194,6 +194,11 @@ __device__ __forceinline__ int sortCellOf(unsigned int position, int columns, in
     return row * columns + column;
 }
 
+#if defined(BALLS_RANK_WITH_ATOMICS)
+__device__ __forceinline__ unsigned int rankInCell(unsigned int* cellTotals, int cell, bool valid) {
+    return valid ? atomicAdd(&cellTotals[cell], 1u) : 0u;
+}
+#else
 __device__ __forceinline__ unsigned int rankInCell(unsigned int* cellTotals, int cell, bool valid) {
     const unsigned int voters = __ballot_sync(fullSortMask, valid);
     if (!valid) {
@@ -209,6 +214,7 @@ __device__ __forceinline__ unsigned int rankInCell(unsigned int* cellTotals, int
     base = __shfl_sync(peers, base, leader);
     return base + static_cast<unsigned int>(__popc(peers & ((1u << lane) - 1u)));
 }
+#endif
 
 __device__ __forceinline__ void clearSharedCells(unsigned int* cells, int cellCount) {
     for (int cell = threadIdx.x; cell < cellCount; cell += blockDim.x) {

@@ -25,11 +25,6 @@ constexpr int maxSortCells = 4096;
 constexpr size_t sortBallsPerBlock = 4096;
 constexpr unsigned int stepSortThreads = 512;
 constexpr size_t ballsPerStepThread = 2;
-constexpr std::array<int, 3> sortIntervalCandidates{0, 8, 16};
-constexpr int sortTrialWarmupTicks = 16;
-constexpr int sortTrialMeasuredTicks = 32;
-constexpr int ticksBetweenSortTrials = 1200;
-constexpr size_t minimumBallsForSorting = size_t{1} << 20;
 
 uint32_t encodeAxis(float value, float extent) {
     const float scaled = value / extent * positionScale + 0.5f;
@@ -396,8 +391,7 @@ void CudaBackend::step(const StepParams& params, std::vector<BallHit>&) {
     if (stepStarted) {
         api.eventRecord(stepStarted, nullptr);
     }
-    if (count >= minimumBallsForSorting && sortIntervalTicks > 0 && ++ticksSinceSort >= sortIntervalTicks) {
-        ticksSinceSort = 0;
+    if (sortSchedule.sortThisTick(count)) {
         if (countBallsByCell()) {
             sorted = {cellCursors.pointer, sortedPosition, sortedState, static_cast<int>(fieldWidth),
                       static_cast<int>(fieldHeight)};
@@ -427,7 +421,7 @@ void CudaBackend::step(const StepParams& params, std::vector<BallHit>&) {
         float elapsedMs = 0.0f;
         api.eventElapsedTime(&elapsedMs, stepStarted, stepFinished);
         lastStepKernelMs = elapsedMs;
-        updateSortSchedule(elapsedMs);
+        sortSchedule.record(elapsedMs, count);
     }
     lastCounters.killedCount = std::min(lastCounters.killedCount, killedCapacity);
     if (lastCounters.killedCount == 0) {
@@ -614,41 +608,6 @@ bool CudaBackend::ensureSortBuffers() {
     }
     sortedCapacity = capacity;
     return true;
-}
-
-void CudaBackend::updateSortSchedule(double kernelMs) {
-    if (count < minimumBallsForSorting) {
-        return;
-    }
-    if (ticksUntilSortTrial > 0) {
-        --ticksUntilSortTrial;
-        if (ticksUntilSortTrial == 0) {
-            sortCandidate = 0;
-            sortTrialTick = 0;
-            sortTrialMsPerBall = 0.0;
-            sortIntervalTicks = sortIntervalCandidates[0];
-            ticksSinceSort = sortIntervalTicks;
-        }
-        return;
-    }
-    if (sortTrialTick++ >= sortTrialWarmupTicks) {
-        sortTrialMsPerBall += kernelMs / static_cast<double>(count);
-    }
-    if (sortTrialTick < sortTrialWarmupTicks + sortTrialMeasuredTicks) {
-        return;
-    }
-    sortCandidateCost[sortCandidate] = sortTrialMsPerBall / sortTrialMeasuredTicks;
-    sortTrialTick = 0;
-    sortTrialMsPerBall = 0.0;
-    if (++sortCandidate < sortIntervalCandidates.size()) {
-        sortIntervalTicks = sortIntervalCandidates[sortCandidate];
-        ticksSinceSort = sortIntervalTicks;
-        return;
-    }
-    const auto cheapest = std::ranges::min_element(sortCandidateCost);
-    sortIntervalTicks = sortIntervalCandidates[static_cast<size_t>(cheapest - sortCandidateCost.begin())];
-    ticksSinceSort = 0;
-    ticksUntilSortTrial = ticksBetweenSortTrials;
 }
 
 bool CudaBackend::countBallsByCell() {
