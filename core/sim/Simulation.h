@@ -2,6 +2,7 @@
 
 #include "common/BallCount.h"
 #include "sim/BrickBoard.h"
+#include "sim/BackendHandle.h"
 #include "sim/PhysicsBackend.h"
 #include "sim/TargetField.h"
 
@@ -29,10 +30,10 @@ struct SimulationStats {
 
 class Simulation {
 public:
-    explicit Simulation(std::unique_ptr<PhysicsBackend> backend, SimulationTuning tuning = {});
+    explicit Simulation(BackendHandle backend, SimulationTuning tuning = {});
 
     void load(const BrickLayout& layout);
-    void replaceBackend(std::unique_ptr<PhysicsBackend> backend);
+    void replaceBackend(BackendHandle backend);
     void launchBalls(BallColor color, BallCount count);
     void scatterBalls(BallColor color, BallCount count);
     void trimBallsTo(BallCount limit);
@@ -58,7 +59,9 @@ private:
     void applyDeviceHits();
 
     SimulationTuning settings;
-    std::unique_ptr<PhysicsBackend> physics;
+    BackendHandle physics;
+    std::vector<int32_t> uploadedNearBrickCells;
+    std::vector<int32_t> uploadedBrickHitsLeft;
     BrickBoard brickBoard;
     TargetField targetField;
     uint64_t uploadedRevision = ~0ull;

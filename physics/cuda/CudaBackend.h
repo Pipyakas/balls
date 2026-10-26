@@ -1,7 +1,7 @@
 #pragma once
 
 #include "sim/PhysicsBackend.h"
-#include "sim/backends/CudaDriver.h"
+#include "cuda/CudaDriver.h"
 
 #include <array>
 #include <string>
@@ -19,7 +19,7 @@ public:
     static size_t streamedBytesPerBall(bool gridActive);
 
     std::string_view name() const override { return "CUDA"; }
-    void uploadBoard(const BrickBoard& board, const TargetField& field) override;
+    void uploadBoard(const BoardUpload& board) override;
     void addBalls(std::span<const BallSpawn> spawns) override;
     void step(const StepParams& params, std::vector<BallHit>& hits) override;
     void removeBalls(std::span<const uint32_t> descendingIndices) override;

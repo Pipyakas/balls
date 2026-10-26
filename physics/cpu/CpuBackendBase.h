@@ -1,10 +1,10 @@
 #pragma once
 
-#include "sim/backends/CpuBallStore.h"
+#include "cpu/CpuBallStore.h"
 
 class CpuBackendBase : public PhysicsBackend {
 public:
-    void uploadBoard(const BrickBoard& board, const TargetField& field) override;
+    void uploadBoard(const BoardUpload& board) override;
     void addBalls(std::span<const BallSpawn> spawns) override { store.add(spawns); }
     void removeBalls(std::span<const uint32_t> descendingIndices) override { store.swapRemove(descendingIndices); }
     size_t ballCount() const override { return store.count; }

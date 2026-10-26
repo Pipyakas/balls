@@ -1,4 +1,4 @@
-#include "sim/backends/CudaBackend.h"
+#include "cuda/CudaBackend.h"
 
 #include <algorithm>
 #include <cmath>
@@ -253,19 +253,18 @@ void CudaBackend::ensurePackedCapacity(size_t required) {
     }
 }
 
-void CudaBackend::uploadBoard(const BrickBoard& board, const TargetField& field) {
+void CudaBackend::uploadBoard(const BoardUpload& board) {
     if (isFaulted()) {
         return;
     }
     driver.makeCurrent();
-    upload(paddedCells, board.paddedCells().data(), board.paddedCells().size() * sizeof(int32_t));
-    std::vector<int32_t> colors = board.brickColors();
+    upload(paddedCells, board.paddedCells.data(), board.paddedCells.size_bytes());
+    std::vector<int32_t> colors(board.brickColors.begin(), board.brickColors.end());
     colors.push_back(-1);
     upload(brickColors, colors.data(), colors.size() * sizeof(int32_t));
-    upload(targetCells, field.targetCells().data(), field.targetCells().size() * sizeof(int32_t));
-    const std::vector<int32_t> nearFlags = board.nearBrickFlags();
-    upload(nearBrickCells, nearFlags.data(), nearFlags.size() * sizeof(int32_t));
-    hostBrickHitsLeft = board.hitsLeftPerBrick();
+    upload(targetCells, board.targetCells.data(), board.targetCells.size_bytes());
+    upload(nearBrickCells, board.nearBrickCells.data(), board.nearBrickCells.size_bytes());
+    hostBrickHitsLeft.assign(board.brickHitsLeft.begin(), board.brickHitsLeft.end());
     brickCount = hostBrickHitsLeft.size();
     hostBrickHitsLeft.push_back(0);
     upload(brickHitsLeft, hostBrickHitsLeft.data(), hostBrickHitsLeft.size() * sizeof(int32_t));
@@ -277,8 +276,8 @@ void CudaBackend::uploadBoard(const BrickBoard& board, const TargetField& field)
     killedCapacity = static_cast<unsigned int>(std::max<BallCount>(totalHits, minimumKilledCapacity));
     ensureArray(killedIndices, static_cast<size_t>(killedCapacity) * 4);
     ensureArray(holes, static_cast<size_t>(killedCapacity) * 4);
-    fieldWidth = static_cast<float>(board.columns());
-    fieldHeight = static_cast<float>(board.rows());
+    fieldWidth = static_cast<float>(board.columns);
+    fieldHeight = static_cast<float>(board.rows);
 }
 
 void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {

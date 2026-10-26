@@ -1,4 +1,4 @@
-#include "sim/backends/CudaDriver.h"
+#include "cuda/CudaDriver.h"
 
 #include "BallKernelsPtx.h"
 

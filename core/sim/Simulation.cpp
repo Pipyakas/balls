@@ -10,7 +10,7 @@ constexpr int maximumScatterAttempts = 8;
 
 }
 
-Simulation::Simulation(std::unique_ptr<PhysicsBackend> backend, SimulationTuning tuning)
+Simulation::Simulation(BackendHandle backend, SimulationTuning tuning)
     : settings(tuning), physics(std::move(backend)) {}
 
 void Simulation::load(const BrickLayout& layout) {
@@ -23,7 +23,7 @@ void Simulation::load(const BrickLayout& layout) {
     syncBoardIfChanged();
 }
 
-void Simulation::replaceBackend(std::unique_ptr<PhysicsBackend> backend) {
+void Simulation::replaceBackend(BackendHandle backend) {
     const std::vector<BallSpawn> balls = physics->exportBalls();
     physics = std::move(backend);
     uploadedRevision = ~0ull;
@@ -104,7 +104,10 @@ void Simulation::syncBoardIfChanged() {
         return;
     }
     targetField.rebuild(brickBoard);
-    physics->uploadBoard(brickBoard, targetField);
+    uploadedNearBrickCells = brickBoard.nearBrickFlags();
+    uploadedBrickHitsLeft = brickBoard.hitsLeftPerBrick();
+    physics->uploadBoard({brickBoard.columns(), brickBoard.rows(), brickBoard.paddedCells(), brickBoard.brickColors(),
+                          targetField.targetCells(), uploadedNearBrickCells, uploadedBrickHitsLeft});
     uploadedRevision = brickBoard.revision();
 }
 

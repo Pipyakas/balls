@@ -1,7 +1,7 @@
 #pragma once
 
-#include "sim/backends/CpuBackendBase.h"
-#include "sim/backends/WorkerPool.h"
+#include "cpu/CpuBackendBase.h"
+#include "cpu/WorkerPool.h"
 
 #include <memory>
 

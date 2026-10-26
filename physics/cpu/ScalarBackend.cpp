@@ -1,4 +1,4 @@
-#include "sim/backends/ScalarBackend.h"
+#include "cpu/ScalarBackend.h"
 
 void ScalarBackend::step(const StepParams& params, std::vector<BallHit>& hits) {
     const BoardView board = boardView();
