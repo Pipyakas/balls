@@ -1,5 +1,8 @@
-#include "cpu/Avx2Backend.h"
 #include "cpu/ScalarBackend.h"
+
+#if defined(BALLS_HAS_AVX2_BACKEND)
+#include "cpu/Avx2Backend.h"
+#endif
 
 #include <algorithm>
 #include <format>
@@ -13,6 +16,7 @@ constexpr std::string_view scalarName = "Scalar";
 constexpr std::string_view avx2Name = "AVX2";
 constexpr const char* noReason = "";
 constexpr const char* missingAvx2 = "CPU lacks AVX2/FMA";
+constexpr const char* avx2NotBuilt = "AVX2 backend not built for this CPU architecture";
 constexpr const char* unknownKind = "unknown backend";
 
 unsigned int threadCount() { return std::max(1u, std::thread::hardware_concurrency()); }
@@ -27,7 +31,11 @@ BALLS_PLUGIN_EXPORT const char* ballsBackendUnavailableReason(const char* kindNa
         return noReason;
     }
     if (kind == avx2Name) {
+#if defined(BALLS_HAS_AVX2_BACKEND)
         return Avx2Backend::isSupportedByCpu() ? noReason : missingAvx2;
+#else
+        return avx2NotBuilt;
+#endif
     }
     return unknownKind;
 }
@@ -43,9 +51,11 @@ BALLS_PLUGIN_EXPORT PhysicsBackend* ballsCreateBackend(const char* kindName) {
     if (kind == scalarName) {
         return new ScalarBackend();
     }
+#if defined(BALLS_HAS_AVX2_BACKEND)
     if (kind == avx2Name && Avx2Backend::isSupportedByCpu()) {
         return new Avx2Backend(threadCount());
     }
+#endif
     return nullptr;
 }
 
