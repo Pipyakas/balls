@@ -1,8 +1,10 @@
 #pragma once
 
+#include <filesystem>
+
 class DynamicLibrary {
 public:
-    explicit DynamicLibrary(const char* fileName);
+    explicit DynamicLibrary(const std::filesystem::path& fileName);
     ~DynamicLibrary();
     DynamicLibrary(const DynamicLibrary&) = delete;
     DynamicLibrary& operator=(const DynamicLibrary&) = delete;
@@ -14,6 +16,8 @@ public:
         target = reinterpret_cast<Function>(findSymbol(symbolName));
         return target != nullptr;
     }
+
+    static std::filesystem::path executableDirectory();
 
 private:
     void* findSymbol(const char* symbolName) const;

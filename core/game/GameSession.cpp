@@ -68,8 +68,9 @@ void GameSession::startCapacityProbe(double targetFps) {
 
 void GameSession::cancelCapacityProbe() { probe.cancel(); }
 
-void GameSession::reportFrameSeconds(double frameSeconds) {
+void GameSession::reportFrameSeconds(double frameSeconds, double workSeconds) {
     latestFrameSeconds = frameSeconds;
+    latestWorkSeconds = workSeconds;
     pumpCapacityProbe();
 }
 
@@ -77,7 +78,7 @@ void GameSession::pumpCapacityProbe() {
     if (!probe.isActive() || gameMode != GameMode::Performance || latestFrameSeconds <= 0.0) {
         return;
     }
-    const BallCount addition = probe.update(latestFrameSeconds, physicsSimulation.liveBallCount());
+    const BallCount addition = probe.update(latestFrameSeconds, latestWorkSeconds, physicsSimulation.liveBallCount());
     if (const auto trim = probe.takeTrimRequest()) {
         physicsSimulation.trimBallsTo(*trim);
     }

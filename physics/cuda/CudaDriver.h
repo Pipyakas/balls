@@ -27,6 +27,12 @@ struct CudaDriverApi {
     decltype(&::cuLaunchKernel) launchKernel = nullptr;
     decltype(&::cuCtxSynchronize) contextSynchronize = nullptr;
     decltype(&::cuGetErrorString) getErrorString = nullptr;
+    decltype(&::cuEventCreate) eventCreate = nullptr;
+    decltype(&::cuEventRecord) eventRecord = nullptr;
+    decltype(&::cuEventSynchronize) eventSynchronize = nullptr;
+    decltype(&::cuEventElapsedTime) eventElapsedTime = nullptr;
+    decltype(&::cuEventDestroy_v2) eventDestroy = nullptr;
+    decltype(&::cuDeviceGetAttribute) deviceGetAttribute = nullptr;
     CUresult(CUDAAPI* graphicsGlRegisterBuffer)(CUgraphicsResource*, unsigned int, unsigned int) = nullptr;
     decltype(&::cuGraphicsUnregisterResource) graphicsUnregisterResource = nullptr;
     decltype(&::cuGraphicsMapResources) graphicsMapResources = nullptr;
@@ -41,6 +47,7 @@ public:
     bool isReady() const { return errorMessage.empty(); }
     const std::string& error() const { return errorMessage; }
     const std::string& deviceName() const { return gpuName; }
+    int deviceAttribute(CUdevice_attribute attribute) const;
     const CudaDriverApi& api() const { return functions; }
     CUfunction function(const char* name) const;
     void makeCurrent() const;
@@ -54,6 +61,7 @@ private:
 
     std::unique_ptr<DynamicLibrary> library;
     CudaDriverApi functions;
+    CUdevice device = 0;
     CUcontext context = nullptr;
     CUmodule module = nullptr;
     std::string gpuName;

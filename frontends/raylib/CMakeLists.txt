@@ -42,6 +42,12 @@ option(BALLS_USE_SOURCE_ASSETS "Read and save levels in the source tree (turn OF
 if(BALLS_USE_SOURCE_ASSETS)
     target_compile_definitions(ColorBlastBalls PRIVATE BALLS_DEV_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")
 endif()
-set_target_properties(ColorBlastBalls PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+add_dependencies(ColorBlastBalls balls_physics_plugins)
+set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP ON)
+include(InstallRequiredSystemLibraries)
+if(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS)
+    add_custom_command(TARGET ColorBlastBalls POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS} "$<TARGET_FILE_DIR:ColorBlastBalls>")
+endif()
 add_custom_command(TARGET ColorBlastBalls POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${CMAKE_SOURCE_DIR}/assets" "$<TARGET_FILE_DIR:ColorBlastBalls>/assets")

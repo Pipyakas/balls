@@ -22,6 +22,9 @@ struct BenchOptions {
     std::vector<size_t> ballCounts{2000, 20000, 200000, 1000000};
     int ticks = 240;
     bool fullSimulation = false;
+    bool roofline = false;
+    bool rooflineOnLevel = false;
+    int substeps = 2;
 };
 
 std::vector<size_t> parseCounts(const char* text) {
@@ -67,6 +70,13 @@ BenchOptions parseOptions(int argumentCount, char** arguments) {
             ++i;
         } else if (argument == "--ticks") {
             options.ticks = std::atoi(value);
+            ++i;
+        } else if (argument == "--roofline") {
+            options.roofline = true;
+        } else if (argument == "--on-level") {
+            options.rooflineOnLevel = true;
+        } else if (argument == "--substeps") {
+            options.substeps = std::atoi(value);
             ++i;
         } else if (argument == "--full") {
             options.fullSimulation = true;
@@ -139,10 +149,63 @@ void runFullSimulation(const BrickLayout& layout, BackendKind kind, size_t ballC
                 simulation.backend().ballCount(), simulation.board().aliveBrickCount());
 }
 
+BrickLayout emptyBoard(int width, int rows) {
+    BrickLayout layout;
+    layout.width = width;
+    layout.height = 1;
+    layout.playableHeight = rows;
+    layout.cellIds.assign(static_cast<size_t>(width), emptyBrickId);
+    return layout;
+}
+
+void runRoofline(const BenchOptions& options, const BrickLayout* level) {
+    constexpr size_t copyBufferBytes = size_t{512} << 20;
+    constexpr int boardWidth = 30;
+    constexpr int boardRows = 38;
+    const GpuRoofline roofline = measureGpuRoofline(copyBufferBytes);
+    std::printf("GPU: %d SMs @ %.0f MHz, memory %d-bit @ %.0f MHz\n", roofline.multiprocessors,
+                roofline.coreClockMegahertz, roofline.memoryBusBits, roofline.memoryClockMegahertz);
+    std::printf("bandwidth: theoretical %.1f GB/s, device copy %.1f GB/s (%.0f%% of theoretical)\n",
+                roofline.theoreticalGigabytesPerSecond, roofline.copyGigabytesPerSecond,
+                100.0 * roofline.copyGigabytesPerSecond / roofline.theoreticalGigabytesPerSecond);
+    const size_t bytesPerBall = gpuStreamedBytesPerBall(false);
+    for (size_t ballCount : options.ballCounts) {
+        Simulation simulation(createBackend(BackendKind::Cuda));
+        simulation.load(level ? *level : emptyBoard(boardWidth, boardRows));
+        PhysicsBackend& backend = simulation.backend();
+        backend.addBalls(scatterBalls(simulation.board(), ballCount, simulation.tuning().ballSpeed));
+        const StepParams params = simulation.stepParams(options.substeps);
+        std::vector<BallHit> hits;
+        constexpr int warmupTicks = 5;
+        for (int tick = 0; tick < warmupTicks; ++tick) {
+            backend.step(params, hits);
+        }
+        double kernelMs = 0.0;
+        for (int tick = 0; tick < options.ticks; ++tick) {
+            backend.step(params, hits);
+            kernelMs += backend.deviceStepMs();
+        }
+        kernelMs /= options.ticks;
+        const double achievedGigabytesPerSecond = static_cast<double>(ballCount * bytesPerBall) / (kernelMs * 1.0e6);
+        std::printf("balls=%10zu substeps=%d kernel %7.3f ms  %6.1f GB/s = %5.1f%% of copy  %6.0f M ball-substeps/s\n",
+                    ballCount, options.substeps, kernelMs, achievedGigabytesPerSecond,
+                    100.0 * achievedGigabytesPerSecond / roofline.copyGigabytesPerSecond,
+                    static_cast<double>(ballCount) * options.substeps / (kernelMs * 1.0e3));
+    }
+}
+
 }
 
 int main(int argumentCount, char** arguments) {
     const BenchOptions options = parseOptions(argumentCount, arguments);
+    if (options.roofline) {
+        const bool onLevel = options.rooflineOnLevel;
+        auto rooflineLevel = onLevel ? loadLevel(levelFilesFor(options.levelDirectory, options.levelName))
+                                     : Result<LevelData>(Error{"empty board"});
+        std::printf("board: %s\n", onLevel ? options.levelName.c_str() : "empty");
+        runRoofline(options, rooflineLevel ? &rooflineLevel->bricks : nullptr);
+        return 0;
+    }
     auto level = loadLevel(levelFilesFor(options.levelDirectory, options.levelName));
     if (!level) {
         std::fprintf(stderr, "level load failed: %s\n", level.error().c_str());

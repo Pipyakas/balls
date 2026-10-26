@@ -33,6 +33,8 @@ cmake --build build --config Release --parallel
 build/bin/Release/ColorBlastBalls.exe
 ```
 
+Or just `build.bat` / `run.bat`.
+
 `FetchCudaSdk.ps1` downloads NVIDIA's NVRTC and runtime header wheels into `.deps/cuda`. The CUDA kernel is
 compiled to PTX at build time and embedded in the exe, so the CUDA toolkit is not required. Without the SDK, or
 with `-DBALLS_ENABLE_CUDA=OFF`, the game builds with CPU backends only.
@@ -44,10 +46,27 @@ disabled and the game runs on AVX2 (or Scalar on CPUs without AVX2).
 
 ```powershell
 cmake --build build --config Release --target balls_tests balls_bench
-build/Release/balls_tests.exe
-build/Release/balls_bench.exe --balls 2000,200000,1000000 --ticks 240
-build/Release/balls_bench.exe --full --balls 100000
+build/bin/Release/balls_tests.exe
+build/bin/Release/balls_bench.exe --balls 2000,200000,1000000 --ticks 240
+build/bin/Release/balls_bench.exe --full --balls 100000
+build/bin/Release/balls_bench.exe --roofline --balls 4000000,40000000
+python tools/bench/probe_bench.py --backends cuda avx2 --fps 60
 ```
+
+## Physics plugins
+
+Physics backends are DLL plugins loaded from next to the executable, so physics work only
+rebuilds its plugin, not the core or a front end:
+
+```powershell
+cmake --build build --config Release --target balls_physics_cuda
+```
+
+Every time a backend is selected the game loads a fresh shadow copy of its DLL from
+`%TEMP%\ColorBlastBalls\physics-plugins`, so a plugin can be rebuilt while the game runs and
+picked up with F1/F2/F3 (or `/backend?kind=cuda` on the control API). Plugins only see
+`core/sim/PhysicsBackend.h` and `core/sim/kernels/BallStepCore.h`. The build uses the shared MSVC
+runtime and copies its DLLs next to the executable.
 
 ## Controls
 
@@ -85,7 +104,9 @@ core/                 engine-agnostic library (no raylib, C++20, no exceptions)
   sim/                BrickBoard, TargetField, Simulation, physics backends, CUDA kernels
   game/               GameSession, LauncherQueue, SpawnController
   editor/             LevelEditor model used by any front end
-frontends/raylib/     window, rendering (instanced ball shader), screens, map editor UI
+physics/cpu/          balls_physics_cpu.dll plugin: Scalar and AVX2 backends
+physics/cuda/         balls_physics_cuda.dll plugin: CUDA backend and kernels
+frontends/raylib/     window, rendering, screens, map editor UI
 tools/                bench, NVRTC PTX generator, CUDA SDK fetch script
 tests/                unit tests (balls_tests)
 assets/levels/        level files

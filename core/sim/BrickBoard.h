@@ -29,6 +29,7 @@ public:
     bool applyHit(int brickIndex);
     bool applyHitsDownTo(int brickIndex, int hitsLeft);
     std::vector<int32_t> hitsLeftPerBrick() const;
+    std::vector<int32_t> nearBrickFlags() const;
     bool settleColumns();
     void animate(float deltaTime);
 

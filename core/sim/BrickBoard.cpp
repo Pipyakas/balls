@@ -67,6 +67,25 @@ bool BrickBoard::applyHitsDownTo(int brickIndex, int hitsLeft) {
     return changed;
 }
 
+std::vector<int32_t> BrickBoard::nearBrickFlags() const {
+    std::vector<int32_t> flags(cells.size(), 0);
+    const int width = paddedWidth();
+    const int height = rowCount + 2;
+    for (int row = 0; row < height; ++row) {
+        for (int column = 0; column < width; ++column) {
+            if (cells[static_cast<size_t>(row) * width + column] == emptyCell) {
+                continue;
+            }
+            for (int nearRow = std::max(row - 1, 0); nearRow <= std::min(row + 1, height - 1); ++nearRow) {
+                for (int nearColumn = std::max(column - 1, 0); nearColumn <= std::min(column + 1, width - 1); ++nearColumn) {
+                    flags[static_cast<size_t>(nearRow) * width + nearColumn] = 1;
+                }
+            }
+        }
+    }
+    return flags;
+}
+
 std::vector<int32_t> BrickBoard::hitsLeftPerBrick() const {
     std::vector<int32_t> hits;
     hits.reserve(brickList.size());

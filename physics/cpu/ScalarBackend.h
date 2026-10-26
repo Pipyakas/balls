@@ -1,6 +1,6 @@
 #pragma once
 
-#include "sim/backends/CpuBackendBase.h"
+#include "cpu/CpuBackendBase.h"
 
 class ScalarBackend final : public CpuBackendBase {
 public:

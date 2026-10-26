@@ -7,7 +7,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(BALLS_BUILD_GAME "Build the raylib front end" ON)
 option(BALLS_ENABLE_CUDA "Build the CUDA physics backend (needs NVRTC at build time)" ON)
-option(BALLS_STATIC_CRT "Link the static MSVC runtime (turn OFF when building balls_core for Unreal)" ON)
+option(BALLS_STATIC_CRT "Link the static MSVC runtime (physics plugins need the shared runtime)" OFF)
 option(BALLS_LTO "Enable whole-program optimization (turn OFF when building balls_core for Unreal)" ON)
 set(BALLS_CUDA_SDK_DIR "${CMAKE_SOURCE_DIR}/.deps/cuda/sdk" CACHE PATH "Directory with CUDA include/ and bin/ (tools/FetchCudaSdk.ps1)")
 
@@ -19,6 +19,7 @@ endif()
 
 if(MSVC)
     set(BALLS_WARNINGS /W4 /permissive- /utf-8 /wd4324)
+    add_compile_options(/MP)
     set(BALLS_OPTIMIZE $<$<CONFIG:Release,RelWithDebInfo>:/O2 /Oi /fp:fast>)
     if(BALLS_LTO)
         list(APPEND BALLS_OPTIMIZE $<$<CONFIG:Release,RelWithDebInfo>:/GL>)
@@ -31,7 +32,11 @@ else()
     set(BALLS_AVX2_FLAGS -mavx2 -mfma)
 endif()
 
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
 add_subdirectory(core)
+add_subdirectory(physics)
 
 if(BALLS_BUILD_GAME)
     add_subdirectory(frontends/raylib)
@@ -39,6 +44,7 @@ endif()
 
 add_executable(balls_bench tools/bench/Bench.cpp)
 target_link_libraries(balls_bench PRIVATE balls_core)
+add_dependencies(balls_bench balls_physics_plugins)
 target_compile_options(balls_bench PRIVATE ${BALLS_WARNINGS} ${BALLS_OPTIMIZE})
 target_link_options(balls_bench PRIVATE ${BALLS_LINK_OPTIMIZE})
 
@@ -46,6 +52,7 @@ enable_testing()
 add_executable(balls_tests tests/TestMain.cpp tests/LevelTests.cpp tests/SimulationTests.cpp tests/GameTests.cpp
     tests/ProbeTests.cpp tests/EditorTests.cpp)
 target_link_libraries(balls_tests PRIVATE balls_core)
+add_dependencies(balls_tests balls_physics_plugins)
 target_compile_options(balls_tests PRIVATE ${BALLS_WARNINGS})
 target_link_options(balls_tests PRIVATE ${BALLS_LINK_OPTIMIZE})
 target_compile_definitions(balls_tests PRIVATE BALLS_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")

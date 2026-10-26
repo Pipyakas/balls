@@ -1,7 +1,7 @@
 #pragma once
 
 #include "sim/PhysicsBackend.h"
-#include "sim/backends/CudaDriver.h"
+#include "cuda/CudaDriver.h"
 
 #include <array>
 #include <string>
@@ -15,9 +15,11 @@ public:
     CudaBackend& operator=(const CudaBackend&) = delete;
 
     static std::string unavailableReason();
+    static GpuRoofline measureRoofline(size_t bufferBytes);
+    static size_t streamedBytesPerBall(bool gridActive);
 
     std::string_view name() const override { return "CUDA"; }
-    void uploadBoard(const BrickBoard& board, const TargetField& field) override;
+    void uploadBoard(const BoardUpload& board) override;
     void addBalls(std::span<const BallSpawn> spawns) override;
     void step(const StepParams& params, std::vector<BallHit>& hits) override;
     void removeBalls(std::span<const uint32_t> descendingIndices) override;
@@ -31,14 +33,12 @@ public:
     DeviceHitResults deviceHitResults() const override;
     bool shareRenderBuffer(unsigned int openGlBuffer, size_t capacityBytes) override;
     void setVisibilityGrid(int width, int height) override;
+    double deviceStepMs() const override { return lastStepKernelMs; }
 
 private:
     struct DeviceBalls {
-        CUdeviceptr x;
-        CUdeviceptr y;
-        CUdeviceptr vx;
-        CUdeviceptr vy;
-        CUdeviceptr meta;
+        CUdeviceptr position;
+        CUdeviceptr state;
         CUdeviceptr packed;
     };
 
@@ -58,6 +58,7 @@ private:
     bool isFaulted() const { return !fault.empty(); }
     bool launch(CUfunction function, size_t threads, void** arguments, const char* what);
     void ensureBallCapacity(size_t required);
+    void ensurePackedCapacity(size_t required);
     void ensureArray(DeviceArray& array, size_t bytes);
     void upload(DeviceArray& array, const void* data, size_t bytes);
     void compactKilledBalls(unsigned int killed);
@@ -75,10 +76,12 @@ private:
     CUfunction gridToRenderFunction = nullptr;
     DeviceBalls balls{};
     size_t capacity = 0;
+    size_t packedCapacity = 0;
     size_t count = 0;
     DeviceArray paddedCells;
     DeviceArray brickColors;
     DeviceArray targetCells;
+    DeviceArray cellWords;
     DeviceArray brickHitsLeft;
     DeviceArray killedIndices;
     DeviceArray holes;
@@ -89,6 +92,8 @@ private:
     int gridHeight = 0;
     bool gridFilled = false;
     size_t brickCount = 0;
+    unsigned int killedCapacity = 0;
+    float ballSpeed = 1.0f;
     std::vector<int32_t> hostBrickHitsLeft;
     FrameCounters lastCounters{};
     std::vector<uint32_t> hostPacked;
@@ -98,4 +103,7 @@ private:
     float fieldHeight = 1.0f;
     bool snapshotFresh = false;
     std::string fault;
+    CUevent stepStarted = nullptr;
+    CUevent stepFinished = nullptr;
+    double lastStepKernelMs = 0.0;
 };

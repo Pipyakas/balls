@@ -79,6 +79,9 @@ void drawDebugPanel(Rectangle area, const GameSession& session, const FrameTimin
     writer.row("CPU", std::format("{:.2f} ms", sample.cpuMs));
     writer.row("  Physics", std::format("{:.2f} ms  x{}", stats.lastFramePhysicsMs, stats.ticksLastFrame));
     writer.row("GPU", std::format("{:.2f} ms", sample.gpuMs));
+    if (const double kernelMs = simulation.backend().deviceStepMs(); kernelMs > 0.0) {
+        writer.row("  Physics kernel", std::format("{:.2f} ms", kernelMs));
+    }
     writer.row("Present", std::format("{:.2f} ms", sample.presentMs));
     const CapacityProbe& probe = session.capacityProbe();
     if (probe.phase() != ProbePhase::Idle) {

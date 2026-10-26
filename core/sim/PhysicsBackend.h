@@ -1,8 +1,6 @@
 #pragma once
 
 #include "common/BallCount.h"
-#include "sim/BrickBoard.h"
-#include "sim/TargetField.h"
 #include "sim/kernels/BallStepCore.h"
 
 #include <cstddef>
@@ -10,6 +8,14 @@
 #include <span>
 #include <string_view>
 #include <vector>
+
+#if defined(_WIN32)
+#define BALLS_PLUGIN_EXPORT extern "C" __declspec(dllexport)
+#else
+#define BALLS_PLUGIN_EXPORT extern "C" __attribute__((visibility("default")))
+#endif
+
+inline constexpr int physicsPluginInterfaceVersion = 1;
 
 struct BallSpawn {
     float x = 0.0f;
@@ -33,6 +39,25 @@ struct BallSnapshot {
     bool visibilityGrid = false;
 };
 
+struct BoardUpload {
+    int columns = 0;
+    int rows = 0;
+    std::span<const int32_t> paddedCells;
+    std::span<const int32_t> brickColors;
+    std::span<const int32_t> targetCells;
+    std::span<const int32_t> nearBrickCells;
+    std::span<const int32_t> brickHitsLeft;
+};
+
+struct GpuRoofline {
+    double theoreticalGigabytesPerSecond = 0.0;
+    double copyGigabytesPerSecond = 0.0;
+    int multiprocessors = 0;
+    double coreClockMegahertz = 0.0;
+    double memoryClockMegahertz = 0.0;
+    int memoryBusBits = 0;
+};
+
 struct DeviceHitResults {
     std::span<const int32_t> brickHitsLeft;
     BallTally killsByColor{};
@@ -48,7 +73,7 @@ public:
     virtual ~PhysicsBackend() = default;
 
     virtual std::string_view name() const = 0;
-    virtual void uploadBoard(const BrickBoard& board, const TargetField& field) = 0;
+    virtual void uploadBoard(const BoardUpload& board) = 0;
     virtual void addBalls(std::span<const BallSpawn> spawns) = 0;
     virtual void step(const StepParams& params, std::vector<BallHit>& hits) = 0;
     virtual void removeBalls(std::span<const uint32_t> descendingIndices) = 0;
@@ -62,4 +87,12 @@ public:
     virtual DeviceHitResults deviceHitResults() const { return {}; }
     virtual bool shareRenderBuffer(unsigned int, size_t) { return false; }
     virtual void setVisibilityGrid(int, int) {}
+    virtual double deviceStepMs() const { return 0.0; }
 };
+
+using CreateBackendFunction = PhysicsBackend* (*)(const char* kindName);
+using DestroyBackendFunction = void (*)(PhysicsBackend* backend);
+using BackendTextFunction = const char* (*)(const char* kindName);
+using InterfaceVersionFunction = int (*)();
+using MeasureRooflineFunction = GpuRoofline (*)(size_t bufferBytes);
+using StreamedBytesFunction = size_t (*)(bool gridActive);

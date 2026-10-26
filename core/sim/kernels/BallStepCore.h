@@ -25,6 +25,19 @@ struct BoardView {
     const int* paddedCells;
     const int* brickColors;
     const int* targetCells;
+    const int* nearBrickCells;
+
+    BALLS_HOST_DEVICE bool isNearBrick(int index) const { return nearBrickCells[index] != 0; }
+
+    BALLS_HOST_DEVICE int occupant(int index, int& color) const {
+        const int brick = paddedCells[index];
+        color = brick < 0 ? -1 : brickColors[brick];
+        return brick;
+    }
+
+    BALLS_HOST_DEVICE int targetCell(int color, int index, int cellCount) const {
+        return targetCells[color * cellCount + index];
+    }
 };
 
 inline constexpr int noBrickHit = -1;
@@ -76,13 +89,14 @@ BALLS_HOST_DEVICE void pushOutOfCell(float& x, float& y, float& normalX, float& 
     }
 }
 
+template <typename Board>
 BALLS_HOST_DEVICE void retargetTowardNearestBrick(float x, float y, float& vx, float& vy, int color,
-                                                  float normalX, float normalY, const BoardView& board,
+                                                  float normalX, float normalY, const Board& board,
                                                   const StepParams& params) {
     const int column = static_cast<int>(floorf(x));
     const int row = static_cast<int>(floorf(y));
     const int target =
-        board.targetCells[color * params.paddedCellCount + paddedCellIndex(column, row, params.paddedWidth)];
+        board.targetCell(color, paddedCellIndex(column, row, params.paddedWidth), params.paddedCellCount);
     if (target < 0) {
         return;
     }
@@ -111,8 +125,9 @@ BALLS_HOST_DEVICE void reflectVelocity(float& vx, float& vy, float normalX, floa
     }
 }
 
+template <typename Board>
 BALLS_HOST_DEVICE void resolveEmbeddedContact(float& x, float& y, float& vx, float& vy, int color, int& bounces,
-                                              int column, int row, const BoardView& board,
+                                              int column, int row, const Board& board,
                                               const StepParams& params) {
     float normalX = 0.0f;
     float normalY = 0.0f;
@@ -124,8 +139,9 @@ BALLS_HOST_DEVICE void resolveEmbeddedContact(float& x, float& y, float& vx, flo
     }
 }
 
+template <typename Board>
 BALLS_HOST_DEVICE int stepBall(float& x, float& y, float& vx, float& vy, int color, int& bounces,
-                               const BoardView& board, const StepParams& params) {
+                               const Board& board, const StepParams& params) {
     const float radius = params.radius;
     x += vx * params.deltaTime;
     y += vy * params.deltaTime;
@@ -158,6 +174,15 @@ BALLS_HOST_DEVICE int stepBall(float& x, float& y, float& vx, float& vy, int col
 
     const int column = static_cast<int>(floorf(x));
     const int row = static_cast<int>(floorf(y));
+    if (!board.isNearBrick(paddedCellIndex(column, row, params.paddedWidth))) {
+        if (bounced) {
+            bounces += 1;
+            if (bounces >= params.retargetBounceThreshold) {
+                retargetTowardNearestBrick(x, y, vx, vy, color, normalX, normalY, board, params);
+            }
+        }
+        return noBrickHit;
+    }
     const float fractionX = x - static_cast<float>(column);
     const float fractionY = y - static_cast<float>(row);
     const int neighborColumn = fractionX < radius ? -1 : (fractionX > 1.0f - radius ? 1 : 0);
@@ -169,10 +194,12 @@ BALLS_HOST_DEVICE int stepBall(float& x, float& y, float& vx, float& vy, int col
     int bestColumn = 0;
     int bestRow = 0;
     int bestBrick = -1;
+    int bestColor = -1;
     for (int candidate = 0; candidate < 4; ++candidate) {
         const int cellColumn = column + ((candidate & 1) ? neighborColumn : 0);
         const int cellRow = row + ((candidate & 2) ? neighborRow : 0);
-        const int brick = board.paddedCells[paddedCellIndex(cellColumn, cellRow, params.paddedWidth)];
+        int cellColor = -1;
+        const int brick = board.occupant(paddedCellIndex(cellColumn, cellRow, params.paddedWidth), cellColor);
         if (brick < 0) {
             continue;
         }
@@ -188,11 +215,12 @@ BALLS_HOST_DEVICE int stepBall(float& x, float& y, float& vx, float& vy, int col
             bestColumn = cellColumn;
             bestRow = cellRow;
             bestBrick = brick;
+            bestColor = cellColor;
         }
     }
 
     if (bestBrick >= 0) {
-        if (board.brickColors[bestBrick] == color) {
+        if (bestColor == color) {
             return bestBrick;
         }
         const float distance = sqrtf(bestDistanceSquared);
@@ -217,8 +245,9 @@ BALLS_HOST_DEVICE int stepBall(float& x, float& y, float& vx, float& vy, int col
     return noBrickHit;
 }
 
+template <typename Board>
 BALLS_HOST_DEVICE int stepBallSubsteps(float& x, float& y, float& vx, float& vy, int color, int& bounces,
-                                       const BoardView& board, const StepParams& params) {
+                                       const Board& board, const StepParams& params) {
     for (int substep = 0; substep < params.substeps; ++substep) {
         const int brick = stepBall(x, y, vx, vy, color, bounces, board, params);
         if (brick != noBrickHit) {

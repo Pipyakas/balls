@@ -1,4 +1,4 @@
-#include "sim/backends/WorkerPool.h"
+#include "cpu/WorkerPool.h"
 
 #include <algorithm>
 

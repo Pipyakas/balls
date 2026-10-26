@@ -1,4 +1,4 @@
-#include "sim/backends/CpuBallStore.h"
+#include "cpu/CpuBallStore.h"
 
 namespace {
 
