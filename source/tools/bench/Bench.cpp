@@ -41,12 +41,16 @@ std::vector<size_t> parseCounts(const char* text) {
 
 std::vector<BackendKind> parseBackends(const std::string& text) {
     std::vector<BackendKind> kinds;
+    std::string loweredText = text;
+    for (char& c : loweredText) {
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
     for (BackendKind kind : allBackendKinds) {
         std::string name(backendKindName(kind));
         for (char& c : name) {
             c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         }
-        if (text == "all" || text.find(name) != std::string::npos) {
+        if (loweredText == "all" || loweredText.find(name) != std::string::npos) {
             kinds.push_back(kind);
         }
     }
@@ -124,19 +128,24 @@ void runRawStep(const BrickLayout& layout, BackendKind kind, size_t ballCount, i
         hits.clear();
         backend.step(params, hits);
     }
-    size_t hitTotal = 0;
+    size_t eventTotal = 0;
+    const bool resolvesOnDevice = backend.resolvesHitsOnDevice();
     const auto start = std::chrono::steady_clock::now();
     for (int tick = 0; tick < ticks; ++tick) {
         hits.clear();
         backend.step(params, hits);
-        hitTotal += hits.size();
+        if (resolvesOnDevice) {
+            eventTotal += static_cast<size_t>(backend.deviceHitResults().killed);
+        } else {
+            eventTotal += hits.size();
+        }
     }
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     const double msPerTick = seconds * 1000.0 / ticks;
     const double ballStepsPerSecond = static_cast<double>(ballCount) * ticks / seconds;
-    std::printf("%-7s collisions=%d balls=%9zu  %8.3f ms/tick  %8.1f M ball-steps/s  hits/tick=%zu\n",
+    std::printf("%-7s collisions=%d balls=%9zu  %8.3f ms/tick  %8.1f M ball-steps/s  %s/tick=%zu\n",
                 std::string(backendKindName(kind)).c_str(), collisions ? 1 : 0, ballCount, msPerTick,
-                ballStepsPerSecond / 1e6, hitTotal / static_cast<size_t>(ticks));
+                ballStepsPerSecond / 1e6, resolvesOnDevice ? "kills" : "hits", eventTotal / static_cast<size_t>(ticks));
 }
 
 void runFullSimulation(const BrickLayout& layout, BackendKind kind, size_t ballCount, int ticks,

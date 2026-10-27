@@ -555,9 +555,13 @@ void VulkanBackend::step(const StepParams& params, std::vector<BallHit>& hits) {
     if (sorting) {
         currentBuffer = 1u - currentBuffer;
     }
-    lastStepKernelMs = static_cast<double>(device->getTimerQueryTime(timer)) * 1000.0;
+    const double measuredKernelMs = static_cast<double>(device->getTimerQueryTime(timer)) * 1000.0;
     device->resetTimerQuery(timer);
-    sortSchedule.record(lastStepKernelMs, count);
+    lastStepKernelMs = 0.0;
+    if (std::isfinite(measuredKernelMs) && measuredKernelMs >= 0.0 && measuredKernelMs <= 1000.0) {
+        lastStepKernelMs = measuredKernelMs;
+        sortSchedule.record(lastStepKernelMs, count);
+    }
 
     const void* mappedCounters = device->mapBuffer(countersReadback, nvrhi::CpuAccessMode::Read);
     if (!mappedCounters) {

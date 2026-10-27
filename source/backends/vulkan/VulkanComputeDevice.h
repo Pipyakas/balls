@@ -36,6 +36,8 @@ private:
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
     VkDevice logicalDevice = VK_NULL_HANDLE;
     VkQueue computeQueue = VK_NULL_HANDLE;
+    vk::detail::DispatchLoaderDynamic instanceDispatcher;
+    vk::detail::DispatchLoaderDynamic deviceDispatcher;
     uint32_t queueFamily = 0;
     nvrhi::vulkan::DeviceHandle nvrhiDevice;
     std::unique_ptr<MessageCallback> messageCallback;

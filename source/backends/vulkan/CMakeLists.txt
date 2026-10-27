@@ -27,6 +27,9 @@ if(MSVC)
     target_link_libraries(balls_physics_vulkan PRIVATE nvrhi nvrhi_vk)
     set_property(TARGET balls_physics_vulkan PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 else()
+    # NVRHI is linked into this shared plugin. Its static Vulkan libraries
+    # therefore need position-independent objects on ELF platforms.
+    set_target_properties(nvrhi nvrhi_vk PROPERTIES POSITION_INDEPENDENT_CODE ON)
     target_link_libraries(balls_physics_vulkan PRIVATE $<LINK_GROUP:RESCAN,nvrhi,nvrhi_vk>)
 endif()
 target_compile_options(balls_physics_vulkan PRIVATE ${BALLS_WARNINGS} ${BALLS_OPTIMIZE})

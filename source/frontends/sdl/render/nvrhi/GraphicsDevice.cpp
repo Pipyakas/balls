@@ -1,7 +1,8 @@
 #include "render/nvrhi/GraphicsDevice.h"
 
 #if defined(_WIN32)
-std::unique_ptr<GraphicsDevice> createD3d12GraphicsDevice(SDL_Window* window, std::string& error);
+std::unique_ptr<GraphicsDevice> createD3d12GraphicsDevice(SDL_Window* window, std::string_view gpuPreference,
+                                                          std::string& error);
 #endif
 std::unique_ptr<GraphicsDevice> createVulkanGraphicsDevice(SDL_Window* window, std::string_view gpuPreference,
                                                            std::string& error);
@@ -12,7 +13,7 @@ std::unique_ptr<GraphicsDevice> createGraphicsDevice(GraphicsApi api, SDL_Window
                                                     std::string& error) {
 #if defined(_WIN32)
     if (api == GraphicsApi::D3d12) {
-        return createD3d12GraphicsDevice(window, error);
+        return createD3d12GraphicsDevice(window, gpuPreference, error);
     }
 #endif
     return createVulkanGraphicsDevice(window, gpuPreference, error);

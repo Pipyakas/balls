@@ -31,6 +31,8 @@ constexpr bool usesShadowCopies = false;
 constexpr std::string_view shadowFolder = "ColorBlastBalls/physics-plugins";
 
 struct PluginModule {
+    using ReleaseIdleDeviceFunction = void (*)();
+
     std::shared_ptr<DynamicLibrary> library;
     CreateBackendFunction create = nullptr;
     DestroyBackendFunction destroy = nullptr;
@@ -39,7 +41,14 @@ struct PluginModule {
     MeasureRooflineFunction measureRoofline = nullptr;
     StreamedBytesFunction streamedBytes = nullptr;
     SetComputeGpuFunction setComputeGpu = nullptr;
+    ReleaseIdleDeviceFunction releaseIdleDevice = nullptr;
     std::string error;
+
+    ~PluginModule() {
+        if (releaseIdleDevice) {
+            releaseIdleDevice();
+        }
+    }
 };
 
 std::mutex& computeGpuMutex() {
@@ -105,6 +114,7 @@ std::shared_ptr<PluginModule> loadPlugin(std::string_view fileName, bool freshCo
     library.resolve("ballsMeasureRoofline", module->measureRoofline);
     library.resolve("ballsStreamedBytesPerBall", module->streamedBytes);
     library.resolve("ballsSetComputeGpu", module->setComputeGpu);
+    library.resolve("ballsReleaseIdleDevice", module->releaseIdleDevice);
     if (!complete) {
         module->error = std::format("{} is missing plugin entry points", fileName);
     } else if (interfaceVersion() != physicsPluginInterfaceVersion) {
