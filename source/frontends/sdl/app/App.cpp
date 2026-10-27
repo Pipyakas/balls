@@ -23,8 +23,15 @@
 
 namespace {
 
-constexpr int minimumWindowWidth = 1024;
+constexpr int minimumWindowWidth = 480;
 constexpr int minimumWindowHeight = 700;
+constexpr int landscapeWindowWidth = 1440;
+constexpr int landscapeWindowHeight = 900;
+constexpr float portraitAspectWidth = 9.0f;
+constexpr float portraitAspectHeight = 16.0f;
+constexpr float portraitHeightShare = 0.9f;
+constexpr float landscapeAspectWidth = 16.0f;
+constexpr float landscapeAspectHeight = 10.0f;
 constexpr float maximumFrameSeconds = 0.1f;
 constexpr float fontLoadPixels = 32.0f;
 constexpr float channelScale = 1.0f / 255.0f;
@@ -93,7 +100,43 @@ bool App::openWindowAndRenderer(const LaunchOptions& options, std::string_view a
     }
     SDL_SetWindowMinimumSize(window, minimumWindowWidth, minimumWindowHeight);
     renderer = createRenderer(window, api, error);
+    if (renderer != nullptr) {
+        applyOrientationToWindow();
+    }
     return renderer != nullptr;
+}
+
+void App::applyOrientationToWindow() {
+    applyOrientationHint(currentSettings.layout);
+    const LayoutOrientation orientation = currentSettings.layout;
+    if (orientation == LayoutOrientation::Auto || !window) {
+        return;
+    }
+    const SDL_DisplayID display = SDL_GetDisplayForWindow(window);
+    SDL_Rect usable{};
+    if (!SDL_GetDisplayUsableBounds(display, &usable)) {
+        return;
+    }
+    if (orientation == LayoutOrientation::Portrait) {
+        const int height = static_cast<int>(static_cast<float>(usable.h) * portraitHeightShare);
+        const int width =
+            std::max(minimumWindowWidth, static_cast<int>(static_cast<float>(height) * portraitAspectWidth /
+                                                          portraitAspectHeight));
+        SDL_SetWindowSize(window, std::min(width, usable.w), std::min(height, usable.h));
+    } else {
+        SDL_SetWindowSize(window, std::min(landscapeWindowWidth, usable.w),
+                          std::min(landscapeWindowHeight, usable.h));
+    }
+}
+
+void App::applyOrientationHint(LayoutOrientation orientation) {
+    const char* hint = "LandscapeLeft LandscapeRight Portrait PortraitUpsideDown";
+    if (orientation == LayoutOrientation::Landscape) {
+        hint = "LandscapeLeft LandscapeRight";
+    } else if (orientation == LayoutOrientation::Portrait) {
+        hint = "Portrait PortraitUpsideDown";
+    }
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, hint);
 }
 
 bool App::initialize(const LaunchOptions& options, std::string& error) {
@@ -103,11 +146,13 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.LogFilename = nullptr;
-    fonts.regular = io.Fonts->AddFontFromFileTTF(fontPath(palette::regularFontFile).string().c_str(), fontLoadPixels);
+    fonts.regular =
+        io.Fonts->AddFontFromFileTTF(fontPath(palette::regularFontFile).string().c_str(), fontLoadPixels);
     if (!fonts.regular) {
         fonts.regular = io.Fonts->AddFontDefault();
     }
-    fonts.strong = io.Fonts->AddFontFromFileTTF(fontPath(palette::strongFontFile).string().c_str(), fontLoadPixels);
+    fonts.strong =
+        io.Fonts->AddFontFromFileTTF(fontPath(palette::strongFontFile).string().c_str(), fontLoadPixels);
     fonts.strongMinimumSize = palette::strongTextMinimumPixels;
 
     if (!openWindowAndRenderer(options, options.graphicsApi, error)) {
@@ -122,6 +167,7 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
     balls = std::make_unique<BallView>(*renderer);
     profile.load();
     currentSettings = loadSettings(settingsFilePath());
+    applyOrientationHint(currentSettings.layout);
     setVsync(options.vsync);
     backendChoice = options.backend && isBackendAvailable(*options.backend) ? *options.backend
                                                                             : fastestAvailableCpuBackend();
@@ -218,7 +264,8 @@ void App::drawFrameTimingsOverlay() const {
     const Vec2 extent = ui::measureText(text, 18.0f);
     const float x = 26.0f;
     const float y = static_cast<float>(gfx::screenHeight()) - extent.y - 10.0f;
-    ui::drawPanel({x - 10.0f, y - 4.0f, extent.x + 20.0f, extent.y + 8.0f}, gfx::fade(palette::backgroundDeep, 0.85f));
+    ui::drawPanel({x - 10.0f, y - 4.0f, extent.x + 20.0f, extent.y + 8.0f},
+                  gfx::fade(palette::backgroundDeep, 0.85f));
     ui::drawText(text, {x, y}, 18.0f, palette::textMuted);
 }
 
@@ -330,6 +377,7 @@ void App::showSettings() {
 void App::applySettings(const Settings& settings) {
     currentSettings = settings;
     static_cast<void>(saveSettings(settingsFilePath(), settings));
+    applyOrientationToWindow();
     notifySettingsConsumers();
 }
 

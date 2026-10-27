@@ -11,10 +11,13 @@
 namespace {
 
 constexpr float lineHeight = 26.0f;
-constexpr float textSize = 20.0f;
+constexpr float valueSize = 20.0f;
+constexpr float labelSize = 16.0f;
+constexpr float labelHeight = 22.0f;
 constexpr float headingSize = 24.0f;
 constexpr float padding = 16.0f;
 constexpr float swatchSize = 14.0f;
+constexpr float textSize = 20.0f;
 
 class PanelWriter {
 public:
@@ -27,8 +30,9 @@ public:
     }
 
     void row(std::string_view label, std::string_view value, Color valueColor = palette::text) {
-        ui::drawText(label, {area.x + padding, cursor}, textSize, palette::textMuted);
-        ui::drawText(value, {area.x + area.width - padding, cursor}, textSize, valueColor, ui::Align::Right);
+        ui::drawText(label, {area.x + padding, cursor}, labelSize, palette::textMuted);
+        cursor += labelHeight;
+        ui::drawText(value, {area.x + padding, cursor}, valueSize, valueColor);
         cursor += lineHeight;
     }
 
