@@ -38,6 +38,21 @@ D:\Unreal\UnrealEngine\Engine\Binaries\Win64\UnrealEditor.exe "$PWD\source\front
   (50-100% screen percentage, 60 fps budget). Lumen/Nanite/VSM need an SM6 build; see
   `data/docs/ue5-high-end-features.md`.
 
+## Packaged build
+
+`build-win32-ue.bat` at the repository root cooks and stages the Win64 game into `dist\win32-ue\` (set `UE_ROOT`
+if the engine fork is not at `D:\Unreal\UnrealEngine`); `run-win32-ue.bat [game args]` builds and launches it.
+The first run compiles the game target and takes about an hour; later runs are incremental. The script also copies
+`data/assets` to `dist\win32-ue\ColorBlastBalls\assets`, where the packaged game looks for levels.
+
+The fork lists two prebuilt shaders as staged runtime dependencies that its tree does not contain, and staging
+aborts without them. Create empty placeholders (nothing here uses them):
+
+```powershell
+ni D:\Unreal\UnrealEngine\Engine\Shaders\Private\WindField\WindFieldWorker.dxil
+ni D:\Unreal\UnrealEngine\Engine\Plugins\FX\Niagara\Shaders\Private\MultiAdapter\NiagaraMultiAdapterParticlesWorker.dxil
+```
+
 ## Android
 
 Parked: the SDL front end is the Android path (see the repository README). The notes below describe what was built.
