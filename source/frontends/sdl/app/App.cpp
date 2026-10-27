@@ -118,11 +118,13 @@ void App::applyOrientationToWindow() {
         return;
     }
     if (orientation == LayoutOrientation::Portrait) {
-        const int height = static_cast<int>(static_cast<float>(usable.h) * portraitHeightShare);
+        const int height = std::max(
+            minimumWindowHeight,
+            std::min(static_cast<int>(static_cast<float>(usable.h) * portraitHeightShare), usable.h));
         const int width =
             std::max(minimumWindowWidth, static_cast<int>(static_cast<float>(height) * portraitAspectWidth /
                                                           portraitAspectHeight));
-        SDL_SetWindowSize(window, std::min(width, usable.w), std::min(height, usable.h));
+        SDL_SetWindowSize(window, width, height);
     } else {
         SDL_SetWindowSize(window, std::min(landscapeWindowWidth, usable.w),
                           std::min(landscapeWindowHeight, usable.h));
@@ -325,7 +327,16 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
         if (const auto vsync = request.integer("vsync")) {
             next.vsync = *vsync != 0;
         }
+        const bool open = request.integer("open").value_or(0) != 0;
         applySettings(next);
+        if (open && currentScreen) {
+            applyPendingScreen();
+            if (auto* gameplay = dynamic_cast<GameplayScreen*>(currentScreen.get())) {
+                gameplay->openSettingsOverlay();
+            } else if (dynamic_cast<SettingsScreen*>(currentScreen.get()) == nullptr) {
+                showSettings();
+            }
+        }
         return ControlResponse::ok(settingsJson());
     }
     const std::optional<GameMode> mode = parseGameMode(request.text("mode").value_or("normal"));

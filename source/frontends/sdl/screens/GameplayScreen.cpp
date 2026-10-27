@@ -83,12 +83,15 @@ GameplayScreen::GameplayScreen(App& app, GameMode mode, LevelFiles files)
     watcher.watch(this->files);
 }
 
+void GameplayScreen::openSettingsOverlay() {
+    paused = true;
+    settingsOpen = true;
+}
+
 void GameplayScreen::refreshSettings() {
     if (!session) {
         return;
     }
-    paused = false;
-    settingsOpen = false;
     session->simulation().setBallCollisions(app.settings().ballCollisions);
     if (app.settings().ballCollisions && !session->simulation().ballCollisionsActive()) {
         if (session->switchBackend(BackendKind::Scalar)) {

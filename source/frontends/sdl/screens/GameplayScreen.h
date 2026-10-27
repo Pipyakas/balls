@@ -24,6 +24,7 @@ public:
     std::string stateJson() const override;
     std::optional<ControlResponse> handleControl(const ControlRequest& request) override;
     void refreshSettings();
+    void openSettingsOverlay();
 
 private:
     struct Toast {
