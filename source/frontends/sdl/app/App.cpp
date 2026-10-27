@@ -168,7 +168,7 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
     profile.load();
     currentSettings = loadSettings(settingsFilePath());
     applyOrientationHint(currentSettings.layout);
-    setVsync(options.vsync);
+    setVsync(options.vsync || currentSettings.vsync);
     backendChoice = options.backend && isBackendAvailable(*options.backend) ? *options.backend
                                                                             : fastestAvailableCpuBackend();
     if (options.controlPort > 0) {
@@ -322,6 +322,9 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
                 return ControlResponse::error(400, "layout must be auto, landscape or portrait");
             }
         }
+        if (const auto vsync = request.integer("vsync")) {
+            next.vsync = *vsync != 0;
+        }
         applySettings(next);
         return ControlResponse::ok(settingsJson());
     }
@@ -374,16 +377,21 @@ void App::showSettings() {
     pendingScreen = std::make_unique<SettingsScreen>(*this);
 }
 
-void App::applySettings(const Settings& settings) {
+void App::applySettings(const Settings& settings, std::optional<BackendKind> backend) {
     currentSettings = settings;
     static_cast<void>(saveSettings(settingsFilePath(), settings));
+    setVsync(settings.vsync);
+    if (backend) {
+        backendChoice = *backend;
+    }
     applyOrientationToWindow();
     notifySettingsConsumers();
 }
 
 std::string App::settingsJson() const {
-    return std::format("{{\"ballCollisions\":{},\"layout\":\"{}\"}}", currentSettings.ballCollisions,
-                       orientationName(currentSettings.layout));
+    return std::format("{{\"ballCollisions\":{},\"layout\":\"{}\",\"vsync\":{}}}",
+                       currentSettings.ballCollisions, orientationName(currentSettings.layout),
+                       currentSettings.vsync);
 }
 
 void App::notifySettingsConsumers() {

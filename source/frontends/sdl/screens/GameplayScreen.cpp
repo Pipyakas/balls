@@ -28,18 +28,11 @@ constexpr float controlRowHeight = 44.0f;
 constexpr float controlGap = 10.0f;
 constexpr float groupLabelHeight = 26.0f;
 constexpr float groupGap = 14.0f;
-constexpr std::array<SDL_Scancode, 4> backendKeys{SDL_SCANCODE_F1, SDL_SCANCODE_F2, SDL_SCANCODE_F3,
-                                                  SDL_SCANCODE_F4};
-constexpr int backendsPerRow = 2;
 
 constexpr double millisecondsPerSecond = 1000.0;
 constexpr int minimumProbeTargetFps = 10;
 constexpr int maximumProbeTargetFps = 1000;
-
-int refreshRateOrDefault() {
-    const int refresh = currentRefreshRate();
-    return refresh > 0 ? refresh : static_cast<int>(defaultProbeTargetFps);
-}
+constexpr int defaultTargetFps = 60;
 
 std::string spawnRateLabel(int rate) {
     return rate == 0 ? std::string("Max") : std::to_string(rate);
@@ -50,6 +43,10 @@ std::string ballLimitLabel(BallCount limit) {
         return "Max 2^64-1";
     }
     return limit >= 1'000'000 ? std::format("{}M", limit / 1'000'000) : std::format("{}k", limit / 1'000);
+}
+
+std::string ballLimitOptionLabel(BallCount limit) {
+    return ballLimitLabel(limit);
 }
 
 std::string groupedBalls(BallCount value) {
@@ -80,7 +77,7 @@ std::string probeButtonLabel(const GameSession& session) {
 } // namespace
 
 GameplayScreen::GameplayScreen(App& app, GameMode mode, LevelFiles files)
-    : app(app), mode(mode), files(std::move(files)), probeTargetFps(refreshRateOrDefault()) {
+    : app(app), mode(mode), files(std::move(files)), probeTargetFps(defaultTargetFps) {
     loadSession();
     refreshSettings();
     watcher.watch(this->files);
@@ -95,7 +92,6 @@ void GameplayScreen::refreshSettings() {
     session->simulation().setBallCollisions(app.settings().ballCollisions);
     if (app.settings().ballCollisions && !session->simulation().ballCollisionsActive()) {
         if (session->switchBackend(BackendKind::Scalar)) {
-            app.setPreferredBackend(BackendKind::Scalar);
             showToast("Ball collisions need the Scalar backend - switched to Scalar", false);
         }
     }
@@ -162,36 +158,6 @@ void GameplayScreen::showToast(std::string text, bool isError) {
     toast = {std::move(text), toastSeconds, isError};
 }
 
-void GameplayScreen::handleShortcuts() {
-    if (input::keyPressed(SDL_SCANCODE_ESCAPE) || input::keyPressed(SDL_SCANCODE_P)) {
-        paused = !paused;
-    }
-    if (input::keyPressed(SDL_SCANCODE_V)) {
-        app.setVsync(!app.isVsyncEnabled());
-        showToast(app.isVsyncEnabled() ? "VSync on" : "VSync off", false);
-    }
-    if (input::keyPressed(SDL_SCANCODE_R)) {
-        session->restart();
-        paused = false;
-    }
-    for (size_t i = 0; i < backendKeys.size(); ++i) {
-        if (input::keyPressed(backendKeys[i])) {
-            const BackendKind kind = allBackendKinds[i];
-            if (session->switchBackend(kind)) {
-                app.setPreferredBackend(kind);
-                showToast(std::format("Backend: {}", backendKindName(kind)), false);
-            } else {
-                showToast(
-                    std::format("{} unavailable: {}", backendKindName(kind), backendUnavailableReason(kind)),
-                    true);
-            }
-        }
-    }
-    if (mode == GameMode::Performance && input::keyPressed(SDL_SCANCODE_SPACE)) {
-        session->startAutoRelease();
-    }
-}
-
 void GameplayScreen::handleLauncherClick(const GameplayLayout& layout) {
     if (mode != GameMode::Normal || !input::mousePressed(input::MouseButton::Left)) {
         return;
@@ -220,7 +186,6 @@ void GameplayScreen::update(float deltaTime) {
         }
         return;
     }
-    handleShortcuts();
     if (paused) {
         return;
     }
@@ -271,32 +236,90 @@ void GameplayScreen::drawMainSection(const GameplayLayout& layout) {
     gfx::endClip();
 }
 
+void GameplayScreen::drawBackendList(Rect area, BackendKind selected) {
+    float cursor = area.y;
+    for (BackendKind kind : allBackendKinds) {
+        const bool available = isBackendAvailable(kind);
+        std::string label(backendKindName(kind));
+        if (!available) {
+            label += std::string(" - ") + backendUnavailableReason(kind);
+        }
+        const bool pressed =
+            ui::button({area.x, cursor, area.width, controlRowHeight}, label, available, selected == kind);
+        if (pressed && available && session->switchBackend(kind)) {
+            applyRememberedMachineLimit();
+        }
+        cursor += controlRowHeight + controlGap;
+    }
+}
+
+int GameplayScreen::drawOptionDropdown(Rect area, std::string_view current,
+                                       std::span<const std::string> options, int selected, bool& open) {
+    const Rect row{area.x, area.y, area.width, controlRowHeight};
+    int picked = -1;
+    if (ui::dropdown(row, current, open)) {
+        open = !open;
+    }
+    float cursor = area.y + controlRowHeight + controlGap;
+    if (open) {
+        const Rect list{area.x, area.y, area.width, cursor - area.y};
+        for (size_t i = 0; i < options.size(); ++i) {
+            const Rect option{area.x, cursor, area.width, controlRowHeight};
+            if (ui::button(option, options[i], true, static_cast<int>(i) == selected)) {
+                picked = static_cast<int>(i);
+            }
+            cursor += controlRowHeight + controlGap;
+        }
+        if (picked >= 0) {
+            open = false;
+        } else if (!pointInRect(input::mousePosition(), list) &&
+                   input::mousePressed(input::MouseButton::Left)) {
+            open = false;
+        }
+    }
+    return picked;
+}
+
+float GameplayScreen::performanceContentHeight() const {
+    constexpr size_t dropdownOptions = 6;
+    float height = 0.0f;
+    height += groupLabelHeight + controlRowHeight + groupGap;
+    height += groupLabelHeight + controlRowHeight * 2.0f + controlGap + groupGap;
+    height += groupLabelHeight + controlRowHeight + groupGap;
+    height += groupLabelHeight + controlRowHeight + groupGap;
+    height += groupLabelHeight + controlRowHeight + groupGap;
+    height +=
+        groupLabelHeight + (controlRowHeight + controlGap) * allBackendKinds.size() - controlGap + groupGap;
+    if (spawnDropdownOpen || countDropdownOpen || limitDropdownOpen) {
+        height += (controlRowHeight + controlGap) * dropdownOptions;
+    }
+    return height;
+}
+
 void GameplayScreen::drawPerformanceControls(Rect area) {
     const Rect inner = ui::shrink(area, 14.0f);
-    float cursor = inner.y;
-    auto group = [&](const char* label, int buttonRows) {
-        ui::drawText(label, {inner.x, cursor}, 20.0f, palette::textMuted);
+    float visibleHeight = 0.0f;
+    ui::scrollFrame(inner, controlsScroll, performanceContentHeight(), visibleHeight);
+    gfx::beginClip(inner);
+    const Rect scrolled{inner.x, inner.y - controlsScroll, inner.width, performanceContentHeight()};
+    float cursor = scrolled.y;
+    auto group = [&](const char* label, float contentHeight) {
+        ui::drawText(label, {scrolled.x, cursor}, 20.0f, palette::textMuted);
         cursor += groupLabelHeight;
-        const float height = static_cast<float>(buttonRows) * controlRowHeight +
-                             static_cast<float>(buttonRows - 1) * controlGap;
-        const Rect rows{inner.x, cursor, inner.width, height};
-        cursor += height + groupGap;
+        const Rect rows{scrolled.x, cursor, scrolled.width, contentHeight};
+        cursor += contentHeight + groupGap;
         return rows;
-    };
-    auto buttonCell = [&](Rect rows, int index, int perRow, int rowCount) {
-        const Rect row = ui::rowSlice(rows, index / perRow, rowCount, controlGap);
-        return ui::columnSlice(row, index % perRow, perRow, controlGap);
     };
 
     const bool ready = session->state() == SessionState::Ready;
     const std::string startLabel =
         ready ? std::string("Start (1 click)")
               : std::format("Auto releasing - {} launchers left", session->launchers().launcherCount());
-    if (ui::button(group("Release", 1), startLabel, ready)) {
+    if (ui::button(group("Release", controlRowHeight), startLabel, ready)) {
         session->startAutoRelease();
     }
 
-    const Rect probeRows = group("Capacity probe", 2);
+    const Rect probeRows = group("Capacity probe", controlRowHeight * 2.0f + controlGap);
     ui::stepper(ui::rowSlice(probeRows, 0, 2, controlGap), "Target FPS", probeTargetFps,
                 minimumProbeTargetFps, maximumProbeTargetFps);
     if (ui::button(ui::rowSlice(probeRows, 1, 2, controlGap), probeButtonLabel(*session))) {
@@ -307,59 +330,70 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
         }
     }
 
-    const Rect rateRows = group("Spawn / sec", 1);
-    const int rateCount = static_cast<int>(spawnRateOptions.size());
-    for (int i = 0; i < rateCount; ++i) {
-        if (ui::button(buttonCell(rateRows, i, rateCount, 1), spawnRateLabel(spawnRateOptions[i]), true,
-                       session->spawnRateIndex() == i)) {
-            session->selectSpawnRate(i);
+    static const std::array<std::string, spawnRateOptions.size()> spawnLabels = [] {
+        std::array<std::string, spawnRateOptions.size()> labels{};
+        for (size_t i = 0; i < spawnRateOptions.size(); ++i) {
+            labels[i] = spawnRateLabel(spawnRateOptions[i]);
         }
+        return labels;
+    }();
+    const float spawnHeight =
+        controlRowHeight + (spawnDropdownOpen ? (controlRowHeight + controlGap) * spawnLabels.size() : 0.0f);
+    const int pickedSpawn =
+        drawOptionDropdown(group("Spawn / sec", spawnHeight), spawnLabels[session->spawnRateIndex()],
+                           spawnLabels, session->spawnRateIndex(), spawnDropdownOpen);
+    if (pickedSpawn >= 0) {
+        session->selectSpawnRate(pickedSpawn);
     }
 
-    const Rect multiplierRows = group("Ball count", 1);
-    const int multiplierCount = static_cast<int>(ballMultiplierOptions.size());
-    for (int i = 0; i < multiplierCount; ++i) {
-        if (ui::button(buttonCell(multiplierRows, i, multiplierCount, 1),
-                       std::format("x{}", ballMultiplierOptions[i]), true,
-                       session->ballMultiplierIndex() == i)) {
-            session->selectBallMultiplier(i);
+    static const std::array<std::string, ballMultiplierOptions.size()> countLabels = [] {
+        std::array<std::string, ballMultiplierOptions.size()> labels{};
+        for (size_t i = 0; i < ballMultiplierOptions.size(); ++i) {
+            labels[i] = std::format("x{}", ballMultiplierOptions[i]);
         }
+        return labels;
+    }();
+    const float countHeight =
+        controlRowHeight + (countDropdownOpen ? (controlRowHeight + controlGap) * countLabels.size() : 0.0f);
+    const int pickedCount =
+        drawOptionDropdown(group("Ball count", countHeight), countLabels[session->ballMultiplierIndex()],
+                           countLabels, session->ballMultiplierIndex(), countDropdownOpen);
+    if (pickedCount >= 0) {
+        session->selectBallMultiplier(pickedCount);
     }
 
-    const int limitCount = static_cast<int>(ballLimitOptions.size());
-    const int limitSlots = limitCount + 1;
-    const int limitsPerRow = 3;
-    const int limitRowCount = (limitSlots + limitsPerRow - 1) / limitsPerRow;
-    const Rect limitRows = group("Ball limit", limitRowCount);
-    for (int i = 0; i < limitCount; ++i) {
-        if (ui::button(buttonCell(limitRows, i, limitsPerRow, limitRowCount),
-                       ballLimitLabel(ballLimitOptions[i]), true,
-                       !session->isUsingMachineBallLimit() && session->ballLimitIndex() == i)) {
-            session->selectBallLimit(i);
+    static const std::array<std::string, ballLimitOptions.size() + 1> limitLabels = [] {
+        std::array<std::string, ballLimitOptions.size() + 1> labels{};
+        labels[0] = "Auto";
+        for (size_t i = 0; i < ballLimitOptions.size(); ++i) {
+            labels[i + 1] = ballLimitOptionLabel(ballLimitOptions[i]);
         }
-    }
-    if (ui::button(buttonCell(limitRows, limitCount, limitsPerRow, limitRowCount), autoLimitLabel(*session),
-                   true, session->isUsingMachineBallLimit())) {
+        return labels;
+    }();
+    const int selectedLimit = session->isUsingMachineBallLimit() ? 0 : session->ballLimitIndex() + 1;
+    const float limitHeight =
+        controlRowHeight + (limitDropdownOpen ? (controlRowHeight + controlGap) * limitLabels.size() : 0.0f);
+    const int pickedLimit = drawOptionDropdown(group("Ball limit", limitHeight), limitLabels[selectedLimit],
+                                               limitLabels, selectedLimit, limitDropdownOpen);
+    if (pickedLimit == 0) {
         if (const auto measured = session->machineBallLimit()) {
             session->useMachineBallLimit(*measured);
         } else {
             startProbe();
         }
+    } else if (pickedLimit > 0) {
+        session->selectBallLimit(pickedLimit - 1);
     }
 
-    const int backendCount = static_cast<int>(allBackendKinds.size());
-    const int backendRowCount = (backendCount + backendsPerRow - 1) / backendsPerRow;
-    const Rect backendRows = group("Physics", backendRowCount);
-    for (int i = 0; i < backendCount; ++i) {
-        const BackendKind kind = allBackendKinds[i];
-        if (ui::button(buttonCell(backendRows, i, backendsPerRow, backendRowCount),
-                       std::format("{} (F{})", backendKindName(kind), i + 1), isBackendAvailable(kind),
-                       session->backend() == kind) &&
-            session->switchBackend(kind)) {
-            app.setPreferredBackend(kind);
-            applyRememberedMachineLimit();
-        }
-    }
+    const float backendHeight = (controlRowHeight + controlGap) * allBackendKinds.size() - controlGap;
+    drawBackendList(group("Physics", backendHeight), session->backend());
+    gfx::endClip();
+}
+
+float GameplayScreen::normalContentHeight() const {
+    const float launcherHeight = 320.0f;
+    return launcherHeight + groupGap + groupLabelHeight +
+           (controlRowHeight + controlGap) * allBackendKinds.size() - controlGap;
 }
 
 void GameplayScreen::drawInteractionSection(const GameplayLayout& layout) {
@@ -368,15 +402,31 @@ void GameplayScreen::drawInteractionSection(const GameplayLayout& layout) {
         drawPerformanceControls(layout.interactionSection);
         return;
     }
+    drawNormalControls(layout.interactionSection);
+}
+
+void GameplayScreen::drawNormalControls(Rect area) {
+    const Rect inner = ui::shrink(area, 14.0f);
+    float visibleHeight = 0.0f;
+    ui::scrollFrame(inner, normalScroll, normalContentHeight(), visibleHeight);
+    gfx::beginClip(inner);
+    const float width = inner.width;
+    float cursor = inner.y - normalScroll;
+    const Rect launcherArea{inner.x, cursor, width, 320.0f};
     const LauncherGridLayout grid =
-        computeLauncherGrid(ui::shrink(layout.interactionSection, 12.0f), session->launchers().columnCount(),
+        computeLauncherGrid(ui::shrink(launcherArea, 12.0f), session->launchers().columnCount(),
                             session->launchers().visibleRows());
-    gfx::beginClip(layout.interactionSection);
     drawLaunchers(session->launchers(), grid, !paused && session->state() == SessionState::Running);
-    gfx::endClip();
     if (session->launchers().isEmpty()) {
-        ui::drawTextInRect("All launchers released", layout.interactionSection, 26.0f, palette::textMuted);
+        ui::drawTextInRect("All launchers released", launcherArea, 26.0f, palette::textMuted);
     }
+    cursor += 320.0f + groupGap;
+    ui::drawText("Physics", {inner.x, cursor}, 20.0f, palette::textMuted);
+    cursor += groupLabelHeight;
+    drawBackendList(
+        {inner.x, cursor, width, (controlRowHeight + controlGap) * allBackendKinds.size() - controlGap},
+        session->backend());
+    gfx::endClip();
 }
 
 void GameplayScreen::drawOverlay() {
@@ -394,9 +444,9 @@ void GameplayScreen::drawOverlay() {
         const Rect panel{(width - settingsPanelWidth) * 0.5f, (height - settingsPanelHeight) * 0.5f,
                          settingsPanelWidth, settingsPanelHeight};
         ui::drawPanel(panel, palette::panel, 0.08f);
-        const SettingsPanelEdit edit = drawSettingsPanel(panel, app.settings());
+        const SettingsPanelEdit edit = drawSettingsPanel(panel, app.settings(), app.preferredBackend());
         if (edit.changed) {
-            app.applySettings(edit.settings);
+            app.applySettings(edit.settings, edit.backend);
         }
         if (edit.backPressed) {
             settingsOpen = false;
@@ -465,7 +515,7 @@ void GameplayScreen::draw() {
     drawHeader(layout);
     drawMainSection(layout);
     drawInteractionSection(layout);
-    drawDebugPanel(layout.debugSection, *session, app.frameTimings());
+    drawDebugPanel(layout.debugSection, *session, app.frameTimings(), debugState);
     drawOverlay();
     drawToast();
 }
@@ -562,7 +612,6 @@ std::optional<ControlResponse> GameplayScreen::handleControl(const ControlReques
         if (!kind || !session->switchBackend(*kind)) {
             return ControlResponse::error(409, "backend unknown or unavailable");
         }
-        app.setPreferredBackend(*kind);
         applyRememberedMachineLimit();
         return done;
     }

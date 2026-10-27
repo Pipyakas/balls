@@ -13,7 +13,9 @@ constexpr float buttonTextPadding = 12.0f;
 
 namespace ui {
 
-Vec2 measureText(std::string_view text, float size) { return gfx::measureText(text, size); }
+Vec2 measureText(std::string_view text, float size) {
+    return gfx::measureText(text, size);
+}
 
 void drawText(std::string_view text, Vec2 position, float size, Color color, Align align) {
     const Vec2 extent = gfx::measureText(text, size);
@@ -46,9 +48,13 @@ void drawBorder(Rect rect, float roundness, Color color) {
     gfx::strokeRounded(rect, roundness * style::roundnessScale, style::borderWidth, color);
 }
 
-bool isHovered(Rect rect) { return pointInRect(input::mousePosition(), rect); }
+bool isHovered(Rect rect) {
+    return pointInRect(input::mousePosition(), rect);
+}
 
-bool isClicked(Rect rect) { return isHovered(rect) && input::mousePressed(input::MouseButton::Left); }
+bool isClicked(Rect rect) {
+    return isHovered(rect) && input::mousePressed(input::MouseButton::Left);
+}
 
 bool button(Rect rect, std::string_view label, bool enabled, bool selected) {
     const bool hovered = enabled && isHovered(rect);
@@ -70,7 +76,8 @@ bool button(Rect rect, std::string_view label, bool enabled, bool selected) {
     const float preferredSize = std::min(rect.height * style::buttonLabelShare, style::buttonLabelMaximum);
     const float labelWidth = measureText(label, preferredSize).x;
     const float availableWidth = rect.width - buttonTextPadding;
-    const float size = labelWidth > availableWidth ? preferredSize * availableWidth / labelWidth : preferredSize;
+    const float size =
+        labelWidth > availableWidth ? preferredSize * availableWidth / labelWidth : preferredSize;
     drawTextInRect(label, rect, size, textColor);
     return hovered && input::mouseReleased(input::MouseButton::Left);
 }
@@ -78,7 +85,8 @@ bool button(Rect rect, std::string_view label, bool enabled, bool selected) {
 bool stepper(Rect rect, std::string_view label, int& value, int minimum, int maximum, int step) {
     const float buttonWidth = rect.height;
     const float labelWidth = rect.width * 0.45f;
-    drawTextInRect(label, {rect.x, rect.y, labelWidth, rect.height}, rect.height * 0.5f, palette::textMuted, Align::Left);
+    drawTextInRect(label, {rect.x, rect.y, labelWidth, rect.height}, rect.height * 0.5f, palette::textMuted,
+                   Align::Left);
     const Rect minus{rect.x + labelWidth, rect.y, buttonWidth, rect.height};
     const Rect plus{rect.x + rect.width - buttonWidth, rect.y, buttonWidth, rect.height};
     const Rect valueRect{minus.x + buttonWidth, rect.y, plus.x - minus.x - buttonWidth, rect.height};
@@ -94,6 +102,32 @@ bool stepper(Rect rect, std::string_view label, int& value, int minimum, int max
     return value != before;
 }
 
+bool dropdown(Rect rect, std::string_view current, bool& open) {
+    const std::string label = std::string(current) + " v";
+    if (button(rect, label)) {
+        open = !open;
+    }
+    return open;
+}
+
+void scrollFrame(Rect area, float& scroll, float contentHeight, float& visibleHeight) {
+    constexpr float wheelStep = 40.0f;
+    constexpr float barWidth = 4.0f;
+    visibleHeight = area.height;
+    const float overflow = contentHeight - area.height;
+    if (overflow <= 0.0f) {
+        scroll = 0.0f;
+        return;
+    }
+    if (pointInRect(input::mousePosition(), area)) {
+        scroll += input::wheelMove() * wheelStep * -1.0f;
+    }
+    scroll = std::clamp(scroll, 0.0f, overflow);
+    const float barHeight = std::max(24.0f, area.height * area.height / contentHeight);
+    const float barY = area.y + scroll / overflow * (area.height - barHeight);
+    gfx::fillRect({area.x + area.width - barWidth, barY, barWidth, barHeight}, palette::frame);
+}
+
 bool textField(Rect rect, std::string& text, bool& focused, size_t maximumLength) {
     if (input::mousePressed(input::MouseButton::Left)) {
         focused = isHovered(rect);
@@ -101,15 +135,18 @@ bool textField(Rect rect, std::string& text, bool& focused, size_t maximumLength
     bool changed = false;
     if (focused) {
         input::requestTextInput();
-        for (int character = input::nextTypedCharacter(); character > 0; character = input::nextTypedCharacter()) {
-            const bool allowed = (character >= '0' && character <= '9') || (character >= 'a' && character <= 'z') ||
-                                 (character >= 'A' && character <= 'Z') || character == '_' || character == '-';
+        for (int character = input::nextTypedCharacter(); character > 0;
+             character = input::nextTypedCharacter()) {
+            const bool allowed =
+                (character >= '0' && character <= '9') || (character >= 'a' && character <= 'z') ||
+                (character >= 'A' && character <= 'Z') || character == '_' || character == '-';
             if (allowed && text.size() < maximumLength) {
                 text.push_back(static_cast<char>(character));
                 changed = true;
             }
         }
-        if ((input::keyPressed(SDL_SCANCODE_BACKSPACE) || input::keyRepeated(SDL_SCANCODE_BACKSPACE)) && !text.empty()) {
+        if ((input::keyPressed(SDL_SCANCODE_BACKSPACE) || input::keyRepeated(SDL_SCANCODE_BACKSPACE)) &&
+            !text.empty()) {
             text.pop_back();
             changed = true;
         }
@@ -117,11 +154,14 @@ bool textField(Rect rect, std::string& text, bool& focused, size_t maximumLength
             focused = false;
         }
     }
-    gfx::fillRounded(rect, style::fieldRoundness * style::roundnessScale, focused ? palette::controlHover : palette::panelLight);
+    gfx::fillRounded(rect, style::fieldRoundness * style::roundnessScale,
+                     focused ? palette::controlHover : palette::panelLight);
     gfx::strokeRounded(rect, style::fieldRoundness * style::roundnessScale,
-                       focused ? style::focusBorderWidth : style::borderWidth, focused ? palette::accent : palette::frame);
+                       focused ? style::focusBorderWidth : style::borderWidth,
+                       focused ? palette::accent : palette::frame);
     const bool caretVisible = focused && static_cast<int>(input::seconds() * 2.0) % 2 == 0;
-    drawTextInRect(text + (caretVisible ? "|" : ""), shrink(rect, 10.0f), rect.height * 0.5f, palette::text, Align::Left);
+    drawTextInRect(text + (caretVisible ? "|" : ""), shrink(rect, 10.0f), rect.height * 0.5f, palette::text,
+                   Align::Left);
     return changed;
 }
 
@@ -139,4 +179,4 @@ Rect columnSlice(Rect rect, int index, int count, float gap) {
     return {rect.x + static_cast<float>(index) * (width + gap), rect.y, width, rect.height};
 }
 
-}
+} // namespace ui

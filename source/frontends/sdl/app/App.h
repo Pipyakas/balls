@@ -40,7 +40,7 @@ public:
     void quit() { running = false; }
 
     const Settings& settings() const { return currentSettings; }
-    void applySettings(const Settings& settings);
+    void applySettings(const Settings& settings, std::optional<BackendKind> backend = std::nullopt);
     std::string settingsJson() const;
     void notifySettingsConsumers();
     void applyOrientationToWindow();

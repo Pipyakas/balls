@@ -69,11 +69,29 @@ Color fpsColor(float fps) {
     return fps >= targetFps ? palette::success : palette::danger;
 }
 
+int debugRowCount(const Simulation& simulation) {
+    int rows = 9;
+    if (simulation.backend().deviceStepMs() > 0.0) {
+        rows += 1;
+    }
+    if (dynamic_cast<const HybridBackend*>(&simulation.backend())) {
+        rows += 2;
+    }
+    rows += 5;
+    return rows;
+}
+
 } // namespace
 
-void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& frames) {
+void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& frames,
+                    DebugPanelState& state) {
     ui::drawPanel(area, palette::panel, 0.03f);
-    PanelWriter writer(area);
+    const float contentHeight = debugContentHeight(session.simulation());
+    float visibleHeight = 0.0f;
+    ui::scrollFrame(area, state.scroll, contentHeight, visibleHeight);
+    const Rect inner{area.x, area.y - state.scroll, area.width, contentHeight};
+    PanelWriter writer(inner);
+    gfx::beginClip(area);
     const Simulation& simulation = session.simulation();
     const SimulationStats& stats = simulation.stats();
 
@@ -122,9 +140,11 @@ void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& f
     writer.row("Launchers", withThousands(launchers));
     writer.row("Waiting to spawn", withThousands(session.spawner().pendingBalls()));
     if (session.mode() == GameMode::Performance) {
-        writer.row("Ball limit", session.isUsingMachineBallLimit()
-                                     ? std::format("Auto {}", withThousands(session.ballLimit()))
-                                     : ballLimitText(session.ballLimit()));
+        const std::string resolvedLimit =
+            session.machineBallLimit() ? std::format("Auto {}", withThousands(*session.machineBallLimit()))
+                                       : std::string("Auto (probe needed)");
+        writer.row("Ball limit",
+                   session.isUsingMachineBallLimit() ? resolvedLimit : ballLimitText(session.ballLimit()));
     }
 
     writer.heading("Balls per color");
@@ -135,4 +155,14 @@ void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& f
         writer.heading("Backend fault");
         writer.row("Fell back to CPU", "", palette::danger);
     }
+    gfx::endClip();
+}
+
+float debugContentHeight(const Simulation& simulation) {
+    constexpr float twoLineHeight = 22.0f + 26.0f;
+    constexpr float headingHeight = 6.0f + 30.0f;
+    constexpr float topPadding = 16.0f;
+    constexpr int headingCount = 3;
+    return static_cast<float>(debugRowCount(simulation)) * twoLineHeight +
+           static_cast<float>(headingCount) * headingHeight + topPadding + 7.0f * 26.0f;
 }
