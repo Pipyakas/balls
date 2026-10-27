@@ -288,15 +288,18 @@ void GameplayScreen::drawHeader(const GameplayLayout& layout) {
                               layout.header.height};
     const std::string title = std::format("{} - {}", modeName, files.name);
     const std::string_view notice = diskNotice();
+    auto fittedSize = [&](std::string_view text, float preferredSize) {
+        const float width = std::max(ui::measureText(text, preferredSize).x, 1.0f);
+        return std::min(preferredSize, preferredSize * titleRect.width / width);
+    };
     if (notice.empty()) {
-        ui::drawTextInRect(title, titleRect, 22.0f, palette::text, ui::Align::Left);
+        ui::drawTextInRect(title, titleRect, fittedSize(title, 22.0f), palette::text, ui::Align::Left);
     } else {
         const float halfHeight = titleRect.height * 0.5f;
-        ui::drawTextInRect(title, {titleRect.x, titleRect.y + 4.0f, titleRect.width, halfHeight - 4.0f}, 18.0f,
-                           palette::text, ui::Align::Left);
-        const float noticeSize = std::min(15.0f, 15.0f * titleRect.width / std::max(ui::measureText(notice, 15.0f).x, 1.0f));
+        ui::drawTextInRect(title, {titleRect.x, titleRect.y + 4.0f, titleRect.width, halfHeight - 4.0f},
+                           fittedSize(title, 18.0f), palette::text, ui::Align::Left);
         ui::drawTextInRect(notice, {titleRect.x, titleRect.y + halfHeight, titleRect.width, halfHeight - 4.0f},
-                           noticeSize, palette::accent, ui::Align::Left);
+                           fittedSize(notice, 15.0f), palette::accent, ui::Align::Left);
     }
     if (ui::button(pauseRect, paused ? "Resume" : "Pause")) {
         paused = !paused;
