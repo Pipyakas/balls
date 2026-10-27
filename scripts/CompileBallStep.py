@@ -5,9 +5,10 @@ import sys
 import tempfile
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SOURCE = Path(__file__).resolve().parent / "BallStep.hlsl"
-DEFAULT_OUTPUT = Path(__file__).resolve().parent / "generated" / "BallStepBlobs.h"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+GPU_COMPUTE_DIRECTORY = REPO_ROOT / "source" / "tools" / "gpucompute"
+SOURCE = GPU_COMPUTE_DIRECTORY / "BallStep.hlsl"
+DEFAULT_OUTPUT = GPU_COMPUTE_DIRECTORY / "generated" / "BallStepBlobs.h"
 DEFAULT_DXC = REPO_ROOT / ".deps" / "dxc" / "bin" / "x64" / "dxc.exe"
 PASSES = [("ballStep", None), ("countCells", "COUNT_PASS"), ("scanCells", "SCAN_PASS"),
           ("stepAndSort", "SORT_PASS")]

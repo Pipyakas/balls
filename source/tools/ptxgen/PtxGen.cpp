@@ -49,7 +49,7 @@ bool loadSymbol(HMODULE library, const char* name, Function& target) {
 bool loadNvrtc(NvrtcApi& api) {
     HMODULE library = LoadLibraryA(nvrtcLibraryName);
     if (!library) {
-        std::cerr << "cannot load " << nvrtcLibraryName << " (run tools/FetchCudaSdk.ps1)\n";
+        std::cerr << "cannot load " << nvrtcLibraryName << " (run scripts/FetchCudaSdk.ps1)\n";
         return false;
     }
     return loadSymbol(library, "nvrtcGetErrorString", api.getErrorString) &&

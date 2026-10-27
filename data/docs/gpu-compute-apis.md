@@ -1,12 +1,12 @@
 # Ball physics as D3D11, D3D12 and Vulkan compute shaders
 
-Can plain graphics-API compute replace CUDA? `tools/gpucompute/` ports the CUDA step kernel and the cell sort
+Can plain graphics-API compute replace CUDA? `source/tools/gpucompute/` ports the CUDA step kernel and the cell sort
 to HLSL and runs them headless through NVRHI on all three APIs. CUDA is NVIDIA-only; these shaders run on
 any D3D11/D3D12/Vulkan GPU.
 
 ## The port
 
-- `BallStep.hlsl` mirrors `physics/cuda/BallKernels.cu`: the same 8-byte ball encoding, the near-brick cell
+- `BallStep.hlsl` mirrors `source/backends/cuda/BallKernels.cu`: the same 8-byte ball encoding, the near-brick cell
   words, two balls per thread, device-side hit consumption with compare-exchange, and the three sort passes
   (count, scan, fused step-and-scatter into a second buffer).
 - One source compiles to DXBC with FXC (`cs_5_0`, for D3D11) and to DXIL and SPIR-V with DXC
@@ -44,7 +44,7 @@ Constants hand-picked on one GPU do not carry to others, so the follow-up work e
 or measures on the running GPU:
 
 - **Shared sort schedule.** CUDA already timed sorting every 0, 8 and 16 ticks and kept the cheapest, retrying
-  every 1200 ticks. That logic now lives in `core/sim/SortSchedule.h` and drives both CUDA and the compute
+  every 1200 ticks. That logic now lives in `source/core/sim/SortSchedule.h` and drives both CUDA and the compute
   shaders (`--sort-interval auto`, the default). It picks no sorting on the empty board and sorting on
   the brick level on any GPU, instead of a fixed 8.
 - **Four balls per thread, processed in a real loop.** Loading four balls before stepping any of them keeps
@@ -73,7 +73,7 @@ Same three-round interleaving, 60M balls:
 ## Running it
 
 ```
-python tools/gpucompute/CompileBallStep.py
-cmake --build build --config Release --target balls_gpucompute
-build/bin/Release/balls_gpucompute --dir assets/levels/performance --level DA_1000Bricks --balls 60000000 --ticks 400 --api all
+python scripts/CompileBallStep.py
+cmake --build build/win32 --config Release --target balls_gpucompute
+build/win32/bin/Release/balls_gpucompute --dir data/assets/levels/performance --level DA_1000Bricks --balls 60000000 --ticks 400 --api all
 ```

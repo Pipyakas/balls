@@ -17,12 +17,12 @@ target_link_options(balls_physics_cpu PRIVATE ${BALLS_LINK_OPTIMIZE})
 set(BALLS_PHYSICS_PLUGINS balls_physics_cpu)
 
 if(BALLS_ENABLE_CUDA AND EXISTS "${BALLS_CUDA_SDK_DIR}/include/nvrtc.h")
-    add_executable(balls_ptxgen ${CMAKE_SOURCE_DIR}/tools/ptxgen/PtxGen.cpp)
+    add_executable(balls_ptxgen ${BALLS_SOURCE_DIR}/tools/ptxgen/PtxGen.cpp)
     target_include_directories(balls_ptxgen PRIVATE "${BALLS_CUDA_SDK_DIR}/include")
     target_compile_options(balls_ptxgen PRIVATE ${BALLS_WARNINGS})
 
     set(BALLS_KERNEL_SOURCES
-        "${CMAKE_SOURCE_DIR}/core/sim/kernels/BallStepCore.h"
+        "${BALLS_SOURCE_DIR}/core/sim/kernels/BallStepCore.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/cuda/BallKernels.cu")
     set(BALLS_KERNEL_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/BallKernelImages.h")
     add_custom_command(
@@ -37,7 +37,7 @@ if(BALLS_ENABLE_CUDA AND EXISTS "${BALLS_CUDA_SDK_DIR}/include/nvrtc.h")
         cuda/CudaBackend.cpp
         cuda/CudaDriver.cpp
         cuda/CudaPlugin.cpp
-        ${CMAKE_SOURCE_DIR}/core/common/DynamicLibrary.cpp
+        ${BALLS_SOURCE_DIR}/core/common/DynamicLibrary.cpp
     )
     target_include_directories(balls_physics_cuda PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}

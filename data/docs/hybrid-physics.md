@@ -7,7 +7,7 @@ dual-channel DDR4-3200).
 
 ## How it works
 
-- `HybridBackend` (`core/sim/`) owns a CUDA and an AVX2 backend. Each step runs the AVX2 step on a helper
+- `HybridBackend` (`source/core/sim/`) owns a CUDA and an AVX2 backend. Each step runs the AVX2 step on a helper
   thread while the calling thread drives CUDA.
 - The CPU share follows the measured cost per ball of each side: `share = gpuCost / (cpuCost + gpuCost)`,
   smoothed over frames. When the CPU ball count drifts more than 10% from its target, up to 256k balls move

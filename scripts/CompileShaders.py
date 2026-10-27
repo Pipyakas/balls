@@ -4,8 +4,8 @@ import sys
 import tempfile
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-SHADER_DIRECTORY = REPO_ROOT / "frontends" / "sdl" / "shaders"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SHADER_DIRECTORY = REPO_ROOT / "source" / "frontends" / "sdl" / "shaders"
 DEFAULT_OUTPUT = SHADER_DIRECTORY / "generated" / "ShaderBlobs.h"
 DEFAULT_DXC = REPO_ROOT / ".deps" / "dxc" / "bin" / "x64" / "dxc.exe"
 
