@@ -8,6 +8,7 @@
 #include "render/BoardRenderer.h"
 #include "render/LauncherRenderer.h"
 #include "render/Palette.h"
+#include "screens/SettingsPanel.h"
 #include "ui/Widgets.h"
 
 #include "app/Input.h"
@@ -27,7 +28,8 @@ constexpr float controlRowHeight = 44.0f;
 constexpr float controlGap = 10.0f;
 constexpr float groupLabelHeight = 26.0f;
 constexpr float groupGap = 14.0f;
-constexpr std::array<SDL_Scancode, 4> backendKeys{SDL_SCANCODE_F1, SDL_SCANCODE_F2, SDL_SCANCODE_F3, SDL_SCANCODE_F4};
+constexpr std::array<SDL_Scancode, 4> backendKeys{SDL_SCANCODE_F1, SDL_SCANCODE_F2, SDL_SCANCODE_F3,
+                                                  SDL_SCANCODE_F4};
 constexpr int backendsPerRow = 2;
 
 constexpr double millisecondsPerSecond = 1000.0;
@@ -39,7 +41,9 @@ int refreshRateOrDefault() {
     return refresh > 0 ? refresh : static_cast<int>(defaultProbeTargetFps);
 }
 
-std::string spawnRateLabel(int rate) { return rate == 0 ? std::string("Max") : std::to_string(rate); }
+std::string spawnRateLabel(int rate) {
+    return rate == 0 ? std::string("Max") : std::to_string(rate);
+}
 
 std::string ballLimitLabel(BallCount limit) {
     if (limit == unlimitedBalls) {
@@ -64,8 +68,8 @@ std::string autoLimitLabel(const GameSession& session) {
 std::string probeButtonLabel(const GameSession& session) {
     const CapacityProbe& probe = session.capacityProbe();
     if (probe.isActive()) {
-        return std::format("Probing... {} balls, {:.0f} fps", groupedBalls(session.simulation().liveBallCount()),
-                           probe.lastFps());
+        return std::format("Probing... {} balls, {:.0f} fps",
+                           groupedBalls(session.simulation().liveBallCount()), probe.lastFps());
     }
     if (probe.phase() == ProbePhase::Done) {
         return std::format("Max @{:.0f} FPS: {}", probe.targetFps(), groupedBalls(probe.bestPassingCount()));
@@ -73,12 +77,26 @@ std::string probeButtonLabel(const GameSession& session) {
     return "Find max balls";
 }
 
-}
+} // namespace
 
 GameplayScreen::GameplayScreen(App& app, GameMode mode, LevelFiles files)
     : app(app), mode(mode), files(std::move(files)), probeTargetFps(refreshRateOrDefault()) {
     loadSession();
+    refreshSettings();
     watcher.watch(this->files);
+}
+
+void GameplayScreen::refreshSettings() {
+    if (!session) {
+        return;
+    }
+    session->simulation().setBallCollisions(app.settings().ballCollisions);
+    if (app.settings().ballCollisions && !session->simulation().ballCollisionsActive()) {
+        if (session->switchBackend(BackendKind::Scalar)) {
+            app.setPreferredBackend(BackendKind::Scalar);
+            showToast("Ball collisions need the Scalar backend - switched to Scalar", false);
+        }
+    }
 }
 
 void GameplayScreen::loadSession() {
@@ -101,7 +119,9 @@ void GameplayScreen::applyRememberedMachineLimit() {
     }
 }
 
-void GameplayScreen::startProbe() { session->startCapacityProbe(static_cast<double>(probeTargetFps)); }
+void GameplayScreen::startProbe() {
+    session->startCapacityProbe(static_cast<double>(probeTargetFps));
+}
 
 void GameplayScreen::rememberFinishedProbe() {
     const CapacityProbe& probe = session->capacityProbe();
@@ -110,9 +130,11 @@ void GameplayScreen::rememberFinishedProbe() {
         return;
     }
     if (!probeResultSaved && probe.phase() == ProbePhase::Done) {
-        app.machineProfile().rememberBallLimit(session->backend(), probe.targetFps(), probe.bestPassingCount());
-        showToast(std::format("{} limit on this machine: {} balls @{:.0f} FPS", backendKindName(session->backend()),
-                              groupedBalls(probe.bestPassingCount()), probe.targetFps()),
+        app.machineProfile().rememberBallLimit(session->backend(), probe.targetFps(),
+                                               probe.bestPassingCount());
+        showToast(std::format("{} limit on this machine: {} balls @{:.0f} FPS",
+                              backendKindName(session->backend()), groupedBalls(probe.bestPassingCount()),
+                              probe.targetFps()),
                   false);
         probeResultSaved = true;
     }
@@ -134,7 +156,9 @@ void GameplayScreen::hotReload() {
     showToast("Reloaded " + files.name, false);
 }
 
-void GameplayScreen::showToast(std::string text, bool isError) { toast = {std::move(text), toastSeconds, isError}; }
+void GameplayScreen::showToast(std::string text, bool isError) {
+    toast = {std::move(text), toastSeconds, isError};
+}
 
 void GameplayScreen::handleShortcuts() {
     if (input::keyPressed(SDL_SCANCODE_ESCAPE) || input::keyPressed(SDL_SCANCODE_P)) {
@@ -155,7 +179,9 @@ void GameplayScreen::handleShortcuts() {
                 app.setPreferredBackend(kind);
                 showToast(std::format("Backend: {}", backendKindName(kind)), false);
             } else {
-                showToast(std::format("{} unavailable: {}", backendKindName(kind), backendUnavailableReason(kind)), true);
+                showToast(
+                    std::format("{} unavailable: {}", backendKindName(kind), backendUnavailableReason(kind)),
+                    true);
             }
         }
     }
@@ -172,9 +198,9 @@ void GameplayScreen::handleLauncherClick(const GameplayLayout& layout) {
     if (!pointInRect(mouse, layout.interactionSection)) {
         return;
     }
-    const LauncherGridLayout grid = computeLauncherGrid(ui::shrink(layout.interactionSection, 12.0f),
-                                                        session->launchers().columnCount(),
-                                                        session->launchers().visibleRows());
+    const LauncherGridLayout grid =
+        computeLauncherGrid(ui::shrink(layout.interactionSection, 12.0f), session->launchers().columnCount(),
+                            session->launchers().visibleRows());
     const LauncherSlotHit hit = findLauncherAt(session->launchers(), grid, mouse);
     if (hit.column >= 0) {
         session->chooseLauncher(hit.column, hit.row);
@@ -201,7 +227,8 @@ void GameplayScreen::update(float deltaTime) {
         session->simulation().board().columns(), session->simulation().board().rows());
     handleLauncherClick(layout);
     const FrameSample& lastFrame = app.frameTimings().latest();
-    session->reportFrameSeconds(app.lastFrameSeconds(), std::max(lastFrame.cpuMs, lastFrame.gpuMs) / millisecondsPerSecond);
+    session->reportFrameSeconds(app.lastFrameSeconds(),
+                                std::max(lastFrame.cpuMs, lastFrame.gpuMs) / millisecondsPerSecond);
     session->update(deltaTime);
     rememberFinishedProbe();
 }
@@ -220,10 +247,11 @@ void GameplayScreen::drawHeader(const GameplayLayout& layout) {
     ui::drawPanel(layout.header, palette::panel, 0.25f);
     const char* modeName = mode == GameMode::Normal ? "Normal" : "Performance";
     const Rect pauseRect{layout.header.x + layout.header.width - 110.0f, layout.header.y + 8.0f, 100.0f,
-                              layout.header.height - 16.0f};
+                         layout.header.height - 16.0f};
     const Rect titleRect{layout.header.x + 14.0f, layout.header.y, pauseRect.x - layout.header.x - 24.0f,
-                              layout.header.height};
-    ui::drawTextInRect(std::format("{} - {}", modeName, files.name), titleRect, 22.0f, palette::text, ui::Align::Left);
+                         layout.header.height};
+    ui::drawTextInRect(std::format("{} - {}", modeName, files.name), titleRect, 22.0f, palette::text,
+                       ui::Align::Left);
     if (ui::button(pauseRect, paused ? "Resume" : "Pause")) {
         paused = !paused;
     }
@@ -266,8 +294,8 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
     }
 
     const Rect probeRows = group("Capacity probe", 2);
-    ui::stepper(ui::rowSlice(probeRows, 0, 2, controlGap), "Target FPS", probeTargetFps, minimumProbeTargetFps,
-                maximumProbeTargetFps);
+    ui::stepper(ui::rowSlice(probeRows, 0, 2, controlGap), "Target FPS", probeTargetFps,
+                minimumProbeTargetFps, maximumProbeTargetFps);
     if (ui::button(ui::rowSlice(probeRows, 1, 2, controlGap), probeButtonLabel(*session))) {
         if (session->capacityProbe().isActive()) {
             session->cancelCapacityProbe();
@@ -288,8 +316,9 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
     const Rect multiplierRows = group("Ball count", 1);
     const int multiplierCount = static_cast<int>(ballMultiplierOptions.size());
     for (int i = 0; i < multiplierCount; ++i) {
-        if (ui::button(buttonCell(multiplierRows, i, multiplierCount, 1), std::format("x{}", ballMultiplierOptions[i]),
-                       true, session->ballMultiplierIndex() == i)) {
+        if (ui::button(buttonCell(multiplierRows, i, multiplierCount, 1),
+                       std::format("x{}", ballMultiplierOptions[i]), true,
+                       session->ballMultiplierIndex() == i)) {
             session->selectBallMultiplier(i);
         }
     }
@@ -300,13 +329,14 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
     const int limitRowCount = (limitSlots + limitsPerRow - 1) / limitsPerRow;
     const Rect limitRows = group("Ball limit", limitRowCount);
     for (int i = 0; i < limitCount; ++i) {
-        if (ui::button(buttonCell(limitRows, i, limitsPerRow, limitRowCount), ballLimitLabel(ballLimitOptions[i]), true,
+        if (ui::button(buttonCell(limitRows, i, limitsPerRow, limitRowCount),
+                       ballLimitLabel(ballLimitOptions[i]), true,
                        !session->isUsingMachineBallLimit() && session->ballLimitIndex() == i)) {
             session->selectBallLimit(i);
         }
     }
-    if (ui::button(buttonCell(limitRows, limitCount, limitsPerRow, limitRowCount), autoLimitLabel(*session), true,
-                   session->isUsingMachineBallLimit())) {
+    if (ui::button(buttonCell(limitRows, limitCount, limitsPerRow, limitRowCount), autoLimitLabel(*session),
+                   true, session->isUsingMachineBallLimit())) {
         if (const auto measured = session->machineBallLimit()) {
             session->useMachineBallLimit(*measured);
         } else {
@@ -319,8 +349,9 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
     const Rect backendRows = group("Physics", backendRowCount);
     for (int i = 0; i < backendCount; ++i) {
         const BackendKind kind = allBackendKinds[i];
-        if (ui::button(buttonCell(backendRows, i, backendsPerRow, backendRowCount), std::format("{} (F{})", backendKindName(kind), i + 1),
-                       isBackendAvailable(kind), session->backend() == kind) &&
+        if (ui::button(buttonCell(backendRows, i, backendsPerRow, backendRowCount),
+                       std::format("{} (F{})", backendKindName(kind), i + 1), isBackendAvailable(kind),
+                       session->backend() == kind) &&
             session->switchBackend(kind)) {
             app.setPreferredBackend(kind);
             applyRememberedMachineLimit();
@@ -334,9 +365,9 @@ void GameplayScreen::drawInteractionSection(const GameplayLayout& layout) {
         drawPerformanceControls(layout.interactionSection);
         return;
     }
-    const LauncherGridLayout grid = computeLauncherGrid(ui::shrink(layout.interactionSection, 12.0f),
-                                                        session->launchers().columnCount(),
-                                                        session->launchers().visibleRows());
+    const LauncherGridLayout grid =
+        computeLauncherGrid(ui::shrink(layout.interactionSection, 12.0f), session->launchers().columnCount(),
+                            session->launchers().visibleRows());
     gfx::beginClip(layout.interactionSection);
     drawLaunchers(session->launchers(), grid, !paused && session->state() == SessionState::Running);
     gfx::endClip();
@@ -350,18 +381,35 @@ void GameplayScreen::drawOverlay() {
     if (!paused && !won) {
         return;
     }
+    if (input::keyPressed(SDL_SCANCODE_ESCAPE) && settingsOpen) {
+        settingsOpen = false;
+    }
     const float width = static_cast<float>(gfx::screenWidth());
     const float height = static_cast<float>(gfx::screenHeight());
     gfx::fillRect({0.0f, 0.0f, width, height}, gfx::fade(palette::backgroundDeep, 0.7f));
-    const int buttonCount = 3;
+    if (settingsOpen) {
+        const Rect panel{(width - settingsPanelWidth) * 0.5f, (height - settingsPanelHeight) * 0.5f,
+                         settingsPanelWidth, settingsPanelHeight};
+        ui::drawPanel(panel, palette::panel, 0.08f);
+        const SettingsPanelEdit edit = drawSettingsPanel(panel, app.settings());
+        if (edit.changed) {
+            app.applySettings(edit.settings);
+        }
+        if (edit.backPressed) {
+            settingsOpen = false;
+        }
+        return;
+    }
+    const int buttonCount = 4;
     const float panelHeight = 120.0f + buttonCount * (overlayButtonHeight + 14.0f);
     const Rect panel{(width - overlayWidth) * 0.5f, (height - panelHeight) * 0.5f, overlayWidth, panelHeight};
     ui::drawPanel(panel, palette::panel, 0.08f);
     ui::drawText(won ? "Level Complete!" : "Paused", {panel.x + panel.width * 0.5f, panel.y + 28.0f}, 44.0f,
                  won ? palette::accent : palette::text, ui::Align::Center);
     auto overlayButton = [&](int index) {
-        return Rect{panel.x + 30.0f, panel.y + 100.0f + static_cast<float>(index) * (overlayButtonHeight + 14.0f),
-                         panel.width - 60.0f, overlayButtonHeight};
+        return Rect{panel.x + 30.0f,
+                    panel.y + 100.0f + static_cast<float>(index) * (overlayButtonHeight + 14.0f),
+                    panel.width - 60.0f, overlayButtonHeight};
     };
     if (ui::button(overlayButton(0), won ? "Next Level" : "Resume")) {
         if (won) {
@@ -374,7 +422,10 @@ void GameplayScreen::drawOverlay() {
         session->restart();
         paused = false;
     }
-    if (ui::button(overlayButton(2), "Main Menu")) {
+    if (ui::button(overlayButton(2), "Settings")) {
+        settingsOpen = true;
+    }
+    if (ui::button(overlayButton(3), "Main Menu")) {
         app.showMainMenu();
     }
 }
@@ -385,8 +436,8 @@ void GameplayScreen::drawToast() {
     }
     const float alpha = std::min(1.0f, toast.secondsLeft);
     const Vec2 extent = ui::measureText(toast.text, 24.0f);
-    const Rect rect{(static_cast<float>(gfx::screenWidth()) - extent.x) * 0.5f - 20.0f, 24.0f, extent.x + 40.0f,
-                         48.0f};
+    const Rect rect{(static_cast<float>(gfx::screenWidth()) - extent.x) * 0.5f - 20.0f, 24.0f,
+                    extent.x + 40.0f, 48.0f};
     ui::drawPanel(rect, gfx::fade(toast.isError ? palette::danger : palette::panelLight, alpha), 0.4f);
     ui::drawTextInRect(toast.text, rect, 24.0f, gfx::fade(palette::text, alpha));
 }
@@ -396,8 +447,8 @@ void GameplayScreen::draw() {
         const float centerX = static_cast<float>(gfx::screenWidth()) * 0.5f;
         ui::drawText("Level failed to load", {centerX, 200.0f}, 40.0f, palette::danger, ui::Align::Center);
         ui::drawText(loadError, {centerX, 260.0f}, 22.0f, palette::text, ui::Align::Center);
-        ui::drawText("Fix the file and save - it reloads automatically", {centerX, 300.0f}, 22.0f, palette::textMuted,
-                     ui::Align::Center);
+        ui::drawText("Fix the file and save - it reloads automatically", {centerX, 300.0f}, 22.0f,
+                     palette::textMuted, ui::Align::Center);
         if (ui::button({centerX - 120.0f, 360.0f, 240.0f, 56.0f}, "Back")) {
             app.showLevelSelect(mode);
         }
@@ -423,8 +474,8 @@ std::string GameplayScreen::stateJson() const {
     const SimulationStats& stats = simulation.stats();
     std::string ballsByColor;
     for (int color = 0; color < ballColorCount; ++color) {
-        ballsByColor += std::format("{}\"{}\":{}", color == 0 ? "" : ",", ballColorName(ballColorFromIndex(color)),
-                                    stats.ballsByColor[color]);
+        ballsByColor += std::format("{}\"{}\":{}", color == 0 ? "" : ",",
+                                    ballColorName(ballColorFromIndex(color)), stats.ballsByColor[color]);
     }
     std::string launcherColumns;
     const LauncherQueue& launchers = session->launchers();
@@ -443,18 +494,21 @@ std::string GameplayScreen::stateJson() const {
     constexpr std::array<const char*, 3> stateNames{"ready", "running", "won"};
     const CapacityProbe& probe = session->capacityProbe();
     return std::format(
-        "{{\"mode\":\"{}\",\"level\":\"{}\",\"state\":\"{}\",\"paused\":{},\"backend\":\"{}\",\"backendFault\":\"{}\","
+        "{{\"mode\":\"{}\",\"level\":\"{}\",\"state\":\"{}\",\"paused\":{},\"backend\":\"{}\","
+        "\"backendFault\":\"{}\","
         "\"balls\":{},\"bricks\":{},\"launchersLeft\":{},\"pendingSpawn\":{},\"spawned\":{},\"hits\":{},"
-        "\"physicsMs\":{:.3f},\"kernelMs\":{:.3f},\"ticks\":{},\"spawnRate\":{},\"multiplier\":{},\"ballLimit\":{},\"elapsed\":{:.2f},"
+        "\"physicsMs\":{:.3f},\"kernelMs\":{:.3f},\"ticks\":{},\"spawnRate\":{},\"multiplier\":{},"
+        "\"ballLimit\":{},\"elapsed\":{:.2f},"
         "\"probe\":{{\"phase\":\"{}\",\"target\":{:.0f},\"fps\":{:.1f},\"best\":{}}},"
         "\"ballsByColor\":{{{}}},\"launchers\":[{}]}}",
         mode == GameMode::Normal ? "normal" : "performance", jsonEscape(files.name),
         stateNames[static_cast<int>(session->state())], paused, backendKindName(session->backend()),
         jsonEscape(session->lastBackendFault()), stats.ballCount, simulation.board().aliveBrickCount(),
-        launchers.launcherCount(), session->spawner().pendingBalls(), stats.totalBallsSpawned, stats.totalHits,
-        stats.lastFramePhysicsMs, simulation.backend().deviceStepMs(), stats.ticksLastFrame, spawnRateOptions[session->spawnRateIndex()],
-        ballMultiplierOptions[session->ballMultiplierIndex()], session->ballLimit(), session->elapsedSeconds(),
-        probePhaseName(probe.phase()), probe.targetFps(), probe.lastFps(), probe.bestPassingCount(), ballsByColor, launcherColumns);
+        launchers.launcherCount(), session->spawner().pendingBalls(), stats.totalBallsSpawned,
+        stats.totalHits, stats.lastFramePhysicsMs, simulation.backend().deviceStepMs(), stats.ticksLastFrame,
+        spawnRateOptions[session->spawnRateIndex()], ballMultiplierOptions[session->ballMultiplierIndex()],
+        session->ballLimit(), session->elapsedSeconds(), probePhaseName(probe.phase()), probe.targetFps(),
+        probe.lastFps(), probe.bestPassingCount(), ballsByColor, launcherColumns);
 }
 
 std::optional<ControlResponse> GameplayScreen::handleControl(const ControlRequest& request) {
@@ -464,7 +518,8 @@ std::optional<ControlResponse> GameplayScreen::handleControl(const ControlReques
     const std::string& path = request.path;
     const ControlResponse done = ControlResponse::ok("{\"ok\":true}");
     if (path == "/launch") {
-        const bool released = session->chooseLauncher(request.integer("column").value_or(0), request.integer("row").value_or(0));
+        const bool released = session->chooseLauncher(request.integer("column").value_or(0),
+                                                      request.integer("row").value_or(0));
         return released ? done : ControlResponse::error(409, "no launcher there or game not running");
     }
     if (path == "/start") {
@@ -475,8 +530,8 @@ std::optional<ControlResponse> GameplayScreen::handleControl(const ControlReques
         if (request.integer("cancel").value_or(0) != 0) {
             session->cancelCapacityProbe();
         } else {
-            probeTargetFps = std::clamp(request.integer("fps").value_or(probeTargetFps), minimumProbeTargetFps,
-                                        maximumProbeTargetFps);
+            probeTargetFps = std::clamp(request.integer("fps").value_or(probeTargetFps),
+                                        minimumProbeTargetFps, maximumProbeTargetFps);
             startProbe();
         }
         return done;
@@ -486,7 +541,8 @@ std::optional<ControlResponse> GameplayScreen::handleControl(const ControlReques
         return done;
     }
     if (path == "/fill") {
-        session->fillWithBalls(static_cast<BallCount>(std::max<long long>(request.integer("count").value_or(0), 0)));
+        session->fillWithBalls(
+            static_cast<BallCount>(std::max<long long>(request.integer("count").value_or(0), 0)));
         return done;
     }
     if (path == "/limit") {

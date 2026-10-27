@@ -1,12 +1,15 @@
 #include "app/App.h"
 
 #include "app/Input.h"
+#include "app/PreferenceDirectory.h"
 #include "editor/MapEditorScreen.h"
+#include "game/Settings.h"
 #include "level/LevelRepository.h"
 #include "render/Palette.h"
 #include "screens/GameplayScreen.h"
 #include "screens/LevelSelectScreen.h"
 #include "screens/MainMenuScreen.h"
+#include "screens/SettingsScreen.h"
 #include "ui/Painter.h"
 #include "ui/Widgets.h"
 
@@ -28,7 +31,8 @@ constexpr float channelScale = 1.0f / 255.0f;
 constexpr const char* windowTitle = "Balls";
 constexpr const char* screenshotExtension = ".bmp";
 
-double millisecondsBetween(std::chrono::steady_clock::time_point start, std::chrono::steady_clock::time_point end) {
+double millisecondsBetween(std::chrono::steady_clock::time_point start,
+                           std::chrono::steady_clock::time_point end) {
     return std::chrono::duration<double, std::milli>(end - start).count();
 }
 
@@ -49,7 +53,7 @@ std::string screenshotFileFor(const std::string& requested) {
     return path.string();
 }
 
-}
+} // namespace
 
 int currentRefreshRate() {
     const SDL_DisplayMode* mode = SDL_GetCurrentDisplayMode(SDL_GetPrimaryDisplay());
@@ -110,12 +114,14 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
         const std::string_view fallback = fallbackGraphicsApi(options.graphicsApi);
         std::string fallbackError;
         if (fallback.empty() || !openWindowAndRenderer(options, fallback, fallbackError)) {
-            error = fallback.empty() ? error : std::format("{}; {} fallback: {}", error, fallback, fallbackError);
+            error =
+                fallback.empty() ? error : std::format("{}; {} fallback: {}", error, fallback, fallbackError);
             return false;
         }
     }
     balls = std::make_unique<BallView>(*renderer);
     profile.load();
+    currentSettings = loadSettings(settingsFilePath());
     setVsync(options.vsync);
     backendChoice = options.backend && isBackendAvailable(*options.backend) ? *options.backend
                                                                             : fastestAvailableCpuBackend();
@@ -181,13 +187,15 @@ bool App::frame() {
     updateTextInput();
     const Clock::time_point presentStart = Clock::now();
     const Color background = palette::background;
-    renderer->endFrame({background.r * channelScale, background.g * channelScale, background.b * channelScale});
+    renderer->endFrame(
+        {background.r * channelScale, background.g * channelScale, background.b * channelScale});
     const Clock::time_point frameEnd = Clock::now();
     if (screenshotPending) {
         screenshotPending = false;
         const bool saved = renderer->lastScreenshotSucceeded();
         controlServer.completeDeferred([&](const ControlRequest&) {
-            return saved ? ControlResponse::ok(std::format("{{\"ok\":true,\"path\":\"{}\"}}", jsonEscape(screenshotPath)))
+            return saved ? ControlResponse::ok(
+                               std::format("{{\"ok\":true,\"path\":\"{}\"}}", jsonEscape(screenshotPath)))
                          : ControlResponse::error(500, "could not write screenshot");
         });
     }
@@ -195,7 +203,8 @@ bool App::frame() {
     const double synchronizationMs = balls->takeSynchronizationMs();
     const double gpuWaitMs = renderer->lastGpuWaitMs();
     timings.record({millisecondsBetween(updateStart, frameEnd),
-                    millisecondsBetween(workStart, presentStart) - synchronizationMs, renderer->lastGpuBusyMs(),
+                    millisecondsBetween(workStart, presentStart) - synchronizationMs,
+                    renderer->lastGpuBusyMs(),
                     millisecondsBetween(presentStart, frameEnd) + synchronizationMs + gpuWaitMs});
     applyPendingScreen();
     return running;
@@ -203,8 +212,9 @@ bool App::frame() {
 
 void App::drawFrameTimingsOverlay() const {
     const FrameSample& sample = timings.average();
-    const std::string text = std::format("{:.0f} fps   cpu {:.2f}   gpu {:.2f}   present {:.2f} ms",
-                                         timings.framesPerSecond(), sample.cpuMs, sample.gpuMs, sample.presentMs);
+    const std::string text =
+        std::format("{:.0f} fps   cpu {:.2f}   gpu {:.2f}   present {:.2f} ms", timings.framesPerSecond(),
+                    sample.cpuMs, sample.gpuMs, sample.presentMs);
     const Vec2 extent = ui::measureText(text, 18.0f);
     const float x = 26.0f;
     const float y = static_cast<float>(gfx::screenHeight()) - extent.y - 10.0f;
@@ -220,13 +230,14 @@ void App::applyPendingScreen() {
 
 std::string App::stateJson() const {
     const FrameSample& sample = timings.average();
-    return std::format("{{\"ok\":true,\"frontend\":\"sdl\",\"renderer\":\"{}\",\"screen\":\"{}\",\"window\":[{},{}],"
-                       "\"fps\":{:.1f},\"minFps\":{:.1f},\"frameMs\":{:.3f},\"cpuMs\":{:.3f},\"gpuMs\":{:.3f},"
-                       "\"presentMs\":{:.3f},\"preferredBackend\":\"{}\",\"vsync\":{},\"details\":{}}}",
-                       jsonEscape(renderer->deviceDescription()), currentScreen->name(), gfx::screenWidth(),
-                       gfx::screenHeight(), timings.framesPerSecond(), timings.worstFpsLastSecond(), sample.frameMs,
-                       sample.cpuMs, sample.gpuMs, sample.presentMs, backendKindName(backendChoice), isVsyncEnabled(),
-                       currentScreen->stateJson());
+    return std::format(
+        "{{\"ok\":true,\"frontend\":\"sdl\",\"renderer\":\"{}\",\"screen\":\"{}\",\"window\":[{},{}],"
+        "\"fps\":{:.1f},\"minFps\":{:.1f},\"frameMs\":{:.3f},\"cpuMs\":{:.3f},\"gpuMs\":{:.3f},"
+        "\"presentMs\":{:.3f},\"preferredBackend\":\"{}\",\"vsync\":{},\"details\":{}}}",
+        jsonEscape(renderer->deviceDescription()), currentScreen->name(), gfx::screenWidth(),
+        gfx::screenHeight(), timings.framesPerSecond(), timings.worstFpsLastSecond(), sample.frameMs,
+        sample.cpuMs, sample.gpuMs, sample.presentMs, backendKindName(backendChoice), isVsyncEnabled(),
+        currentScreen->stateJson());
 }
 
 std::optional<ControlResponse> App::handleControl(const ControlRequest& request) {
@@ -252,20 +263,37 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
         showMainMenu();
         return ControlResponse::ok("{\"ok\":true}");
     }
+    if (path == "/settings") {
+        Settings next = currentSettings;
+        if (const auto collisions = request.integer("collisions")) {
+            next.ballCollisions = *collisions != 0;
+        }
+        if (const auto layout = request.text("layout")) {
+            if (const auto orientation = parseOrientation(*layout)) {
+                next.layout = *orientation;
+            } else {
+                return ControlResponse::error(400, "layout must be auto, landscape or portrait");
+            }
+        }
+        applySettings(next);
+        return ControlResponse::ok(settingsJson());
+    }
     const std::optional<GameMode> mode = parseGameMode(request.text("mode").value_or("normal"));
     if (path == "/levels" || path == "/play" || path == "/editor") {
         if (!mode) {
             return ControlResponse::error(400, "mode must be normal or performance");
         }
         const std::string levelName = request.text("level").value_or("");
-        const std::optional<LevelFiles> level = levelName.empty() ? std::nullopt : findLevel(*mode, levelName);
+        const std::optional<LevelFiles> level =
+            levelName.empty() ? std::nullopt : findLevel(*mode, levelName);
         if (path == "/levels") {
             showLevelSelect(*mode);
         } else if (path == "/editor") {
             openEditor(*mode, level);
         } else if (!level) {
-            return ControlResponse::error(404, std::format("no level '{}' in {} mode", levelName,
-                                                           *mode == GameMode::Normal ? "normal" : "performance"));
+            return ControlResponse::error(404,
+                                          std::format("no level '{}' in {} mode", levelName,
+                                                      *mode == GameMode::Normal ? "normal" : "performance"));
         } else {
             startGame(*mode, *level);
         }
@@ -287,12 +315,39 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
     if (auto response = currentScreen->handleControl(request)) {
         return *response;
     }
-    return ControlResponse::error(404, std::format("unknown command {} on screen {}", path, currentScreen->name()));
+    return ControlResponse::error(
+        404, std::format("unknown command {} on screen {}", path, currentScreen->name()));
 }
 
-void App::showMainMenu() { pendingScreen = std::make_unique<MainMenuScreen>(*this); }
+void App::showMainMenu() {
+    pendingScreen = std::make_unique<MainMenuScreen>(*this);
+}
 
-void App::showLevelSelect(GameMode mode) { pendingScreen = std::make_unique<LevelSelectScreen>(*this, mode); }
+void App::showSettings() {
+    pendingScreen = std::make_unique<SettingsScreen>(*this);
+}
+
+void App::applySettings(const Settings& settings) {
+    currentSettings = settings;
+    static_cast<void>(saveSettings(settingsFilePath(), settings));
+    notifySettingsConsumers();
+}
+
+std::string App::settingsJson() const {
+    return std::format("{{\"ballCollisions\":{},\"layout\":\"{}\"}}", currentSettings.ballCollisions,
+                       orientationName(currentSettings.layout));
+}
+
+void App::notifySettingsConsumers() {
+    applyPendingScreen();
+    if (auto* gameplay = dynamic_cast<GameplayScreen*>(currentScreen.get())) {
+        gameplay->refreshSettings();
+    }
+}
+
+void App::showLevelSelect(GameMode mode) {
+    pendingScreen = std::make_unique<LevelSelectScreen>(*this, mode);
+}
 
 void App::startGame(GameMode mode, const LevelFiles& files) {
     pendingScreen = std::make_unique<GameplayScreen>(*this, mode, files);

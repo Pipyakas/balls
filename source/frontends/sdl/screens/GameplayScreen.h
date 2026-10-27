@@ -22,6 +22,7 @@ public:
     bool drawsFrameTimings() const override { return true; }
     std::string stateJson() const override;
     std::optional<ControlResponse> handleControl(const ControlRequest& request) override;
+    void refreshSettings();
 
 private:
     struct Toast {
@@ -55,6 +56,7 @@ private:
     LevelWatcher watcher;
     Toast toast;
     bool paused = false;
+    bool settingsOpen = false;
     bool probeResultSaved = true;
     int probeTargetFps = 60;
 };
