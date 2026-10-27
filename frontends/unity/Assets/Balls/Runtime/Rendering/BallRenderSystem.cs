@@ -33,7 +33,10 @@ namespace Balls.Rendering
 
         protected override void OnStartRunning()
         {
-            material = RenderAssets.QuadMaterial();
+            // Its own material instance: two draws that share one material also share the buffer bound to it, and
+            // whichever system runs last wins for both draws.
+            Material shared = RenderAssets.QuadMaterial();
+            material = shared != null ? new Material(shared) { name = "BallsBallQuads" } : null;
         }
 
         protected override void OnDestroy()
@@ -47,6 +50,10 @@ namespace Balls.Rendering
             if (packed.IsCreated)
             {
                 packed.Dispose();
+            }
+            if (material != null)
+            {
+                Object.Destroy(material);
             }
         }
 
