@@ -30,7 +30,10 @@ public:
     std::vector<BallSpawn> takeTail(size_t count) override;
     bool takeCompactTail(size_t count, CompactBalls& balls) override;
     bool addCompact(const CompactBalls& balls) override;
-    void clear() override { count = 0; }
+    void clear() override {
+        count = 0;
+        frozen = false;
+    }
     BallTally truncate(size_t newCount) override;
     std::string_view faultMessage() const override { return fault; }
     bool resolvesHitsOnDevice() const override { return true; }
@@ -40,6 +43,16 @@ public:
     double deviceStepMs() const override { return lastStepKernelMs; }
 
 private:
+    struct DeviceVisibilityGridArgument {
+        CUdeviceptr slots;
+        int width;
+        int height;
+        float scaleX;
+        float scaleY;
+        unsigned int frameSeed;
+        unsigned int bidderMask;
+    };
+
     std::vector<BallSpawn> exportRange(size_t first);
     struct DeviceBalls {
         CUdeviceptr position;
@@ -81,6 +94,10 @@ private:
     void releaseSortBuffers();
     bool countBallsByCell();
     void chooseSortGrid();
+    bool prepareVisibilityGrid(DeviceVisibilityGridArgument& grid);
+    void renderFreeFlight(const StepParams& params);
+    void materializeFreeFlight();
+    BallSpawn projectToEpoch(const BallSpawn& spawn) const;
 
     const CudaDriver& driver;
     CUfunction stepFunction = nullptr;
@@ -91,6 +108,8 @@ private:
     CUfunction scanCellsFunction = nullptr;
     CUfunction stepAndSortFunction = nullptr;
     CUfunction applyCellWordsFunction = nullptr;
+    CUfunction freeFlightRenderFunction = nullptr;
+    CUfunction materializeFreeFlightFunction = nullptr;
     DeviceBalls balls{};
     size_t capacity = 0;
     size_t packedCapacity = 0;
@@ -134,4 +153,9 @@ private:
     CUevent stepStarted = nullptr;
     CUevent stepFinished = nullptr;
     double lastStepKernelMs = 0.0;
+    // Free flight: while set, every stored ball is its state at freeFlightEpoch and nothing is stepped.
+    bool frozen = false;
+    unsigned int freeFlightEpoch = 0;
+    unsigned int clockTick = 0;
+    StepParams lastParams{};
 };

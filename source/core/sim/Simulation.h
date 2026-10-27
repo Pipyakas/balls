@@ -77,5 +77,6 @@ private:
     SimulationStats statistics;
     std::mt19937 random{20261026u};
     float accumulator = 0.0f;
+    uint32_t elapsedTicks = 0;
     bool ballCollisionsWanted = false;
 };

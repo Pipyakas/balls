@@ -51,16 +51,6 @@ struct DeviceSortedOutput {
     int rows;
 };
 
-struct DeviceVisibilityGrid {
-    CUdeviceptr slots;
-    int width;
-    int height;
-    float scaleX;
-    float scaleY;
-    unsigned int frameSeed;
-    unsigned int bidderMask;
-};
-
 unsigned int bidderMaskFor(size_t balls, size_t cells) {
     constexpr size_t biddersPerSlot = 32;
     unsigned int mask = 0;
@@ -121,8 +111,11 @@ CudaBackend::CudaBackend() : driver(CudaDriver::instance()) {
     scanCellsFunction = driver.function("scanCellsKernel");
     stepAndSortFunction = driver.function("stepAndSortBallsKernel");
     applyCellWordsFunction = driver.function("applyCellWordsKernel");
+    freeFlightRenderFunction = driver.function("freeFlightRenderKernel");
+    materializeFreeFlightFunction = driver.function("materializeFreeFlightKernel");
     if (!stepFunction || !collectHolesFunction || !fillHolesFunction || !gridToRenderFunction ||
-        !countCellsFunction || !scanCellsFunction || !stepAndSortFunction || !applyCellWordsFunction) {
+        !countCellsFunction || !scanCellsFunction || !stepAndSortFunction || !applyCellWordsFunction ||
+        !freeFlightRenderFunction || !materializeFreeFlightFunction) {
         fault = "CUDA kernels missing from module";
         return;
     }
@@ -367,12 +360,30 @@ void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {
     std::vector<uint32_t> position(added), state(added), packed(added);
     ballSpeed = std::max(std::hypot(spawns.front().vx, spawns.front().vy), 1e-6f);
     const float inverseSpeedScale = 1.0f / ballSpeed;
+    const unsigned int ticksSinceEpoch = clockTick - freeFlightEpoch;
     for (size_t i = 0; i < added; ++i) {
         const BallSpawn& spawn = spawns[i];
         const uint32_t color = static_cast<uint32_t>(spawn.color);
-        position[i] = encodeAxis(spawn.x, fieldWidth) | (encodeAxis(spawn.y, fieldHeight) << 16);
-        state[i] = encodeComponent(spawn.vx * inverseSpeedScale) |
-                   (encodeComponent(spawn.vy * inverseSpeedScale) << directionBits) | (color << colorShift);
+        int directionX = signedComponent(encodeComponent(spawn.vx * inverseSpeedScale));
+        int directionY = signedComponent(encodeComponent(spawn.vy * inverseSpeedScale));
+        float x = spawn.x;
+        float y = spawn.y;
+        if (frozen) {
+            // Projected with the quantized direction the kernels decode, flipping only the signs, so flying
+            // forward from the epoch lands on the spawn point.
+            const float scale = ballSpeed / std::max(std::hypot(static_cast<float>(directionX),
+                                                                static_cast<float>(directionY)), 1.0f);
+            const FreeFlightPosition epoch =
+                flyFreelyBackwards(x, y, static_cast<float>(directionX) * scale,
+                                   static_cast<float>(directionY) * scale, ticksSinceEpoch, lastParams);
+            x = epoch.x;
+            y = epoch.y;
+            directionX = (epoch.vx < 0.0f) == (directionX < 0) ? directionX : -directionX;
+            directionY = (epoch.vy < 0.0f) == (directionY < 0) ? directionY : -directionY;
+        }
+        position[i] = encodeAxis(x, fieldWidth) | (encodeAxis(y, fieldHeight) << 16);
+        state[i] = (static_cast<uint32_t>(directionX) & directionMask) |
+                   ((static_cast<uint32_t>(directionY) & directionMask) << directionBits) | (color << colorShift);
         packed[i] = packBallForRender(spawn.x, spawn.y, spawn.color, renderPackScale(fieldWidth),
                                       renderPackScale(fieldHeight));
     }
@@ -385,6 +396,81 @@ void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {
     }
     count += added;
     snapshotFresh = false;
+}
+
+bool CudaBackend::prepareVisibilityGrid(DeviceVisibilityGridArgument& grid) {
+    const size_t cells = gridCellCount();
+    const bool renderBufferFitsGrid = !renderResource || renderCapacityBytes >= cells * 4;
+    if (cells == 0 || count <= cells || !renderBufferFitsGrid) {
+        return false;
+    }
+    ensureArray(gridSlots, cells * sizeof(unsigned long long));
+    if (isFaulted() || !succeeded(driver.api().memsetD32(gridSlots.pointer, 0, cells * 2), "clear grid")) {
+        return false;
+    }
+    const float coordinateToSlotX = static_cast<float>(gridWidth) / static_cast<float>(renderCoordinateMax + 1);
+    const float coordinateToSlotY = static_cast<float>(gridHeight) / static_cast<float>(renderCoordinateMax + 1);
+    grid = {gridSlots.pointer, gridWidth, gridHeight, coordinateToSlotX, coordinateToSlotY, ++frameSeed,
+            bidderMaskFor(count, cells)};
+    gridFilled = true;
+    return true;
+}
+
+void CudaBackend::renderFreeFlight(const StepParams& params) {
+    if (!frozen) {
+        frozen = true;
+        freeFlightEpoch = params.tick;
+    }
+    const auto& api = driver.api();
+    if (stepStarted) {
+        api.eventRecord(stepStarted, nullptr);
+    }
+    DeviceVisibilityGridArgument grid{0, gridWidth, gridHeight, 0.0f, 0.0f, 0, 0};
+    unsigned int chunkStride = 1;
+    if (prepareVisibilityGrid(grid)) {
+        chunkStride = grid.bidderMask + 1;
+        grid.bidderMask = 0;
+    } else {
+        ensurePackedCapacity(count);
+    }
+    const size_t chunks = (count + threadsPerBlock - 1) / threadsPerBlock;
+    unsigned int chunkOffset = frameSeed % chunkStride;
+    const size_t sampledChunks = chunks > chunkOffset ? (chunks - chunkOffset + chunkStride - 1) / chunkStride : 0;
+    int ballCountArgument = static_cast<int>(count);
+    StepParams stepArgument = params;
+    unsigned int ticksArgument = clockTick - freeFlightEpoch;
+    unsigned int packedCapacityArgument = static_cast<unsigned int>(std::min<size_t>(packedCapacity, 0xFFFFFFFFu));
+    void* arguments[] = {&balls, &ballCountArgument, &stepArgument, &ticksArgument, &grid,
+                         &packedCapacityArgument, &chunkStride, &chunkOffset};
+    if (sampledChunks > 0 &&
+        !succeeded(api.launchKernel(freeFlightRenderFunction, static_cast<unsigned int>(sampledChunks), 1, 1,
+                                    threadsPerBlock, 1, 1, 0, nullptr, arguments, nullptr),
+                   "freeFlightRenderKernel")) {
+        return;
+    }
+    if (stepStarted && stepFinished) {
+        api.eventRecord(stepFinished, nullptr);
+        api.eventSynchronize(stepFinished);
+        float elapsedMs = 0.0f;
+        api.eventElapsedTime(&elapsedMs, stepStarted, stepFinished);
+        lastStepKernelMs = elapsedMs;
+    }
+}
+
+void CudaBackend::materializeFreeFlight() {
+    if (!frozen) {
+        return;
+    }
+    frozen = false;
+    if (count == 0 || isFaulted()) {
+        return;
+    }
+    driver.makeCurrent();
+    int ballCountArgument = static_cast<int>(count);
+    StepParams stepArgument = lastParams;
+    unsigned int ticksArgument = clockTick - freeFlightEpoch;
+    void* arguments[] = {&balls, &ballCountArgument, &stepArgument, &ticksArgument};
+    launch(materializeFreeFlightFunction, count, arguments, "materializeFreeFlightKernel");
 }
 
 size_t CudaBackend::gridCellCount() const { return static_cast<size_t>(gridWidth) * static_cast<size_t>(gridHeight); }
@@ -402,6 +488,13 @@ void CudaBackend::step(const StepParams& params, std::vector<BallHit>&) {
         return;
     }
     driver.makeCurrent();
+    lastParams = params;
+    clockTick = params.tick + static_cast<unsigned int>(params.substeps);
+    if (params.freeFlight) {
+        renderFreeFlight(params);
+        return;
+    }
+    materializeFreeFlight();
     const auto& api = driver.api();
     if (!succeeded(api.memsetD32(counters.pointer, 0, sizeof(FrameCounters) / 4), "reset counters")) {
         return;
@@ -413,20 +506,8 @@ void CudaBackend::step(const StepParams& params, std::vector<BallHit>&) {
     CUdeviceptr hitsLeftPointer = brickHitsLeft.pointer;
     CUdeviceptr killedPointer = killedIndices.pointer;
     CUdeviceptr countersPointer = counters.pointer;
-    DeviceVisibilityGrid grid{0, gridWidth, gridHeight, 0.0f, 0.0f, 0, 0};
-    const size_t cells = gridCellCount();
-    const bool renderBufferFitsGrid = !renderResource || renderCapacityBytes >= cells * 4;
-    if (cells > 0 && count > cells && renderBufferFitsGrid) {
-        ensureArray(gridSlots, cells * sizeof(unsigned long long));
-        if (!isFaulted() && succeeded(api.memsetD32(gridSlots.pointer, 0, cells * 2), "clear grid")) {
-            const float coordinateToSlotX = static_cast<float>(gridWidth) / static_cast<float>(renderCoordinateMax + 1);
-            const float coordinateToSlotY = static_cast<float>(gridHeight) / static_cast<float>(renderCoordinateMax + 1);
-            grid = {gridSlots.pointer, gridWidth,   gridHeight, coordinateToSlotX, coordinateToSlotY,
-                    ++frameSeed,       bidderMaskFor(count, cells)};
-            gridFilled = true;
-        }
-    }
-    if (!gridFilled) {
+    DeviceVisibilityGridArgument grid{0, gridWidth, gridHeight, 0.0f, 0.0f, 0, 0};
+    if (!prepareVisibilityGrid(grid)) {
         ensurePackedCapacity(count);
     }
     unsigned int killedCapacityArgument = killedCapacity;
@@ -734,6 +815,7 @@ std::vector<BallSpawn> CudaBackend::takeTail(size_t tailCount) {
 }
 
 bool CudaBackend::takeCompactTail(size_t tailCount, CompactBalls& taken) {
+    materializeFreeFlight();
     if (isFaulted()) {
         return false;
     }
@@ -757,6 +839,7 @@ bool CudaBackend::takeCompactTail(size_t tailCount, CompactBalls& taken) {
 }
 
 bool CudaBackend::addCompact(const CompactBalls& added) {
+    materializeFreeFlight();
     const size_t addedCount = std::min(added.position.size(), added.state.size());
     if (isFaulted()) {
         return false;
@@ -786,6 +869,7 @@ bool CudaBackend::addCompact(const CompactBalls& added) {
 }
 
 std::vector<BallSpawn> CudaBackend::exportRange(size_t first) {
+    materializeFreeFlight();
     if (isFaulted() || first >= count) {
         return {};
     }

@@ -107,7 +107,9 @@ StepParams Simulation::stepParams(int substeps) const {
             settings.retargetBounceThreshold,
             renderPackScale(static_cast<float>(brickBoard.columns())),
             renderPackScale(static_cast<float>(brickBoard.rows())),
-            substeps};
+            substeps,
+            elapsedTicks,
+            isCleared() && !ballCollisionsActive() ? 1 : 0};
 }
 
 void Simulation::syncBoardIfChanged() {
@@ -190,6 +192,7 @@ void Simulation::tick(int substeps) {
     syncBoardIfChanged();
     hits.clear();
     physics->step(stepParams(substeps), hits);
+    elapsedTicks += static_cast<uint32_t>(substeps);
     if (physics->resolvesHitsOnDevice()) {
         applyDeviceHits();
         if (!hits.empty()) {
