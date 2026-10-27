@@ -313,6 +313,18 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
     AddOption(TEXT("On"), TAttribute<bool>::CreateLambda([Owner] { return Owner->IsVSyncEnabled(); }),
               [Owner] { Owner->SetVSyncEnabled(true); });
 
+    // The Unreal port's own setting: the post chain costs more than the scene, so it starts at Minimum.
+    AddHeading(TEXT("Graphics"));
+    AddLabel(TEXT("Quality"));
+    for (const EBallsGraphics Level : BallsGraphics::All()) {
+        AddOption(BallsGraphics::Name(Level),
+                  TAttribute<bool>::CreateLambda([Owner, Level] { return Owner->GetGraphicsQuality() == Level; }),
+                  [Owner, Level] { Owner->SetGraphicsQuality(Level); });
+    }
+    AddHint(TEXT("Minimum turns bloom and temporal anti-aliasing off, fixes the exposure and draws at 70% screen "
+                 "resolution; Balanced adds FXAA and bloom at 85%; High is the engine default look at 100%. The same "
+                 "list is in the Performance gadget's control column."));
+
     AddHeading(TEXT("Physics"));
     AddLabel(TEXT("Default backend"));
     // Each backend shows its last machine benchmark score, muted ("First launch: machine benchmark").

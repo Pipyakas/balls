@@ -1007,6 +1007,15 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
             ];
         }
     }
+
+    // The Unreal port's own lever: the post chain (bloom, TAA, auto-exposure, screen percentage) is what keeps this
+    // frontend off the SDL frame time, so the level can be changed while watching the debug gadget.
+    AddLabel(TEXT("Graphics"));
+    for (const EBallsGraphics Level : BallsGraphics::All()) {
+        AddRow(BallsWidgets::Button(
+            LabelText(BallsGraphics::Name(Level)), [Owner, Level] { Owner->SetGraphicsQuality(Level); }, 18.0f, true,
+            TAttribute<bool>::CreateLambda([Owner, Level] { return Owner->GetGraphicsQuality() == Level; })));
+    }
     return SNew(SScrollBox) + SScrollBox::Slot()[Column];
 }
 

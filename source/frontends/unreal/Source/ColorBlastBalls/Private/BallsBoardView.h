@@ -6,6 +6,8 @@
 #include "CoreMinimal.h"
 #include "UObject/StrongObjectPtr.h"
 
+enum class EBallsGraphics;
+
 class ACameraActor;
 class AActor;
 class UInstancedStaticMeshComponent;
@@ -25,6 +27,9 @@ public:
     void Update(const Simulation& Sim, const FBallsGameplayLayout& Layout, FVector2D ViewportSize, float DpiScale);
     void SubmitBalls(Simulation& Sim, const FBallsGameplayLayout& Layout, float DpiScale);
     void Hide();
+    // Camera half of the graphics level: bloom and vignette strength, a fixed exposure below High, and how bright
+    // the balls are drawn (1.0 once bloom is off, so the palette reads exactly).
+    void ApplyGraphics(EBallsGraphics Quality);
 
 private:
     void SpawnScene();
@@ -42,6 +47,7 @@ private:
     TArray<TStrongObjectPtr<UInstancedStaticMeshComponent>> BrickMeshes;
     TArray<TStrongObjectPtr<AActor>> SceneActors;
     FBallsRenderer BallRenderer;
+    float BallBrightness = 2.2f;
     uint64 BuiltRevision = ~0ull;
     bool bBricksAnimating = false;
     bool bVisible = false;

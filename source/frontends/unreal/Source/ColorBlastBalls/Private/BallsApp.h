@@ -2,6 +2,7 @@
 
 #include "BallsBenchmark.h"
 #include "BallsCoreIncludes.h"
+#include "BallsGraphics.h"
 #include "BallsFrameTimings.h"
 #include "CoreMinimal.h"
 
@@ -68,6 +69,9 @@ public:
     void ApplyOrientation();
     bool IsVSyncEnabled() const { return bVSync; }
     void SetVSyncEnabled(bool bEnabled);
+    // The port starts at Minimum: the UE post chain costs more than this scene, and the player can trade it back.
+    EBallsGraphics GetGraphicsQuality() const { return GraphicsQuality; }
+    void SetGraphicsQuality(EBallsGraphics Quality);
     FBallsGameplay* GetGameplay() const { return Gameplay.Get(); }
     const FBallsFrameTimings& GetFrameTimings() const { return FrameTimings; }
     const FBallsFrameSample& GetLatestSample() const { return LatestSample; }
@@ -109,6 +113,7 @@ private:
     BackendKind PreferredBackend = BackendKind::Scalar;
     Settings CurrentSettings;
     bool bVSync = false;
+    EBallsGraphics GraphicsQuality = EBallsGraphics::Minimum;
     bool bOrientationApplied = false;
     TWeakPtr<SBallsLevelSelect> LevelSelect;
     FBallsToast Toast;

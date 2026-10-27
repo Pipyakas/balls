@@ -13,9 +13,6 @@
 
 namespace {
 
-// Ball brightness in scene-linear units; above 1 so the bloom pass picks the balls up.
-constexpr float BallBrightness = 2.2f;
-
 BEGIN_SHADER_PARAMETER_STRUCT(FBallsDrawParameters, )
     SHADER_PARAMETER_STRUCT_REF(FViewUniformShaderParameters, View)
     SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, PackedBalls)
@@ -103,7 +100,8 @@ FScreenPassTexture FBallsSceneViewExtension::DrawBalls_RenderThread(FRDGBuilder&
     const bool bSrgbTarget = EnumHasAnyFlags(Output.Texture->Desc.Flags, TexCreate_SRGB);
     Parameters->SceneReferred = bMobile ? 0.0f : 1.0f;
     // Over a tonemapped image there is no bloom to feed, so the balls only need to read as their palette colors.
-    Parameters->Brightness = bMobile ? 1.0f : BallBrightness;
+    // Desktop uses the frame's brightness, which drops to 1 when the graphics level turns bloom off.
+    Parameters->Brightness = bMobile ? 1.0f : Data->Brightness;
     Parameters->OutputGamma = bMobile && !bSrgbTarget ? 1.0f / 2.2f : 1.0f;
     for (int32 Index = 0; Index < 8; ++Index) {
         Parameters->Palette[Index] = FVector4f(Data->Palette[Index]);

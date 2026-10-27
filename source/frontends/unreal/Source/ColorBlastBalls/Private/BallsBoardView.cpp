@@ -1,5 +1,6 @@
 #include "BallsBoardView.h"
 
+#include "BallsGraphics.h"
 #include "BallsPalette.h"
 #include "Camera/CameraActor.h"
 #include "Camera/CameraComponent.h"
@@ -177,6 +178,22 @@ void FBallsBoardView::SpawnScene() {
     }
 }
 
+void FBallsBoardView::ApplyGraphics(EBallsGraphics Quality) {
+    // With bloom off the balls are drawn at their palette colour instead of above-white, so nothing clips.
+    BallBrightness = Quality == EBallsGraphics::High ? 2.2f : 1.0f;
+    UCameraComponent* CameraComponent = Camera ? Camera->GetCameraComponent() : nullptr;
+    if (!CameraComponent) {
+        return;
+    }
+    FPostProcessSettings& Post = CameraComponent->PostProcessSettings;
+    Post.bOverride_BloomIntensity = true;
+    Post.BloomIntensity = Quality == EBallsGraphics::High ? 0.9f : Quality == EBallsGraphics::Balanced ? 0.5f : 0.0f;
+    Post.bOverride_VignetteIntensity = true;
+    Post.VignetteIntensity = Quality == EBallsGraphics::High ? 0.25f : Quality == EBallsGraphics::Balanced ? 0.15f : 0.0f;
+    // Auto-exposure stays on the histogram at every level: a manual exposure blacked the frame out, and the pass is
+    // only a fraction of what the anti-aliasing and screen-percentage switches save.
+}
+
 void FBallsBoardView::Hide() {
     if (bVisible) {
         BoardActor->SetActorHiddenInGame(true);
@@ -351,6 +368,7 @@ void FBallsBoardView::SubmitBalls(Simulation& Sim, const FBallsGameplayLayout& L
     Data.UnpackScale = FVector2f(1.0f / renderPackScale(Snapshot.fieldWidth), 1.0f / renderPackScale(Snapshot.fieldHeight));
     const float CellPixels = Layout.CellSize * DpiScale;
     Data.Radius = FMath::Max(Sim.tuning().ballRadius, MinimumBallPixels / FMath::Max(CellPixels, 1e-3f));
+    Data.Brightness = BallBrightness;
     static float LastRadius = -1.0f;
     if (!FMath::IsNearlyEqual(LastRadius, Data.Radius, 1e-5f)) {
         UE_LOG(LogTemp, Verbose, TEXT("BallsBoardView: radius %.4f cell %.2f dpi %.2f count %llu"), Data.Radius,

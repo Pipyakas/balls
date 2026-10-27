@@ -133,6 +133,23 @@ std::optional<BackendKind> SavedBackend() {
     return std::nullopt;
 }
 
+// The Unreal port owns this one: the design has no graphics level, but its post chain costs more than the scene.
+EBallsGraphics SavedGraphics() {
+    FString Name;
+    if (GConfig && GConfig->GetString(PreferencesSection, TEXT("Graphics"), Name, GGameUserSettingsIni)) {
+        if (const std::optional<EBallsGraphics> Parsed = BallsGraphics::Parse(Name)) {
+            return *Parsed;
+        }
+    }
+    FString Requested;
+    if (FParse::Value(FCommandLine::Get(), TEXT("BallsGraphics="), Requested)) {
+        if (const std::optional<EBallsGraphics> Parsed = BallsGraphics::Parse(Requested)) {
+            return *Parsed;
+        }
+    }
+    return EBallsGraphics::Minimum;
+}
+
 bool SavedVSync() {
     bool bEnabled = false;
     if (GConfig) {
@@ -183,7 +200,7 @@ FString EscapeJson(const FString& Text) {
 
 FBallsApp::FBallsApp(UWorld* InWorld)
     : World(InWorld), PreferredBackend(InitialBackend()), CurrentSettings(loadSettings(SettingsFile())),
-      bVSync(SavedVSync()) {
+      bVSync(SavedVSync()), GraphicsQuality(SavedGraphics()) {
     BoardView = MakeUnique<FBallsBoardView>(World);
     Root = SNew(SBallsRoot)
                .OnKey_Lambda([this](const FKey& Key) { return HandleKey(Key); })
@@ -205,6 +222,9 @@ FBallsApp::FBallsApp(UWorld* InWorld)
     if (GEngine) {
         GEngine->Exec(World, TEXT("DisableAllScreenMessages"));
         GEngine->Exec(World, bVSync ? TEXT("r.VSync 1") : TEXT("r.VSync 0"));
+        // The port starts at Minimum quality; the player raises it in the Performance gadget or the Settings page.
+        BoardView->ApplyGraphics(GraphicsQuality);
+        BallsGraphics::ApplyToWorld(World, GraphicsQuality);
         // The preset is desktop-only: Vulkan ES3.1 on Android has neither TSR nor usable DRS.
 #if !PLATFORM_ANDROID
         if (FParse::Param(FCommandLine::Get(), TEXT("BallsHighEnd"))) {
@@ -516,6 +536,16 @@ void FBallsApp::SetVSyncEnabled(bool bEnabled) {
     }
 }
 
+void FBallsApp::SetGraphicsQuality(EBallsGraphics Quality) {
+    GraphicsQuality = Quality;
+    if (GConfig) {
+        GConfig->SetString(PreferencesSection, TEXT("Graphics"), *BallsGraphics::Name(Quality), GGameUserSettingsIni);
+        GConfig->Flush(false, GGameUserSettingsIni);
+    }
+    BoardView->ApplyGraphics(Quality);
+    BallsGraphics::ApplyToWorld(World, Quality);
+}
+
 void FBallsApp::ShowMapEditor(GameMode Mode, std::optional<LevelFiles> Files) {
     TSharedPtr<FBallsMapEditor> Next = MakeShared<FBallsMapEditor>(*this, Mode, std::move(Files));
     MapEditorState = Next;
@@ -823,6 +853,24 @@ void FBallsApp::HandleControl(const FString& Path, const TMap<FString, FString>&
         }
         Gameplay->SetPaused(Path == TEXT("/pause"));
         OutBody = TEXT("{\"ok\":true}");
+        return;
+    }
+    if (Path == TEXT("/graphics")) {
+        const FString Requested = Param(TEXT("level"));
+        if (!Requested.IsEmpty()) {
+            const std::optional<EBallsGraphics> Parsed = BallsGraphics::Parse(Requested);
+            if (!Parsed) {
+                OutCode = 400;
+                OutBody = TEXT("{\"ok\":false,\"error\":\"level must be minimum, balanced or high\"}");
+                return;
+            }
+            SetGraphicsQuality(*Parsed);
+        }
+        OutBody = FString::Printf(TEXT("{\"ok\":true,\"level\":\"%s\",\"screenPercentage\":%d}"),
+                                  *BallsGraphics::Name(GraphicsQuality),
+                                  GraphicsQuality == EBallsGraphics::Minimum ? 70
+                                  : GraphicsQuality == EBallsGraphics::Balanced ? 85
+                                                                                : 100);
         return;
     }
     if (Path == TEXT("/benchmark")) {
