@@ -1841,7 +1841,16 @@ std::unique_ptr<IRenderer> createWebGpuRenderer(SDL_Window* window, std::string_
     WGPUSurfaceCapabilities caps{};
     WGPUTextureFormat surfaceFormat = WGPUTextureFormat_BGRA8Unorm;
     if (wgpuSurfaceGetCapabilities(surface, chosenAdapter, &caps) == WGPUStatus_Success) {
-        if (caps.formatCount > 0) {
+        bool foundUnorm = false;
+        for (size_t i = 0; i < caps.formatCount; ++i) {
+            if (caps.formats[i] == WGPUTextureFormat_BGRA8Unorm ||
+                caps.formats[i] == WGPUTextureFormat_RGBA8Unorm) {
+                surfaceFormat = caps.formats[i];
+                foundUnorm = true;
+                break;
+            }
+        }
+        if (!foundUnorm && caps.formatCount > 0) {
             surfaceFormat = caps.formats[0];
         }
         wgpuSurfaceCapabilitiesFreeMembers(caps);
