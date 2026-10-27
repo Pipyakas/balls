@@ -410,7 +410,11 @@ void VulkanBackend::uploadBoard(const BoardUpload& board) {
     fieldHeight = static_cast<float>(board.rows);
     sortColumns = std::max(board.columns, 0);
     sortRows = std::max(board.rows, 0);
-    hostBrickHitsLeft.assign(board.brickHitsLeft.begin(), board.brickHitsLeft.end());
+    // An empty span means the device's hit counts are current (it consumed the hits itself), so keep them.
+    const bool hitsChanged = !board.brickHitsLeft.empty();
+    if (hitsChanged) {
+        hostBrickHitsLeft.assign(board.brickHitsLeft.begin(), board.brickHitsLeft.end());
+    }
     brickCount = hostBrickHitsLeft.size();
     BallCount possibleKills = 0;
     for (int32_t hits : hostBrickHitsLeft) {
@@ -455,7 +459,9 @@ void VulkanBackend::uploadBoard(const BoardUpload& board) {
     if (!board.targetCells.empty()) {
         commands->writeBuffer(targetCells, board.targetCells.data(), board.targetCells.size_bytes());
     }
-    commands->writeBuffer(brickHitsLeft, hitsWithSentinel.data(), hitsWithSentinel.size() * sizeof(uint32_t));
+    if (hitsChanged) {
+        commands->writeBuffer(brickHitsLeft, hitsWithSentinel.data(), hitsWithSentinel.size() * sizeof(uint32_t));
+    }
     execute(commands);
     snapshotFresh = false;
 }
