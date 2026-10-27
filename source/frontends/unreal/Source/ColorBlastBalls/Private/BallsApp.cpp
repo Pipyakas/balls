@@ -307,6 +307,30 @@ void FBallsApp::UpdateSettings(const Settings& Next) {
     }
 }
 
+std::optional<FBallsApp::FMachineLimit> FBallsApp::GetMachineLimit(BackendKind Kind) const {
+    FString Value;
+    if (!GConfig || !GConfig->GetString(PreferencesSection, *(TEXT("Limit.") + BallsText::FromUtf8(backendKindName(Kind))),
+                                        Value, GGameUserSettingsIni)) {
+        return std::nullopt;
+    }
+    FString Target;
+    FString Balls;
+    if (!Value.Split(TEXT(" "), &Target, &Balls)) {
+        return std::nullopt;
+    }
+    return FMachineLimit{FCString::Atod(*Target), static_cast<BallCount>(FCString::Strtoui64(*Balls, nullptr, 10))};
+}
+
+void FBallsApp::RememberMachineLimit(BackendKind Kind, double TargetFps, BallCount Balls) {
+    if (!GConfig) {
+        return;
+    }
+    GConfig->SetString(PreferencesSection, *(TEXT("Limit.") + BallsText::FromUtf8(backendKindName(Kind))),
+                       *FString::Printf(TEXT("%g %llu"), TargetFps, static_cast<unsigned long long>(Balls)),
+                       GGameUserSettingsIni);
+    GConfig->Flush(false, GGameUserSettingsIni);
+}
+
 void FBallsApp::SetVSyncEnabled(bool bEnabled) {
     bVSync = bEnabled;
     if (GConfig) {

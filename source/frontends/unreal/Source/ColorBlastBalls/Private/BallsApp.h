@@ -38,6 +38,13 @@ public:
     const Settings& GetSettings() const { return CurrentSettings; }
     // Saves the settings and applies them to the running game.
     void UpdateSettings(const Settings& Next);
+    // The capacity probe's result per backend, saved per machine and reapplied on the next run.
+    struct FMachineLimit {
+        double TargetFps = 0.0;
+        BallCount Balls = 0;
+    };
+    std::optional<FMachineLimit> GetMachineLimit(BackendKind Kind) const;
+    void RememberMachineLimit(BackendKind Kind, double TargetFps, BallCount Balls);
     bool IsVSyncEnabled() const { return bVSync; }
     void SetVSyncEnabled(bool bEnabled);
     FBallsGameplay* GetGameplay() const { return Gameplay.Get(); }

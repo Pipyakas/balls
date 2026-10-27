@@ -3,6 +3,7 @@
 #include "BallsApp.h"
 #include "BallsPalette.h"
 #include "BallsText.h"
+#include "Framework/Application/SlateApplication.h"
 #include "Rendering/DrawElements.h"
 #include "UI/BallsStyle.h"
 #include "Widgets/Input/SButton.h"
@@ -65,6 +66,76 @@ TSharedRef<SWidget> Button(TAttribute<FText> Label, TFunction<void()> OnClicked,
         .WidgetIndex_Lambda([bSelected] { return bSelected.Get() ? 1 : 0; })
         + SWidgetSwitcher::Slot()[Normal]
         + SWidgetSwitcher::Slot()[Selected];
+}
+
+}
+
+namespace BallsWidgets {
+
+TSharedRef<SWidget> Dropdown(TArray<FString> Options, TFunction<int32()> GetIndex, TFunction<void(int32)> OnSelect,
+                             float ControlHeight, float FontSize) {
+    TSharedRef<bool> bOpen = MakeShared<bool>(false);
+    TSharedRef<SVerticalBox> List = SNew(SVerticalBox).Visibility_Lambda([bOpen] {
+        return *bOpen ? EVisibility::Visible : EVisibility::Collapsed;
+    });
+    for (int32 Index = 0; Index < Options.Num(); ++Index) {
+        List->AddSlot().AutoHeight().Padding(0.0f, 4.0f, 0.0f, 0.0f)
+        [
+            SNew(SBox).HeightOverride(ControlHeight)
+            [
+                Button(FText::FromString(Options[Index]), [bOpen, OnSelect, Index] {
+                    OnSelect(Index);
+                    *bOpen = false;
+                }, FontSize, true, TAttribute<bool>::CreateLambda([GetIndex, Index] { return GetIndex() == Index; }))
+            ]
+        ];
+    }
+    return SNew(SVerticalBox)
+        + SVerticalBox::Slot().AutoHeight()
+        [
+            SNew(SBox).HeightOverride(ControlHeight)
+            [
+                Button(TAttribute<FText>::CreateLambda([Options, GetIndex, bOpen] {
+                           const int32 Index = FMath::Clamp(GetIndex(), 0, Options.Num() - 1);
+                           return FText::FromString(Options[Index] + (*bOpen ? TEXT("  ^") : TEXT("  v")));
+                       }),
+                       [bOpen] { *bOpen = !*bOpen; }, FontSize)
+            ]
+        ]
+        + SVerticalBox::Slot().AutoHeight()[List];
+}
+
+TSharedRef<SWidget> Stepper(TFunction<int32()> GetValue, TFunction<void(int32)> OnChange, int32 Minimum, int32 Maximum,
+                            float ControlHeight, float FontSize) {
+    auto Step = [GetValue, OnChange, Minimum, Maximum](int32 Direction) {
+        const int32 Amount = FSlateApplication::Get().GetModifierKeys().IsShiftDown() ? 10 : 1;
+        OnChange(FMath::Clamp(GetValue() + Direction * Amount, Minimum, Maximum));
+    };
+    return SNew(SBox).HeightOverride(ControlHeight)
+        [
+            SNew(SHorizontalBox)
+            + SHorizontalBox::Slot().AutoWidth()
+            [
+                SNew(SBox).WidthOverride(ControlHeight)[Button(FText::FromString(TEXT("-")), [Step] { Step(-1); }, FontSize)]
+            ]
+            + SHorizontalBox::Slot().FillWidth(1.0f).Padding(4.0f, 0.0f)
+            [
+                SNew(SBorder)
+                .BorderImage(BallsStyle::Panel())
+                .HAlign(HAlign_Center)
+                .VAlign(VAlign_Center)
+                [
+                    SNew(STextBlock)
+                    .Text_Lambda([GetValue] { return FText::FromString(FString::FromInt(GetValue())); })
+                    .Font(BallsStyle::Font(FontSize))
+                    .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Text))
+                ]
+            ]
+            + SHorizontalBox::Slot().AutoWidth()
+            [
+                SNew(SBox).WidthOverride(ControlHeight)[Button(FText::FromString(TEXT("+")), [Step] { Step(1); }, FontSize)]
+            ]
+        ];
 }
 
 }

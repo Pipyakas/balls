@@ -659,8 +659,10 @@ private:
             const BallCount Limit = Session.ballLimit();
             Writer.Row(TEXT("Ball limit"), Session.isUsingMachineBallLimit()
                                                ? TEXT("Auto ") + BallsText::Grouped(Limit)
-                                               : (Limit == unlimitedBalls ? FString(TEXT("Max (2^64-1)"))
-                                                                          : BallsText::Grouped(Limit)));
+                                               : Gameplay->IsAutoLimitPending()
+                                                     ? FString(TEXT("Auto (probe needed)"))
+                                                     : (Limit == unlimitedBalls ? FString(TEXT("Max (2^64-1)"))
+                                                                                : BallsText::Grouped(Limit)));
         }
     }
 
@@ -802,22 +804,29 @@ void SBallsGameplayHud::Construct(const FArguments& InArgs) {
 
 TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
     TSharedPtr<FBallsGameplay> Game = Gameplay;
+    FBallsApp* Owner = App;
     auto Session = [Game]() -> GameSession* { return Game->GetSession(); };
 
-    auto ButtonRow = [](TArray<TSharedRef<SWidget>> Buttons) {
-        TSharedRef<SHorizontalBox> Row = SNew(SHorizontalBox);
-        for (int32 Index = 0; Index < Buttons.Num(); ++Index) {
-            Row->AddSlot().FillWidth(1.0f).Padding(Index == 0 ? 0.0f : ControlGap * 0.5f, 0.0f,
-                                                   Index + 1 == Buttons.Num() ? 0.0f : ControlGap * 0.5f, 0.0f)
-            [
-                Buttons[Index]
-            ];
-        }
-        return Row;
+    // One vertical column that scrolls; rows are ControlRowHeight high and ControlGap apart.
+    TSharedRef<SVerticalBox> Column = SNew(SVerticalBox);
+    auto AddLabel = [&Column](const TCHAR* Label) {
+        Column->AddSlot().AutoHeight().Padding(0.0f, ControlGap, 0.0f, 4.0f)
+        [
+            SNew(STextBlock)
+            .Text(FText::FromString(Label))
+            .Font(BallsStyle::Font(20.0f))
+            .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
+        ];
+    };
+    auto AddRow = [&Column](TSharedRef<SWidget> Content, bool bSized = true) {
+        Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap * 0.6f)
+        [
+            bSized ? StaticCastSharedRef<SWidget>(SNew(SBox).HeightOverride(ControlRowHeight)[Content]) : Content
+        ];
     };
 
-    TArray<TSharedRef<SWidget>> ReleaseButtons;
-    ReleaseButtons.Add(BallsWidgets::Button(
+    AddLabel(TEXT("Release"));
+    AddRow(BallsWidgets::Button(
         TAttribute<FText>::CreateLambda([Session] {
             const GameSession* Current = Session();
             if (!Current || Current->state() == SessionState::Ready) {
@@ -827,7 +836,13 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
         }),
         [Game] { Game->StartAutoRelease(); }, 18.0f,
         TAttribute<bool>::CreateLambda([Session] { return Session() && Session()->state() == SessionState::Ready; })));
-    ReleaseButtons.Add(BallsWidgets::Button(
+
+    AddLabel(TEXT("Capacity probe"));
+    AddRow(BallsWidgets::Stepper([Game] { return Game->GetProbeTargetFps(); },
+                                 [Game](int32 Fps) { Game->SetProbeTargetFps(Fps); },
+                                 FBallsGameplay::MinimumProbeTargetFps, FBallsGameplay::MaximumProbeTargetFps),
+           false);
+    AddRow(BallsWidgets::Button(
         TAttribute<FText>::CreateLambda([Session] {
             const GameSession* Current = Session();
             if (!Current) {
@@ -835,88 +850,75 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
             }
             const CapacityProbe& Probe = Current->capacityProbe();
             if (Probe.isActive()) {
-                return LabelText(FString::Printf(TEXT("Probing... %s balls, %.0f fps"),
+                return LabelText(FString::Printf(TEXT("Probing... %s, %.0f"),
                                                  *BallsText::Grouped(Current->simulation().liveBallCount()), Probe.lastFps()));
             }
             if (Probe.phase() == ProbePhase::Done) {
-                return LabelText(TEXT("Machine max @60 FPS: ") + BallsText::Grouped(Probe.bestPassingCount()));
+                return LabelText(FString::Printf(TEXT("Max @%.0f FPS: %s"), Probe.targetFps(),
+                                                 *BallsText::Grouped(Probe.bestPassingCount())));
             }
-            return LabelText(TEXT("Find max @60 FPS"));
+            return LabelText(TEXT("Find max balls"));
         }),
         [Game] { Game->ToggleCapacityProbe(); }, 18.0f));
 
-    TArray<TSharedRef<SWidget>> RateButtons;
-    for (int32 Index = 0; Index < static_cast<int32>(spawnRateOptions.size()); ++Index) {
-        const int32 Rate = spawnRateOptions[Index];
-        RateButtons.Add(BallsWidgets::Button(LabelText(Rate == 0 ? FString(TEXT("Max")) : FString::FromInt(Rate)),
-                                             [Game, Index] { Game->SelectSpawnRate(Index); }, 18.0f, true,
-                                             TAttribute<bool>::CreateLambda([Session, Index] {
-                                                 return Session() && Session()->spawnRateIndex() == Index;
-                                             })));
+    AddLabel(TEXT("Spawn / sec"));
+    TArray<FString> RateNames;
+    for (const int32 Rate : spawnRateOptions) {
+        RateNames.Add(Rate == 0 ? FString(TEXT("Max")) : FString::FromInt(Rate));
     }
+    AddRow(BallsWidgets::Dropdown(RateNames, [Session] { return Session() ? Session()->spawnRateIndex() : 0; },
+                                  [Game](int32 Index) { Game->SelectSpawnRate(Index); }),
+           false);
 
-    TArray<TSharedRef<SWidget>> MultiplierButtons;
-    for (int32 Index = 0; Index < static_cast<int32>(ballMultiplierOptions.size()); ++Index) {
-        MultiplierButtons.Add(BallsWidgets::Button(
-            LabelText(FString::Printf(TEXT("x%llu"), static_cast<unsigned long long>(ballMultiplierOptions[Index]))),
-            [Game, Index] { Game->SelectBallMultiplier(Index); }, 18.0f, true,
-            TAttribute<bool>::CreateLambda([Session, Index] {
-                return Session() && Session()->ballMultiplierIndex() == Index;
-            })));
+    AddLabel(TEXT("Ball count"));
+    TArray<FString> MultiplierNames;
+    for (const BallCount Multiplier : ballMultiplierOptions) {
+        MultiplierNames.Add(FString::Printf(TEXT("x%llu"), static_cast<unsigned long long>(Multiplier)));
     }
+    AddRow(BallsWidgets::Dropdown(MultiplierNames, [Session] { return Session() ? Session()->ballMultiplierIndex() : 0; },
+                                  [Game](int32 Index) { Game->SelectBallMultiplier(Index); }),
+           false);
 
-    TArray<TSharedRef<SWidget>> LimitButtons;
-    for (int32 Index = 0; Index < static_cast<int32>(ballLimitOptions.size()); ++Index) {
-        LimitButtons.Add(BallsWidgets::Button(
-            LabelText(BallsText::BallLimitShort(ballLimitOptions[Index])), [Game, Index] { Game->SelectBallLimit(Index); },
-            18.0f, true, TAttribute<bool>::CreateLambda([Session, Index] {
-                return Session() && !Session()->isUsingMachineBallLimit() && Session()->ballLimitIndex() == Index;
-            })));
+    // The first entry is Auto (the probe result for this machine); the rest are the fixed limits.
+    AddLabel(TEXT("Ball limit"));
+    TArray<FString> LimitNames;
+    LimitNames.Add(TEXT("Auto"));
+    for (const BallCount Limit : ballLimitOptions) {
+        LimitNames.Add(BallsText::BallLimitShort(Limit));
     }
-    LimitButtons.Add(BallsWidgets::Button(
-        TAttribute<FText>::CreateLambda([Session] {
-            const GameSession* Current = Session();
-            const std::optional<BallCount> Measured = Current ? Current->machineBallLimit() : std::nullopt;
-            return LabelText(Measured ? TEXT("Auto ") + BallsText::Grouped(*Measured) : FString(TEXT("Auto (probe)")));
-        }),
-        [Game] { Game->SelectMachineLimit(); }, 18.0f, true,
-        TAttribute<bool>::CreateLambda([Session] { return Session() && Session()->isUsingMachineBallLimit(); })));
+    AddRow(BallsWidgets::Dropdown(
+               LimitNames,
+               [Session] {
+                   const GameSession* Current = Session();
+                   return !Current ? 0 : Current->isUsingMachineBallLimit() ? 0 : Current->ballLimitIndex() + 1;
+               },
+               [Game](int32 Index) {
+                   if (Index == 0) {
+                       Game->SelectMachineLimit();
+                   } else {
+                       Game->SelectBallLimit(Index - 1);
+                   }
+               }),
+           false);
 
-    TArray<TSharedRef<SWidget>> BackendButtons;
-    for (int32 Index = 0; Index < static_cast<int32>(allBackendKinds.size()); ++Index) {
-        const BackendKind Kind = allBackendKinds[Index];
-        BackendButtons.Add(BallsWidgets::Button(
-            LabelText(BallsText::FromUtf8(backendKindName(Kind))),
-            [Game, Kind] { Game->SwitchBackend(Kind); }, 18.0f, isBackendAvailable(Kind),
-            TAttribute<bool>::CreateLambda([Session, Kind] { return Session() && Session()->backend() == Kind; })));
-    }
-
-    // The controls column is narrow, so each group gets a label line and at most three buttons per row.
-    TSharedRef<SVerticalBox> Column = SNew(SVerticalBox);
-    auto AddGroup = [&Column, &ButtonRow](const TCHAR* Label, const TArray<TSharedRef<SWidget>>& Buttons, int32 PerRow) {
-        Column->AddSlot().AutoHeight().Padding(0.0f, ControlGap, 0.0f, 4.0f)
-        [
-            SNew(STextBlock)
-            .Text(FText::FromString(Label))
-            .Font(BallsStyle::Font(20.0f))
-            .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
-        ];
-        for (int32 First = 0; First < Buttons.Num(); First += PerRow) {
-            TArray<TSharedRef<SWidget>> RowButtons;
-            for (int32 Index = First; Index < FMath::Min(First + PerRow, Buttons.Num()); ++Index) {
-                RowButtons.Add(Buttons[Index]);
-            }
+    AddLabel(TEXT("Physics"));
+    for (const BackendKind Kind : allBackendKinds) {
+        AddRow(BallsWidgets::Button(LabelText(BallsText::FromUtf8(backendKindName(Kind))),
+                                    [Owner, Kind] { Owner->ChooseBackend(Kind); }, 18.0f, isBackendAvailable(Kind),
+                                    TAttribute<bool>::CreateLambda([Session, Kind] {
+                                        return Session() && Session()->backend() == Kind;
+                                    })));
+        if (!isBackendAvailable(Kind)) {
             Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap * 0.6f)
             [
-                SNew(SBox).HeightOverride(ControlRowHeight)[ButtonRow(RowButtons)]
+                SNew(STextBlock)
+                .Text(LabelText(BallsText::FromUtf8(backendUnavailableReason(Kind))))
+                .Font(BallsStyle::Font(15.0f))
+                .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
+                .AutoWrapText(true)
             ];
         }
-    };
-    AddGroup(TEXT("Release"), ReleaseButtons, 1);
-    AddGroup(TEXT("Spawn / sec"), RateButtons, 3);
-    AddGroup(TEXT("Ball count"), MultiplierButtons, 3);
-    AddGroup(TEXT("Ball limit"), LimitButtons, 3);
-    AddGroup(TEXT("Physics"), BackendButtons, 3);
+    }
     return SNew(SScrollBox) + SScrollBox::Slot()[Column];
 }
 

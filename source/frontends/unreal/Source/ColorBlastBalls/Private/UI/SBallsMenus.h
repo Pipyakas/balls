@@ -14,6 +14,15 @@ namespace BallsWidgets {
 TSharedRef<SWidget> Button(TAttribute<FText> Label, TFunction<void()> OnClicked, float FontSize = 22.0f,
                            TAttribute<bool> bEnabled = true, TAttribute<bool> bSelected = false);
 
+// A full-width row showing the current value; clicking opens a vertical list under it (inline, so a scrolling
+// gadget just grows). Choosing an entry or clicking the row again closes it.
+TSharedRef<SWidget> Dropdown(TArray<FString> Options, TFunction<int32()> GetIndex, TFunction<void(int32)> OnSelect,
+                             float ControlHeight = 44.0f, float FontSize = 20.0f);
+
+// "-  value  +": Shift makes a click step by 10. Limits are inclusive.
+TSharedRef<SWidget> Stepper(TFunction<int32()> GetValue, TFunction<void(int32)> OnChange, int32 Minimum, int32 Maximum,
+                            float ControlHeight = 44.0f, float FontSize = 20.0f);
+
 }
 
 class SBallsMainMenu final : public SCompoundWidget {

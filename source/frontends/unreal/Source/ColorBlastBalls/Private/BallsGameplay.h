@@ -28,6 +28,12 @@ public:
     void ChooseLauncher(int32 Column, int32 Row);
     void StartAutoRelease();
     void ToggleCapacityProbe();
+    int32 GetProbeTargetFps() const { return ProbeTargetFps; }
+    void SetProbeTargetFps(int32 Fps) { ProbeTargetFps = FMath::Clamp(Fps, MinimumProbeTargetFps, MaximumProbeTargetFps); }
+    // True after picking the Auto ball limit while no probe result exists yet.
+    bool IsAutoLimitPending() const { return bAutoLimitPending && Session && !Session->machineBallLimit(); }
+    static constexpr int32 MinimumProbeTargetFps = 10;
+    static constexpr int32 MaximumProbeTargetFps = 1000;
     void SelectSpawnRate(int32 Index);
     void SelectBallMultiplier(int32 Index);
     void SelectBallLimit(int32 Index);
@@ -52,6 +58,7 @@ public:
 
 private:
     void LoadSession();
+    void ApplyRememberedMachineLimit();
     void HotReload();
     void ShowToast(FString Text, bool bIsError);
 
@@ -65,4 +72,6 @@ private:
     bool bPaused = false;
     bool bSettingsOpen = false;
     bool bProbeResultShown = true;
+    bool bAutoLimitPending = false;
+    int32 ProbeTargetFps = static_cast<int32>(defaultProbeTargetFps);
 };
