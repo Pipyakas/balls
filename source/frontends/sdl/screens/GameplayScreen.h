@@ -60,7 +60,6 @@ private:
     void drawInteractionSection(const GameplayLayout& layout);
     void drawPortraitLauncherRow(Rect area);
     void drawPerformanceControls(Rect area);
-    float performanceContentHeight() const;
     void drawNormalControls(Rect area);
     float normalContentHeight() const;
     void drawBackendList(Rect area, BackendKind selected);
@@ -82,6 +81,7 @@ private:
     bool probeResultSaved = true;
     int probeTargetFps = 60;
     float controlsScroll = 0.0f;
+    float performanceControlsHeight = 0.0f;
     float normalScroll = 0.0f;
     float portraitLauncherScroll = 0.0f;
     Vec2 portraitPressStart{};

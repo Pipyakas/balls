@@ -31,6 +31,9 @@ constexpr float controlRowHeight = 44.0f;
 constexpr float controlGap = 10.0f;
 constexpr float groupLabelHeight = 26.0f;
 constexpr float groupGap = 14.0f;
+constexpr float minimumControlColumnWidth = 220.0f;
+constexpr float controlColumnGap = 16.0f;
+constexpr float scrollbarGutter = 10.0f;
 
 float listHeight(size_t rows) {
     return (controlRowHeight + controlGap) * static_cast<float>(rows) - controlGap;
@@ -397,9 +400,7 @@ int GameplayScreen::drawOptionDropdown(Rect area, std::string_view current,
                                        std::span<const std::string> options, int selected, bool& open) {
     const Rect row{area.x, area.y, area.width, controlRowHeight};
     int picked = -1;
-    if (ui::dropdown(row, current, open)) {
-        open = !open;
-    }
+    ui::dropdown(row, current, open);
     float cursor = area.y + controlRowHeight + controlGap;
     if (open) {
         const Rect list{area.x, area.y, area.width, cursor - area.y};
@@ -420,38 +421,24 @@ int GameplayScreen::drawOptionDropdown(Rect area, std::string_view current,
     return picked;
 }
 
-float GameplayScreen::performanceContentHeight() const {
-    constexpr size_t dropdownOptions = 6;
-    float height = 0.0f;
-    height += groupLabelHeight + controlRowHeight + groupGap;
-    height += groupLabelHeight + controlRowHeight * 2.0f + controlGap + groupGap;
-    height += groupLabelHeight + controlRowHeight + groupGap;
-    height += groupLabelHeight + controlRowHeight + groupGap;
-    height += groupLabelHeight + controlRowHeight + groupGap;
-    height +=
-        groupLabelHeight + (controlRowHeight + controlGap) * allBackendKinds.size() - controlGap + groupGap;
-    for (const size_t choices : {renderAdapterChoices().size(), computeAdapterChoices().size()}) {
-        if (choices > 0) {
-            height += groupLabelHeight + listHeight(choices) + groupGap;
-        }
-    }
-    if (spawnDropdownOpen || countDropdownOpen || limitDropdownOpen) {
-        height += (controlRowHeight + controlGap) * dropdownOptions;
-    }
-    return height;
-}
-
 void GameplayScreen::drawPerformanceControls(Rect area) {
     const Rect inner = ui::shrink(area, 14.0f);
     float visibleHeight = 0.0f;
-    ui::scrollFrame(inner, controlsScroll, performanceContentHeight(), visibleHeight);
+    ui::scrollFrame(inner, controlsScroll, performanceControlsHeight, visibleHeight);
     gfx::beginClip(inner);
-    const Rect scrolled{inner.x, inner.y - controlsScroll, inner.width, performanceContentHeight()};
-    float cursor = scrolled.y;
+    const float top = inner.y - controlsScroll;
+    const float contentWidth = inner.width - scrollbarGutter;
+    const int columnCount = contentWidth >= minimumControlColumnWidth * 2.0f + controlColumnGap ? 2 : 1;
+    const float columnWidth = (contentWidth - controlColumnGap * static_cast<float>(columnCount - 1)) /
+                              static_cast<float>(columnCount);
+    std::array<float, 2> columnCursors{top, top};
     auto group = [&](const char* label, float contentHeight) {
-        ui::drawText(label, {scrolled.x, cursor}, 20.0f, palette::textMuted);
+        const size_t column = columnCount == 1 || columnCursors[0] <= columnCursors[1] ? 0 : 1;
+        float& cursor = columnCursors[column];
+        const float x = inner.x + static_cast<float>(column) * (columnWidth + controlColumnGap);
+        ui::drawText(label, {x, cursor}, 20.0f, palette::textMuted);
         cursor += groupLabelHeight;
-        const Rect rows{scrolled.x, cursor, scrolled.width, contentHeight};
+        const Rect rows{x, cursor, columnWidth, contentHeight};
         cursor += contentHeight + groupGap;
         return rows;
     };
@@ -542,6 +529,7 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
                         choices, selectGpuAdapter(app.computeAdapters(), computeGpuPreference(), GpuRole::Compute),
                         true);
     }
+    performanceControlsHeight = std::max(columnCursors[0], columnCursors[1]) - top - groupGap;
     gfx::endClip();
 }
 
@@ -608,7 +596,7 @@ void GameplayScreen::drawNormalControls(Rect area) {
     float visibleHeight = 0.0f;
     ui::scrollFrame(inner, normalScroll, normalContentHeight(), visibleHeight);
     gfx::beginClip(inner);
-    const float width = inner.width;
+    const float width = inner.width - scrollbarGutter;
     float cursor = inner.y - normalScroll;
     const Rect launcherArea{inner.x, cursor, width, 320.0f};
     const LauncherGridLayout grid =

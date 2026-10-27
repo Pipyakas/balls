@@ -11,14 +11,14 @@ constexpr float landscapeLeftWidth = 420.0f;
 constexpr float landscapeRightWidth = 200.0f;
 constexpr float landscapeHeaderHeight = 56.0f;
 constexpr float widestLandscapeAspect = 16.0f / 9.0f;
-constexpr float portraitTopHeight = 72.0f;
+constexpr float portraitTopHeight = 92.0f;
 constexpr float portraitHeaderHeight = 44.0f;
 constexpr float minimumBoardExtent = 240.0f;
 constexpr float compactLauncherFraction = 0.19f;
 constexpr float compactLauncherMinimum = 120.0f;
 constexpr float compactLauncherMaximum = 240.0f;
 constexpr float compactRowExtra = 48.0f;
-constexpr float bottomFraction = 0.3f;
+constexpr float bottomFraction = 0.38f;
 constexpr float bottomMinimum = 200.0f;
 constexpr float bottomMaximum = 620.0f;
 
