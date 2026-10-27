@@ -72,9 +72,78 @@ namespace Balls.Editor
             }
             foreach (string file in Directory.GetFiles(built, "*.dll"))
             {
-                File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), true);
+                string target = Path.Combine(destination, Path.GetFileName(file));
+                File.Copy(file, target, true);
+                WritePluginMeta(Path.GetFileNameWithoutExtension(file));
             }
+            AssetDatabase.Refresh();
             Debug.Log($"copied native plugins from {built}");
+        }
+
+        /// <summary>
+        /// A native plugin copied in with File.Copy arrives without import settings, and a plugin with no platform
+        /// entry is left out of builds. Writing the importer block makes the rules explicit: editor on Windows and
+        /// the Win64 player both load it.
+        /// </summary>
+        private static void WritePluginMeta(string pluginName)
+        {
+            string assetPath = $"Assets/Plugins/x86_64/{pluginName}.dll";
+            string metaPath = assetPath + ".meta";
+            string guid = StableGuid(pluginName);
+            string meta =
+                "fileFormatVersion: 2\n" +
+                $"guid: {guid}\n" +
+                "PluginImporter:\n" +
+                "  externalObjects: {}\n" +
+                "  serializedVersion: 2\n" +
+                "  iconMap: {}\n" +
+                "  executionOrder: {}\n" +
+                "  defineConstraints: []\n" +
+                "  isPreloaded: 0\n" +
+                "  isOverridable: 0\n" +
+                "  isExplicitlyReferenced: 0\n" +
+                "  validateReferences: 1\n" +
+                "  platformData:\n" +
+                "  - first:\n" +
+                "      Any: \n" +
+                "    second:\n" +
+                "      enabled: 0\n" +
+                "      settings: {}\n" +
+                "  - first:\n" +
+                "      Editor: Editor\n" +
+                "    second:\n" +
+                "      enabled: 1\n" +
+                "      settings:\n" +
+                "        CPU: x86_64\n" +
+                "        DefaultValueInitialized: true\n" +
+                "        OS: Windows\n" +
+                "  - first:\n" +
+                "      Standalone: Win64\n" +
+                "    second:\n" +
+                "      enabled: 1\n" +
+                "      settings:\n" +
+                "        CPU: x86_64\n" +
+                "  userData: \n" +
+                "  assetBundleName: \n" +
+                "  assetBundleVariant: \n";
+            if (!File.Exists(metaPath) || !File.ReadAllText(metaPath).Contains("PluginImporter"))
+            {
+                File.WriteAllText(metaPath, meta);
+            }
+            AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceUpdate);
+        }
+
+        /// <summary>A GUID that stays the same between machines, so metas churn nothing in git.</summary>
+        private static string StableGuid(string name)
+        {
+            using var md5 = System.Security.Cryptography.MD5.Create();
+            byte[] hash = md5.ComputeHash(System.Text.Encoding.UTF8.GetBytes("balls." + name));
+            var text = new System.Text.StringBuilder(32);
+            for (int index = 0; index < 16; ++index)
+            {
+                text.Append(hash[index].ToString("x2"));
+            }
+            return text.ToString();
         }
 
         [MenuItem("Balls/Copy Levels")]
