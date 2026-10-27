@@ -15,4 +15,5 @@ THIRD_PARTY_INCLUDES_START
 #include "sim/BackendBenchmark.h"
 #include "sim/BackendFactory.h"
 #include "sim/Simulation.h"
+#include "ui/GameplayLayout.h"
 THIRD_PARTY_INCLUDES_END

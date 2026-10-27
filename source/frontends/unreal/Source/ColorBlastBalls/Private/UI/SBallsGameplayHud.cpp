@@ -112,14 +112,33 @@ struct FPortraitLauncherGrid {
     TArray<FPortraitLauncherSlot> Slots;
     float SlotSize = 0.0f;
     float Gap = 0.0f;
-    // How far the row can scroll sideways; 0 when every launcher fits.
+    float GridWidth = 0.0f;
+    // How far the grid can scroll sideways; 0 when every column fits.
     float MaximumScroll = 0.0f;
 };
 
-// Portrait puts the launchers in one compact row at the bottom, regardless of the queue's own column/row
-// layout. Buttons keep a fixed size and the row scrolls sideways when it is wider than the panel.
+// Portrait keeps the queue's own columns and rows: every visible row of every column, slot size
+// clamp(width * 0.19, 120, 240) shrunk until the rows fit, scrolling sideways when the columns don't.
 FPortraitLauncherGrid ComputePortraitLauncherGrid(const LauncherQueue& Queue, const FSlateRect& Area, float Scroll) {
     FPortraitLauncherGrid Grid;
+    const float Columns = static_cast<float>(FMath::Max(Queue.columnCount(), 1));
+    const float Rows = static_cast<float>(FMath::Max(Queue.visibleRows(), 1));
+    const FVector2D Size = Area.GetSize();
+    // Area is the panel shrunk by the 12-unit margin on each side.
+    const float ByWidth = PortraitLauncherSize(static_cast<float>(Size.X) + 24.0f);
+    const float ByHeight =
+        FMath::Max(static_cast<float>(Size.Y) - 24.0f, 1.0f) / (Rows + (Rows - 1.0f) * LauncherGapShare);
+    Grid.SlotSize = FMath::Max(1.0f, FMath::Min(ByWidth, ByHeight));
+    Grid.Gap = Grid.SlotSize * LauncherGapShare;
+    Grid.GridWidth = Columns * Grid.SlotSize + (Columns - 1.0f) * Grid.Gap;
+    const float GridHeight = Rows * Grid.SlotSize + (Rows - 1.0f) * Grid.Gap;
+    Grid.MaximumScroll = FMath::Max(0.0f, Grid.GridWidth - static_cast<float>(Size.X));
+    // Centered when the columns fit; otherwise the row starts at the panel edge and scrolls.
+    const float Offset = Grid.MaximumScroll > 0.0f
+                             ? -FMath::Clamp(Scroll, 0.0f, Grid.MaximumScroll)
+                             : (static_cast<float>(Size.X) - Grid.GridWidth) * 0.5f;
+    const float OriginX = static_cast<float>(Area.Left) + Offset;
+    const float OriginY = static_cast<float>(Area.Top) + (static_cast<float>(Size.Y) - GridHeight) * 0.5f;
     for (int32 Column = 0; Column < Queue.columnCount(); ++Column) {
         for (int32 Row = 0; Row < Queue.visibleRows(); ++Row) {
             if (const QueuedLauncher* Queued = Queue.visible(Column, Row)) {
@@ -127,23 +146,12 @@ FPortraitLauncherGrid ComputePortraitLauncherGrid(const LauncherQueue& Queue, co
                 Slot.Queued = Queued;
                 Slot.Column = Column;
                 Slot.Row = Row;
+                const float Left = OriginX + static_cast<float>(Column) * (Grid.SlotSize + Grid.Gap);
+                const float Top = OriginY + static_cast<float>(Row) * (Grid.SlotSize + Grid.Gap);
+                Slot.Rect = FSlateRect(Left, Top, Left + Grid.SlotSize, Top + Grid.SlotSize);
                 Grid.Slots.Add(Slot);
             }
         }
-    }
-    const int32 Count = Grid.Slots.Num();
-    const FVector2D Size = Area.GetSize();
-    // Area is the panel shrunk by the 12-unit margin on each side.
-    Grid.SlotSize = FMath::Min(PortraitLauncherSize(static_cast<float>(Size.X) + 24.0f), static_cast<float>(Size.Y));
-    Grid.Gap = Grid.SlotSize * LauncherGapShare;
-    const float RowWidth = Count * Grid.SlotSize + FMath::Max(Count - 1, 0) * Grid.Gap;
-    Grid.MaximumScroll = FMath::Max(0.0f, RowWidth - static_cast<float>(Size.X));
-    const float Offset = RowWidth <= Size.X ? (static_cast<float>(Size.X) - RowWidth) * 0.5f
-                                            : -FMath::Clamp(Scroll, 0.0f, Grid.MaximumScroll);
-    const float Top = Area.Top + (static_cast<float>(Size.Y) - Grid.SlotSize) * 0.5f;
-    for (int32 Index = 0; Index < Count; ++Index) {
-        const float Left = Area.Left + Offset + Index * (Grid.SlotSize + Grid.Gap);
-        Grid.Slots[Index].Rect = FSlateRect(Left, Top, Left + Grid.SlotSize, Top + Grid.SlotSize);
     }
     return Grid;
 }
@@ -363,18 +371,12 @@ public:
         PaintLaunchPoint(Out, LayerId + 1, Geometry, Sim, Layout);
 
         if (Layout.bPortrait) {
-            DrawBox(Out, LayerId, Geometry, Layout.Header, BallsStyle::RoundedBox(0.0f), PanelTint);
-            const FString PortraitNotice = MapNoticeText();
-            DrawText(Out, LayerId + 1, Geometry,
-                     PortraitNotice.IsEmpty() ? FString(Gameplay->GetMode() == GameMode::Normal ? TEXT("Normal Mode") : TEXT("Performance Mode"))
-                                              : PortraitNotice,
-                     FVector2D(Layout.Header.Left + 20.0f, Layout.Header.Top + 7.0f), BallsStyle::Font(15.0f),
-                     BallsPalette::Linear(PortraitNotice.IsEmpty() ? BallsPalette::TextMuted : BallsPalette::Accent));
-            DrawText(Out, LayerId + 1, Geometry, BallsText::FromUtf8(Gameplay->GetFiles().name),
-                     FVector2D(Layout.Header.Left + 20.0f, Layout.Header.Top + 25.0f), BallsStyle::Font(24.0f, true),
-                     BallsPalette::Linear(BallsPalette::Text));
-            PaintStatsStrip(Out, LayerId + 1, Geometry, *Session, Layout.Header);
-            DrawBox(Out, LayerId, Geometry, Layout.InteractionSection, BallsStyle::RoundedBox(0.0f), PanelTint);
+            // Portrait: one top gadget holding the 44 header over the 48 debug strip, then the board, then the
+            // bottom interaction gadget.
+            DrawBox(Out, LayerId, Geometry, Layout.TopGadget, BallsStyle::RoundedBox(0.0f), PanelTint);
+            PaintHeaderTitle(Out, LayerId + 1, Geometry, Layout);
+            PaintStatsStrip(Out, LayerId + 1, Geometry, *Session, Layout.DebugSection);
+            DrawBox(Out, LayerId, Geometry, Layout.BottomGadget, BallsStyle::RoundedBox(0.0f), PanelTint);
             if (Gameplay->GetMode() == GameMode::Normal) {
                 PaintLaunchers(Out, LayerId + 1, Geometry, *Session, Layout);
             }
@@ -383,29 +385,10 @@ public:
             return LayerId + 3;
         }
 
-        const FSlateRect LeftColumn(Layout.Header.Left, Layout.Header.Top, Layout.Header.Right,
-                                    Layout.InteractionSection.Bottom);
-
-        DrawBox(Out, LayerId, Geometry, LeftColumn, BallsStyle::RoundedBox(0.0f), PanelTint);
-        // "<Normal|Performance> - <level name>", with the Pause button at the right edge.
-        FString Title = FString::Printf(TEXT("%s - %s"), Gameplay->GetMode() == GameMode::Normal ? TEXT("Normal") : TEXT("Performance"),
-                                        *BallsText::FromUtf8(Gameplay->GetFiles().name));
-        const FSlateFontInfo TitleFont = BallsStyle::Font(22.0f);
-        const float TitleRoom = Layout.Header.GetSize().X - 16.0f - 96.0f - 20.0f;
-        while (Title.Len() > 4 && BallsStyle::Measure(Title, TitleFont).X > TitleRoom) {
-            Title = Title.Left(Title.Len() - 2) + TEXT("~");
-        }
-        const FString Notice = MapNoticeText();
-        DrawText(Out, LayerId + 1, Geometry, Title,
-                 FVector2D(Layout.Header.Left + 16.0f, Notice.IsEmpty() ? Layout.Header.GetCenter().Y - 13.0f : Layout.Header.Top + 4.0f),
-                 TitleFont, BallsPalette::Linear(BallsPalette::Text));
-        if (!Notice.IsEmpty()) {
-            DrawText(Out, LayerId + 1, Geometry, Notice, FVector2D(Layout.Header.Left + 16.0f, Layout.Header.Top + 31.0f),
-                     BallsStyle::Font(15.0f), BallsPalette::Linear(BallsPalette::Accent));
-        }
-        DrawBox(Out, LayerId + 1, Geometry,
-                FSlateRect(Layout.Header.Left, Layout.Header.Bottom - 1.0f, Layout.Header.Right, Layout.Header.Bottom),
-                BallsStyle::RoundedBox(0.0f), BallsPalette::Linear(BallsPalette::Frame));
+        // Landscape: the left gadget is the header over the user interaction, one panel, and the debug gadget sits
+        // at the right edge of the board frame.
+        DrawBox(Out, LayerId, Geometry, Layout.LeftGadget, BallsStyle::RoundedBox(0.0f), PanelTint);
+        PaintHeaderTitle(Out, LayerId + 1, Geometry, Layout);
 
         PaintBrickLabels(Out, LayerId + 1, Geometry, Sim.board(), Layout);
 
@@ -413,14 +396,41 @@ public:
             PaintLaunchers(Out, LayerId + 1, Geometry, *Session, Layout);
         }
 
-        DrawBox(Out, LayerId, Geometry, Layout.DebugSection, BallsStyle::RoundedBox(0.0f), PanelTint);
-        PaintDebugPanel(Out, LayerId + 1, Geometry, *Session, Layout.DebugSection, Layout.bPortrait);
+        DrawBox(Out, LayerId, Geometry, Layout.RightGadget, BallsStyle::RoundedBox(0.0f), PanelTint);
+        PaintDebugPanel(Out, LayerId + 1, Geometry, *Session, Layout.RightGadget);
 
         PaintToast(Out, LayerId + 3, Geometry);
         return LayerId + 3;
     }
 
 private:
+    // "<Normal|Performance> - <level name>" (22) with the Pause button at the right edge, and the map notice in
+    // accent when the file changed on disk. The same header sits at the top of the left gadget in landscape and of
+    // the top gadget in portrait; only its height differs (56 and 44).
+    void PaintHeaderTitle(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,
+                          const FBallsGameplayLayout& Layout) const {
+        FString Title = FString::Printf(TEXT("%s - %s"),
+                                        Gameplay->GetMode() == GameMode::Normal ? TEXT("Normal") : TEXT("Performance"),
+                                        *BallsText::FromUtf8(Gameplay->GetFiles().name));
+        const FSlateFontInfo TitleFont = BallsStyle::Font(22.0f);
+        const float TitleRoom = Layout.Header.GetSize().X - 16.0f - 96.0f - 20.0f;
+        while (Title.Len() > 4 && BallsStyle::Measure(Title, TitleFont).X > TitleRoom) {
+            Title = Title.Left(Title.Len() - 2) + TEXT("~");
+        }
+        const FString Notice = MapNoticeText();
+        DrawText(Out, Layer, Geometry, Title,
+                 FVector2D(Layout.Header.Left + 16.0f,
+                           Notice.IsEmpty() ? Layout.Header.GetCenter().Y - 13.0f : Layout.Header.Top + 4.0f),
+                 TitleFont, BallsPalette::Linear(BallsPalette::Text));
+        if (!Notice.IsEmpty()) {
+            DrawText(Out, Layer, Geometry, Notice, FVector2D(Layout.Header.Left + 16.0f, Layout.Header.Top + 31.0f),
+                     BallsStyle::Font(15.0f), BallsPalette::Linear(BallsPalette::Accent));
+        }
+        DrawBox(Out, Layer, Geometry,
+                FSlateRect(Layout.Header.Left, Layout.Header.Bottom - 1.0f, Layout.Header.Right, Layout.Header.Bottom),
+                BallsStyle::RoundedBox(0.0f), BallsPalette::Linear(BallsPalette::Frame));
+    }
+
     // Landscape Normal mode keeps the bottom of the gadget for the Physics group.
     FSlateRect LauncherArea(const FBallsGameplayLayout& Layout) const {
         FSlateRect Area = Shrink(Layout.InteractionSection, 12.0f);
@@ -482,10 +492,11 @@ private:
     }
 
     FBallsGameplayLayout LayoutFor(const FGeometry& Geometry) const {
-        const Simulation& Sim = Gameplay->GetSession()->simulation();
+        const GameSession& Session = *Gameplay->GetSession();
+        const Simulation& Sim = Session.simulation();
         return ComputeGameplayLayout(Geometry.GetLocalSize(), Sim.board().columns(), Sim.board().rows(),
                                      Geometry.GetAccumulatedLayoutTransform().GetScale(),
-                                     Gameplay->GetMode() == GameMode::Normal);
+                                     Gameplay->GetMode() == GameMode::Normal ? Session.launchers().visibleRows() : 0);
     }
 
     float MaximumScroll(const FGeometry& Geometry) const {
@@ -632,7 +643,8 @@ private:
         const FBallsFrameSample& Sample = Frames.Average();
         const FSlateFontInfo LabelFont = BallsStyle::Font(15.0f);
         const FSlateFontInfo ValueFont = BallsStyle::Font(18.0f, true);
-        float X = Strip.Left + 300.0f;
+        // The strip has its own row under the portrait header, so it starts at the panel edge.
+        float X = Strip.Left + 20.0f;
         const float Y = Strip.Top + (Strip.GetSize().Y - 18.0f) * 0.5f;
         auto Pair = [&](const FString& Label, const FString& Value, const FLinearColor& Color) {
             if (X > Strip.Right - 170.0f) {
@@ -722,27 +734,9 @@ private:
         }
     }
 
-    void PaintDebugPanelPortrait(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,
-                                 const GameSession& Session, const FSlateRect& Area) const {
-        constexpr float Gap = 8.0f;
-        const float Third = Area.GetSize().X / 3.0f;
-        FPanelWriter Performance(Out, Layer, Geometry,
-                                 FSlateRect(Area.Left, Area.Top, Area.Left + Third - Gap, Area.Bottom), 26.0f);
-        FPanelWriter Objects(Out, Layer, Geometry,
-                             FSlateRect(Area.Left + Third, Area.Top, Area.Left + Third * 2.0f - Gap, Area.Bottom), 26.0f);
-        FPanelWriter Colors(Out, Layer, Geometry,
-                            FSlateRect(Area.Left + Third * 2.0f, Area.Top, Area.Right, Area.Bottom), 26.0f);
-        WritePerformance(Performance, Session);
-        WriteObjects(Objects, Session);
-        WriteColors(Colors, Session);
-    }
-
-    void PaintDebugPanel(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry, const GameSession& Session,
-                         const FSlateRect& Area, bool bPortrait) const {
-        if (bPortrait) {
-            PaintDebugPanelPortrait(Out, Layer, Geometry, Session, Area);
-            return;
-        }
+    // Portrait has no room for the three groups, so it shows the 48-unit stats strip instead (see PaintStatsStrip).
+    void PaintDebugPanel(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,
+                         const GameSession& Session, const FSlateRect& Area) const {
         FPanelWriter Writer(Out, Layer, Geometry, Area);
         WritePerformance(Writer, Session);
         WriteObjects(Writer, Session);
@@ -759,7 +753,7 @@ private:
         const FVector2D Extent = BallsStyle::Measure(Toast.Text, Font);
         const float Left = static_cast<float>((Geometry.GetLocalSize().X - Extent.X) * 0.5 - 20.0);
         const float SafeTop = ComputeGameplayLayout(Geometry.GetLocalSize(), 1, 1,
-                                                    Geometry.GetAccumulatedLayoutTransform().GetScale(), true)
+                                                    Geometry.GetAccumulatedLayoutTransform().GetScale(), 0)
                                   .Header.Top;
         const FSlateRect Rect(Left, SafeTop + 24.0f, Left + static_cast<float>(Extent.X) + 40.0f, SafeTop + 72.0f);
         DrawBox(Out, Layer, Geometry, Rect, BallsStyle::RoundedBox(0.0f),
@@ -787,10 +781,11 @@ FBallsGameplayLayout SBallsGameplayHud::CurrentLayout() const {
     const FVector2D Size = Geometry.GetLocalSize();
     const float DpiScale = Geometry.GetAccumulatedLayoutTransform().GetScale();
     const GameSession* Session = Gameplay->GetSession();
-    const bool bCompact = Gameplay->GetMode() == GameMode::Normal;
+    const int32 LauncherRows =
+        Gameplay->GetMode() == GameMode::Normal && Session ? Session->launchers().visibleRows() : 0;
     return Session ? ComputeGameplayLayout(Size, Session->simulation().board().columns(),
-                                           Session->simulation().board().rows(), DpiScale, bCompact)
-                   : ComputeGameplayLayout(Size, 1, 1, DpiScale, bCompact);
+                                           Session->simulation().board().rows(), DpiScale, LauncherRows)
+                   : ComputeGameplayLayout(Size, 1, 1, DpiScale, LauncherRows);
 }
 
 void SBallsGameplayHud::Construct(const FArguments& InArgs) {
@@ -922,7 +917,8 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
             }
             return LabelText(FString::Printf(TEXT("Auto releasing - %d launchers left"), Current->launchers().launcherCount()));
         }),
-        [Game] { Game->StartAutoRelease(); }, 18.0f,
+        // The full design label is the longest string in the gadget; 16 keeps it inside the 310-wide panel.
+        [Game] { Game->StartAutoRelease(); }, 16.0f,
         TAttribute<bool>::CreateLambda([Session] { return Session() && Session()->state() == SessionState::Ready; })));
 
     AddLabel(TEXT("Capacity probe"));

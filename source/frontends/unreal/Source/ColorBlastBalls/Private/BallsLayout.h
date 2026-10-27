@@ -11,6 +11,12 @@ struct FBallsGameplayLayout {
     FSlateRect MainSection;
     FSlateRect InteractionSection;
     FSlateRect DebugSection;
+    // One panel per gadget, so the HUD draws the same shapes the design describes: left (header over interaction)
+    // and right (debug) in landscape, top (header over debug strip) and bottom (interaction) in portrait.
+    FSlateRect LeftGadget;
+    FSlateRect RightGadget;
+    FSlateRect TopGadget;
+    FSlateRect BottomGadget;
     FSlateRect Board;
     float CellSize = 1.0f;
     bool bPortrait = false;
@@ -29,7 +35,7 @@ void SetLayoutOrientation(LayoutOrientation Orientation);
 float PortraitLauncherSize(float PanelWidth);
 
 // ScreenSize is in Slate units and DpiScale is the Slate-to-pixel scale; the layout stays inside the platform's
-// safe area (display cutout, rounded corners). bCompactControls shrinks the portrait bottom panel to one scrolling
-// row of launchers so the board gets the rest of the height; performance mode needs the full-size panel.
+// safe area (display cutout, rounded corners). LauncherRows is the level's visible launcher rows in Normal mode, 0
+// in Performance: core sizes the portrait bottom gadget as rows * slot + gaps + 48, capped at the 38% panel.
 FBallsGameplayLayout ComputeGameplayLayout(FVector2D ScreenSize, int32 BoardColumns, int32 BoardRows, float DpiScale,
-                                           bool bCompactControls);
+                                           int32 LauncherRows);

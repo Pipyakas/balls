@@ -633,9 +633,10 @@ void FBallsApp::Tick(float DeltaSeconds) {
     }
     const float DpiScale = Geometry.GetAccumulatedLayoutTransform().GetScale();
     Simulation& Sim = Session->simulation();
-    const FBallsGameplayLayout Layout =
-        ComputeGameplayLayout(ViewportSize, Sim.board().columns(), Sim.board().rows(), DpiScale,
-                              Current->GetMode() == GameMode::Normal);
+    const int32 LauncherRows =
+        Current->GetMode() == GameMode::Normal ? Session->launchers().visibleRows() : 0;
+    const FBallsGameplayLayout Layout = ComputeGameplayLayout(ViewportSize, Sim.board().columns(),
+                                                              Sim.board().rows(), DpiScale, LauncherRows);
     BoardView->Update(Sim, Layout, ViewportSize, DpiScale);
     BoardView->SubmitBalls(Sim, Layout, DpiScale);
 }
