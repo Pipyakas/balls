@@ -77,6 +77,7 @@ private:
     bool isFaulted() const { return !fault.empty(); }
     bool launch(CUfunction function, size_t threads, void** arguments, const char* what);
     bool ensureBallCapacity(size_t required);
+    bool growThroughHost(size_t wanted);
     void ensurePackedCapacity(size_t required);
     void ensureArray(DeviceArray& array, size_t bytes);
     void upload(DeviceArray& array, const void* data, size_t bytes);

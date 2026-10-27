@@ -260,10 +260,8 @@ size_t CudaBackend::ballCapacityLimit() const {
     if (driver.api().memGetInfo(&freeBytes, &totalBytes) != CUDA_SUCCESS) {
         return std::numeric_limits<size_t>::max();
     }
-    // Growing allocates the new arrays while the old ones still hold every ball, so the next size has to fit in
-    // what is free now; capacity already held stays usable either way.
     const size_t spare = freeBytes > deviceMemoryReserve ? freeBytes - deviceMemoryReserve : 0;
-    return std::max(capacity, spare / heldBytesPerBall);
+    return capacity + spare / heldBytesPerBall;
 }
 
 // Running out of device memory is the expected ceiling once balls fly freely, so it leaves the backend usable
@@ -303,7 +301,52 @@ bool CudaBackend::ensureBallCapacity(size_t required) {
         capacity = wanted;
         return true;
     }
-    return false;
+    return growThroughHost(roundUp(required));
+}
+
+// Near the top of device memory the old and new arrays do not fit side by side, so the balls wait in host memory
+// while the device arrays are replaced. Only the capacity probe grows this far, so the copy's cost is a one-off.
+bool CudaBackend::growThroughHost(size_t wanted) {
+    const auto& api = driver.api();
+    std::vector<uint32_t> heldPosition(count);
+    std::vector<uint32_t> heldState(count);
+    if (count > 0 &&
+        !(succeeded(api.memcpyDeviceToHost(heldPosition.data(), balls.position, count * 4), "stage position") &&
+          succeeded(api.memcpyDeviceToHost(heldState.data(), balls.state, count * 4), "stage state"))) {
+        return false;
+    }
+    api.memFree(balls.position);
+    api.memFree(balls.state);
+    balls.position = 0;
+    balls.state = 0;
+    const size_t previousCapacity = capacity;
+    capacity = 0;
+    bool grown = false;
+    for (const size_t attempt : {wanted, previousCapacity}) {
+        CUdeviceptr position = 0;
+        CUdeviceptr state = 0;
+        if (api.memAlloc(&position, attempt * 4) != CUDA_SUCCESS) {
+            continue;
+        }
+        if (api.memAlloc(&state, attempt * 4) != CUDA_SUCCESS) {
+            api.memFree(position);
+            continue;
+        }
+        balls.position = position;
+        balls.state = state;
+        capacity = attempt;
+        grown = attempt == wanted;
+        break;
+    }
+    if (capacity < count) {
+        fault = "device memory lost while growing the ball arrays";
+        return false;
+    }
+    if (count > 0) {
+        succeeded(api.memcpyHostToDevice(balls.position, heldPosition.data(), count * 4), "restore position") &&
+            succeeded(api.memcpyHostToDevice(balls.state, heldState.data(), count * 4), "restore state");
+    }
+    return grown;
 }
 
 void CudaBackend::ensurePackedCapacity(size_t required) {
