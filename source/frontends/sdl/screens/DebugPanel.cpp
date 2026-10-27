@@ -158,6 +158,63 @@ void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& f
     gfx::endClip();
 }
 
+void drawPortraitDebugStrip(Rect area, const GameSession& session, const FrameTimings& frames) {
+    constexpr float labelSize = 15.0f;
+    constexpr float valueSize = 18.0f;
+    constexpr float horizontalPadding = 12.0f;
+    constexpr float itemGap = 16.0f;
+    const Simulation& simulation = session.simulation();
+    const FrameSample& sample = frames.average();
+    const float fps = static_cast<float>(frames.framesPerSecond());
+    const float minimumFps = static_cast<float>(frames.worstFpsLastSecond());
+    constexpr int itemCount = 8;
+    const std::string values[itemCount] = {
+        std::format("{:.0f}", fps),
+        std::format("{:.0f}", minimumFps),
+        std::format("{:.2f}", sample.frameMs),
+        std::format("{:.2f}", sample.gpuMs),
+        withThousands(simulation.stats().ballCount),
+        withThousands(static_cast<BallCount>(simulation.board().aliveBrickCount())),
+        withThousands(session.launchers().launcherCount()),
+        std::string(backendKindName(session.backend())),
+    };
+    constexpr const char* labels[itemCount] = {"FPS",   "Min",    "Frame",  "GPU",
+                                               "Balls", "Bricks", "Launch", "Backend"};
+    float widest = 0.0f;
+    for (int index = 0; index < itemCount; ++index) {
+        widest = std::max(widest, ui::measureText(labels[index], labelSize).x);
+        widest = std::max(widest, ui::measureText(values[index], valueSize).x);
+    }
+    int visibleCount = itemCount;
+    while (visibleCount > 0 &&
+           widest * static_cast<float>(visibleCount) + itemGap * static_cast<float>(visibleCount - 1) >
+               area.width - horizontalPadding * 2.0f) {
+        --visibleCount;
+    }
+    if (visibleCount == 0) {
+        return;
+    }
+    float gap = itemGap;
+    float startX = area.x + horizontalPadding;
+    if (visibleCount > 1) {
+        gap += (area.width - horizontalPadding * 2.0f - widest * static_cast<float>(visibleCount) -
+                itemGap * static_cast<float>(visibleCount - 1)) /
+               static_cast<float>(visibleCount - 1);
+    } else {
+        startX = area.x + (area.width - widest) * 0.5f;
+    }
+    const float centerY = area.y + area.height * 0.5f;
+    gfx::beginClip(area);
+    for (int index = 0; index < visibleCount; ++index) {
+        const float itemX = startX + static_cast<float>(index) * (widest + gap);
+        ui::drawText(labels[index], {itemX, centerY - labelSize - 2.0f}, labelSize, palette::textMuted);
+        const Color color = index == 0 ? fpsColor(fps) : (index == 1 ? fpsColor(minimumFps) : palette::text);
+        ui::drawText(values[index], {itemX, centerY + 2.0f}, valueSize, color);
+        ui::drawText(values[index], {itemX + 1.0f, centerY + 2.0f}, valueSize, color);
+    }
+    gfx::endClip();
+}
+
 float debugContentHeight(const Simulation& simulation) {
     constexpr float twoLineHeight = 22.0f + 26.0f;
     constexpr float headingHeight = 6.0f + 30.0f;

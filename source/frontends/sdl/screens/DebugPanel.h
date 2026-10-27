@@ -13,4 +13,5 @@ struct DebugPanelState {
 
 void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& frames,
                     DebugPanelState& state);
+void drawPortraitDebugStrip(Rect area, const GameSession& session, const FrameTimings& frames);
 float debugContentHeight(const Simulation& simulation);

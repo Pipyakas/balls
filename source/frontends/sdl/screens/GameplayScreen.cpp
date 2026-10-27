@@ -516,9 +516,16 @@ void GameplayScreen::draw() {
         session->simulation().board().columns(), session->simulation().board().rows(), app.settings().layout,
         mode == GameMode::Normal);
     drawHeader(layout);
+    if (layout.isPortrait) {
+        ui::drawPanel(layout.topGadget, palette::panel, 0.25f);
+        drawHeader(layout);
+        drawPortraitDebugStrip(layout.debugSection, *session, app.frameTimings());
+    }
     drawMainSection(layout);
     drawInteractionSection(layout);
-    drawDebugPanel(layout.debugSection, *session, app.frameTimings(), debugState);
+    if (!layout.isPortrait) {
+        drawDebugPanel(layout.debugSection, *session, app.frameTimings(), debugState);
+    }
     drawOverlay();
     drawToast();
 }
