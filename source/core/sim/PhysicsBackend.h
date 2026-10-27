@@ -3,6 +3,7 @@
 #include "common/BallCount.h"
 #include "sim/kernels/BallStepCore.h"
 
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -83,6 +84,14 @@ struct DeviceHitResults {
     BallTally killsByColor{};
     BallCount killed = 0;
 };
+
+// The visibility grid has one slot per this many ball radii: front ends size it this way, and the machine
+// benchmark sizes it the same, so balls fly freely there exactly as they do in a game.
+inline constexpr float visibilitySlotsPerRadius = 1.6f;
+
+inline int visibilitySlots(float fieldExtent, float slotSize) {
+    return static_cast<int>(std::ceil(fieldExtent / (slotSize > 0.0f ? slotSize : 1.0f)));
+}
 
 inline float renderPackScale(float fieldExtent) {
     return static_cast<float>(renderCoordinateMax) / (fieldExtent > 0.0f ? fieldExtent : 1.0f);

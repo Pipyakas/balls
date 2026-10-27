@@ -35,7 +35,9 @@ std::string benchmarkScore(std::span<const CandidateResult> scores, BackendKind 
     }
     switch (found->status) {
     case CandidateStatus::Done:
-        return std::format("{:.0f} M/s", found->ballStepsPerSecond / ballStepsPerMillion);
+        return found->estimatedBalls > 0.0
+                   ? std::format("{} balls", shortBallCount(found->estimatedBalls))
+                   : std::format("{:.0f} M/s", found->ballStepsPerSecond / ballStepsPerMillion);
     case CandidateStatus::Failed:
         return "failed";
     default:

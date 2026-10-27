@@ -327,7 +327,9 @@ void Avx2Backend::step(const StepParams& params, std::vector<BallHit>& hits) {
     const bool gridded = store.prepareGrid();
     if (params.freeFlight && gridded) {
         store.freeze(params.tick);
-        store.renderFreeFlightSample();
+        constexpr size_t samplesPerTask = 64;
+        pool->runChunks(store.sampledChunkCount(), samplesPerTask,
+                        [&](size_t, size_t first, size_t end) { store.renderSampledChunks(first, end); });
         return;
     }
     materializeFreeFlight();

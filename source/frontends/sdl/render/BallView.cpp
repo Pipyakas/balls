@@ -9,7 +9,6 @@
 
 namespace {
 
-constexpr float visibilitySlotPerRadius = 1.6f;
 constexpr float channelScale = 1.0f / 255.0f;
 
 }
@@ -24,9 +23,8 @@ void BallView::draw(PhysicsBackend& backend, const BoardTransform& transform, fl
     if (backend.ballCount() == 0) {
         return;
     }
-    const float slotSize = std::max(radiusCells * visibilitySlotPerRadius, 1.0f / transform.cellPixels);
-    backend.setVisibilityGrid(static_cast<int>(std::ceil(lastFieldWidth / slotSize)),
-                              static_cast<int>(std::ceil(lastFieldHeight / slotSize)));
+    const float slotSize = std::max(radiusCells * visibilitySlotsPerRadius, 1.0f / transform.cellPixels);
+    backend.setVisibilityGrid(visibilitySlots(lastFieldWidth, slotSize), visibilitySlots(lastFieldHeight, slotSize));
     const auto snapshotStart = std::chrono::steady_clock::now();
     const BallSnapshot balls = backend.snapshot();
     synchronizationMs += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - snapshotStart).count();
@@ -45,7 +43,7 @@ void BallView::draw(PhysicsBackend& backend, const BoardTransform& transform, fl
     request.originY = transform.origin.y;
     request.cellPixels = transform.cellPixels;
     request.radiusCells = radiusCells;
-    request.slotsPerRadius = visibilitySlotPerRadius;
+    request.slotsPerRadius = visibilitySlotsPerRadius;
     const Rect clip = gfx::currentClip();
     request.clipX = clip.x;
     request.clipY = clip.y;

@@ -57,7 +57,9 @@ struct CompactBallStore {
     size_t gridCellCount() const { return static_cast<size_t>(gridWidth) * static_cast<size_t>(gridHeight); }
     bool prepareGrid();
     void freeze(unsigned int epoch);
-    void renderFreeFlightSample();
+    static constexpr size_t freeFlightChunkBalls = 256;
+    size_t sampledChunkCount() const;
+    void renderSampledChunks(size_t first, size_t end);
     void materializeRange(size_t begin, size_t end);
 
 private:

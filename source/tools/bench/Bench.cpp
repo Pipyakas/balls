@@ -122,9 +122,10 @@ int runMachineBenchmark(const BenchOptions& options, BrickLayout level) {
     }
     const std::vector<CandidateResult> results = benchmark.results();
     for (const CandidateResult& result : results) {
-        std::printf("%-24s %-9s %10.1f M ball-steps/s %s\n", result.candidate.label.c_str(),
-                    result.status == CandidateStatus::Done ? "done" : "not done",
-                    result.ballStepsPerSecond / 1e6, result.failure.c_str());
+        std::printf("%-24s %-9s %10.1f M ball-steps/s  ~%-8s balls at 60 FPS (capacity %s) %s\n",
+                    result.candidate.label.c_str(), result.status == CandidateStatus::Done ? "done" : "not done",
+                    result.ballStepsPerSecond / 1e6, shortBallCount(result.estimatedBalls).c_str(),
+                    shortBallCount(result.ballCapacity).c_str(), result.failure.c_str());
     }
     const BenchmarkCandidate winner = chooseDefaultBackend(results, isBackendAvailable);
     std::printf("winner: %s\n", winner.label.c_str());
