@@ -48,6 +48,7 @@ private:
     void openNextLevel();
     void applyRememberedMachineLimit();
     void rememberFinishedProbe();
+    void useAutoBallLimit();
     void startProbe();
     void selectComputeAdapter(int adapter);
     std::vector<int> renderAdapterChoices() const;
