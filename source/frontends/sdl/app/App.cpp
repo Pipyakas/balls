@@ -93,8 +93,10 @@ bool App::openWindowAndRenderer(const LaunchOptions& options, std::string_view a
         options.renderer.empty() ? (activeRenderer.empty() ?
 #if defined(BALLS_RENDERER_WEBGPU)
             "webgpu"
-#else
+#elif defined(BALLS_RENDERER_NVRHI)
             "nvrhi"
+#else
+            "sdlgpu"
 #endif
             : activeRenderer) : options.renderer;
     SDL_Log("App: wantedRenderer=%s api=%s", wantedRenderer.c_str(), std::string(api).c_str());
