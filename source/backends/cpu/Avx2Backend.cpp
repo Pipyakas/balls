@@ -541,6 +541,31 @@ __m256i encodePositionLanes(const LaneState& lanes, const LaneConstants& k) {
                            _mm256_slli_epi32(encodeAxisLanes(lanes.y, k.yToPosition, k), 16));
 }
 
+__m256i roundingDitherLanes(__m256i previousPosition) {
+    __m256i hash = _mm256_mullo_epi32(previousPosition, _mm256_set1_epi32(static_cast<int>(0x9E3779B1u)));
+    hash = _mm256_xor_si256(hash, _mm256_srli_epi32(hash, 15));
+    hash = _mm256_mullo_epi32(hash, _mm256_set1_epi32(static_cast<int>(0x85EBCA77u)));
+    hash = _mm256_xor_si256(hash, _mm256_srli_epi32(hash, 13));
+    hash = _mm256_mullo_epi32(hash, _mm256_set1_epi32(static_cast<int>(0xC2B2AE3Du)));
+    return _mm256_xor_si256(hash, _mm256_srli_epi32(hash, 16));
+}
+
+__m256i encodeAxisDitheredLanes(__m256 value, __m256 toPosition, __m256i dither16, const LaneConstants& k) {
+    const __m256 fraction = _mm256_mul_ps(_mm256_cvtepi32_ps(_mm256_and_si256(dither16, _mm256_set1_epi32(0xFFFF))),
+                                          _mm256_set1_ps(1.0f / 65536.0f));
+    const __m256 scaled = _mm256_fmadd_ps(value, toPosition, fraction);
+    return _mm256_cvttps_epi32(_mm256_min_ps(_mm256_max_ps(scaled, k.zero), k.positionMax));
+}
+
+// A stepped ball's position: rounded without bias (see roundingDither in BallStepCore.h).
+__m256i encodeSteppedPositionLanes(const LaneState& lanes, __m256i previousPosition, const LaneConstants& k) {
+    const __m256i dither = roundingDitherLanes(previousPosition);
+    return _mm256_or_si256(encodeAxisDitheredLanes(lanes.x, k.xToPosition, dither, k),
+                           _mm256_slli_epi32(encodeAxisDitheredLanes(lanes.y, k.yToPosition,
+                                                                     _mm256_srli_epi32(dither, 16), k),
+                                             16));
+}
+
 __m256i encodeComponentLanes(__m256 velocity, const LaneConstants& k) {
     const __m256 unit = _mm256_min_ps(_mm256_max_ps(_mm256_mul_ps(velocity, k.inverseSpeed), k.minusOne), k.one);
     return _mm256_and_si256(_mm256_cvtps_epi32(_mm256_mul_ps(unit, k.directionScale)), k.directionMask);
@@ -606,7 +631,8 @@ void Avx2Backend::stepRange(const StepParams& params, size_t begin, size_t end, 
 
     for (size_t i = begin; i < end; i += simdLaneCount) {
         const __m256i startState = _mm256_load_si256(reinterpret_cast<const __m256i*>(states + i));
-        LaneState state = decodeLanes(_mm256_load_si256(reinterpret_cast<const __m256i*>(positions + i)), startState, k);
+        const __m256i startPosition = _mm256_load_si256(reinterpret_cast<const __m256i*>(positions + i));
+        LaneState state = decodeLanes(startPosition, startState, k);
         const __m256i startBounces = state.bounces;
         __m256 active = allLanes;
         __m256i hitBrick = k.minusOneInt;
@@ -631,7 +657,7 @@ void Avx2Backend::stepRange(const StepParams& params, size_t begin, size_t end, 
             }
         }
 
-        _mm256_store_si256(reinterpret_cast<__m256i*>(positions + i), encodePositionLanes(state, k));
+        _mm256_store_si256(reinterpret_cast<__m256i*>(positions + i), encodeSteppedPositionLanes(state, startPosition, k));
         const __m256i stateChanged = _mm256_xor_si256(_mm256_cmpeq_epi32(state.bounces, startBounces), k.minusOneInt);
         if (!_mm256_testz_si256(stateChanged, stateChanged)) {
             _mm256_maskstore_epi32(reinterpret_cast<int*>(states + i), stateChanged, encodeStateLanes(state, k));

@@ -283,6 +283,22 @@ uint encodeAxis(float value, float extent) {
     return (uint)min(max(scaled, 0.0f), POSITION_SCALE);
 }
 
+// Unbiased rounding of a stepped position; see roundingDither in source/core/sim/kernels/BallStepCore.h.
+uint roundingDither(uint previousPosition) {
+    uint hash = previousPosition * 0x9E3779B1u;
+    hash ^= hash >> 15;
+    hash *= 0x85EBCA77u;
+    hash ^= hash >> 13;
+    hash *= 0xC2B2AE3Du;
+    hash ^= hash >> 16;
+    return hash;
+}
+
+uint encodeAxisDithered(float value, float extent, uint dither16) {
+    const float scaled = value / extent * POSITION_SCALE + (float)(dither16 & 0xFFFFu) * (1.0f / 65536.0f);
+    return (uint)min(max(scaled, 0.0f), POSITION_SCALE);
+}
+
 int signedComponent(uint bits) { return ((int)(bits << (32 - DIRECTION_BITS))) >> (32 - DIRECTION_BITS); }
 
 uint encodeComponent(float value) {
@@ -336,7 +352,8 @@ void stepOneBall(uint index, uint startPosition, uint startState) {
             break;
         }
     }
-    const uint position = encodeAxis(x, fieldWidth) | (encodeAxis(y, fieldHeight) << 16);
+    const uint dither = roundingDither(startPosition);
+    const uint position = encodeAxisDithered(x, fieldWidth, dither) | (encodeAxisDithered(y, fieldHeight, dither >> 16) << 16);
     if (toSorted != 0) {
         sortedPositions[index] = position;
     } else {

@@ -98,6 +98,26 @@ BALLS_HOST_DEVICE void pushOutOfCell(float& x, float& y, float& normalX, float& 
 // same-color brick is found by distance alone, so it is often behind other bricks; aiming at it anyway sends the
 // ball into the blocking brick, back off the wall behind it, and at the same target again, forever, and every
 // ball near that column ends up on the same line. Cells are walked with a grid DDA (Amanatides and Woo).
+// Stepped balls are stored back to 16-bit positions every frame, and a frame moves a ball a fixed ~255.4 units,
+// so rounding to nearest dropped the same fraction every frame: a steady speed error of up to 0.2% per axis and
+// 0.12 cells of drift in 10 s against an exact engine. Adding a pseudo-random fraction before truncating makes the
+// rounding unbiased. The fraction comes from a hash of the ball's previous stored position, which every stepper
+// has and which changes every frame; low 16 bits for x, high 16 bits for y.
+BALLS_HOST_DEVICE unsigned int roundingDither(unsigned int previousPosition) {
+    unsigned int hash = previousPosition * 0x9E3779B1u;
+    hash ^= hash >> 15;
+    hash *= 0x85EBCA77u;
+    hash ^= hash >> 13;
+    hash *= 0xC2B2AE3Du;
+    hash ^= hash >> 16;
+    return hash;
+}
+
+BALLS_HOST_DEVICE float ditherFraction(unsigned int dither16) {
+    constexpr float sixteenBitUnits = 1.0f / 65536.0f;
+    return static_cast<float>(dither16 & 0xFFFFu) * sixteenBitUnits;
+}
+
 template <typename Board>
 BALLS_HOST_DEVICE bool targetInSight(float x, float y, int targetColumn, int targetRow, const Board& board,
                                      int paddedWidth) {

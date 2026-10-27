@@ -3,6 +3,7 @@
 #include "sim/BackendBenchmark.h"
 #include "sim/BackendFactory.h"
 #include "sim/HybridBackend.h"
+#include "sim/PhysicsAccuracy.h"
 #include "sim/Simulation.h"
 
 #include <emmintrin.h>
@@ -13,6 +14,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <format>
 #include <fstream>
 #include <numbers>
 #include <random>
@@ -36,6 +38,7 @@ struct BenchOptions {
     bool collisions = false;
     int substeps = 2;
     std::filesystem::path machineBenchmarkOutput;
+    bool accuracy = false;
 };
 
 std::vector<size_t> parseCounts(const char* text) {
@@ -104,9 +107,57 @@ BenchOptions parseOptions(int argumentCount, char** arguments) {
         } else if (argument == "--machine-benchmark") {
             options.machineBenchmarkOutput = value;
             ++i;
+        } else if (argument == "--accuracy") {
+            options.accuracy = true;
         }
     }
     return options;
+}
+
+BrickLayout emptyBoard(int width, int rows);
+
+// Every backend against ReferenceBackend on the same scenarios: an empty box (positions compared ball by ball) and
+// the level with balls launched as in a game and scattered as the probe used to (curves and invariants).
+int runAccuracy(const BenchOptions& options, const BrickLayout& level) {
+    constexpr size_t boxBalls = 20'000;
+    constexpr size_t levelBalls = 20'000;
+    constexpr int boxFrames = 600;
+    constexpr int levelFrames = 1200;
+    std::vector<AccuracyScenario> scenarios{
+        {"empty box", emptyBoard(level.width, level.playableHeight), boxBalls, false, boxFrames},
+        {"empty box, stepped", emptyBoard(level.width, level.playableHeight), boxBalls, false, boxFrames, 2, 60, false},
+        {"level, launched", level, levelBalls, true, levelFrames},
+    };
+    for (const AccuracyScenario& scenario : scenarios) {
+        std::printf("== %s: %zu balls, %d frames\n", scenario.name.c_str(), scenario.balls, scenario.frames);
+        const AccuracyRun reference = runAccuracyScenario(createReferenceBackend(), scenario);
+        for (const AccuracySample& point : reference.samples) {
+            std::printf("   reference frame %4d bricks %4d balls %6zu hits %8llu\n", point.frame, point.bricks,
+                        point.balls, point.hits);
+        }
+        constexpr double finerSubStep = 0.005;
+        const AccuracyRun finer = runAccuracyScenario(createReferenceBackend(finerSubStep), scenario);
+        std::printf("   %s   <- noise floor: reference at half the sub-step\n",
+                    describeAccuracy("Ref/2", compareToReference(finer, reference)).c_str());
+        for (BackendKind kind : options.backends) {
+            if (!isBackendAvailable(kind)) {
+                continue;
+            }
+            const AccuracyRun run = runAccuracyScenario(createBackend(kind), scenario);
+            if (!run.fault.empty()) {
+                std::printf("   %-9s fault: %s\n", std::string(backendKindName(kind)).c_str(), run.fault.c_str());
+                continue;
+            }
+            std::printf("   %s\n", describeAccuracy(backendKindName(kind), compareToReference(run, reference)).c_str());
+            std::string hitsCurve;
+            for (size_t i = 0; i < std::min(run.samples.size(), reference.samples.size()); ++i) {
+                hitsCurve += std::format(" {:+d}", static_cast<long long>(run.samples[i].hits) -
+                                                       static_cast<long long>(reference.samples[i].hits));
+            }
+            std::printf("             hits minus reference per sample:%s\n", hitsCurve.c_str());
+        }
+    }
+    return 0;
 }
 
 // The game's Settings > Run machine benchmark, without a window: same workload, same candidates, same winner rule.
@@ -369,6 +420,9 @@ int main(int argumentCount, char** arguments) {
     }
     if (!options.machineBenchmarkOutput.empty()) {
         return runMachineBenchmark(options, std::move(level->bricks));
+    }
+    if (options.accuracy) {
+        return runAccuracy(options, level->bricks);
     }
     for (BackendKind kind : options.backends) {
         if (!isBackendAvailable(kind)) {

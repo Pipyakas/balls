@@ -67,6 +67,19 @@ __device__ __forceinline__ unsigned int encodePosition(float x, float y, const S
     return encodeAxis(x, params.fieldWidth) | (encodeAxis(y, params.fieldHeight) << 16);
 }
 
+__device__ __forceinline__ unsigned int encodeAxisDithered(float value, float extent, float fraction) {
+    const float scaled = value / extent * positionScale + fraction;
+    return static_cast<unsigned int>(fminf(fmaxf(scaled, 0.0f), positionScale));
+}
+
+// A stepped ball's position: rounded without bias (see roundingDither).
+__device__ __forceinline__ unsigned int encodeSteppedPosition(float x, float y, unsigned int previousPosition,
+                                                              const StepParams& params) {
+    const unsigned int dither = roundingDither(previousPosition);
+    return encodeAxisDithered(x, params.fieldWidth, ditherFraction(dither)) |
+           (encodeAxisDithered(y, params.fieldHeight, ditherFraction(dither >> 16)) << 16);
+}
+
 __device__ __forceinline__ void decodePosition(unsigned int position, float& x, float& y, const StepParams& params) {
     x = static_cast<float>(position & positionMask) * (params.fieldWidth / positionScale);
     y = static_cast<float>(position >> 16) * (params.fieldHeight / positionScale);
@@ -302,7 +315,7 @@ __device__ __forceinline__ void stepOneBall(unsigned int target, unsigned int st
     const int startBounces = static_cast<int>((startState >> bounceShift) & bounceMask);
     int bounces = startBounces;
     const int brick = stepBallSubsteps(x, y, vx, vy, static_cast<int>(color), bounces, board, params);
-    const unsigned int position = encodePosition(x, y, params);
+    const unsigned int position = encodeSteppedPosition(x, y, startPosition, params);
     outPosition[target] = position;
     if (bounces != startBounces) {
         outState[target] = encodeState(vx, vy, color, bounces, params);
