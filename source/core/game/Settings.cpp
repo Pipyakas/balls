@@ -70,13 +70,13 @@ std::optional<LayoutOrientation> parseOrientation(std::string_view name) {
 
 std::string normalizeRendererName(std::string_view renderer) {
     const std::string lower = lowercase(trim(renderer));
-    if (lower == "webgpu" || lower == "dawn" || lower == "wgpu") {
-        return "webgpu";
+    if (lower == "nvrhi") {
+        return "nvrhi";
     }
     if (lower == "sdlgpu") {
         return "sdlgpu";
     }
-    return "nvrhi";
+    return "webgpu";
 }
 
 std::string normalizeGraphicsApiName(std::string_view api) {

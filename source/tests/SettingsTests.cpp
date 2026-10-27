@@ -7,7 +7,7 @@ TEST_CASE("settings default to the game rules and automatic layout") {
     EXPECT(!settings.ballCollisions);
     EXPECT(settings.layout == LayoutOrientation::Auto);
     EXPECT(!settings.vsync);
-    EXPECT(settings.renderer == "nvrhi");
+    EXPECT(settings.renderer == "webgpu");
     EXPECT(settings.graphicsApi == "auto");
 }
 

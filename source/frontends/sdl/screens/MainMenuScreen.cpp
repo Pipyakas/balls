@@ -53,7 +53,10 @@ void MainMenuScreen::draw() {
     if (ui::button(buttonRect(2), "Map Editor")) {
         app.openEditor(GameMode::Normal, std::nullopt);
     }
-    if (ui::button(buttonRect(3), "Quit")) {
+    if (ui::button(buttonRect(3), "Settings")) {
+        app.showSettings();
+    }
+    if (ui::button(buttonRect(4), "Quit")) {
         app.quit();
     }
 }

@@ -710,6 +710,7 @@ private:
                 }
                 if (!supported) {
                     wantedMode = WGPUPresentMode_Fifo;
+                    SDL_Log("WebGPU: Immediate/Mailbox not offered; presenting with Fifo (vsync-locked)");
                 }
             }
 
@@ -724,6 +725,8 @@ private:
             config.height = static_cast<uint32_t>(pixelHeight);
             config.alphaMode = caps.alphaModeCount > 0 ? caps.alphaModes[0] : WGPUCompositeAlphaMode_Opaque;
             config.presentMode = wantedMode;
+            SDL_Log("WebGPU: surface %ux%u present mode %d", config.width, config.height,
+                    static_cast<int>(wantedMode));
             wgpuSurfaceConfigure(surface, &config);
             wgpuSurfaceCapabilitiesFreeMembers(caps);
         }

@@ -16,7 +16,7 @@ struct Settings {
     bool ballCollisions = false;
     LayoutOrientation layout = LayoutOrientation::Auto;
     bool vsync = false;
-    std::string renderer = "nvrhi";
+    std::string renderer = "webgpu";
     std::string graphicsApi = "auto";
 
     bool operator==(const Settings&) const = default;

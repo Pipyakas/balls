@@ -17,7 +17,7 @@ FetchContent_MakeAvailable(SDL3)
 if(ANDROID OR EMSCRIPTEN OR IOS)
     set(BALLS_DEFAULT_RENDERER "sdlgpu")
 else()
-    set(BALLS_DEFAULT_RENDERER "nvrhi")
+    set(BALLS_DEFAULT_RENDERER "webgpu")
 endif()
 set(BALLS_RENDERER "${BALLS_DEFAULT_RENDERER}" CACHE STRING "Renderer behind IRenderer: nvrhi (D3D12/Vulkan), sdlgpu, or webgpu (native wgpu-native/Dawn)")
 set_property(CACHE BALLS_RENDERER PROPERTY STRINGS nvrhi sdlgpu webgpu)
@@ -76,6 +76,7 @@ add_executable(ColorBlastBalls WIN32
     app/LaunchOptions.cpp
     app/FrameTimings.cpp
     app/MachineProfile.cpp
+    app/PreferenceDirectory.cpp
     control/ControlProtocol.cpp
     control/ControlServer.cpp
     render/RendererFactory.cpp
@@ -88,6 +89,8 @@ add_executable(ColorBlastBalls WIN32
     ui/Widgets.cpp
     screens/MainMenuScreen.cpp
     screens/LevelSelectScreen.cpp
+    screens/SettingsPanel.cpp
+    screens/SettingsScreen.cpp
     screens/GameplayScreen.cpp
     screens/DebugPanel.cpp
     editor/MapEditorScreen.cpp

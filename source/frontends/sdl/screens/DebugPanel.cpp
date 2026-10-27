@@ -28,7 +28,18 @@ public:
 
     void row(std::string_view label, std::string_view value, Color valueColor = palette::text) {
         ui::drawText(label, {area.x + padding, cursor}, textSize, palette::textMuted);
-        ui::drawText(value, {area.x + area.width - padding, cursor}, textSize, valueColor, ui::Align::Right);
+        const float labelWidth = ui::measureText(label, textSize).x;
+        const float maxValueWidth = std::max(area.width - padding * 2.0f - labelWidth - 10.0f, 40.0f);
+        if (ui::measureText(value, textSize).x <= maxValueWidth) {
+            ui::drawText(value, {area.x + area.width - padding, cursor}, textSize, valueColor, ui::Align::Right);
+        } else {
+            std::string ellipsized(value);
+            while (!ellipsized.empty() && ui::measureText(ellipsized + "...", textSize).x > maxValueWidth) {
+                ellipsized.pop_back();
+            }
+            ellipsized += "...";
+            ui::drawText(ellipsized, {area.x + area.width - padding, cursor}, textSize, valueColor, ui::Align::Right);
+        }
         cursor += lineHeight;
     }
 

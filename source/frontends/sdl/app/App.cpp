@@ -2,12 +2,15 @@
 
 #include "app/Input.h"
 #include "app/Paths.h"
+#include "app/PreferenceDirectory.h"
 #include "editor/MapEditorScreen.h"
+#include "game/Settings.h"
 #include "level/LevelRepository.h"
 #include "render/Palette.h"
 #include "screens/GameplayScreen.h"
 #include "screens/LevelSelectScreen.h"
 #include "screens/MainMenuScreen.h"
+#include "screens/SettingsScreen.h"
 #include "ui/Painter.h"
 #include "ui/Widgets.h"
 
@@ -221,14 +224,23 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
     const std::string initialRenderer =
         options.renderer.empty() ? (activeRenderer.empty() ? "nvrhi" : activeRenderer) : options.renderer;
 
-    if (!openWindowAndRenderer(options, options.graphicsApi, error)) {
-        const std::string_view fallback = fallbackGraphicsApi(options.graphicsApi);
+    currentSettings = loadSettings(settingsFilePath());
+    LaunchOptions effective = options;
+    if (effective.renderer.empty()) {
+        effective.renderer = normalizeRendererName(currentSettings.renderer);
+    }
+    if (effective.graphicsApi.empty()) {
+        effective.graphicsApi = normalizeGraphicsApiName(currentSettings.graphicsApi);
+    }
+
+    if (!openWindowAndRenderer(effective, effective.graphicsApi, error)) {
+        const std::string_view fallback = fallbackGraphicsApi(effective.graphicsApi);
         std::string fallbackError;
         bool initialized = false;
-        if (!fallback.empty() && openWindowAndRenderer(options, fallback, fallbackError)) {
+        if (!fallback.empty() && openWindowAndRenderer(effective, fallback, fallbackError)) {
             initialized = true;
         } else if (isNvrhiCompiledIn() && initialRenderer != "nvrhi") {
-            LaunchOptions nvrhiOptions = options;
+            LaunchOptions nvrhiOptions = effective;
             nvrhiOptions.renderer = "nvrhi";
             nvrhiOptions.graphicsApi = "auto";
             std::string nvrhiError;
@@ -252,7 +264,7 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
     profile.load();
     setComputeGpuPreference(options.computeGpu);
     computeAdapterList = enumerateGpuAdapters(GpuApi::Vulkan);
-    setVsync(options.vsync);
+    setVsync(effective.vsync || currentSettings.vsync);
     backendChoice = options.backend && isBackendAvailable(*options.backend) ? *options.backend
                                                                             : fastestAvailableCpuBackend();
     if (options.controlPort > 0) {
@@ -387,12 +399,23 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
         return ControlResponse::ok("{\"ok\":true}");
     }
     if (path == "/settings") {
-        if (request.text("renderer").has_value() || request.text("graphicsApi").has_value() || request.text("api").has_value()) {
-            const std::string r = request.text("renderer").value_or(activeRenderer);
-            const std::string a = request.text("graphicsApi").value_or(request.text("api").value_or(activeGraphicsApi));
-            requestRenderer(r, a);
+        Settings next = currentSettings;
+        if (const auto collisions = request.integer("collisions")) {
+            next.ballCollisions = *collisions != 0;
         }
-        return ControlResponse::ok("{\"ok\":true}");
+        if (const auto vsync = request.integer("vsync")) {
+            next.vsync = *vsync != 0;
+        }
+        if (const auto renderer = request.text("renderer")) {
+            next.renderer = normalizeRendererName(*renderer);
+        }
+        if (const auto api = request.text("graphicsApi"); api) {
+            next.graphicsApi = normalizeGraphicsApiName(*api);
+        } else if (const auto api = request.text("api")) {
+            next.graphicsApi = normalizeGraphicsApiName(*api);
+        }
+        applySettings(next);
+        return ControlResponse::ok(settingsJson());
     }
     if (path == "/render-gpu") {
         const auto index = request.integer("index");
@@ -462,4 +485,30 @@ void App::startGame(GameMode mode, const LevelFiles& files) {
 
 void App::openEditor(GameMode mode, std::optional<LevelFiles> files) {
     pendingScreen = std::make_unique<MapEditorScreen>(*this, mode, std::move(files));
+}
+
+void App::showSettings() { pendingScreen = std::make_unique<SettingsScreen>(*this); }
+
+bool App::isWebGpuSupported() const { return isWebGpuCompiledIn(); }
+
+void App::applySettings(const Settings& settings, std::optional<BackendKind> backend) {
+    const bool rendererChanged =
+        normalizeRendererName(settings.renderer) != activeRenderer ||
+        normalizeGraphicsApiName(settings.graphicsApi) != activeGraphicsApi;
+    currentSettings = settings;
+    static_cast<void>(saveSettings(settingsFilePath(), settings));
+    setVsync(settings.vsync);
+    if (backend) {
+        backendChoice = *backend;
+    }
+    if (rendererChanged) {
+        requestRenderer(normalizeRendererName(settings.renderer), normalizeGraphicsApiName(settings.graphicsApi));
+    }
+}
+
+std::string App::settingsJson() const {
+    return std::format(
+        "{{\"ballCollisions\":{},\"layout\":\"{}\",\"vsync\":{},\"renderer\":\"{}\",\"graphicsApi\":\"{}\"}}",
+        currentSettings.ballCollisions, orientationName(currentSettings.layout), currentSettings.vsync,
+        normalizeRendererName(currentSettings.renderer), normalizeGraphicsApiName(currentSettings.graphicsApi));
 }
