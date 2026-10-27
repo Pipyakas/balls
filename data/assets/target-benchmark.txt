@@ -4,9 +4,9 @@ gpu	Microsoft Basic Render Driver | 10.0.26100.8328
 gpu	NVIDIA GeForce GTX 1650 | 32.0.16.2101
 version	
 complete	1
-winner	CUDA	
-result	Scalar		done	175288491	
-result	AVX2		done	3306671204	
-result	CUDA		done	8176198446	
-result	Hybrid		done	970054013	
-result	Vulkan		done	4207188947	
+winner	Hybrid	
+result	Scalar		done	199136910		1320041	18446744073709551616
+result	AVX2		done	11029062473		6969358990	6969358990
+result	CUDA		done	126780614956		398032896	398032896
+result	Hybrid		done	10286007599		7352650095	7352650095
+result	Vulkan		done	14205350701		111764998	18446744073709551616
