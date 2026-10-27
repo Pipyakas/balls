@@ -1,5 +1,6 @@
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
+#include "sim/BackendBenchmark.h"
 #include "sim/BackendFactory.h"
 #include "sim/Simulation.h"
 
@@ -8,9 +9,11 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <numbers>
 #include <random>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -27,6 +30,7 @@ struct BenchOptions {
     bool rooflineOnLevel = false;
     bool collisions = false;
     int substeps = 2;
+    std::filesystem::path machineBenchmarkOutput;
 };
 
 std::vector<size_t> parseCounts(const char* text) {
@@ -90,9 +94,42 @@ BenchOptions parseOptions(int argumentCount, char** arguments) {
             options.scatterSimulation = true;
         } else if (argument == "--collisions") {
             options.collisions = true;
+        } else if (argument == "--machine-benchmark") {
+            options.machineBenchmarkOutput = value;
+            ++i;
         }
     }
     return options;
+}
+
+// The game's Settings > Run machine benchmark, without a window: same workload, same candidates, same winner rule.
+// The record it writes is what the game ships as the scoring machine's default (data/assets/target-benchmark.txt).
+int runMachineBenchmark(const BenchOptions& options, BrickLayout level) {
+    constexpr auto pollInterval = std::chrono::milliseconds(200);
+    BenchmarkWorkload workload;
+    workload.level = std::move(level);
+    BackendBenchmark benchmark(std::move(workload), benchmarkCandidates());
+    benchmark.start();
+    while (!benchmark.finished()) {
+        std::this_thread::sleep_for(pollInterval);
+    }
+    const std::vector<CandidateResult> results = benchmark.results();
+    for (const CandidateResult& result : results) {
+        std::printf("%-24s %-9s %10.1f M ball-steps/s %s\n", result.candidate.label.c_str(),
+                    result.status == CandidateStatus::Done ? "done" : "not done",
+                    result.ballStepsPerSecond / 1e6, result.failure.c_str());
+    }
+    const BenchmarkCandidate winner = chooseDefaultBackend(results, isBackendAvailable);
+    std::printf("winner: %s\n", winner.label.c_str());
+    const BenchmarkRecord record{currentHardwareFingerprint(""), results, winner, true};
+    std::ofstream output(options.machineBenchmarkOutput, std::ios::binary);
+    output << serializeBenchmarkRecord(record);
+    if (!output) {
+        std::fprintf(stderr, "could not write %s\n", options.machineBenchmarkOutput.string().c_str());
+        return 1;
+    }
+    std::printf("wrote %s\n", options.machineBenchmarkOutput.string().c_str());
+    return 0;
 }
 
 std::vector<BallSpawn> scatterBalls(const BrickBoard& board, size_t count, float speed) {
@@ -269,6 +306,9 @@ int main(int argumentCount, char** arguments) {
     if (!level) {
         std::fprintf(stderr, "level load failed: %s\n", level.error().c_str());
         return 1;
+    }
+    if (!options.machineBenchmarkOutput.empty()) {
+        return runMachineBenchmark(options, std::move(level->bricks));
     }
     for (BackendKind kind : options.backends) {
         if (!isBackendAvailable(kind)) {

@@ -1,0 +1,12 @@
+cpu	Intel(R) Core(TM) i9-14900K
+cores	32
+gpu	Microsoft Basic Render Driver | 10.0.26100.8328
+gpu	NVIDIA GeForce GTX 1650 | 32.0.16.2101
+version	
+complete	1
+winner	CUDA	
+result	Scalar		done	175288491	
+result	AVX2		done	3306671204	
+result	CUDA		done	8176198446	
+result	Hybrid		done	970054013	
+result	Vulkan		done	4207188947	
