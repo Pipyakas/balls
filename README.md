@@ -33,15 +33,16 @@ compiler pieces) and internet access on first configure (SDL 3.2.30, Dear ImGui 
 picks the renderer (default: `nvrhi`, or `sdlgpu` on Android). With NVRHI, Windows runs Direct3D 12 and
 `--api vulkan` switches to Vulkan; Linux and macOS always use Vulkan.
 
-Every front end has one build and one run script per platform at the project root, named
-`<build|run>-<platform>-<frontend>`. Each one stages a self-contained runnable copy in `dist\<platform>-<frontend>\`
-and keeps CMake's intermediate files in `build\<platform>\`. Building stops a game instance still running from
-that `dist` folder first.
+Every front end has one build script per platform at the project root, named `build-<platform>-<frontend>`. It
+stages a self-contained runnable copy in `dist\<platform>-<frontend>\`, keeps CMake's intermediate files in
+`build\<platform>\`, and ends by printing the absolute path of the game it built, so you can start it from there.
+Started by double-click, the Windows script waits for a key before closing. Building stops a game instance still
+running from that `dist` folder first.
 
 | Script | Output |
 |---|---|
-| `build-win32-sdl.bat` / `run-win32-sdl.bat [game args]` | `dist\win32-sdl\ColorBlastBalls.exe` |
-| `build-linux-sdl.sh` / `run-linux-sdl.sh [game args]` | `dist/linux-sdl/ColorBlastBalls` |
+| `build-win32-sdl.bat` | `dist\win32-sdl\ColorBlastBalls.exe` |
+| `build-linux-sdl.sh` | `dist/linux-sdl/ColorBlastBalls` |
 
 The UE front end and the Android package are built on their own machines; they add
 `build-win32-ue.bat` / `build-android-sdl.sh` in the same pattern, writing to `dist\win32-ue\` and
