@@ -9,6 +9,9 @@ set(SDL_AUDIO OFF CACHE BOOL "" FORCE)
 set(SDL_CAMERA OFF CACHE BOOL "" FORCE)
 set(SDL_HAPTIC OFF CACHE BOOL "" FORCE)
 set(SDL_SENSOR OFF CACHE BOOL "" FORCE)
+# The SDL tarball has no git metadata, so SDL searches parent folders for a .git directory; in a worktree of a bare
+# clone it finds the container's .git pointer file and fails to configure. Naming the revision skips that search.
+set(SDL_REVISION "release-3.2.30" CACHE STRING "SDL revision reported by the vendored tarball")
 FetchContent_Declare(SDL3
     URL https://github.com/libsdl-org/SDL/archive/refs/tags/release-3.2.30.tar.gz
     DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
