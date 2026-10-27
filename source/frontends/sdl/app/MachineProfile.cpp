@@ -10,7 +10,7 @@
 
 namespace {
 
-constexpr const char* organizationName = "the company";
+constexpr const char* organizationName = "Pipyakas";
 constexpr const char* applicationName = "ColorBlastBalls";
 constexpr const char* profileFileName = "machine.txt";
 
