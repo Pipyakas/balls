@@ -3,6 +3,9 @@
 #include "level/LevelData.h"
 
 #include <cstdint>
+#include <functional>
+#include <queue>
+#include <utility>
 #include <vector>
 
 struct BrickCell {
@@ -46,12 +49,15 @@ public:
     const std::vector<Brick>& bricks() const { return brickList; }
     int brickAt(int column, int row) const { return cells[paddedIndex(column, row)]; }
     int aliveBrickCount() const { return aliveCount; }
+    const std::vector<int>& aliveBrickIndices() const { return aliveBricks; }
     const ColorTally& remainingHitsByColor() const { return remainingHits; }
     uint64_t revision() const { return changeRevision; }
 
 private:
     int freeRowsAbove(int brickIndex) const;
     bool raiseFully(int brickIndex);
+    void startAnimating(int brickIndex);
+    void markDead(int brickIndex);
     void placeBrick(int brickIndex, int32_t value);
     void setCell(int index, int32_t value);
     void markCellChanged(int index);
@@ -66,7 +72,7 @@ private:
     std::vector<int32_t> cells;
     std::vector<int32_t> colors;
     std::vector<Brick> brickList;
-    std::vector<int> bricksToSettle;
+    std::priority_queue<std::pair<int, int>, std::vector<std::pair<int, int>>, std::greater<>> bricksToSettle;
     bool wholeBoardSettlePending = false;
     std::vector<int32_t> nearCounts;
     std::vector<int32_t> nearFlags;
@@ -74,5 +80,9 @@ private:
     std::vector<int32_t> dirtyCells;
     ColorTally remainingHits{};
     int aliveCount = 0;
+    std::vector<int> aliveBricks;
+    std::vector<int> alivePosition;
+    std::vector<int> animatingBricks;
+    std::vector<uint8_t> brickAnimating;
     uint64_t changeRevision = 0;
 };

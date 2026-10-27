@@ -40,7 +40,15 @@ void BrickBoard::load(const BrickLayout& layout) {
         }
     }
     aliveCount = static_cast<int>(brickList.size());
-    bricksToSettle.clear();
+    aliveBricks.resize(brickList.size());
+    alivePosition.resize(brickList.size());
+    for (int index = 0; index < aliveCount; ++index) {
+        aliveBricks[static_cast<size_t>(index)] = index;
+        alivePosition[static_cast<size_t>(index)] = index;
+    }
+    animatingBricks.clear();
+    brickAnimating.assign(brickList.size(), 0);
+    bricksToSettle = {};
     wholeBoardSettlePending = true;
     rebuildNearCounts();
     cellChanged.assign(cells.size(), 0);
@@ -114,12 +122,14 @@ bool BrickBoard::applyHit(int brickIndex) {
     --brick.hitsLeft;
     --remainingHits[toIndex(brick.color)];
     brick.hitFlash = hitFlashSeconds;
+    startAnimating(brickIndex);
     if (brick.isAlive()) {
         return true;
     }
     placeBrick(brickIndex, emptyCell);
     queueBricksBelow(brickIndex);
     --aliveCount;
+    markDead(brickIndex);
     ++changeRevision;
     return true;
 }
@@ -182,6 +192,7 @@ bool BrickBoard::raiseFully(int brickIndex) {
     }
     placeBrick(brickIndex, brickIndex);
     brick.riseOffset += static_cast<float>(distance);
+    startAnimating(brickIndex);
     return true;
 }
 
@@ -199,7 +210,7 @@ void BrickBoard::queueFirstBrickBelow(int column, int row) {
     for (int below = row + 1; below < rowCount; ++below) {
         const int brick = brickAt(column, below);
         if (brick != emptyCell) {
-            bricksToSettle.push_back(brick);
+            bricksToSettle.emplace(below, brick);
             return;
         }
     }
@@ -242,8 +253,8 @@ bool BrickBoard::settleColumns() {
         anyMoved = settleWholeBoard();
     }
     while (!bricksToSettle.empty()) {
-        const int brick = bricksToSettle.back();
-        bricksToSettle.pop_back();
+        const int brick = bricksToSettle.top().second;
+        bricksToSettle.pop();
         if (brickList[brick].isAlive() && raiseFully(brick)) {
             anyMoved = true;
             queueBricksBelow(brick);
@@ -256,8 +267,31 @@ bool BrickBoard::settleColumns() {
 }
 
 void BrickBoard::animate(float deltaTime) {
-    for (Brick& brick : brickList) {
+    size_t kept = 0;
+    for (const int index : animatingBricks) {
+        Brick& brick = brickList[static_cast<size_t>(index)];
         brick.riseOffset = std::max(0.0f, brick.riseOffset - riseSpeedCellsPerSecond * deltaTime);
         brick.hitFlash = std::max(0.0f, brick.hitFlash - deltaTime);
+        if (brick.riseOffset > 0.0f || brick.hitFlash > 0.0f) {
+            animatingBricks[kept++] = index;
+        } else {
+            brickAnimating[static_cast<size_t>(index)] = 0;
+        }
     }
+    animatingBricks.resize(kept);
+}
+
+void BrickBoard::startAnimating(int brickIndex) {
+    if (!brickAnimating[static_cast<size_t>(brickIndex)]) {
+        brickAnimating[static_cast<size_t>(brickIndex)] = 1;
+        animatingBricks.push_back(brickIndex);
+    }
+}
+
+void BrickBoard::markDead(int brickIndex) {
+    const int position = alivePosition[static_cast<size_t>(brickIndex)];
+    const int last = aliveBricks.back();
+    aliveBricks[static_cast<size_t>(position)] = last;
+    alivePosition[static_cast<size_t>(last)] = position;
+    aliveBricks.pop_back();
 }
