@@ -17,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 
 struct SDL_Window;
 union SDL_Event;
@@ -51,10 +52,17 @@ public:
     int renderAdapterIndex() const { return activeRenderAdapter; }
     // Swaps the renderer onto another adapter at the end of the frame; the window and the game stay.
     void requestRenderAdapter(int adapterIndex) { pendingRenderAdapter = adapterIndex; }
+    const std::string& rendererName() const { return activeRenderer; }
+    const std::string& graphicsApiName() const { return activeGraphicsApi; }
+    std::string rendererDescription() const { return renderer ? renderer->deviceDescription() : ""; }
+    void requestRenderer(std::string rendererChoice, std::string apiChoice) {
+        pendingRendererSwitch = std::make_pair(std::move(rendererChoice), std::move(apiChoice));
+    }
 
 private:
     bool openWindowAndRenderer(const LaunchOptions& options, std::string_view api, std::string& error);
     void applyPendingRenderAdapter();
+    void applyPendingRendererSwitch();
     using Clock = std::chrono::steady_clock;
 
     void applyPendingScreen();
@@ -79,11 +87,13 @@ private:
     bool screenshotPending = false;
     std::string screenshotPath;
     float frameSeconds = 0.0f;
+    std::string activeRenderer = "nvrhi";
     std::string activeGraphicsApi;
     std::string renderGpuPreference;
     std::vector<GpuAdapterInfo> renderAdapterList;
     std::vector<GpuAdapterInfo> computeAdapterList;
     int activeRenderAdapter = -1;
     std::optional<int> pendingRenderAdapter;
+    std::optional<std::pair<std::string, std::string>> pendingRendererSwitch;
     Clock::time_point previousUpdateStart = Clock::now();
 };

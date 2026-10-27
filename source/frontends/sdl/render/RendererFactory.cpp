@@ -38,6 +38,14 @@ std::string lowercase(std::string_view text) {
 
 } // namespace
 
+bool isWebGpuCompiledIn() {
+#if defined(BALLS_RENDERER_WEBGPU) || defined(BALLS_WITH_WEBGPU)
+    return true;
+#else
+    return false;
+#endif
+}
+
 SDL_WindowFlags rendererWindowFlags(std::string_view renderer, std::string_view api) {
     const std::string r = lowercase(renderer);
     if (r == "webgpu") {

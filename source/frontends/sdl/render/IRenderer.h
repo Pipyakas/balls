@@ -71,6 +71,7 @@ public:
     virtual std::string deviceDescription() const = 0;
 };
 
+bool isWebGpuCompiledIn();
 std::unique_ptr<IRenderer> createSdlGpuRenderer(SDL_Window* window, std::string& error);
 SDL_WindowFlags rendererWindowFlags(std::string_view api);
 SDL_WindowFlags rendererWindowFlags(std::string_view renderer, std::string_view api);

@@ -103,7 +103,7 @@ public:
     bool lastScreenshotSucceeded() const override { return screenshotSucceeded; }
     double lastGpuWaitMs() const override { return gpuWaitMs; }
     double lastGpuBusyMs() const override { return gpuBusyMs; }
-    std::string deviceDescription() const override { return std::format("NVRHI {}", graphics->description()); }
+    std::string deviceDescription() const override { return std::format("NVRHI / {}", graphics->description()); }
 
 private:
     bool createPipelines(std::string& error);

@@ -46,7 +46,7 @@ public:
     bool setVsync(bool enabled) override;
     bool isVsyncEnabled() const override { return vsync; }
     nvrhi::Format backBufferFormat() const override { return nvrhi::Format::RGBA8_UNORM; }
-    std::string description() const override { return std::format("D3D12 {}", adapterName); }
+    std::string description() const override { return std::format("Direct3D 12 / {}", adapterName); }
 
 private:
     bool createBackBuffers();

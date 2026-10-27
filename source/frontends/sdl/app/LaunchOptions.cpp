@@ -45,6 +45,9 @@ std::optional<BackendKind> parseBackendKind(std::string_view text) {
 
 LaunchOptions parseLaunchOptions(int argumentCount, char** arguments) {
     LaunchOptions options;
+    if (const char* rendererEnvironment = std::getenv("BALLS_RENDERER")) {
+        options.renderer = lowercase(rendererEnvironment);
+    }
     if (const char* gpuEnvironment = std::getenv("BALLS_GPU")) {
         options.gpu = gpuEnvironment;
     }
@@ -66,6 +69,8 @@ LaunchOptions parseLaunchOptions(int argumentCount, char** arguments) {
             options.windowWidth = parseInteger(arguments[i + 1], options.windowWidth);
             options.windowHeight = parseInteger(arguments[i + 2], options.windowHeight);
             i += 2;
+        } else if (argument == "--renderer" && hasValue) {
+            options.renderer = lowercase(arguments[++i]);
         } else if (argument == "--api" && hasValue) {
             options.graphicsApi = lowercase(arguments[++i]);
         } else if (argument == "--gpu" && hasValue) {

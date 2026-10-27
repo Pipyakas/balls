@@ -64,7 +64,7 @@ Color fpsColor(float fps) {
 
 }
 
-void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& frames) {
+void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& frames, std::string_view deviceDescription) {
     ui::drawPanel(area, palette::panel, 0.03f);
     PanelWriter writer(area);
     const Simulation& simulation = session.simulation();
