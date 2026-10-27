@@ -21,8 +21,7 @@ public:
     }
     bool addCompact(const CompactBalls& balls) override {
         materializeFreeFlight();
-        store.addCompact(balls);
-        return true;
+        return store.addCompact(balls) == std::min(balls.position.size(), balls.state.size());
     }
     std::vector<BallSpawn> exportBalls() override {
         materializeFreeFlight();

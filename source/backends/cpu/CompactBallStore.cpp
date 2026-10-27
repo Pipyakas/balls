@@ -36,23 +36,31 @@ uint32_t stateColor(uint32_t state) { return (state >> compact::colorShift) & co
 
 }
 
-void CompactBallStore::resize(size_t newCount) {
-    count = newCount;
+bool CompactBallStore::resize(size_t newCount) {
     const size_t padded = roundUpToLanes(newCount);
-    position.resize(padded, 0);
-    state.resize(padded, 0);
-    packed.resize(padded, 0);
+    if (!position.resize(padded) || !state.resize(padded)) {
+        position.resize(roundUpToLanes(count));
+        state.resize(roundUpToLanes(count));
+        return false;
+    }
+    count = newCount;
+    if (!gridFilled) {
+        packed.resize(padded, 0);
+    }
+    return true;
 }
 
-void CompactBallStore::add(std::span<const BallSpawn> spawns) {
+size_t CompactBallStore::add(std::span<const BallSpawn> spawns) {
     if (spawns.empty()) {
-        return;
+        return 0;
     }
     speed = std::max(std::hypot(spawns.front().vx, spawns.front().vy), 1e-6f);
     const float inverseSpeed = 1.0f / speed;
     const size_t first = count;
     const unsigned int ticksSinceEpoch = clockTick - freeFlightEpoch;
-    resize(count + spawns.size());
+    if (!resize(count + spawns.size())) {
+        return 0;
+    }
     for (size_t i = 0; i < spawns.size(); ++i) {
         const BallSpawn& spawn = spawns[i];
         const uint32_t color = static_cast<uint32_t>(spawn.color);
@@ -77,9 +85,13 @@ void CompactBallStore::add(std::span<const BallSpawn> spawns) {
         state[first + i] = (static_cast<uint32_t>(directionX) & compact::directionMask) |
                            ((static_cast<uint32_t>(directionY) & compact::directionMask) << compact::directionBits) |
                            (color << compact::colorShift);
+        if (!tracksPacked()) {
+            continue;
+        }
         packed[first + i] = packBallForRender(spawn.x, spawn.y, spawn.color, renderPackScale(fieldWidth),
                                               renderPackScale(fieldHeight));
     }
+    return spawns.size();
 }
 
 void CompactBallStore::swapRemove(std::span<const uint32_t> descendingIndices) {
@@ -88,7 +100,9 @@ void CompactBallStore::swapRemove(std::span<const uint32_t> descendingIndices) {
         --last;
         position[index] = position[last];
         state[index] = state[last];
-        packed[index] = packed[last];
+        if (tracksPacked()) {
+            packed[index] = packed[last];
+        }
     }
     resize(last);
 }
@@ -138,24 +152,31 @@ void CompactBallStore::takeCompactTail(size_t tailCount, CompactBalls& balls) {
     resize(first);
 }
 
-void CompactBallStore::addCompact(const CompactBalls& balls) {
+size_t CompactBallStore::addCompact(const CompactBalls& balls) {
     const size_t first = count;
     const size_t added = std::min(balls.position.size(), balls.state.size());
-    resize(count + added);
+    if (!resize(count + added)) {
+        return 0;
+    }
     std::copy_n(balls.position.begin(), added, position.begin() + static_cast<std::ptrdiff_t>(first));
     std::copy_n(balls.state.begin(), added, state.begin() + static_cast<std::ptrdiff_t>(first));
-    for (size_t i = 0; i < added; ++i) {
+    for (size_t i = 0; tracksPacked() && i < added; ++i) {
         packed[first + i] = packCompactForRender(balls.position[i], balls.state[i]);
     }
+    return added;
 }
 
 bool CompactBallStore::prepareGrid() {
     const size_t cells = gridCellCount();
     gridFilled = cells > 0 && count > cells;
     if (gridFilled) {
+        packed = SimdVector<uint32_t>{};
         grid.assign(cells, emptyRenderSlot);
         bidderMask = bidderMaskFor(count, cells);
         ++frameSeed;
+    }
+    if (!gridFilled && !tracksPacked()) {
+        packed.resize(roundUpToLanes(count), 0);
     }
     return gridFilled;
 }
@@ -163,6 +184,9 @@ bool CompactBallStore::prepareGrid() {
 BallSnapshot CompactBallStore::snapshot() const {
     if (gridFilled) {
         return {grid.data(), grid.size(), fieldWidth, fieldHeight, false, true};
+    }
+    if (!tracksPacked()) {
+        return {};
     }
     return {packed.data(), count, fieldWidth, fieldHeight};
 }

@@ -28,6 +28,16 @@ struct PhysicalMemory {
     size_t available = 0;
 };
 
+bool isMemoryLow() {
+#if defined(_WIN32)
+    static const HANDLE lowMemory = CreateMemoryResourceNotification(LowMemoryResourceNotification);
+    BOOL low = FALSE;
+    return lowMemory && QueryMemoryResourceNotification(lowMemory, &low) && low;
+#else
+    return false;
+#endif
+}
+
 std::optional<PhysicalMemory> physicalMemory() {
 #if defined(_WIN32)
     MEMORYSTATUSEX memory{};
@@ -286,20 +296,23 @@ void Avx2Backend::materializeFreeFlight() {
     store.frozen = false;
 }
 
-// Balls take 12 bytes here (position, state and the render copy); a quarter of physical memory stays free for
-// the rest of the game and the system.
+// What is physically free right now, less a margin for the rest of the game and the system, at 8 bytes per ball.
+// Paging even part of the balls out would cost more than the frame budget, so the ceiling stops short of it, and
+// once Windows reports memory as low no more balls are taken at all.
 size_t Avx2Backend::ballCapacityLimit() const {
-    constexpr size_t bytesPerBall = 12;
-    constexpr size_t keptFreeDivisor = 4;
+    constexpr size_t bytesPerBall = 8;
+    constexpr size_t minimumMarginBytes = size_t{1} << 30;
+    constexpr size_t marginDivisor = 32;
+    if (isMemoryLow()) {
+        return store.count;
+    }
     const std::optional<PhysicalMemory> memory = physicalMemory();
     if (!memory) {
         return std::numeric_limits<size_t>::max();
     }
-    const size_t usable = memory->total - memory->total / keptFreeDivisor;
-    const size_t inUse = memory->total - memory->available;
-    const size_t held = store.position.capacity() * bytesPerBall;
-    const size_t othersUse = inUse > held ? inUse - held : 0;
-    return usable > othersUse ? (usable - othersUse) / bytesPerBall : store.count;
+    const size_t margin = std::max(minimumMarginBytes, memory->total / marginDivisor);
+    const size_t spare = memory->available > margin ? memory->available - margin : 0;
+    return store.count + spare / bytesPerBall;
 }
 
 void Avx2Backend::step(const StepParams& params, std::vector<BallHit>& hits) {
