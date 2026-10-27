@@ -6,3 +6,10 @@
 *.user
 CMakeUserPresets.json
 /build-*/
+
+# Android/Gradle build outputs
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/app/.cxx/
+/android/local.properties
