@@ -104,6 +104,7 @@ public:
     double lastGpuWaitMs() const override { return gpuWaitMs; }
     double lastGpuBusyMs() const override { return gpuBusyMs; }
     bool lastFramePresented() const override { return framePresented; }
+    double lastPresentWaitMs() const override { return presentWaitMs; }
     std::string deviceDescription() const override { return std::format("NVRHI {}", graphics->description()); }
 
 private:
@@ -187,6 +188,7 @@ private:
     double gpuWaitMs = 0.0;
     double gpuBusyMs = 0.0;
     bool framePresented = true;
+    double presentWaitMs = 0.0;
     std::string screenshotPath;
     bool screenshotSucceeded = false;
 };
@@ -514,7 +516,10 @@ void NvrhiRenderer::endFrame(ClearColor clearColor) {
     ImGui::Render();
     ImDrawData* drawData = ImGui::GetDrawData();
     const bool windowVisible = (SDL_GetWindowFlags(window) & (SDL_WINDOW_HIDDEN | SDL_WINDOW_MINIMIZED | SDL_WINDOW_OCCLUDED)) == 0;
-    const bool presentable = windowVisible && graphics->beginFrame() && graphics->readyToPresent();
+    const bool canBegin = windowVisible && graphics->beginFrame();
+    const Clock::time_point slotWaitStart = Clock::now();
+    const bool presentable = canBegin && graphics->readyToPresent();
+    presentWaitMs = std::chrono::duration<double, std::milli>(Clock::now() - slotWaitStart).count();
     framePresented = presentable;
     if (!pendingRects.empty()) {
         ensureBuffer(rectBuffer, rectCapacity, pendingRects.size() * sizeof(RendererRect), rectStride, false, false, "rects");
@@ -555,7 +560,9 @@ void NvrhiRenderer::endFrame(ClearColor clearColor) {
     device->setEventQuery(frameEvents[frameSlot], nvrhi::CommandQueue::Graphics);
     frameSubmitted[frameSlot] = true;
     if (presentable) {
+        const Clock::time_point presentStart = Clock::now();
         graphics->present();
+        presentWaitMs += std::chrono::duration<double, std::milli>(Clock::now() - presentStart).count();
     }
     if (capturing) {
         device->waitEventQuery(frameEvents[frameSlot]);

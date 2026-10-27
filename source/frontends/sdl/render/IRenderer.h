@@ -70,6 +70,8 @@ public:
     virtual double lastGpuBusyMs() const = 0;
     // Whether the last frame reached the screen; a frame the compositor was not ready for is rendered but not shown.
     virtual bool lastFramePresented() const { return true; }
+    // Time the last frame spent waiting for the display (VSync, a busy compositor), not doing work.
+    virtual double lastPresentWaitMs() const { return 0.0; }
     virtual std::string deviceDescription() const = 0;
 };
 
