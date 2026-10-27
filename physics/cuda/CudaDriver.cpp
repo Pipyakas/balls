@@ -1,12 +1,63 @@
 #include "cuda/CudaDriver.h"
 
-#include "BallKernelsPtx.h"
+#include "BallKernelImages.h"
 
+#include <algorithm>
+#include <cstdlib>
 #include <format>
+#include <vector>
 
 namespace {
 
-constexpr int warpMatchComputeMajor = 7;
+constexpr const char* forcedImageVariable = "BALLS_CUDA_IMAGE";
+
+std::string imageName(const BallKernelImage& image) {
+    return std::format("{}_{}{}", image.binary ? "sm" : "compute", image.computeMajor, image.computeMinor);
+}
+
+std::string forcedImageName() {
+#if defined(_WIN32)
+    char* value = nullptr;
+    size_t length = 0;
+    if (_dupenv_s(&value, &length, forcedImageVariable) != 0 || !value) {
+        return {};
+    }
+    std::string name(value);
+    std::free(value);
+    return name;
+#else
+    const char* value = std::getenv(forcedImageVariable);
+    return value ? value : "";
+#endif
+}
+
+std::vector<const BallKernelImage*> imagesToTry(int computeMajor, int computeMinor) {
+    if (const std::string forced = forcedImageName(); !forced.empty()) {
+        std::vector<const BallKernelImage*> images;
+        for (const BallKernelImage& image : ballKernelImages) {
+            if (imageName(image) == forced) {
+                images.push_back(&image);
+            }
+        }
+        return images;
+    }
+    const int deviceVersion = computeMajor * 10 + computeMinor;
+    const auto versionOf = [](const BallKernelImage& image) { return image.computeMajor * 10 + image.computeMinor; };
+    std::vector<const BallKernelImage*> images;
+    for (const BallKernelImage& image : ballKernelImages) {
+        const bool binaryRuns = image.computeMajor == computeMajor && image.computeMinor <= computeMinor;
+        if (image.binary ? binaryRuns : versionOf(image) <= deviceVersion) {
+            images.push_back(&image);
+        }
+    }
+    std::ranges::stable_sort(images, [&](const BallKernelImage* left, const BallKernelImage* right) {
+        if (left->binary != right->binary) {
+            return left->binary;
+        }
+        return versionOf(*left) > versionOf(*right);
+    });
+    return images;
+}
 
 #if defined(_WIN32)
 constexpr const char* driverLibraryName = "nvcuda.dll";
@@ -88,17 +139,19 @@ bool CudaDriver::createContextAndModule() {
         return false;
     }
     functions.contextSetCurrent(context);
-    int computeMajor = 0;
-    if (functions.deviceGetAttribute) {
-        functions.deviceGetAttribute(&computeMajor, CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR, device);
+    const int computeMajor = deviceAttribute(CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MAJOR);
+    const int computeMinor = deviceAttribute(CU_DEVICE_ATTRIBUTE_COMPUTE_CAPABILITY_MINOR);
+    CUresult lastResult = CUDA_ERROR_NO_BINARY_FOR_GPU;
+    for (const BallKernelImage* image : imagesToTry(computeMajor, computeMinor)) {
+        lastResult = functions.moduleLoadDataEx(&module, image->bytes, 0, nullptr, nullptr);
+        if (lastResult == CUDA_SUCCESS) {
+            gpuName += std::format(" ({})", imageName(*image));
+            return true;
+        }
     }
-    const unsigned char* ptx = computeMajor >= warpMatchComputeMajor ? ballKernelsPtx : ballKernelsPtxCompute60;
-    if (CUresult result = functions.moduleLoadDataEx(&module, ptx, 0, nullptr, nullptr);
-        result != CUDA_SUCCESS) {
-        errorMessage = describe(result, "cuModuleLoadDataEx");
-        return false;
-    }
-    return true;
+    module = nullptr;
+    errorMessage = describe(lastResult, "cuModuleLoadDataEx");
+    return false;
 }
 
 CUfunction CudaDriver::function(const char* name) const {

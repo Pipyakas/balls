@@ -13,15 +13,17 @@
 
 namespace {
 
-struct PtxVariant {
-    const char* arrayName;
-    const char* architecture;
-    const char* define;
+struct KernelImage {
+    int computeMajor;
+    int computeMinor;
+    bool binary;
 };
 
-constexpr PtxVariant ptxVariants[] = {
-    {"ballKernelsPtx", "--gpu-architecture=compute_75", "-DBALLS_RANK_WITH_MATCH"},
-    {"ballKernelsPtxCompute60", "--gpu-architecture=compute_60", "-DBALLS_RANK_WITH_ATOMICS"},
+constexpr int warpMatchComputeMajor = 7;
+
+constexpr KernelImage kernelImages[] = {
+    {5, 0, true},  {6, 0, true},  {7, 0, true},  {7, 5, true},  {8, 0, true},
+    {8, 6, true},  {8, 9, true},  {7, 5, false}, {5, 0, false},
 };
 constexpr const char* nvrtcLibraryName = "nvrtc64_120_0.dll";
 
@@ -33,6 +35,8 @@ struct NvrtcApi {
     decltype(&::nvrtcGetProgramLog) getProgramLog = nullptr;
     decltype(&::nvrtcGetPTXSize) getPtxSize = nullptr;
     decltype(&::nvrtcGetPTX) getPtx = nullptr;
+    decltype(&::nvrtcGetCUBINSize) getCubinSize = nullptr;
+    decltype(&::nvrtcGetCUBIN) getCubin = nullptr;
     decltype(&::nvrtcDestroyProgram) destroyProgram = nullptr;
 };
 
@@ -55,6 +59,8 @@ bool loadNvrtc(NvrtcApi& api) {
            loadSymbol(library, "nvrtcGetProgramLog", api.getProgramLog) &&
            loadSymbol(library, "nvrtcGetPTXSize", api.getPtxSize) &&
            loadSymbol(library, "nvrtcGetPTX", api.getPtx) &&
+           loadSymbol(library, "nvrtcGetCUBINSize", api.getCubinSize) &&
+           loadSymbol(library, "nvrtcGetCUBIN", api.getCubin) &&
            loadSymbol(library, "nvrtcDestroyProgram", api.destroyProgram);
 }
 
@@ -75,7 +81,45 @@ bool check(nvrtcResult result, const char* what) {
     return true;
 }
 
-void writeByteArray(std::ofstream& output, const char* name, const std::string& ptx) {
+std::string arrayName(const KernelImage& image) {
+    return std::string(image.binary ? "ballKernelsSm" : "ballKernelsCompute") + std::to_string(image.computeMajor) +
+           std::to_string(image.computeMinor);
+}
+
+std::string architectureOption(const KernelImage& image) {
+    return std::string(image.binary ? "--gpu-architecture=sm_" : "--gpu-architecture=compute_") +
+           std::to_string(image.computeMajor) + std::to_string(image.computeMinor);
+}
+
+std::string compiledImage(nvrtcProgram program, const KernelImage& image) {
+    size_t size = 0;
+    std::string bytes;
+    if (image.binary) {
+        nvrtc.getCubinSize(program, &size);
+        bytes.resize(size);
+        nvrtc.getCubin(program, bytes.data());
+        return bytes;
+    }
+    nvrtc.getPtxSize(program, &size);
+    bytes.resize(size);
+    nvrtc.getPtx(program, bytes.data());
+    if (!bytes.empty() && bytes.back() == '\0') {
+        bytes.pop_back();
+    }
+    return bytes;
+}
+
+void writeImageTable(std::ofstream& output) {
+    output << "\nstruct BallKernelImage {\n    int computeMajor;\n    int computeMinor;\n    bool binary;\n"
+              "    const unsigned char* bytes;\n};\n\ninline constexpr BallKernelImage ballKernelImages[] = {\n";
+    for (const KernelImage& image : kernelImages) {
+        output << "    {" << image.computeMajor << ", " << image.computeMinor << ", "
+               << (image.binary ? "true" : "false") << ", " << arrayName(image) << "},\n";
+    }
+    output << "};\n";
+}
+
+void writeByteArray(std::ofstream& output, const std::string& name, const std::string& ptx) {
     output << "\ninline constexpr unsigned char " << name << "[] = {\n";
     for (size_t i = 0; i < ptx.size(); ++i) {
         output << static_cast<unsigned>(static_cast<unsigned char>(ptx[i])) << ',';
@@ -117,7 +161,7 @@ int main(int argumentCount, char** arguments) {
     std::filesystem::create_directories(outputPath.parent_path());
     std::ofstream output(outputPath, std::ios::binary | std::ios::trunc);
     output << "#pragma once\n";
-    for (const PtxVariant& variant : ptxVariants) {
+    for (const KernelImage& image : kernelImages) {
         nvrtcProgram program{};
         if (!check(nvrtc.createProgram(&program, kernelSource.c_str(), kernelPath.filename().string().c_str(),
                                       static_cast<int>(headerContents.size()), headerContentPointers.data(),
@@ -125,7 +169,10 @@ int main(int argumentCount, char** arguments) {
                    "nvrtcCreateProgram")) {
             return 1;
         }
-        const char* options[] = {variant.architecture, variant.define, "--std=c++17", "--use_fast_math",
+        const std::string architecture = architectureOption(image);
+        const char* rankDefine =
+            image.computeMajor >= warpMatchComputeMajor ? "-DBALLS_RANK_WITH_MATCH" : "-DBALLS_RANK_WITH_ATOMICS";
+        const char* options[] = {architecture.c_str(), rankDefine, "--std=c++17", "--use_fast_math",
                                  "-default-device"};
         const nvrtcResult compileResult = nvrtc.compileProgram(program, static_cast<int>(std::size(options)), options);
         size_t logSize = 0;
@@ -138,15 +185,10 @@ int main(int argumentCount, char** arguments) {
         if (!check(compileResult, "nvrtcCompileProgram")) {
             return 1;
         }
-        size_t ptxSize = 0;
-        nvrtc.getPtxSize(program, &ptxSize);
-        std::string ptx(ptxSize, '\0');
-        nvrtc.getPtx(program, ptx.data());
+        const std::string bytes = compiledImage(program, image);
         nvrtc.destroyProgram(&program);
-        if (!ptx.empty() && ptx.back() == '\0') {
-            ptx.pop_back();
-        }
-        writeByteArray(output, variant.arrayName, ptx);
+        writeByteArray(output, arrayName(image), bytes);
     }
+    writeImageTable(output);
     return 0;
 }

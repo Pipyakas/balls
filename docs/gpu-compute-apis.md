@@ -56,6 +56,11 @@ or measures on the running GPU:
   build now also emits `compute_60` PTX that ranks balls inside a cell with a shared-memory `atomicAdd`, and
   the driver picks a variant by compute capability. Forced onto the 1650, the fallback passes the tests
   and is 2.3% slower (9.67 vs 9.45 ms per tick).
+- **SASS for every shipped architecture.** PTX from NVRTC 12.9 is ISA 8.8, which only a CUDA 12.9 driver can
+  JIT. The plugin now also embeds cubins for sm_50, 60, 70, 75, 80, 86 and 89, which load on any R527+ driver
+  through CUDA minor-version compatibility, and the fallback PTX moved down to `compute_50` for Maxwell. The
+  loader tries the newest same-major cubin, then the newest PTX at or below the device. On the 1650 the sm_75
+  cubin and the JIT-compiled PTX run within noise (7.09-7.13 vs 7.07-7.38 ms per tick, 60M scattered balls).
 
 Same three-round interleaving, 60M balls:
 
