@@ -19,30 +19,38 @@ import sys
 import tempfile
 from typing import List, Optional, Tuple
 
-# Sensible 16 candidate configurations varying:
-# threadsPerGroup in {128, 256, 512}
-# ballsPerThread in {1, 2, 4, 8}
-# sortThreads in {256, 512, 1024}
-# sortItems in {4, 8, 16}
+# Candidate profiles. The first block spans the space coarsely; the second refines around the first sweep's
+# winner on a GCN GPU (few balls per thread, small groups). sortThreads * sortItems must stay <= 4096 because the
+# sort pass packs a ball's rank into RANK_BITS = 12 bits (BallStep.hlsl); larger products corrupt the sort.
 # Tuples: (threadsPerGroup, ballsPerThread, countThreads, countItems, sortThreads, sortItems)
 CANDIDATES: List[Tuple[int, int, int, int, int, int]] = [
-    (256, 4, 256, 16, 512, 8),   # Default baseline first
     (128, 4, 256, 16, 512, 8),
     (512, 4, 256, 16, 512, 8),
     (256, 2, 256, 16, 512, 8),
     (256, 8, 256, 16, 512, 8),
     (256, 1, 256, 16, 512, 8),
     (128, 2, 256, 16, 256, 8),
-    (512, 2, 256, 16, 1024, 8),
     (256, 4, 256, 16, 256, 8),
-    (256, 4, 256, 16, 1024, 8),
     (256, 4, 256, 16, 512, 4),
-    (256, 4, 256, 16, 512, 16),
     (128, 8, 256, 16, 256, 16),
     (512, 8, 256, 16, 1024, 4),
     (128, 1, 128, 16, 256, 4),
-    (512, 4, 512, 8, 1024, 16),
+    (64, 1, 128, 16, 256, 4),
+    (64, 1, 64, 16, 128, 4),
+    (128, 1, 128, 32, 256, 4),
+    (128, 1, 128, 8, 256, 4),
+    (128, 1, 64, 16, 256, 4),
+    (128, 1, 256, 16, 256, 4),
+    (128, 1, 128, 16, 128, 8),
+    (128, 1, 128, 16, 512, 4),
+    (128, 1, 128, 16, 256, 8),
+    (128, 1, 128, 16, 256, 16),
+    (256, 1, 128, 16, 256, 4),
+    (128, 2, 128, 16, 256, 4),
+    (64, 2, 128, 16, 256, 4),
 ]
+MAX_SORT_RANK = 4096
+DEFAULT_ROW = "default"
 
 
 @dataclass
@@ -60,10 +68,12 @@ class AdapterInfo:
 @dataclass
 class CandidateResult:
     name: str
-    params: Tuple[int, int, int, int, int, int]
+    params: Optional[Tuple[int, int, int, int, int, int]]
     kernel_ms: Optional[float]
     verdict: str  # "conserved", "MISMATCH", "FAILED"
     detail: str = ""
+    low: float = 0.0
+    high: float = 0.0
 
 
 def parse_adapter_line(line: str, fallback_index: int) -> Optional[AdapterInfo]:
@@ -225,6 +235,8 @@ def filter_candidates(
         tpg, bpt, ct, ci, st, si = cand
         if max(tpg, ct, st) > max_workgroup:
             continue
+        if st * si > MAX_SORT_RANK:
+            continue
         if max_sort_cells * word_bytes > shared_bytes:
             continue
         if (max_sort_cells + st * si) * word_bytes > shared_bytes:
@@ -303,6 +315,17 @@ def parse_arguments() -> argparse.Namespace:
         help="Retain temporary compilation scratch directory",
     )
     parser.add_argument(
+        "--blob-cache",
+        default=None,
+        help="Directory of compiled candidate blobs, reused when present and filled otherwise. Compile on a machine "
+             "with DXC, copy the directory to one without (e.g. Linux), and the sweep runs there without compiling.",
+    )
+    parser.add_argument(
+        "--compile-only",
+        action="store_true",
+        help="With --blob-cache: compile every candidate that passes this adapter's limits, then exit",
+    )
+    parser.add_argument(
         "--rounds",
         type=int,
         default=3,
@@ -311,8 +334,8 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--max-candidates",
         type=int,
-        default=16,
-        help="Maximum candidate configurations to evaluate (default: 16)",
+        default=24,
+        help="Maximum candidate configurations to evaluate (default: 24)",
     )
     return parser.parse_args()
 
@@ -330,14 +353,20 @@ def main() -> None:
         sys.exit(1)
 
     scratch_dir = Path(tempfile.mkdtemp(prefix="ballsweep"))
+    blob_cache = Path(args.blob_cache).resolve() if args.blob_cache else None
     results: List[CandidateResult] = []
     compiled: list = []
 
     try:
-        for idx, cand in enumerate(candidates, start=1):
-            sweep_name = f"sweep{idx:02d}"
+        for cand in candidates:
             tpg, bpt, ct, ci, st, si = cand
-            cand_emit_dir = scratch_dir / sweep_name
+            numbers = f"{tpg},{bpt},{ct},{ci},{st},{si}"
+            # Named by numbers so a blob cache built on one machine matches the candidates another selects.
+            sweep_name = "s_" + numbers.replace(",", "_")
+            cand_emit_dir = (blob_cache or scratch_dir) / sweep_name
+            if blob_cache and (cand_emit_dir / "stepAndSort.spv").exists() and (cand_emit_dir / "stepAndSort.dxil").exists():
+                compiled.append((sweep_name, cand, cand_emit_dir))
+                continue
             cand_header = scratch_dir / f"{sweep_name}.h"
             cand_emit_dir.mkdir(parents=True, exist_ok=True)
 
@@ -347,7 +376,7 @@ def main() -> None:
                 "-I",
                 str(compile_script),
                 "--extra-profile",
-                f"{sweep_name}={tpg},{bpt},{ct},{ci},{st},{si}",
+                f"{sweep_name}={numbers}",
                 "--profiles-only",
                 sweep_name,
                 "--emit-dir",
@@ -376,22 +405,27 @@ def main() -> None:
 
             compiled.append((sweep_name, cand, cand_emit_dir))
 
+        if args.compile_only:
+            print(f"compiled {len(compiled)} of {len(candidates)} candidates into {blob_cache}")
+            sys.exit(0 if len(compiled) == len(candidates) else 1)
+
         # 2. Benchmark in interleaved rounds so clock drift and thermal state hit every candidate equally,
         # then rank each candidate by the median of its rounds.
-        samples: dict = {name: [] for name, _, _ in compiled}
-        verdicts: dict = {name: set() for name, _, _ in compiled}
+        # The built-in profile for this adapter runs inside the same rounds as the reference row.
+        runs = [(DEFAULT_ROW, None, None)] + compiled
+        samples: dict = {name: [] for name, _, _ in runs}
+        verdicts: dict = {name: set() for name, _, _ in runs}
         failures: dict = {}
         for _round in range(args.rounds):
-            for sweep_name, cand, cand_emit_dir in compiled:
+            for sweep_name, cand, cand_emit_dir in runs:
                 if sweep_name in failures:
                     continue
-                tpg, bpt, ct, ci, st, si = cand
+                override = ["--blob-dir", str(cand_emit_dir), "--profile-numbers", ",".join(map(str, cand))] if cand else []
                 bench_cmd = [
                     str(bench_path),
                     "--api", str(args.api),
                     "--gpu", str(args.gpu),
-                    "--blob-dir", str(cand_emit_dir),
-                    "--profile-numbers", f"{tpg},{bpt},{ct},{ci},{st},{si}",
+                    *override,
                     "--balls", str(args.balls),
                     "--ticks", str(args.ticks),
                     "--dir", str(args.dir),
@@ -410,7 +444,7 @@ def main() -> None:
                 samples[sweep_name].append(float(m_ms.group(1)))
                 verdicts[sweep_name].add(m_verdict.group(1) if m_verdict else "UNKNOWN")
 
-        for sweep_name, cand, _ in compiled:
+        for sweep_name, cand, _ in runs:
             if sweep_name in failures:
                 results.append(CandidateResult(name=sweep_name, params=cand, kernel_ms=None, verdict="FAILED",
                                                detail=f"bench error: {failures[sweep_name]}"))
@@ -419,51 +453,53 @@ def main() -> None:
             median = ordered[len(ordered) // 2]
             verdict = "MISMATCH" if "MISMATCH" in verdicts[sweep_name] else (
                 "conserved" if verdicts[sweep_name] == {"conserved"} else "UNKNOWN")
-            spread = f"min {ordered[0]:.3f} max {ordered[-1]:.3f}" if len(ordered) > 1 else ""
             results.append(CandidateResult(name=sweep_name, params=cand, kernel_ms=median, verdict=verdict,
-                                           detail=spread))
+                                           detail="", low=ordered[0], high=ordered[-1]))
     finally:
         if args.keep_dir:
             print(f"Retained sweep directory: {scratch_dir}")
         else:
             shutil.rmtree(scratch_dir, ignore_errors=True)
 
-    # 3. Print ranked table
-    # Sort successful candidates by kernel_ms ascending; failed candidates placed at end
-    timed_results = [r for r in results if r.kernel_ms is not None]
-    timed_results.sort(key=lambda r: r.kernel_ms)  # type: ignore[arg-type]
+    # 3. Print ranked table; the built-in profile is the reference row.
+    def describe(result: CandidateResult) -> str:
+        return "built-in profile" if result.params is None else ",".join(str(value) for value in result.params)
+
+    reference = next((r for r in results if r.name == DEFAULT_ROW and r.kernel_ms is not None), None)
+    timed_results = sorted((r for r in results if r.kernel_ms is not None), key=lambda r: r.kernel_ms)
     failed_results = [r for r in results if r.kernel_ms is None]
 
-    print("\nRanked Sweep Results:")
-    print(f"{'Rank':>4}  {'Profile':<8}  {'Parameters (tpg,bpt,ct,ci,st,si)':<34}  {'Kernel ms':>10}  {'Verdict'}")
-    print("-" * 75)
-
-    rank = 1
-    for r in timed_results:
-        param_str = f"{r.params[0]},{r.params[1]},{r.params[2]},{r.params[3]},{r.params[4]},{r.params[5]}"
-        verdict_display = r.verdict
-        if r.verdict == "MISMATCH":
-            verdict_display += " (* excluded from best)"
-        print(f"{rank:4d}  {r.name:<8}  {param_str:<34}  {r.kernel_ms:10.3f}  {verdict_display}")
-        rank += 1
-
+    print("\nRanked Sweep Results (median of interleaved rounds):")
+    print(f"{'Rank':>4}  {'Profile':<8}  {'Parameters (tpg,bpt,ct,ci,st,si)':<34}  {'Median ms':>9}  {'Min':>7}  {'Max':>7}  "
+          f"{'vs default':>10}  Verdict")
+    print("-" * 105)
+    for rank, r in enumerate(timed_results, start=1):
+        delta = f"{(r.kernel_ms / reference.kernel_ms - 1.0) * 100.0:+.1f}%" if reference else "-"
+        note = " (excluded from best)" if r.verdict != "conserved" else ""
+        print(f"{rank:4d}  {r.name:<8}  {describe(r):<34}  {r.kernel_ms:9.3f}  {r.low:7.3f}  {r.high:7.3f}  "
+              f"{delta:>10}  {r.verdict}{note}")
     for r in failed_results:
-        param_str = f"{r.params[0]},{r.params[1]},{r.params[2]},{r.params[3]},{r.params[4]},{r.params[5]}"
         fail_desc = f"FAILED ({r.detail})" if r.detail else "FAILED"
-        print(f"{'-':>4}  {r.name:<8}  {param_str:<34}  {'-':>10}  {fail_desc}")
+        print(f"{'-':>4}  {r.name:<8}  {describe(r):<34}  {'-':>9}  {'-':>7}  {'-':>7}  {'-':>10}  {fail_desc}")
+    print("-" * 105)
 
-    print("-" * 75)
-
-    # 4. Determine BEST
-    valid_conserved = [r for r in timed_results if r.verdict == "conserved"]
-    if valid_conserved:
-        best = min(valid_conserved, key=lambda r: r.kernel_ms)  # type: ignore[arg-type]
-        best_params = f"{best.params[0]},{best.params[1]},{best.params[2]},{best.params[3]},{best.params[4]},{best.params[5]}"
-        print(f"BEST {best.name} {best_params} {best.kernel_ms:.3f} {best.verdict}")
+    # 4. BEST must be conserved and must beat the default by more than twice the default's own min-max spread,
+    # otherwise the difference is indistinguishable from clock and thermal noise.
+    conserved = [r for r in timed_results if r.verdict == "conserved" and r.name != DEFAULT_ROW]
+    if conserved:
+        best = conserved[0]
+        best_params = ",".join(str(value) for value in best.params)
+        print(f"BEST {best.name} {best_params} {best.kernel_ms:.3f}")
+        if reference:
+            gap = reference.kernel_ms - best.kernel_ms
+            noise = 2.0 * (reference.high - reference.low)
+            real = gap > noise
+            print(f"DEFAULT {reference.kernel_ms:.3f} ms (spread {reference.high - reference.low:.3f}); "
+                  f"gap {gap:.3f} ms, {gap / reference.kernel_ms * 100.0:.1f}% -> {'REAL' if real else 'NOISE'}"
+                  f" (needs gap > {noise:.3f})")
     else:
         print("BEST NONE - no candidate passed validation with conserved verdict")
 
-    # Exit nonzero only if every candidate failed
     if results and all(r.verdict == "FAILED" for r in results):
         sys.exit(1)
     sys.exit(0)
