@@ -19,4 +19,4 @@ struct SettingsPanelEdit {
     std::optional<BackendKind> backend;
 };
 
-SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind selectedBackend);
+SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind selectedBackend, float& scroll);

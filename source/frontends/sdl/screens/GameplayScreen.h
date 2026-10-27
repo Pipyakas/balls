@@ -45,6 +45,7 @@ private:
     void drawHeader(const GameplayLayout& layout);
     void drawMainSection(const GameplayLayout& layout);
     void drawInteractionSection(const GameplayLayout& layout);
+    void drawPortraitLauncherRow(Rect area);
     void drawPerformanceControls(Rect area);
     float performanceContentHeight() const;
     void drawNormalControls(Rect area);
@@ -68,8 +69,13 @@ private:
     int probeTargetFps = 60;
     float controlsScroll = 0.0f;
     float normalScroll = 0.0f;
+    float portraitLauncherScroll = 0.0f;
+    Vec2 portraitPressStart{};
+    bool portraitPressing = false;
+    bool portraitDragged = false;
     bool spawnDropdownOpen = false;
     bool countDropdownOpen = false;
     bool limitDropdownOpen = false;
+    float pauseSettingsScroll = 0.0f;
     DebugPanelState debugState;
 };
