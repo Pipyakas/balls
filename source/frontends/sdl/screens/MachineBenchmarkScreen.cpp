@@ -155,7 +155,7 @@ void MachineBenchmarkScreen::draw() {
     const float centerX = static_cast<float>(gfx::screenWidth()) * 0.5f;
     const float top = static_cast<float>(gfx::screenHeight()) * 0.14f;
     ui::drawText("Setting up for this machine", {centerX, top}, titleSize, palette::accent, ui::Align::Center);
-    ui::drawText("Measuring each physics backend once. This only happens on first launch.",
+    ui::drawText("Measuring each physics backend on this machine.",
                  {centerX, top + titleSize + 12.0f}, subtitleSize, palette::textMuted, ui::Align::Center);
 
     float rowTop = top + titleSize + subtitleSize + 48.0f;

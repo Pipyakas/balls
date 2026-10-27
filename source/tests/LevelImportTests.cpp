@@ -5,6 +5,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <random>
 #include <string>
 #include <vector>
 
@@ -15,11 +16,17 @@ constexpr const char* twoRedBalls = "[Board]\nWidth 1\nHeight 1\n[Layout]\nRed(2
 constexpr const char* oneRedBall = "[Board]\nWidth 1\nHeight 1\n[Layout]\nRed(1)\n";
 constexpr const char* brokenBricks = "[Board]\nWidth 2\nHeight 1\nPlayableHeight 4\n[Layout]\n0\n[BrickTypes]\n0 Red 1\n";
 
-// A scratch folder per test case, removed again when the test ends.
+// A scratch folder per test case, removed again when the test ends. The random suffix keeps test runs from other
+// worktrees, which share the temp folder, from deleting each other's files.
+std::string runSuffix() {
+    static const std::string suffix = std::to_string(std::random_device{}());
+    return suffix;
+}
+
 class ScratchFolder {
 public:
     explicit ScratchFolder(const std::string& name)
-        : root(std::filesystem::temp_directory_path() / ("balls-import-test-" + name)) {
+        : root(std::filesystem::temp_directory_path() / ("balls-import-test-" + runSuffix() + "-" + name)) {
         std::filesystem::remove_all(root);
         std::filesystem::create_directories(root / "picked");
     }
