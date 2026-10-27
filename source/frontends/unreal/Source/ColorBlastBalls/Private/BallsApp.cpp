@@ -52,7 +52,7 @@ void StageAndroidLevels() {
 
 // Desktop quality preset. Lumen, Nanite and virtual shadow maps need SM6 (the fork currently targets
 // PCD3D_SM5 and has a broken DXC path), but TSR and dynamic resolution are available on SM5.
-// See docs/ue5-high-end-features.md.
+// See data/docs/ue5-high-end-features.md.
 void ApplyHighEndPreset(UWorld* World) {
     const TCHAR* Commands[] = {
         TEXT("r.AntiAliasingMethod 4"),

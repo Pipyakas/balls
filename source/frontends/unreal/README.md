@@ -20,34 +20,37 @@ game runs on the engine's empty `/Engine/Maps/Entry` map, and `ABallsGameMode` s
 ## Build and run
 
 Build with the engine fork at `D:\Unreal\UnrealEngine`. The `.uproject` pre-build step runs `BuildCore.bat`, which
-builds `balls_core.lib` into `build-unreal/` with `/MD` and no LTO. For the CUDA backend, run
-`pwsh tools/FetchCudaSdk.ps1` once first.
+builds `balls_core.lib` and the physics plugin DLLs (CPU, CUDA) into `build/win32-ue/` with `/MD` and no LTO. For
+the CUDA backend, run `pwsh scripts/FetchCudaSdk.ps1` once first. The core loads the plugin DLLs at run time:
+packaged builds stage them beside the executable, and the editor finds them in `build/win32-ue/bin/Release`.
 
 ```powershell
 D:\Unreal\UnrealEngine\Engine\Build\BatchFiles\Build.bat ColorBlastBallsEditor Win64 Development `
-    -Project="$PWD\frontends\unreal\ColorBlastBalls.uproject" -WaitMutex
-D:\Unreal\UnrealEngine\Engine\Binaries\Win64\UnrealEditor.exe "$PWD\frontends\unreal\ColorBlastBalls.uproject" `
+    -Project="$PWD\source\frontends\unreal\ColorBlastBalls.uproject" -WaitMutex
+D:\Unreal\UnrealEngine\Engine\Binaries\Win64\UnrealEditor.exe "$PWD\source\frontends\unreal\ColorBlastBalls.uproject" `
     -game -windowed -ResX=1600 -ResY=900 -BallsPlay=normal:DA_FirstLevel -BallsBackend=avx2
 ```
 
 - `-BallsPlay=<normal|performance>:<level>` opens a level directly.
-- `-BallsBackend=<scalar|avx2|cuda>` picks the starting physics backend.
+- `-BallsBackend=<scalar|avx2|cuda|hybrid>` picks the starting physics backend.
 - `-BallsEditor` opens the map editor instead of the main menu.
 - `-BallsHighEnd` turns on the desktop quality preset: TSR anti-aliasing plus dynamic resolution
   (50-100% screen percentage, 60 fps budget). Lumen/Nanite/VSM need an SM6 build; see
-  `docs/ue5-high-end-features.md`.
+  `data/docs/ue5-high-end-features.md`.
 
 ## Android
 
+Parked: the SDL front end is the Android path (see the repository README). The notes below describe what was built.
+
 The Android build uses Vulkan ES3.1 and landscape/portrait adapts at runtime. The `Android` pre-build step runs
 `BuildCoreAndroid.bat`, which builds `libballs_core.a` with the NDK (arm64) and copies the level files into
-`frontends/unreal/Content/assets` (project-level non-UFS staging paths are Content-relative). Because balls_core
+`source/frontends/unreal/Content/assets` (project-level non-UFS staging paths are Content-relative). Because balls_core
 reads levels with `std::filesystem`, the game copies the packaged `assets` to the app's saved directory on first
 run.
 
 ```powershell
 D:\Unreal\UnrealEngine\Engine\Build\BatchFiles\RunUAT.bat BuildCookRun `
-    -project="$PWD\frontends\unreal\ColorBlastBalls.uproject" -noP4 -platform=Android `
+    -project="$PWD\source\frontends\unreal\ColorBlastBalls.uproject" -noP4 -platform=Android `
     -clientconfig=Development -build -cook -package -stage -deploy -device=<serial> `
     -architecture=arm64 -cookflavor=ASTC -map=/Engine/Maps/Entry -utf8output -unattended
 ```

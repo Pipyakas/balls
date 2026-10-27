@@ -1,8 +1,8 @@
 @echo off
 rem Builds balls_core.lib with the settings Unreal links against (/MD runtime, no LTO).
 setlocal EnableExtensions
-set "REPO=%~dp0..\.."
-set "OUT=%REPO%\build-unreal"
+set "REPO=%~dp0..\..\.."
+set "OUT=%REPO%\build\win32-ue"
 set "LOCK=%TEMP%\balls_core_win64.lock"
 set MSBUILDDISABLENODEREUSE=1
 

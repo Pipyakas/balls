@@ -1,8 +1,8 @@
 @echo off
 rem Builds balls_core for Android arm64 with the NDK, and stages the level assets for APK packaging.
 setlocal EnableExtensions
-set "REPO=%~dp0..\.."
-set "OUT=%REPO%\build-android"
+set "REPO=%~dp0..\..\.."
+set "OUT=%REPO%\build\android-ue"
 set "LOCK=%TEMP%\balls_core_android.lock"
 if not defined ANDROID_HOME set "ANDROID_HOME=%LOCALAPPDATA%\Android\Sdk"
 if not defined NDK_ROOT set "NDK_ROOT=%ANDROID_HOME%\ndk\27.2.12479018"
@@ -38,9 +38,9 @@ if errorlevel 1 (
 )
 
 rem DirectoriesToAlwaysStageAsNonUFS paths are relative to the game Content directory, so the levels
-rem must live in frontends/unreal/Content/assets for the package to carry them.
+rem must live in source/frontends/unreal/Content/assets for the package to carry them.
 if not exist "%~dp0Content\assets" mkdir "%~dp0Content\assets"
-xcopy "%REPO%\assets\*" "%~dp0Content\assets\" /E /I /Y >nul
+xcopy "%REPO%\data\assets\*" "%~dp0Content\assets\" /E /I /Y >nul
 if errorlevel 1 (
     echo BuildCoreAndroid: could not stage levels into "%~dp0Content\assets".
     goto failed
