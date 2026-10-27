@@ -4,7 +4,7 @@ import subprocess
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-KERNEL = REPO_ROOT / "physics" / "cuda" / "BallKernels.cu"
+KERNEL = REPO_ROOT / "source" / "backends" / "cuda" / "BallKernels.cu"
 ANCHOR = "    const int brick = stepBallSubsteps("
 PERMUTE_SELECTORS = ("0x3120", "0x2301", "0x1032", "0x0213")
 INDEPENDENT_CHAINS = 4
@@ -38,7 +38,7 @@ def main():
         description="Inject K independent ALU instructions per thread into stepBallsKernel and report the marginal "
                     "kernel time per instruction against one full SM issue slot. ~100%% means no spare issue "
                     "cycles (issue-bound); well below means the kernel waits on memory or latency.")
-    parser.add_argument("--build", default=str(REPO_ROOT / "build"))
+    parser.add_argument("--build", default=str(REPO_ROOT / "build" / "win32"))
     parser.add_argument("--counts", default="0,32,64,128")
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--balls", type=int, default=60_000_000)

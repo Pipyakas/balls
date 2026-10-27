@@ -26,7 +26,7 @@ limit there. Skipping the near-brick path drops the kernel to 6.2 ms (93.7% of c
 costs the extra 6 ms.
 
 GPU performance counters need administrator rights on Windows (CUPTI stops reporting once the CUDA context is
-created), so the issue limit is measured with an **instruction-injection test** (`tools/bench/issue_slack.py`)
+created), so the issue limit is measured with an **instruction-injection test** (`scripts/bench/issue_slack.py`)
 instead. It adds K independent, non-foldable ALU instructions per thread (alternating IMAD and PRMT, so both math
 pipes stay at one issue per clock) and compares the extra kernel time with what K full issue slots cost:
 `K x warps / 107.5 G/s` = 0.0174 ms per instruction for 1.875M warps.
@@ -45,8 +45,8 @@ the SMs' instruction issue rate is the limit. The empty board, which is memory-b
 which confirms the test can tell the two cases apart.
 
 ```powershell
-python tools/bench/issue_slack.py --on-level --sm-clock-mhz 1920 --ticks 400
-python tools/bench/issue_slack.py --sm-clock-mhz 1920
+python scripts/bench/issue_slack.py --on-level --sm-clock-mhz 1920 --ticks 400
+python scripts/bench/issue_slack.py --sm-clock-mhz 1920
 ```
 
 ## Spatial sorting
@@ -124,9 +124,9 @@ capped card, fewer instructions per ball mean less energy per ball. That is why 
 850M to 403M warp-instructions, also helps under the cap.
 
 ```powershell
-pwsh tools/FetchCudaSdk.ps1 -ProfilerTools
-build/bin/Release/balls_insncount.exe --cupti .deps/cupti/bin/cupti64_2025.2.1.dll --dir assets/levels/performance --mode timeline --balls 60000000 --ticks 40
-build/bin/Release/balls_insncount.exe --cupti .deps/cupti/bin/cupti64_2025.2.1.dll --dir assets/levels/performance --mode instructions --balls 60000000 --ticks 9
+pwsh scripts/FetchCudaSdk.ps1 -ProfilerTools
+build/win32/bin/Release/balls_insncount.exe --cupti .deps/cupti/bin/cupti64_2025.2.1.dll --dir data/assets/levels/performance --mode timeline --balls 60000000 --ticks 40
+build/win32/bin/Release/balls_insncount.exe --cupti .deps/cupti/bin/cupti64_2025.2.1.dll --dir data/assets/levels/performance --mode instructions --balls 60000000 --ticks 9
 ```
 
 ## What did not help

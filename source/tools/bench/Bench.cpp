@@ -16,7 +16,7 @@
 namespace {
 
 struct BenchOptions {
-    std::filesystem::path levelDirectory = "assets/levels/performance";
+    std::filesystem::path levelDirectory = "data/assets/levels/performance";
     std::string levelName = "DA_1000Bricks";
     std::vector<BackendKind> backends{allBackendKinds.begin(), allBackendKinds.end()};
     std::vector<size_t> ballCounts{2000, 20000, 200000, 1000000};

@@ -76,7 +76,7 @@ struct StepConstants {
 };
 
 struct Options {
-    std::string levelDirectory = "assets/levels/performance";
+    std::string levelDirectory = "data/assets/levels/performance";
     std::string levelName = "DA_1000Bricks";
     std::vector<std::string> apis{"d3d11", "d3d12", "vulkan"};
     size_t balls = 16'000'000;
