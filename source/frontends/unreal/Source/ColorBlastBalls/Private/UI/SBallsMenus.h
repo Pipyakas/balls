@@ -43,8 +43,11 @@ private:
 // The Settings options, shared by the Settings page (main menu) and the pause overlay. Changes apply immediately.
 class SBallsSettingsPanel final : public SCompoundWidget {
 public:
-    SLATE_BEGIN_ARGS(SBallsSettingsPanel) {}
+    SLATE_BEGIN_ARGS(SBallsSettingsPanel)
+        : _bAllowBenchmark(true) {}
         SLATE_ARGUMENT(FBallsApp*, App)
+        // The pause overlay cannot start a benchmark: it would end the game being played.
+        SLATE_ARGUMENT(bool, bAllowBenchmark)
     SLATE_END_ARGS()
 
     void Construct(const FArguments& InArgs);

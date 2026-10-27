@@ -12,6 +12,7 @@ THIRD_PARTY_INCLUDES_START
 #include "level/LevelRepository.h"
 #include "level/LevelWatcher.h"
 #include "level/LevelWriter.h"
+#include "sim/BackendBenchmark.h"
 #include "sim/BackendFactory.h"
 #include "sim/Simulation.h"
 THIRD_PARTY_INCLUDES_END

@@ -315,12 +315,45 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
 
     AddHeading(TEXT("Physics"));
     AddLabel(TEXT("Default backend"));
+    // Each backend shows its last machine benchmark score, muted ("First launch: machine benchmark").
+    const std::optional<BenchmarkRecord>& Record = Owner->GetBenchmark().GetRecord();
     for (const BackendKind Kind : allBackendKinds) {
         const bool bAvailable = isBackendAvailable(Kind);
         AddOption(BallsText::FromUtf8(backendKindName(Kind)),
                   TAttribute<bool>::CreateLambda([Owner, Kind] { return Owner->GetPreferredBackend() == Kind; }),
                   [Owner, Kind] { Owner->SetPreferredBackend(Kind); }, bAvailable,
                   bAvailable ? FString() : BallsText::FromUtf8(backendUnavailableReason(Kind)));
+        if (!Record) {
+            continue;
+        }
+        for (const CandidateResult& Result : Record->results) {
+            if (Result.candidate.kind != Kind) {
+                continue;
+            }
+            FString Score = TEXT("not measured");
+            if (Result.status == CandidateStatus::Done) {
+                Score = FString::Printf(TEXT("%.0f M ball-steps/s"), Result.ballStepsPerSecond / 1'000'000.0);
+            } else if (Result.status == CandidateStatus::Failed) {
+                Score = FString::Printf(TEXT("failed: %s"), *BallsText::FromUtf8(Result.failure));
+            } else if (Result.status == CandidateStatus::Unavailable) {
+                Score = TEXT("not available");
+            }
+            AddHint(*Score);
+        }
+    }
+    if (InArgs._bAllowBenchmark) {
+        Column->AddSlot().AutoHeight().Padding(0.0f, OptionGap, 0.0f, OptionGap)
+        [
+            SNew(SBox).HeightOverride(OptionHeight)
+            [
+                BallsWidgets::Button(FText::FromString(TEXT("Run machine benchmark")), [Owner] {
+                    Owner->SetBenchmarkReturnToSettings(true);
+                    Owner->ShowBenchmark();
+                }, 20.0f)
+            ]
+        ];
+        AddHint(TEXT("Measures every backend once on this machine and makes the fastest the default. It runs by "
+                     "itself on the first launch and again when the CPU, a GPU driver or the game changes."));
     }
 
     ChildSlot[SNew(SScrollBox) + SScrollBox::Slot()[Column]];

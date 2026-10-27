@@ -1090,7 +1090,7 @@ TSharedRef<SWidget> SBallsGameplayHud::MakeOverlay() {
                         ]
                         + SVerticalBox::Slot().FillHeight(1.0f)
                         [
-                            SNew(SBox).MaxDesiredHeight(520.0f)[SNew(SBallsSettingsPanel).App(Owner)]
+                            SNew(SBox).MaxDesiredHeight(520.0f)[SNew(SBallsSettingsPanel).App(Owner).bAllowBenchmark(false)]
                         ]
                         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 0.0f)
                         [

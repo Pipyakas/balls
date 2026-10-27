@@ -31,6 +31,7 @@
 #include "RHI.h"
 #include "RenderTimer.h"
 #include "UnrealClient.h"
+#include "UI/SBallsBenchmark.h"
 #include "UI/SBallsGameplayHud.h"
 #include "UI/SBallsMapEditor.h"
 #include "UI/SBallsMenus.h"
@@ -39,6 +40,8 @@
 namespace {
 
 constexpr int32 RootZOrder = 10;
+// "First launch": the Main menu opens 1.5 s after the last backend finished, so the winner stays readable.
+constexpr double BenchmarkAdvanceSeconds = 1.5;
 
 #if PLATFORM_ANDROID
 // Android keeps non-UFS files inside the APK, and balls_core reads levels with std::filesystem.
@@ -250,6 +253,19 @@ FBallsApp::FBallsApp(UWorld* InWorld)
             Gameplay->SetSettingsOpen(Screen == TEXT("pause-settings"));
         }
     }
+    // "First launch: machine benchmark": the first run on a machine measures every backend before the Main menu
+    // so the target PC starts on its best one. -BallsPlay, -BallsBackend and -BallsSkipBenchmark state their own
+    // choice and never measure.
+    Benchmark.LoadRecord();
+    FString ChosenBackend;
+    const bool bChoiceOnCommandLine =
+        FParse::Param(FCommandLine::Get(), TEXT("BallsSkipBenchmark")) ||
+        FParse::Value(FCommandLine::Get(), TEXT("BallsPlay="), Play) ||
+        FParse::Value(FCommandLine::Get(), TEXT("BallsBackend="), ChosenBackend);
+    if (!bChoiceOnCommandLine && CurrentScreen == EScreen::MainMenu && Benchmark.NeedsRun()) {
+        ShowBenchmark();
+    }
+
     // -BallsControlPort=<port> serves the control API; nothing listens unless a port is given, like SDL's
     // --control-port.
     int32 ControlPort = 0;
@@ -375,6 +391,55 @@ void FBallsApp::ShowSettings() {
     SetScreen(EScreen::Settings, SNew(SBallsSettingsPage).App(this));
 }
 
+void FBallsApp::ShowBenchmark() {
+    FString Error;
+    // Load every physics plugin on the game thread first: loading a DLL from the benchmark's worker thread while the
+    // engine is running has crashed the process.
+    for (const BackendKind Kind : allBackendKinds) {
+        isBackendAvailable(Kind);
+    }
+    if (!Benchmark.Start(LevelDirectory(GameMode::Performance), Error)) {
+        // Without a level to measure on the run is pointless; say why and go on to the menu.
+        ShowToast(FString::Printf(TEXT("Benchmark: %s"), *Error), true);
+        ShowMainMenu();
+        return;
+    }
+    bBenchmarkSettled = false;
+    SetScreen(EScreen::Benchmark, SNew(SBallsBenchmark).App(this));
+}
+
+void FBallsApp::SkipBenchmark() {
+    // Keep the best result so far, but leave the record incomplete so the next launch measures again.
+    Benchmark.Skip();
+    FinishBenchmark(false);
+    LeaveBenchmark();
+}
+
+void FBallsApp::FinishBenchmark(bool bComplete) {
+    const std::optional<BenchmarkCandidate> Winner = Benchmark.PickWinner();
+    Benchmark.Save(bComplete, Winner);
+    if (Winner && isBackendAvailable(Winner->kind)) {
+        SetPreferredBackend(Winner->kind);
+    }
+    bBenchmarkSettled = true;
+    BenchmarkSettledAt = FPlatformTime::Seconds();
+}
+
+void FBallsApp::LeaveBenchmark() {
+    const bool bToSettings = bBenchmarkReturnToSettings;
+    bBenchmarkReturnToSettings = false;
+    if (bToSettings) {
+        ShowSettings();
+    } else {
+        ShowMainMenu();
+    }
+}
+
+FString FBallsApp::GetBenchmarkWinnerLabel() const {
+    const std::optional<BenchmarkCandidate> Winner = Benchmark.PickWinner();
+    return Winner ? BallsText::FromUtf8(Winner->label) : FString();
+}
+
 void FBallsApp::SetPreferredBackend(BackendKind Kind) {
     PreferredBackend = Kind;
     if (GConfig) {
@@ -498,6 +563,17 @@ void FBallsApp::RecordFrame(float DeltaSeconds) {
 
 void FBallsApp::Tick(float DeltaSeconds) {
     RecordFrame(DeltaSeconds);
+    // The first-launch benchmark owns the screen until it settles, then hands over after a beat so the winner can
+    // be read ("after 1.5 s, or on Continue, the Main menu opens").
+    if (CurrentScreen == EScreen::Benchmark) {
+        if (!bBenchmarkSettled && Benchmark.IsFinished()) {
+            FinishBenchmark(true);
+        }
+        if (bBenchmarkSettled && FPlatformTime::Seconds() - BenchmarkSettledAt >= BenchmarkAdvanceSeconds) {
+            LeaveBenchmark();
+        }
+        return;
+    }
     Toast.SecondsLeft = FMath::Max(0.0f, Toast.SecondsLeft - DeltaSeconds);
     // The viewport window may not exist yet in the constructor, so a saved forced orientation resizes it here.
     if (!bOrientationApplied && World && World->GetGameViewport() && World->GetGameViewport()->GetWindow()) {
@@ -543,6 +619,8 @@ FString FBallsApp::GetScreenName() const {
         return TEXT("editor");
     case EScreen::Settings:
         return TEXT("settings");
+    case EScreen::Benchmark:
+        return TEXT("benchmark");
     default:
         return TEXT("main-menu");
     }
@@ -744,6 +822,40 @@ void FBallsApp::HandleControl(const FString& Path, const TMap<FString, FString>&
             return;
         }
         Gameplay->SetPaused(Path == TEXT("/pause"));
+        OutBody = TEXT("{\"ok\":true}");
+        return;
+    }
+    if (Path == TEXT("/benchmark")) {
+        if (IntParam(TEXT("run"), 0) != 0 && !Benchmark.IsRunning()) {
+            bBenchmarkReturnToSettings = false;
+            ShowBenchmark();
+        }
+        static const TCHAR* const StatusNames[] = {TEXT("pending"), TEXT("running"), TEXT("done"), TEXT("failed"),
+                                                   TEXT("unavailable")};
+        FString Candidates;
+        for (const CandidateResult& Result : Benchmark.Results()) {
+            Candidates += FString::Printf(
+                TEXT("%s{\"backend\":\"%s\",\"status\":\"%s\",\"ballStepsPerSecond\":%.0f,\"progress\":%.2f,")
+                TEXT("\"failure\":\"%s\"}"),
+                Candidates.IsEmpty() ? TEXT("") : TEXT(","),
+                *EscapeJson(BallsText::FromUtf8(backendKindName(Result.candidate.kind))),
+                StatusNames[FMath::Clamp(static_cast<int32>(Result.status), 0, 4)], Result.ballStepsPerSecond,
+                Result.progress, *EscapeJson(BallsText::FromUtf8(Result.failure)));
+        }
+        const FString Winner = GetBenchmarkWinnerLabel();
+        const TCHAR* State = Benchmark.IsRunning() ? TEXT("running") : bBenchmarkSettled ? TEXT("done") : TEXT("idle");
+        OutBody = FString::Printf(
+            TEXT("{\"ok\":true,\"state\":\"%s\",\"winner\":%s,\"results\":[%s]}"), State,
+            Winner.IsEmpty() ? TEXT("null") : *FString::Printf(TEXT("\"%s\""), *EscapeJson(Winner)), *Candidates);
+        return;
+    }
+    if (Path == TEXT("/benchmark/skip")) {
+        SkipBenchmark();
+        OutBody = TEXT("{\"ok\":true}");
+        return;
+    }
+    if (Path == TEXT("/benchmark/continue")) {
+        LeaveBenchmark();
         OutBody = TEXT("{\"ok\":true}");
         return;
     }
