@@ -211,3 +211,27 @@ TEST_CASE("portrait clamps the bottom panel and protects the board") {
     const CoreGameplayLayout tallFrame = compute(480.0f, 1600.0f, 10, 30, LayoutOrientation::Portrait, false);
     EXPECT(tallFrame.bottomGadget.height <= 620.0f + epsilon);
 }
+
+TEST_CASE("landscape gadgets widen to fill the frame up to 16:9") {
+    constexpr float outerMargin = 16.0f;
+    constexpr float baseLeftWidth = 420.0f;
+    constexpr float baseRightWidth = 200.0f;
+    const CoreGameplayLayout filled = compute(1440.0f, 900.0f, 7, 14, LayoutOrientation::Landscape, false);
+    EXPECT(near(filled.leftGadget.x, outerMargin));
+    EXPECT(near(filled.rightGadget.x + filled.rightGadget.width, 1440.0f - outerMargin));
+    EXPECT(filled.leftGadget.width > baseLeftWidth);
+    EXPECT(near(filled.leftGadget.width - baseLeftWidth, filled.rightGadget.width - baseRightWidth));
+    EXPECT(near(filled.header.width, filled.leftGadget.width));
+    EXPECT(near(filled.interaction.width, filled.leftGadget.width));
+    EXPECT(near(filled.debug.width, filled.rightGadget.width));
+
+    const CoreGameplayLayout ultrawide = compute(3440.0f, 900.0f, 7, 14, LayoutOrientation::Landscape, false);
+    const float groupWidth = ultrawide.rightGadget.x + ultrawide.rightGadget.width - ultrawide.leftGadget.x;
+    EXPECT(near(groupWidth, 900.0f * 16.0f / 9.0f - outerMargin * 2.0f));
+    EXPECT(near(ultrawide.leftGadget.x, (3440.0f - groupWidth) * 0.5f));
+    EXPECT(near(ultrawide.cellSize, filled.cellSize));
+
+    const CoreGameplayLayout boardBound = compute(1440.0f, 900.0f, 40, 10, LayoutOrientation::Landscape, false);
+    EXPECT(near(boardBound.leftGadget.width, baseLeftWidth));
+    EXPECT(near(boardBound.rightGadget.width, baseRightWidth));
+}

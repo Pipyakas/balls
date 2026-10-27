@@ -10,6 +10,7 @@ constexpr float boardPadding = 10.0f;
 constexpr float landscapeLeftWidth = 420.0f;
 constexpr float landscapeRightWidth = 200.0f;
 constexpr float landscapeHeaderHeight = 56.0f;
+constexpr float widestLandscapeAspect = 16.0f / 9.0f;
 constexpr float portraitTopHeight = 72.0f;
 constexpr float portraitHeaderHeight = 44.0f;
 constexpr float minimumBoardExtent = 240.0f;
@@ -56,17 +57,24 @@ CoreGameplayLayout computeCoreGameplayLayout(float frameWidth, float frameHeight
             1.0f, std::min(boardWidth / static_cast<float>(columns), boardHeight / static_cast<float>(rows)));
         const float frameBoardWidth = layout.cellSize * static_cast<float>(columns) + boardPadding * 2.0f;
         const float frameBoardHeight = layout.cellSize * static_cast<float>(rows) + boardPadding * 2.0f;
-        const float groupWidth =
+        const float minimumGroupWidth =
             landscapeLeftWidth + gadgetGap + frameBoardWidth + gadgetGap + landscapeRightWidth;
+        // The board keeps its size; the room it leaves goes to the gadgets, until the whole group reaches 16:9,
+        // so wide windows don't show empty bands beside them and ultrawide ones don't stretch them across.
+        const float widestGroup = std::min(frameWidth, frameHeight * widestLandscapeAspect) - outerMargin * 2.0f;
+        const float gadgetGrowth = std::max(0.0f, widestGroup - minimumGroupWidth) * 0.5f;
+        const float leftWidth = landscapeLeftWidth + gadgetGrowth;
+        const float rightWidth = landscapeRightWidth + gadgetGrowth;
+        const float groupWidth = minimumGroupWidth + gadgetGrowth * 2.0f;
         const float groupX = (frameWidth - groupWidth) * 0.5f;
-        layout.leftGadget = {groupX, outerMargin, landscapeLeftWidth, columnHeight};
-        layout.header = {groupX, outerMargin, landscapeLeftWidth, landscapeHeaderHeight};
-        layout.interaction = {groupX, outerMargin + landscapeHeaderHeight + gadgetGap, landscapeLeftWidth,
+        layout.leftGadget = {groupX, outerMargin, leftWidth, columnHeight};
+        layout.header = {groupX, outerMargin, leftWidth, landscapeHeaderHeight};
+        layout.interaction = {groupX, outerMargin + landscapeHeaderHeight + gadgetGap, leftWidth,
                               columnHeight - landscapeHeaderHeight - gadgetGap};
-        layout.main = {groupX + landscapeLeftWidth + gadgetGap,
+        layout.main = {groupX + leftWidth + gadgetGap,
                        outerMargin + (columnHeight - frameBoardHeight) * 0.5f, frameBoardWidth,
                        frameBoardHeight};
-        layout.rightGadget = {layout.main.x + frameBoardWidth + gadgetGap, outerMargin, landscapeRightWidth,
+        layout.rightGadget = {layout.main.x + frameBoardWidth + gadgetGap, outerMargin, rightWidth,
                               columnHeight};
         layout.debug = layout.rightGadget;
     } else {
