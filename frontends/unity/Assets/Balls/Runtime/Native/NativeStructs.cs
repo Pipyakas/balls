@@ -154,6 +154,31 @@ namespace Balls.Native
         public int portrait;
     }
 
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public struct NativeBenchmarkRow
+    {
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 128)] public byte[] label;
+        public int kind;
+        public int status;
+        public double ballStepsPerSecond;
+        public double progress;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 256)] public byte[] failure;
+
+        public string Label => Read(label);
+
+        public string Failure => Read(failure);
+
+        private static string Read(byte[] bytes)
+        {
+            if (bytes == null)
+            {
+                return string.Empty;
+            }
+            int length = Array.IndexOf(bytes, (byte)0);
+            return System.Text.Encoding.UTF8.GetString(bytes, 0, length < 0 ? bytes.Length : length);
+        }
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     public struct NativeEditorInfo
     {

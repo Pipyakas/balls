@@ -333,12 +333,19 @@ namespace Balls.Physics.Burst
             // 1. Flush pending spawns into ball store
             if (pendingSpawns.Count > 0)
             {
-                using var spawnsArray = new NativeArray<BallSpawn>(pendingSpawns.Count, Allocator.Temp);
-                for (int i = 0; i < pendingSpawns.Count; ++i)
+                var spawnsArray = new NativeArray<BallSpawn>(pendingSpawns.Count, Allocator.Temp);
+                try
                 {
-                    spawnsArray[i] = pendingSpawns[i];
+                    for (int i = 0; i < pendingSpawns.Count; ++i)
+                    {
+                        spawnsArray[i] = pendingSpawns[i];
+                    }
+                    ballStore.AddBalls(spawnsArray);
                 }
-                ballStore.AddBalls(spawnsArray);
+                finally
+                {
+                    spawnsArray.Dispose();
+                }
                 pendingSpawns.Clear();
             }
 
@@ -433,7 +440,7 @@ namespace Balls.Physics.Burst
                     }
                 }
 
-                using var descendingIndices = new NativeArray<int>(uniqueCount, Allocator.Temp);
+                var descendingIndices = new NativeArray<int>(uniqueCount, Allocator.Temp);
                 for (int i = 0; i < uniqueCount; ++i)
                 {
                     descendingIndices[i] = killedBalls[i];
@@ -452,6 +459,7 @@ namespace Balls.Physics.Burst
                 }
 
                 ballStore.RemoveDescendingIndices(descendingIndices);
+                descendingIndices.Dispose();
                 stats.hits += (ulong)uniqueCount;
             }
 

@@ -176,8 +176,19 @@ typedef struct BallsEditorInfo {
     int32_t brickCount;
 } BallsEditorInfo;
 
+// One row of the machine benchmark: a candidate backend, its state and its score.
+typedef struct BallsBenchmarkRow {
+    char label[128];
+    int32_t kind;
+    int32_t status;          // 0 pending, 1 running, 2 done, 3 failed, 4 unavailable
+    double ballStepsPerSecond;
+    double progress;         // 0..1 while running
+    char failure[256];
+} BallsBenchmarkRow;
+
 typedef struct BallsSession BallsSession;
 typedef struct BallsEditor BallsEditor;
+typedef struct BallsBenchmark BallsBenchmark;
 
 // --- Process-wide --------------------------------------------------------------------------------------------
 
@@ -274,6 +285,19 @@ BALLS_API int32_t balls_session_snapshot(BallsSession* session, BallsSnapshot* s
 BALLS_API int32_t balls_session_launcher(const BallsSession* session, int32_t column, int32_t row,
                                          BallsLauncher* launcher);
 BALLS_API uint64_t balls_session_remaining_balls_by_color(const BallsSession* session, int32_t color);
+
+// --- Machine benchmark -----------------------------------------------------------------------------------------
+
+// Runs every loadable backend on the level given, on a worker thread; the caller polls.
+BALLS_API BallsBenchmark* balls_benchmark_create(const char* levelDirectory, const char* levelName);
+BALLS_API void balls_benchmark_destroy(BallsBenchmark* benchmark);
+BALLS_API void balls_benchmark_start(BallsBenchmark* benchmark);
+BALLS_API void balls_benchmark_cancel(BallsBenchmark* benchmark);
+BALLS_API int32_t balls_benchmark_finished(const BallsBenchmark* benchmark);
+// Fills up to capacity rows and returns how many the run has.
+BALLS_API int32_t balls_benchmark_rows(BallsBenchmark* benchmark, BallsBenchmarkRow* rows, int32_t capacity);
+// The winner's kind, or -1 while nothing has finished.
+BALLS_API int32_t balls_benchmark_winner(BallsBenchmark* benchmark);
 
 // --- Editor --------------------------------------------------------------------------------------------------
 

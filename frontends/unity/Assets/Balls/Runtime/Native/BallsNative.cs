@@ -154,6 +154,20 @@ namespace Balls.Native
 
         [DllImport(Library)] public static extern ulong balls_session_remaining_balls_by_color(IntPtr session, int color);
 
+        [DllImport(Library)] public static extern IntPtr balls_benchmark_create([MarshalAs(UnmanagedType.LPUTF8Str)] string levelDirectory, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelName);
+
+        [DllImport(Library)] public static extern void balls_benchmark_destroy(IntPtr benchmark);
+
+        [DllImport(Library)] public static extern void balls_benchmark_start(IntPtr benchmark);
+
+        [DllImport(Library)] public static extern void balls_benchmark_cancel(IntPtr benchmark);
+
+        [DllImport(Library)] public static extern int balls_benchmark_finished(IntPtr benchmark);
+
+        [DllImport(Library)] public static extern int balls_benchmark_rows(IntPtr benchmark, [Out] NativeBenchmarkRow[] rows, int capacity);
+
+        [DllImport(Library)] public static extern int balls_benchmark_winner(IntPtr benchmark);
+
         [DllImport(Library)] public static extern IntPtr balls_editor_create();
 
         [DllImport(Library)] public static extern void balls_editor_destroy(IntPtr editor);

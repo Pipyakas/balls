@@ -270,6 +270,10 @@ namespace Balls.App
                         StartGameplay(mode, parts[1], BackendKind);
                     }
                 }
+                else if (arg.Equals("-BallsBenchmark", StringComparison.OrdinalIgnoreCase))
+                {
+                    Go<Screens.BenchmarkScreen>();
+                }
                 else if (arg.Equals("-BallsEditor", StringComparison.OrdinalIgnoreCase))
                 {
                     Go<Screens.EditorScreen>();

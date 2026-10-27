@@ -7,6 +7,7 @@
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
 #include "level/LevelWriter.h"
+#include "sim/BackendBenchmark.h"
 #include "sim/BackendFactory.h"
 #include "sim/Simulation.h"
 #include "ui/GameplayLayout.h"
@@ -117,6 +118,13 @@ struct BallsSession {
             brickHitFlash[index] = bricks[index].hitFlash;
         }
     }
+};
+
+struct BallsBenchmark {
+    std::unique_ptr<BackendBenchmark> run;
+    std::vector<CandidateResult> results;
+
+    void refresh() { results = run != nullptr ? run->results() : std::vector<CandidateResult>{}; }
 };
 
 struct BallsEditor {
@@ -612,6 +620,88 @@ uint64_t balls_session_remaining_balls_by_color(const BallsSession* session, int
         return 0;
     }
     return session->game->launchers().remainingBalls()[static_cast<size_t>(color)];
+}
+
+BallsBenchmark* balls_benchmark_create(const char* levelDirectory, const char* levelName) {
+    const auto level = loadLevelOrReport(levelDirectory, levelName);
+    if (!level) {
+        return nullptr;
+    }
+    auto benchmark = std::make_unique<BallsBenchmark>();
+    BenchmarkWorkload workload;
+    workload.level = level->bricks;
+    benchmark->run = std::make_unique<BackendBenchmark>(workload, benchmarkCandidates());
+    return benchmark.release();
+}
+
+void balls_benchmark_destroy(BallsBenchmark* benchmark) {
+    delete benchmark;
+}
+
+void balls_benchmark_start(BallsBenchmark* benchmark) {
+    if (benchmark != nullptr && benchmark->run != nullptr) {
+        benchmark->run->start();
+    }
+}
+
+void balls_benchmark_cancel(BallsBenchmark* benchmark) {
+    if (benchmark != nullptr && benchmark->run != nullptr) {
+        benchmark->run->cancel();
+    }
+}
+
+int32_t balls_benchmark_finished(const BallsBenchmark* benchmark) {
+    return benchmark != nullptr && benchmark->run != nullptr && benchmark->run->finished() ? 1 : 0;
+}
+
+int32_t balls_benchmark_rows(BallsBenchmark* benchmark, BallsBenchmarkRow* rows, int32_t capacity) {
+    if (benchmark == nullptr || benchmark->run == nullptr) {
+        return 0;
+    }
+    benchmark->refresh();
+    const int32_t count = static_cast<int32_t>(benchmark->results.size());
+    if (rows == nullptr) {
+        return count;
+    }
+    const int32_t written = std::min(count, capacity);
+    for (int32_t index = 0; index < written; ++index) {
+        const CandidateResult& result = benchmark->results[static_cast<size_t>(index)];
+        std::memset(&rows[index], 0, sizeof(BallsBenchmarkRow));
+        copyName(result.candidate.label, rows[index].label, sizeof(rows[index].label));
+        rows[index].kind = fromBackendKind(result.candidate.kind);
+        switch (result.status) {
+        case CandidateStatus::Running:
+            rows[index].status = 1;
+            break;
+        case CandidateStatus::Done:
+            rows[index].status = 2;
+            break;
+        case CandidateStatus::Failed:
+            rows[index].status = 3;
+            break;
+        case CandidateStatus::Unavailable:
+            rows[index].status = 4;
+            break;
+        case CandidateStatus::Pending:
+        default:
+            rows[index].status = 0;
+            break;
+        }
+        rows[index].ballStepsPerSecond = result.ballStepsPerSecond;
+        rows[index].progress = result.progress;
+        copyName(result.failure, rows[index].failure, sizeof(rows[index].failure));
+    }
+    return count;
+}
+
+int32_t balls_benchmark_winner(BallsBenchmark* benchmark) {
+    if (benchmark == nullptr || benchmark->run == nullptr) {
+        return -1;
+    }
+    benchmark->refresh();
+    const BenchmarkCandidate winner = chooseDefaultBackend(
+        benchmark->results, [](BackendKind kind) { return isBackendAvailable(kind); });
+    return fromBackendKind(winner.kind);
 }
 
 BallsEditor* balls_editor_create(void) {
