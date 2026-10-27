@@ -1,8 +1,12 @@
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
 #include "sim/BackendFactory.h"
+#include "sim/HybridBackend.h"
 #include "sim/Simulation.h"
 
+#include <emmintrin.h>
+
+#include <algorithm>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -11,6 +15,7 @@
 #include <numbers>
 #include <random>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -24,6 +29,7 @@ struct BenchOptions {
     bool fullSimulation = false;
     bool scatterSimulation = false;
     bool roofline = false;
+    bool cpuRoofline = false;
     bool rooflineOnLevel = false;
     int substeps = 2;
 };
@@ -72,6 +78,8 @@ BenchOptions parseOptions(int argumentCount, char** arguments) {
         } else if (argument == "--ticks") {
             options.ticks = std::atoi(value);
             ++i;
+        } else if (argument == "--cpu-roofline") {
+            options.cpuRoofline = true;
         } else if (argument == "--roofline") {
             options.roofline = true;
         } else if (argument == "--on-level") {
@@ -173,6 +181,11 @@ void runScatteredSimulation(const BrickLayout& layout, BackendKind kind, size_t 
                 std::string(backendKindName(kind)).c_str(), ballCount, seconds * 1000.0 / ticks,
                 static_cast<double>(ballCount) * ticks / seconds / 1e6, bricksBefore,
                 simulation.board().aliveBrickCount());
+    if (const auto* hybrid = dynamic_cast<const HybridBackend*>(&simulation.backend())) {
+        std::printf("        cpu share %5.1f%%  cpu step %6.3f ms  gpu step %6.3f ms\n",
+                    100.0 * static_cast<double>(hybrid->cpuBallCount()) / static_cast<double>(hybrid->ballCount()),
+                    hybrid->cpuStepMs(), hybrid->gpuStepMs());
+    }
 }
 
 BrickLayout emptyBoard(int width, int rows) {
@@ -220,10 +233,57 @@ void runRoofline(const BenchOptions& options, const BrickLayout* level) {
     }
 }
 
+void runCpuRoofline(size_t ballCount, int passes) {
+    constexpr size_t bytesTouchedPerBall = 4 * sizeof(uint32_t);
+    std::vector<uint32_t> position(ballCount, 1u);
+    std::vector<uint32_t> state(ballCount, 2u);
+    std::vector<uint32_t> packed(ballCount, 0u);
+    const size_t threads = std::max(1u, std::thread::hardware_concurrency());
+    constexpr size_t ballsPerVector = sizeof(__m128i) / sizeof(uint32_t);
+    constexpr size_t ballsPerCacheLine = 16;
+    const size_t perThread = (ballCount / threads + ballsPerCacheLine - 1) / ballsPerCacheLine * ballsPerCacheLine;
+    const auto pass = [&] {
+        std::vector<std::jthread> workers;
+        for (size_t thread = 0; thread < threads; ++thread) {
+            workers.emplace_back([&, thread] {
+                const size_t begin = std::min(thread * perThread, ballCount);
+                const size_t end = thread + 1 == threads ? ballCount : std::min(begin + perThread, ballCount);
+                size_t ball = begin;
+                for (; ball + ballsPerVector <= end; ball += ballsPerVector) {
+                    auto* positionVector = reinterpret_cast<__m128i*>(position.data() + ball);
+                    const __m128i stateVector = _mm_loadu_si128(reinterpret_cast<const __m128i*>(state.data() + ball));
+                    const __m128i moved = _mm_add_epi32(_mm_loadu_si128(positionVector), stateVector);
+                    _mm_storeu_si128(positionVector, moved);
+                    _mm_stream_si128(reinterpret_cast<__m128i*>(packed.data() + ball), _mm_xor_si128(moved, stateVector));
+                }
+                for (; ball < end; ++ball) {
+                    position[ball] += state[ball];
+                    packed[ball] = position[ball] ^ state[ball];
+                }
+            });
+        }
+    };
+    pass();
+    const auto start = std::chrono::steady_clock::now();
+    for (int index = 0; index < passes; ++index) {
+        pass();
+    }
+    const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    const double ballsPerSecond = static_cast<double>(ballCount) * passes / seconds;
+    std::printf("CPU stream: %zu threads, read position+state, write position+packed: %.1f M balls/s = %.1f GB/s "
+                "(%zu bytes per ball, packed written with streaming stores)\n",
+                threads, ballsPerSecond / 1e6, ballsPerSecond * bytesTouchedPerBall / 1e9, bytesTouchedPerBall);
+}
+
 }
 
 int main(int argumentCount, char** arguments) {
     const BenchOptions options = parseOptions(argumentCount, arguments);
+    if (options.cpuRoofline) {
+        runCpuRoofline(options.ballCounts.empty() ? size_t{96000000} : options.ballCounts.front(),
+                       std::max(options.ticks, 1));
+        return 0;
+    }
     if (options.roofline) {
         const bool onLevel = options.rooflineOnLevel;
         auto rooflineLevel = onLevel ? loadLevel(levelFilesFor(options.levelDirectory, options.levelName))

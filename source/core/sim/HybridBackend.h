@@ -46,6 +46,7 @@ private:
     std::vector<uint32_t> merged;
     CompactBalls movedBalls;
     double measuredCpuShare;
+    int shareMeasurements = 0;
     double lastCpuMs = 0.0;
     double lastGpuMs = 0.0;
     int gridWidth = 0;
