@@ -138,7 +138,8 @@ namespace Balls.App
                 parityDone = true;
                 var result = ParityProbe.Run(app.LevelDirectoryFor(BallsApp.NormalMode), "DA_FirstLevel", 200, 300);
                 Debug.Log($"balls: parity compared={result.compared} mismatches={result.mismatches} " +
-                          $"worstDelta={result.worstDelta} first={result.firstMismatch} error='{result.error}'");
+                          $"worstDelta={result.worstDelta} first={result.firstMismatch} " +
+                          $"sorted={result.sortedMismatches} error='{result.error}'");
                 Application.Quit();
                 return;
             }

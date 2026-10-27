@@ -18,6 +18,7 @@ namespace Balls.App
             public int mismatches;
             public int worstDelta;
             public int firstMismatch;
+            public int sortedMismatches;
             public string error;
         }
 
@@ -63,6 +64,21 @@ namespace Balls.App
 
                 var nativeWords = ReadWords(nativePacked, nativeCount);
                 var burstWords = ReadWords(burstPacked, burstCount);
+                // Parallel stepping reports hits in whatever order the workers finish, and a killed ball is removed by
+                // swapping the last ball into its slot, so two correct implementations can hold the same balls in
+                // different orders. Compare the multisets as well as the slots.
+                var nativeSorted = (uint[])nativeWords.Clone();
+                var burstSorted = (uint[])burstWords.Clone();
+                Array.Sort(nativeSorted);
+                Array.Sort(burstSorted);
+                for (int index = 0; index < nativeCount; ++index)
+                {
+                    if (nativeSorted[index] != burstSorted[index])
+                    {
+                        result.sortedMismatches++;
+                    }
+                }
+
                 for (int index = 0; index < nativeCount; ++index)
                 {
                     result.compared++;
