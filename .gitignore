@@ -1,5 +1,5 @@
 /build/
-/out/
+/dist/
 /.deps/
 /.vs/
 /.vscode/
