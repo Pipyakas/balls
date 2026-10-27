@@ -20,11 +20,13 @@ public:
     std::string_view name() const override { return "levels"; }
     bool importLevels(std::span<const std::filesystem::path> paths) override;
     std::string stateJson() const override;
+    float toastTop() const override;
 
 private:
     App& app;
     GameMode mode;
     void refreshLevels();
+    float listBottom() const;
     void scrollTo(const std::string& levelName);
     void drawImportControls(float centerX, float top);
 

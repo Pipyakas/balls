@@ -225,7 +225,7 @@ void App::drawToast() {
     const float maximumWidth = static_cast<float>(gfx::screenWidth()) - 2.0f * toastMargin;
     const float size = std::min(toastTextSize, toastTextSize * maximumWidth / std::max(ui::measureText(toast.text, toastTextSize).x, 1.0f));
     const Vec2 extent = ui::measureText(toast.text, size);
-    const Rect rect{(static_cast<float>(gfx::screenWidth()) - extent.x) * 0.5f - toastPadding, toastMargin,
+    const Rect rect{(static_cast<float>(gfx::screenWidth()) - extent.x) * 0.5f - toastPadding, currentScreen->toastTop(),
                     extent.x + 2.0f * toastPadding, toastHeight};
     ui::drawPanel(rect, gfx::fade(toast.isError ? palette::danger : palette::panelLight, alpha), 0.4f);
     ui::drawTextInRect(toast.text, rect, size, gfx::fade(palette::text, alpha));

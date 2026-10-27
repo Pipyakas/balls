@@ -54,6 +54,10 @@ std::string fitFolderText(const std::string& text, float maximumWidth) {
 LevelSelectScreen::LevelSelectScreen(App& app, GameMode mode)
     : app(app), mode(mode), levels(findLevels(levelDirectory(mode))), folder(absoluteFolder(levelDirectory(mode))) {}
 
+float LevelSelectScreen::listBottom() const {
+    return static_cast<float>(gfx::screenHeight()) - 110.0f - importAreaHeight;
+}
+
 void LevelSelectScreen::refreshLevels() {
     levels = findLevels(folder);
     nextRefresh = std::chrono::steady_clock::now() + refreshInterval;
@@ -81,6 +85,13 @@ bool LevelSelectScreen::importLevels(std::span<const std::filesystem::path> path
     }
     app.showToast(report.summary(), report.anyFailed());
     return true;
+}
+
+// The title sits where the design puts toasts, so imports report just above the folder line, next to the
+// Import button that caused them.
+float LevelSelectScreen::toastTop() const {
+    constexpr float toastHeight = 48.0f;
+    return listBottom() + 8.0f - toastHeight - footerGap;
 }
 
 std::string LevelSelectScreen::stateJson() const {
@@ -126,7 +137,7 @@ void LevelSelectScreen::draw() {
     ui::drawText(title, {centerX, 40.0f}, 52.0f, palette::accent, ui::Align::Center);
 
     const float top = 130.0f;
-    const float bottom = static_cast<float>(gfx::screenHeight()) - 110.0f - importAreaHeight;
+    const float bottom = listBottom();
     gfx::beginClip({0.0f, top, static_cast<float>(gfx::screenWidth()), bottom - top});
     for (size_t i = 0; i < levels.size(); ++i) {
         const float y = top + static_cast<float>(i) * (rowHeight + rowGap) - scroll;
