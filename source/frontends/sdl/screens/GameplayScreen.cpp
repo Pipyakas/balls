@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <format>
 
 namespace {
@@ -82,8 +83,10 @@ GameplayScreen::GameplayScreen(App& app, GameMode mode, LevelFiles files)
 }
 
 void GameplayScreen::loadSession() {
+    diskState = DiskState::Unchanged;
     auto level = loadLevel(files);
     if (!level) {
+        session.reset();
         loadError = level.error();
         return;
     }
@@ -118,20 +121,32 @@ void GameplayScreen::rememberFinishedProbe() {
     }
 }
 
-void GameplayScreen::hotReload() {
-    auto level = loadLevel(files);
-    if (!level) {
-        showToast("Reload failed: " + level.error(), true);
-        return;
-    }
-    if (session) {
-        session->reload(std::move(*level));
-    } else {
-        loadError.clear();
-        session = std::make_unique<GameSession>(mode, std::move(*level), app.preferredBackend());
-    }
+void GameplayScreen::noticeDiskChange() {
+    const bool present = std::filesystem::exists(files.bricksPath) && std::filesystem::exists(files.launchersPath);
+    diskState = present ? DiskState::Changed : DiskState::Removed;
+}
+
+void GameplayScreen::restartLevel() {
     paused = false;
-    showToast("Reloaded " + files.name, false);
+    if (diskState == DiskState::Removed) {
+        app.showLevelSelect(mode);
+    } else if (diskState == DiskState::Changed) {
+        loadSession();
+    } else {
+        session->restart();
+    }
+}
+
+std::string_view GameplayScreen::diskNotice() const {
+    switch (diskState) {
+    case DiskState::Changed:
+        return "Map changed on disk - Restart to load it";
+    case DiskState::Removed:
+        return "Map removed from disk - Restart unavailable";
+    case DiskState::Unchanged:
+        break;
+    }
+    return {};
 }
 
 void GameplayScreen::showToast(std::string text, bool isError) { toast = {std::move(text), toastSeconds, isError}; }
@@ -184,7 +199,11 @@ void GameplayScreen::handleLauncherClick(const GameplayLayout& layout) {
 void GameplayScreen::update(float deltaTime) {
     toast.secondsLeft = std::max(0.0f, toast.secondsLeft - deltaTime);
     if (watcher.pollChanged(std::chrono::steady_clock::now())) {
-        hotReload();
+        if (session) {
+            noticeDiskChange();
+        } else {
+            loadSession();
+        }
     }
     if (!session) {
         if (input::keyPressed(SDL_SCANCODE_ESCAPE)) {
@@ -223,7 +242,18 @@ void GameplayScreen::drawHeader(const GameplayLayout& layout) {
                               layout.header.height - 16.0f};
     const Rect titleRect{layout.header.x + 14.0f, layout.header.y, pauseRect.x - layout.header.x - 24.0f,
                               layout.header.height};
-    ui::drawTextInRect(std::format("{} - {}", modeName, files.name), titleRect, 22.0f, palette::text, ui::Align::Left);
+    const std::string title = std::format("{} - {}", modeName, files.name);
+    const std::string_view notice = diskNotice();
+    if (notice.empty()) {
+        ui::drawTextInRect(title, titleRect, 22.0f, palette::text, ui::Align::Left);
+    } else {
+        const float halfHeight = titleRect.height * 0.5f;
+        ui::drawTextInRect(title, {titleRect.x, titleRect.y + 4.0f, titleRect.width, halfHeight - 4.0f}, 18.0f,
+                           palette::text, ui::Align::Left);
+        const float noticeSize = std::min(15.0f, 15.0f * titleRect.width / std::max(ui::measureText(notice, 15.0f).x, 1.0f));
+        ui::drawTextInRect(notice, {titleRect.x, titleRect.y + halfHeight, titleRect.width, halfHeight - 4.0f},
+                           noticeSize, palette::accent, ui::Align::Left);
+    }
     if (ui::button(pauseRect, paused ? "Resume" : "Pause")) {
         paused = !paused;
     }
@@ -371,8 +401,7 @@ void GameplayScreen::drawOverlay() {
         }
     }
     if (ui::button(overlayButton(1), "Restart")) {
-        session->restart();
-        paused = false;
+        restartLevel();
     }
     if (ui::button(overlayButton(2), "Main Menu")) {
         app.showMainMenu();
@@ -443,12 +472,12 @@ std::string GameplayScreen::stateJson() const {
     constexpr std::array<const char*, 3> stateNames{"ready", "running", "won"};
     const CapacityProbe& probe = session->capacityProbe();
     return std::format(
-        "{{\"mode\":\"{}\",\"level\":\"{}\",\"state\":\"{}\",\"paused\":{},\"backend\":\"{}\",\"backendFault\":\"{}\","
+        "{{\"mode\":\"{}\",\"level\":\"{}\",\"diskNotice\":\"{}\",\"state\":\"{}\",\"paused\":{},\"backend\":\"{}\",\"backendFault\":\"{}\","
         "\"balls\":{},\"bricks\":{},\"launchersLeft\":{},\"pendingSpawn\":{},\"spawned\":{},\"hits\":{},"
         "\"physicsMs\":{:.3f},\"kernelMs\":{:.3f},\"ticks\":{},\"spawnRate\":{},\"multiplier\":{},\"ballLimit\":{},\"elapsed\":{:.2f},"
         "\"probe\":{{\"phase\":\"{}\",\"target\":{:.0f},\"fps\":{:.1f},\"best\":{}}},"
         "\"ballsByColor\":{{{}}},\"launchers\":[{}]}}",
-        mode == GameMode::Normal ? "normal" : "performance", jsonEscape(files.name),
+        mode == GameMode::Normal ? "normal" : "performance", jsonEscape(files.name), diskNotice(),
         stateNames[static_cast<int>(session->state())], paused, backendKindName(session->backend()),
         jsonEscape(session->lastBackendFault()), stats.ballCount, simulation.board().aliveBrickCount(),
         launchers.launcherCount(), session->spawner().pendingBalls(), stats.totalBallsSpawned, stats.totalHits,
@@ -515,8 +544,7 @@ std::optional<ControlResponse> GameplayScreen::handleControl(const ControlReques
         return done;
     }
     if (path == "/restart") {
-        session->restart();
-        paused = false;
+        restartLevel();
         return done;
     }
     return std::nullopt;

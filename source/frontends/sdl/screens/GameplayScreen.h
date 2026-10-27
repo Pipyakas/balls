@@ -30,8 +30,14 @@ private:
         bool isError = false;
     };
 
+    // What happened to the level's files since this session loaded them. The level in play is never swapped
+    // mid-game; the header says so and Restart picks the new files up.
+    enum class DiskState { Unchanged, Changed, Removed };
+
     void loadSession();
-    void hotReload();
+    void noticeDiskChange();
+    void restartLevel();
+    std::string_view diskNotice() const;
     void handleShortcuts();
     void handleLauncherClick(const GameplayLayout& layout);
     void showToast(std::string text, bool isError);
@@ -53,6 +59,7 @@ private:
     std::unique_ptr<GameSession> session;
     std::string loadError;
     LevelWatcher watcher;
+    DiskState diskState = DiskState::Unchanged;
     Toast toast;
     bool paused = false;
     bool probeResultSaved = true;
