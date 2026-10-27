@@ -40,6 +40,19 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(BALLS_SOURCE_DIR ${CMAKE_SOURCE_DIR}/source)
 set(BALLS_ASSET_DIR ${CMAKE_SOURCE_DIR}/data/assets)
 
+# Fetch NVRHI so the Vulkan physics plugin (source/backends/vulkan) can build its headless device
+# and supply Vulkan-Headers to balls_core, regardless of whether the front end renderer is WebGPU or NVRHI.
+include(FetchContent)
+set(NVRHI_INSTALL OFF CACHE BOOL "" FORCE)
+set(NVRHI_WITH_DX11 ${WIN32} CACHE BOOL "" FORCE)
+set(NVRHI_WITH_VULKAN ON CACHE BOOL "" FORCE)
+set(NVRHI_WITH_VALIDATION OFF CACHE BOOL "" FORCE)
+FetchContent_Declare(nvrhi
+    GIT_REPOSITORY https://github.com/NVIDIA-RTX/NVRHI.git
+    GIT_TAG 6b96fb03e07539f08327aea76c56d55f1de9d906
+    GIT_SHALLOW FALSE)
+FetchContent_MakeAvailable(nvrhi)
+
 add_subdirectory(source/core)
 add_subdirectory(source/backends)
 

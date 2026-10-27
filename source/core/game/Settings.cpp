@@ -143,8 +143,11 @@ Result<void> saveSettings(const std::filesystem::path& file, const Settings& set
     std::filesystem::create_directories(file.parent_path(), error);
     std::ofstream stream(file, std::ios::binary | std::ios::trunc);
     if (!stream) {
-        return Error{std::format("cannot write {}", file.string())};
+        return Error{std::format("could not open settings file for write: {}", file.string())};
     }
     stream << serializeSettings(settings);
+    if (!stream) {
+        return Error{std::format("failed writing settings to {}", file.string())};
+    }
     return {};
 }

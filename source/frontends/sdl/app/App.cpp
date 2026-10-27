@@ -1,6 +1,7 @@
 #include "app/App.h"
 
 #include "app/Input.h"
+#include "app/Paths.h"
 #include "editor/MapEditorScreen.h"
 #include "level/LevelRepository.h"
 #include "render/Palette.h"
@@ -10,13 +11,21 @@
 #include "ui/Painter.h"
 #include "ui/Widgets.h"
 
-#include <SDL3/SDL.h>
 #include <imgui.h>
-#include <imgui_impl_sdl3.h>
+#include <backends/imgui_impl_sdl3.h>
+#include <SDL3/SDL.h>
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
+#include <memory>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 namespace {
 
@@ -75,7 +84,9 @@ bool App::openWindowAndRenderer(const LaunchOptions& options, std::string_view a
     if (window) {
         SDL_DestroyWindow(window);
     }
-    SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | rendererWindowFlags(api);
+    const std::string wantedRenderer =
+        options.renderer.empty() ? (activeRenderer.empty() ? "nvrhi" : activeRenderer) : options.renderer;
+    SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | rendererWindowFlags(wantedRenderer, api);
     if (options.hidden) {
         flags |= SDL_WINDOW_HIDDEN;
     }
@@ -88,8 +99,6 @@ bool App::openWindowAndRenderer(const LaunchOptions& options, std::string_view a
         return false;
     }
     SDL_SetWindowMinimumSize(window, minimumWindowWidth, minimumWindowHeight);
-    const std::string wantedRenderer =
-        options.renderer.empty() ? (activeRenderer.empty() ? "nvrhi" : activeRenderer) : options.renderer;
     renderer = createRenderer(window, wantedRenderer, api, options.gpu, error);
     if (!renderer) {
         return false;
@@ -97,26 +106,21 @@ bool App::openWindowAndRenderer(const LaunchOptions& options, std::string_view a
     activeRenderer = wantedRenderer;
     activeGraphicsApi = std::string(api);
     renderGpuPreference = options.gpu;
-#if defined(BALLS_RENDERER_WEBGPU)
-    // The WebGPU adapter list mirrors the Dawn backend selected from the api string.
+
     const GpuApi adapterApi =
-        api == "webgpu-vulkan" ? GpuApi::Vulkan : (api == "webgpu-d3d12" ? GpuApi::D3d12 :
+        (activeRenderer == "webgpu" || api == "webgpu-vulkan" || api == "webgpu-d3d12")
+            ? ((api == "webgpu-vulkan" || api == "vulkan") ? GpuApi::Vulkan : GpuApi::D3d12)
+            : (
 #if defined(_WIN32)
-                                                                               GpuApi::D3d12
+               api == "vulkan" ? GpuApi::Vulkan : GpuApi::D3d12
 #else
-                                                                               GpuApi::Vulkan
+               GpuApi::Vulkan
 #endif
-                                                );
-#elif defined(_WIN32)
-    const GpuApi adapterApi = api == "vulkan" ? GpuApi::Vulkan : GpuApi::D3d12;
-#else
-    const GpuApi adapterApi = GpuApi::Vulkan;
-#endif
+              );
     renderAdapterList = enumerateGpuAdapters(adapterApi);
     activeRenderAdapter = selectGpuAdapter(renderAdapterList, renderGpuPreference, GpuRole::Render);
     return true;
 }
-
 
 void App::applyPendingRendererSwitch() {
     if (!pendingRendererSwitch) {
@@ -214,10 +218,32 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
     fonts.strong = io.Fonts->AddFontFromFileTTF(fontPath(palette::strongFontFile).string().c_str(), fontLoadPixels);
     fonts.strongMinimumSize = palette::strongTextMinimumPixels;
 
+    const std::string initialRenderer =
+        options.renderer.empty() ? (activeRenderer.empty() ? "nvrhi" : activeRenderer) : options.renderer;
+
     if (!openWindowAndRenderer(options, options.graphicsApi, error)) {
         const std::string_view fallback = fallbackGraphicsApi(options.graphicsApi);
         std::string fallbackError;
-        if (fallback.empty() || !openWindowAndRenderer(options, fallback, fallbackError)) {
+        bool initialized = false;
+        if (!fallback.empty() && openWindowAndRenderer(options, fallback, fallbackError)) {
+            initialized = true;
+        } else if (isNvrhiCompiledIn() && initialRenderer != "nvrhi") {
+            LaunchOptions nvrhiOptions = options;
+            nvrhiOptions.renderer = "nvrhi";
+            nvrhiOptions.graphicsApi = "auto";
+            std::string nvrhiError;
+            if (openWindowAndRenderer(nvrhiOptions, nvrhiOptions.graphicsApi, nvrhiError)) {
+                SDL_Log("WebGPU failed (%s); recovered with NVRHI renderer", error.c_str());
+                initialized = true;
+            } else {
+                const std::string_view nvrhiFallback = fallbackGraphicsApi(nvrhiOptions.graphicsApi);
+                if (!nvrhiFallback.empty() && openWindowAndRenderer(nvrhiOptions, nvrhiFallback, fallbackError)) {
+                    SDL_Log("WebGPU failed; recovered with NVRHI renderer (%s)", std::string(nvrhiFallback).c_str());
+                    initialized = true;
+                }
+            }
+        }
+        if (!initialized) {
             error = fallback.empty() ? error : std::format("{}; {} fallback: {}", error, fallback, fallbackError);
             return false;
         }
@@ -332,9 +358,7 @@ void App::applyPendingScreen() {
 
 std::string App::stateJson() const {
     const FrameSample& sample = timings.average();
-    return std::format("{{\"ok\":true,\"frontend\":\"sdl\",\"renderer\":\"{}\",\"screen\":\"{}\",\"window\":[{},{}],"
-                       "\"fps\":{:.1f},\"minFps\":{:.1f},\"frameMs\":{:.3f},\"cpuMs\":{:.3f},\"gpuMs\":{:.3f},"
-                       "\"presentMs\":{:.3f},\"preferredBackend\":\"{}\",\"computeGpu\":\"{}\",\"vsync\":{},\"details\":{}}}",
+    return std::format("{{\"ok\":true,\"frontend\":\"sdl\",\"renderer\":\"{}\",\"screen\":\"{}\",\"window\":[{},{}],\"fps\":{:.1f},\"minFps\":{:.1f},\"frameMs\":{:.3f},\"cpuMs\":{:.3f},\"gpuMs\":{:.3f},\"presentMs\":{:.3f},\"preferredBackend\":\"{}\",\"computeGpu\":\"{}\",\"vsync\":{},\"details\":{}}}",
                        jsonEscape(renderer->deviceDescription()), currentScreen->name(), gfx::screenWidth(),
                        gfx::screenHeight(), timings.framesPerSecond(), timings.worstFpsLastSecond(), sample.frameMs,
                        sample.cpuMs, sample.gpuMs, sample.presentMs, backendKindName(backendChoice),
@@ -424,9 +448,13 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
     return ControlResponse::error(404, std::format("unknown command {} on screen {}", path, currentScreen->name()));
 }
 
-void App::showMainMenu() { pendingScreen = std::make_unique<MainMenuScreen>(*this); }
+void App::showMainMenu() {
+    pendingScreen = std::make_unique<MainMenuScreen>(*this);
+}
 
-void App::showLevelSelect(GameMode mode) { pendingScreen = std::make_unique<LevelSelectScreen>(*this, mode); }
+void App::showLevelSelect(GameMode mode) {
+    pendingScreen = std::make_unique<LevelSelectScreen>(*this, mode);
+}
 
 void App::startGame(GameMode mode, const LevelFiles& files) {
     pendingScreen = std::make_unique<GameplayScreen>(*this, mode, files);

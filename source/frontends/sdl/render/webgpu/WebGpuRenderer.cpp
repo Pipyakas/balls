@@ -3,6 +3,7 @@
 // Step 1: instance, adapter, device, surface, present mode, clear pass, resize.
 // Step 2: rects pipeline, storage buffer upload, instanced quad draw.
 // Step 3: imgui pipeline, texture management, vertex/index upload, scissor clipping.
+// Step 4: balls pipeline, visibility compute passes (clear, bid, resolve, compact), indirect draw.
 
 #include "render/webgpu/WebGpuRenderer.h"
 #include "shaders/generated/web/WgslShaders.h"
@@ -30,6 +31,42 @@
 namespace {
 
 using Clock = std::chrono::steady_clock;
+
+constexpr uint32_t computeThreadsPerGroup = 256;
+constexpr uint32_t renderCoordinateRange = 16384;
+constexpr size_t biddersPerSlot = 32;
+
+struct BallUniforms {
+    float boardOrigin[2];
+    float unpackScale[2];
+    float viewportSize[2];
+    float cellPixels;
+    float radiusPixels;
+    float palette[rendererPaletteSize][4];
+};
+
+struct VisibilityUniforms {
+    uint32_t itemCount;
+    uint32_t gridWidth;
+    uint32_t gridHeight;
+    uint32_t frameSeed;
+    float coordinateToSlotX;
+    float coordinateToSlotY;
+    uint32_t bidderMask;
+    uint32_t unusedPadding;
+};
+
+uint32_t groupsFor(size_t items) {
+    return static_cast<uint32_t>(std::max<size_t>((items + computeThreadsPerGroup - 1) / computeThreadsPerGroup, 1));
+}
+
+uint32_t bidderMaskFor(size_t balls, size_t cells) {
+    uint32_t mask = 0;
+    while (mask < 0x3FFFFFFFu && (static_cast<size_t>(mask) + 1) * 2 * cells * biddersPerSlot <= balls) {
+        mask = mask * 2 + 1;
+    }
+    return mask;
+}
 
 std::string lowercase(std::string_view text) {
     std::string s(text);
@@ -154,6 +191,7 @@ public:
         updateWindowDimensions();
         reconfigureSurface();
         initRectsPipeline();
+        initBallsPipelines();
 
         ImGui_ImplSDL3_InitForOther(window);
         ImGui::GetIO().BackendRendererName = "balls_webgpu";
@@ -233,6 +271,98 @@ public:
             wgpuShaderModuleRelease(rectsFragmentModule);
         }
 
+        releaseBallBindGroups();
+        if (ballUniformBindGroup) {
+            wgpuBindGroupRelease(ballUniformBindGroup);
+        }
+        for (int i = 0; i < 4; ++i) {
+            if (visibilityConstantsBindGroups[i]) {
+                wgpuBindGroupRelease(visibilityConstantsBindGroups[i]);
+            }
+            if (visibilityUniformBuffers[i]) {
+                wgpuBufferDestroy(visibilityUniformBuffers[i]);
+                wgpuBufferRelease(visibilityUniformBuffers[i]);
+            }
+        }
+        if (ballUniformBuffer) {
+            wgpuBufferDestroy(ballUniformBuffer);
+            wgpuBufferRelease(ballUniformBuffer);
+        }
+        if (argumentBuffer) {
+            wgpuBufferDestroy(argumentBuffer);
+            wgpuBufferRelease(argumentBuffer);
+        }
+        if (ballBuffer) {
+            wgpuBufferDestroy(ballBuffer);
+            wgpuBufferRelease(ballBuffer);
+        }
+        if (priorityBuffer) {
+            wgpuBufferDestroy(priorityBuffer);
+            wgpuBufferRelease(priorityBuffer);
+        }
+        if (winnerBuffer) {
+            wgpuBufferDestroy(winnerBuffer);
+            wgpuBufferRelease(winnerBuffer);
+        }
+        if (visibleBuffer) {
+            wgpuBufferDestroy(visibleBuffer);
+            wgpuBufferRelease(visibleBuffer);
+        }
+        if (ballPipeline) {
+            wgpuRenderPipelineRelease(ballPipeline);
+        }
+        if (clearPipeline) {
+            wgpuComputePipelineRelease(clearPipeline);
+        }
+        if (bidPipeline) {
+            wgpuComputePipelineRelease(bidPipeline);
+        }
+        if (resolvePipeline) {
+            wgpuComputePipelineRelease(resolvePipeline);
+        }
+        if (compactPipeline) {
+            wgpuComputePipelineRelease(compactPipeline);
+        }
+        if (ballPipelineLayout) {
+            wgpuPipelineLayoutRelease(ballPipelineLayout);
+        }
+        if (computePipelineLayout) {
+            wgpuPipelineLayoutRelease(computePipelineLayout);
+        }
+        if (ballDrawStorageLayout) {
+            wgpuBindGroupLayoutRelease(ballDrawStorageLayout);
+        }
+        if (ballDrawUniformLayout) {
+            wgpuBindGroupLayoutRelease(ballDrawUniformLayout);
+        }
+        if (computeInputLayout) {
+            wgpuBindGroupLayoutRelease(computeInputLayout);
+        }
+        if (computeOutputLayout) {
+            wgpuBindGroupLayoutRelease(computeOutputLayout);
+        }
+        if (computeConstantsLayout) {
+            wgpuBindGroupLayoutRelease(computeConstantsLayout);
+        }
+        if (ballsVertexModule) {
+            wgpuShaderModuleRelease(ballsVertexModule);
+        }
+        if (ballsFragmentModule) {
+            wgpuShaderModuleRelease(ballsFragmentModule);
+        }
+        if (visibilityClearModule) {
+            wgpuShaderModuleRelease(visibilityClearModule);
+        }
+        if (visibilityBidModule) {
+            wgpuShaderModuleRelease(visibilityBidModule);
+        }
+        if (visibilityResolveModule) {
+            wgpuShaderModuleRelease(visibilityResolveModule);
+        }
+        if (visibilityCompactModule) {
+            wgpuShaderModuleRelease(visibilityCompactModule);
+        }
+
         if (currentSurfaceView) {
             wgpuTextureViewRelease(currentSurfaceView);
         }
@@ -289,6 +419,7 @@ public:
         currentSurfaceView = wgpuTextureCreateView(currentSurfaceTexture, nullptr);
         frameStartTime = Clock::now();
         pendingRects.clear();
+        hasBalls = false;
 
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
@@ -300,8 +431,8 @@ public:
     }
 
     void drawBalls(const BallDrawRequest& request) override {
-        // Will be populated in Step 4
-        (void)request;
+        pendingBalls = request;
+        hasBalls = request.count > 0 && request.packed != nullptr;
     }
 
     void endFrame(ClearColor clearColor) override {
@@ -317,6 +448,10 @@ public:
 
         WGPUCommandEncoderDescriptor encoderDesc{};
         WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(device, &encoderDesc);
+
+        if (hasBalls) {
+            runBallVisibility(encoder);
+        }
 
         WGPURenderPassColorAttachment colorAttachment{};
         colorAttachment.view = currentSurfaceView;
@@ -336,6 +471,7 @@ public:
 
         WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &passDesc);
 
+        // 1. Rects
         if (!pendingRects.empty() && rectsPipeline) {
             ensureRectBuffers(pendingRects.size());
             wgpuQueueWriteBuffer(queue, rectsBuffer, 0, pendingRects.data(),
@@ -343,6 +479,8 @@ public:
             const float uniforms[4] = { logicalWidth, logicalHeight, 0.0f, 0.0f };
             wgpuQueueWriteBuffer(queue, rectsUniformBuffer, 0, uniforms, sizeof(uniforms));
 
+            wgpuRenderPassEncoderSetScissorRect(pass, 0, 0, static_cast<uint32_t>(pixelWidth),
+                                                static_cast<uint32_t>(pixelHeight));
             wgpuRenderPassEncoderSetPipeline(pass, rectsPipeline);
             wgpuRenderPassEncoderSetBindGroup(pass, 0, rectsStorageBindGroup, 0, nullptr);
             wgpuRenderPassEncoderSetBindGroup(pass, 1, rectsUniformBindGroup, 0, nullptr);
@@ -350,6 +488,47 @@ public:
         }
         pendingRects.clear();
 
+        // 2. Balls
+        if (hasBalls && ballPipeline) {
+            const BallDrawRequest& request = pendingBalls;
+            BallUniforms uniforms{};
+            uniforms.boardOrigin[0] = request.originX;
+            uniforms.boardOrigin[1] = request.originY;
+            uniforms.unpackScale[0] = request.fieldWidth / static_cast<float>(renderCoordinateRange - 1);
+            uniforms.unpackScale[1] = request.fieldHeight / static_cast<float>(renderCoordinateRange - 1);
+            uniforms.viewportSize[0] = logicalWidth;
+            uniforms.viewportSize[1] = logicalHeight;
+            uniforms.cellPixels = request.cellPixels;
+            uniforms.radiusPixels = std::max(request.radiusCells * request.cellPixels,
+                                             0.5f * logicalWidth / static_cast<float>(pixelWidth));
+            for (int color = 0; color < rendererPaletteSize; ++color) {
+                std::copy(request.palette[color].begin(), request.palette[color].end(), uniforms.palette[color]);
+            }
+            wgpuQueueWriteBuffer(queue, ballUniformBuffer, 0, &uniforms, sizeof(uniforms));
+
+            const float scale = static_cast<float>(pixelWidth) / logicalWidth;
+            const bool clipped = request.clipWidth > 0.0f && request.clipHeight > 0.0f;
+            if (clipped) {
+                const float left = std::max(request.clipX * scale, 0.0f);
+                const float top = std::max(request.clipY * scale, 0.0f);
+                const float right = std::min((request.clipX + request.clipWidth) * scale, static_cast<float>(pixelWidth));
+                const float bottom = std::min((request.clipY + request.clipHeight) * scale, static_cast<float>(pixelHeight));
+                if (right > left && bottom > top) {
+                    wgpuRenderPassEncoderSetScissorRect(pass, static_cast<uint32_t>(left), static_cast<uint32_t>(top),
+                                                        static_cast<uint32_t>(right - left), static_cast<uint32_t>(bottom - top));
+                }
+            } else {
+                wgpuRenderPassEncoderSetScissorRect(pass, 0, 0, static_cast<uint32_t>(pixelWidth),
+                                                    static_cast<uint32_t>(pixelHeight));
+            }
+
+            wgpuRenderPassEncoderSetPipeline(pass, ballPipeline);
+            wgpuRenderPassEncoderSetBindGroup(pass, 0, ballStorageBindGroup, 0, nullptr);
+            wgpuRenderPassEncoderSetBindGroup(pass, 1, ballUniformBindGroup, 0, nullptr);
+            wgpuRenderPassEncoderDrawIndirect(pass, argumentBuffer, 0);
+        }
+
+        // 3. ImGui
         if (drawData && drawData->TotalVtxCount > 0 && imguiPipeline) {
             renderImgui(pass, drawData);
         }
@@ -578,6 +757,370 @@ private:
             bgDesc.entries = &entry;
             rectsUniformBindGroup = wgpuDeviceCreateBindGroup(device, &bgDesc);
         }
+    }
+
+    bool initBallsPipelines() {
+        ballsVertexModule = createShaderModule(device, ballsVertexWgsl, "ballsVertex");
+        ballsFragmentModule = createShaderModule(device, ballsFragmentWgsl, "ballsFragment");
+        visibilityClearModule = createShaderModule(device, visibilityClearWgsl, "visibilityClear");
+        visibilityBidModule = createShaderModule(device, visibilityBidWgsl, "visibilityBid");
+        visibilityResolveModule = createShaderModule(device, visibilityResolveWgsl, "visibilityResolve");
+        visibilityCompactModule = createShaderModule(device, visibilityCompactWgsl, "visibilityCompact");
+
+        if (!ballsVertexModule || !ballsFragmentModule || !visibilityClearModule ||
+            !visibilityBidModule || !visibilityResolveModule || !visibilityCompactModule) {
+            SDL_Log("WebGPU: failed to create balls or visibility shader modules");
+            return false;
+        }
+
+        // Draw pipeline layouts
+        WGPUBindGroupLayoutEntry drawStorageEntry{};
+        drawStorageEntry.binding = 0;
+        drawStorageEntry.visibility = WGPUShaderStage_Vertex;
+        drawStorageEntry.buffer.type = WGPUBufferBindingType_ReadOnlyStorage;
+
+        WGPUBindGroupLayoutDescriptor drawStorageDesc{};
+        drawStorageDesc.entryCount = 1;
+        drawStorageDesc.entries = &drawStorageEntry;
+        ballDrawStorageLayout = wgpuDeviceCreateBindGroupLayout(device, &drawStorageDesc);
+
+        WGPUBindGroupLayoutEntry drawUniformEntry{};
+        drawUniformEntry.binding = 0;
+        drawUniformEntry.visibility = WGPUShaderStage_Vertex;
+        drawUniformEntry.buffer.type = WGPUBufferBindingType_Uniform;
+
+        WGPUBindGroupLayoutDescriptor drawUniformDesc{};
+        drawUniformDesc.entryCount = 1;
+        drawUniformDesc.entries = &drawUniformEntry;
+        ballDrawUniformLayout = wgpuDeviceCreateBindGroupLayout(device, &drawUniformDesc);
+
+        WGPUBindGroupLayout drawBgLayouts[2] = { ballDrawStorageLayout, ballDrawUniformLayout };
+        WGPUPipelineLayoutDescriptor drawPipelineLayoutDesc{};
+        drawPipelineLayoutDesc.bindGroupLayoutCount = 2;
+        drawPipelineLayoutDesc.bindGroupLayouts = drawBgLayouts;
+        ballPipelineLayout = wgpuDeviceCreatePipelineLayout(device, &drawPipelineLayoutDesc);
+
+        WGPUColorTargetState colorTarget{};
+        colorTarget.format = surfaceFormat;
+        colorTarget.blend = nullptr; // Opaque / discard in fragment shader
+        colorTarget.writeMask = WGPUColorWriteMask_All;
+
+        WGPUFragmentState fragmentState{};
+        fragmentState.module = ballsFragmentModule;
+        fragmentState.entryPoint = WGPUStringView{"fragmentMain", 12};
+        fragmentState.targetCount = 1;
+        fragmentState.targets = &colorTarget;
+
+        WGPUVertexState vertexState{};
+        vertexState.module = ballsVertexModule;
+        vertexState.entryPoint = WGPUStringView{"vertexMain", 10};
+
+        WGPURenderPipelineDescriptor renderPipeDesc{};
+        renderPipeDesc.layout = ballPipelineLayout;
+        renderPipeDesc.vertex = vertexState;
+        renderPipeDesc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+        renderPipeDesc.primitive.cullMode = WGPUCullMode_None;
+        renderPipeDesc.primitive.frontFace = WGPUFrontFace_CCW;
+        renderPipeDesc.multisample.count = 1;
+        renderPipeDesc.multisample.mask = ~0u;
+        renderPipeDesc.fragment = &fragmentState;
+
+        ballPipeline = wgpuDeviceCreateRenderPipeline(device, &renderPipeDesc);
+
+        // Compute layouts
+        WGPUBindGroupLayoutEntry compInEntry{};
+        compInEntry.binding = 0;
+        compInEntry.visibility = WGPUShaderStage_Compute;
+        compInEntry.buffer.type = WGPUBufferBindingType_ReadOnlyStorage;
+
+        WGPUBindGroupLayoutDescriptor compInDesc{};
+        compInDesc.entryCount = 1;
+        compInDesc.entries = &compInEntry;
+        computeInputLayout = wgpuDeviceCreateBindGroupLayout(device, &compInDesc);
+
+        WGPUBindGroupLayoutEntry compOutEntries[3]{};
+        for (uint32_t i = 0; i < 3; ++i) {
+            compOutEntries[i].binding = i;
+            compOutEntries[i].visibility = WGPUShaderStage_Compute;
+            compOutEntries[i].buffer.type = WGPUBufferBindingType_Storage;
+        }
+        WGPUBindGroupLayoutDescriptor compOutDesc{};
+        compOutDesc.entryCount = 3;
+        compOutDesc.entries = compOutEntries;
+        computeOutputLayout = wgpuDeviceCreateBindGroupLayout(device, &compOutDesc);
+
+        WGPUBindGroupLayoutEntry compConstEntry{};
+        compConstEntry.binding = 0;
+        compConstEntry.visibility = WGPUShaderStage_Compute;
+        compConstEntry.buffer.type = WGPUBufferBindingType_Uniform;
+
+        WGPUBindGroupLayoutDescriptor compConstDesc{};
+        compConstDesc.entryCount = 1;
+        compConstDesc.entries = &compConstEntry;
+        computeConstantsLayout = wgpuDeviceCreateBindGroupLayout(device, &compConstDesc);
+
+        WGPUBindGroupLayout compBgLayouts[3] = { computeInputLayout, computeOutputLayout, computeConstantsLayout };
+        WGPUPipelineLayoutDescriptor compPipelineLayoutDesc{};
+        compPipelineLayoutDesc.bindGroupLayoutCount = 3;
+        compPipelineLayoutDesc.bindGroupLayouts = compBgLayouts;
+        computePipelineLayout = wgpuDeviceCreatePipelineLayout(device, &compPipelineLayoutDesc);
+
+        auto createCompPipeline = [&](WGPUShaderModule mod) {
+            WGPUComputePipelineDescriptor desc{};
+            desc.layout = computePipelineLayout;
+            desc.compute.module = mod;
+            desc.compute.entryPoint = WGPUStringView{"computeMain", 11};
+            return wgpuDeviceCreateComputePipeline(device, &desc);
+        };
+
+        clearPipeline = createCompPipeline(visibilityClearModule);
+        bidPipeline = createCompPipeline(visibilityBidModule);
+        resolvePipeline = createCompPipeline(visibilityResolveModule);
+        compactPipeline = createCompPipeline(visibilityCompactModule);
+
+        // Uniform buffers
+        WGPUBufferDescriptor ballUDesc{};
+        ballUDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+        ballUDesc.size = (sizeof(BallUniforms) + 15) & ~15ull;
+        ballUniformBuffer = wgpuDeviceCreateBuffer(device, &ballUDesc);
+
+        WGPUBindGroupEntry ballUEntry{};
+        ballUEntry.binding = 0;
+        ballUEntry.buffer = ballUniformBuffer;
+        ballUEntry.size = ballUDesc.size;
+
+        WGPUBindGroupDescriptor ballUBgDesc{};
+        ballUBgDesc.layout = ballDrawUniformLayout;
+        ballUBgDesc.entryCount = 1;
+        ballUBgDesc.entries = &ballUEntry;
+        ballUniformBindGroup = wgpuDeviceCreateBindGroup(device, &ballUBgDesc);
+
+        for (int i = 0; i < 4; ++i) {
+            WGPUBufferDescriptor visUDesc{};
+            visUDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+            visUDesc.size = (sizeof(VisibilityUniforms) + 15) & ~15ull;
+            visibilityUniformBuffers[i] = wgpuDeviceCreateBuffer(device, &visUDesc);
+
+            WGPUBindGroupEntry visUEntry{};
+            visUEntry.binding = 0;
+            visUEntry.buffer = visibilityUniformBuffers[i];
+            visUEntry.size = visUDesc.size;
+
+            WGPUBindGroupDescriptor visUBgDesc{};
+            visUBgDesc.layout = computeConstantsLayout;
+            visUBgDesc.entryCount = 1;
+            visUBgDesc.entries = &visUEntry;
+            visibilityConstantsBindGroups[i] = wgpuDeviceCreateBindGroup(device, &visUBgDesc);
+        }
+
+        WGPUBufferDescriptor argDesc{};
+        argDesc.usage = WGPUBufferUsage_Indirect | WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
+        argDesc.size = 64;
+        argumentBuffer = wgpuDeviceCreateBuffer(device, &argDesc);
+
+        return ballPipeline && clearPipeline && bidPipeline && resolvePipeline && compactPipeline;
+    }
+
+    void releaseBallBindGroups() {
+        if (ballsInputSet) {
+            wgpuBindGroupRelease(ballsInputSet);
+            ballsInputSet = nullptr;
+        }
+        if (winnersInputSet) {
+            wgpuBindGroupRelease(winnersInputSet);
+            winnersInputSet = nullptr;
+        }
+        if (clearOutputSet) {
+            wgpuBindGroupRelease(clearOutputSet);
+            clearOutputSet = nullptr;
+        }
+        if (bidOutputSet) {
+            wgpuBindGroupRelease(bidOutputSet);
+            bidOutputSet = nullptr;
+        }
+        if (resolveOutputSet) {
+            wgpuBindGroupRelease(resolveOutputSet);
+            resolveOutputSet = nullptr;
+        }
+        if (compactOutputSet) {
+            wgpuBindGroupRelease(compactOutputSet);
+            compactOutputSet = nullptr;
+        }
+        if (ballStorageBindGroup) {
+            wgpuBindGroupRelease(ballStorageBindGroup);
+            ballStorageBindGroup = nullptr;
+        }
+    }
+
+    void ensureBallBuffers(size_t ballCount, size_t gridCellCount, size_t visibleCount) {
+        bool needRebind = false;
+
+        const size_t neededBallBytes = std::max(ballCount * sizeof(uint32_t), static_cast<size_t>(65536));
+        if (!ballBuffer || ballCapacity < neededBallBytes) {
+            if (ballBuffer) {
+                wgpuBufferRelease(ballBuffer);
+            }
+            ballCapacity = neededBallBytes;
+            WGPUBufferDescriptor desc{};
+            desc.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
+            desc.size = (ballCapacity + 3) & ~3ull;
+            ballBuffer = wgpuDeviceCreateBuffer(device, &desc);
+            needRebind = true;
+        }
+
+        const size_t neededGridBytes = std::max(gridCellCount * sizeof(uint32_t), static_cast<size_t>(65536));
+        if (!priorityBuffer || priorityCapacity < neededGridBytes) {
+            if (priorityBuffer) {
+                wgpuBufferRelease(priorityBuffer);
+            }
+            if (winnerBuffer) {
+                wgpuBufferRelease(winnerBuffer);
+            }
+            priorityCapacity = neededGridBytes;
+            winnerCapacity = neededGridBytes;
+
+            WGPUBufferDescriptor desc{};
+            desc.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
+            desc.size = (priorityCapacity + 3) & ~3ull;
+            priorityBuffer = wgpuDeviceCreateBuffer(device, &desc);
+            winnerBuffer = wgpuDeviceCreateBuffer(device, &desc);
+            needRebind = true;
+        }
+
+        const size_t neededVisibleBytes = std::max(visibleCount * sizeof(uint32_t), static_cast<size_t>(65536));
+        if (!visibleBuffer || visibleCapacity < neededVisibleBytes) {
+            if (visibleBuffer) {
+                wgpuBufferRelease(visibleBuffer);
+            }
+            visibleCapacity = neededVisibleBytes;
+            WGPUBufferDescriptor desc{};
+            desc.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
+            desc.size = (visibleCapacity + 3) & ~3ull;
+            visibleBuffer = wgpuDeviceCreateBuffer(device, &desc);
+            needRebind = true;
+        }
+
+        if (needRebind) {
+            releaseBallBindGroups();
+
+            auto makeStorageIn = [&](WGPUBuffer buf, size_t sz) {
+                WGPUBindGroupEntry entry{};
+                entry.binding = 0;
+                entry.buffer = buf;
+                entry.size = sz;
+                WGPUBindGroupDescriptor bgDesc{};
+                bgDesc.layout = computeInputLayout;
+                bgDesc.entryCount = 1;
+                bgDesc.entries = &entry;
+                return wgpuDeviceCreateBindGroup(device, &bgDesc);
+            };
+
+            ballsInputSet = makeStorageIn(ballBuffer, ballCapacity);
+            winnersInputSet = makeStorageIn(winnerBuffer, winnerCapacity);
+
+            auto makeOutputs = [&](WGPUBuffer b0, size_t s0, WGPUBuffer b1, size_t s1, WGPUBuffer b2, size_t s2) {
+                WGPUBindGroupEntry entries[3]{};
+                entries[0].binding = 0;
+                entries[0].buffer = b0;
+                entries[0].size = s0;
+
+                entries[1].binding = 1;
+                entries[1].buffer = b1;
+                entries[1].size = s1;
+
+                entries[2].binding = 2;
+                entries[2].buffer = b2;
+                entries[2].size = s2;
+
+                WGPUBindGroupDescriptor bgDesc{};
+                bgDesc.layout = computeOutputLayout;
+                bgDesc.entryCount = 3;
+                bgDesc.entries = entries;
+                return wgpuDeviceCreateBindGroup(device, &bgDesc);
+            };
+
+            clearOutputSet = makeOutputs(priorityBuffer, priorityCapacity, winnerBuffer, winnerCapacity, argumentBuffer, 64);
+            bidOutputSet = makeOutputs(priorityBuffer, priorityCapacity, winnerBuffer, winnerCapacity, argumentBuffer, 64);
+            resolveOutputSet = makeOutputs(priorityBuffer, priorityCapacity, winnerBuffer, winnerCapacity, argumentBuffer, 64);
+            compactOutputSet = makeOutputs(visibleBuffer, visibleCapacity, argumentBuffer, 64, priorityBuffer, priorityCapacity);
+
+            WGPUBindGroupEntry drawEntry{};
+            drawEntry.binding = 0;
+            drawEntry.buffer = visibleBuffer;
+            drawEntry.size = visibleCapacity;
+
+            WGPUBindGroupDescriptor drawBgDesc{};
+            drawBgDesc.layout = ballDrawStorageLayout;
+            drawBgDesc.entryCount = 1;
+            drawBgDesc.entries = &drawEntry;
+            ballStorageBindGroup = wgpuDeviceCreateBindGroup(device, &drawBgDesc);
+        }
+    }
+
+    void runBallVisibility(WGPUCommandEncoder encoder) {
+        const BallDrawRequest& request = pendingBalls;
+        const float slotSize =
+            std::max(request.radiusCells * request.slotsPerRadius, 1.0f / std::max(request.cellPixels, 1.0f));
+        const uint32_t gridWidth =
+            std::max<uint32_t>(static_cast<uint32_t>(std::ceil(request.fieldWidth / slotSize)), 1);
+        const uint32_t gridHeight =
+            std::max<uint32_t>(static_cast<uint32_t>(std::ceil(request.fieldHeight / slotSize)), 1);
+        const size_t gridCells = static_cast<size_t>(gridWidth) * gridHeight;
+        const bool bidForSlots = !request.isVisibilityGrid && request.count > gridCells;
+        const size_t visibleCount = bidForSlots ? gridCells : request.count;
+
+        ensureBallBuffers(request.count, gridCells, visibleCount);
+        wgpuQueueWriteBuffer(queue, ballBuffer, 0, request.packed, request.count * sizeof(uint32_t));
+
+        VisibilityUniforms uniforms{};
+        uniforms.gridWidth = gridWidth;
+        uniforms.gridHeight = gridHeight;
+        uniforms.frameSeed = ++frameSeed;
+        uniforms.coordinateToSlotX = static_cast<float>(gridWidth) / static_cast<float>(renderCoordinateRange);
+        uniforms.coordinateToSlotY = static_cast<float>(gridHeight) / static_cast<float>(renderCoordinateRange);
+        uniforms.bidderMask = bidderMaskFor(request.count, gridCells);
+
+        // 0: clear
+        uniforms.itemCount = static_cast<uint32_t>(bidForSlots ? gridCells : 0);
+        wgpuQueueWriteBuffer(queue, visibilityUniformBuffers[0], 0, &uniforms, sizeof(uniforms));
+
+        // 1: bid
+        uniforms.itemCount = static_cast<uint32_t>(request.count);
+        wgpuQueueWriteBuffer(queue, visibilityUniformBuffers[1], 0, &uniforms, sizeof(uniforms));
+
+        // 2: resolve
+        wgpuQueueWriteBuffer(queue, visibilityUniformBuffers[2], 0, &uniforms, sizeof(uniforms));
+
+        // 3: compact
+        uniforms.itemCount = static_cast<uint32_t>(bidForSlots ? gridCells : request.count);
+        wgpuQueueWriteBuffer(queue, visibilityUniformBuffers[3], 0, &uniforms, sizeof(uniforms));
+
+        WGPUComputePassDescriptor computeDesc{};
+        WGPUComputePassEncoder cpass = wgpuCommandEncoderBeginComputePass(encoder, &computeDesc);
+
+        auto dispatch = [&](WGPUComputePipeline pipe, WGPUBindGroup inSet, WGPUBindGroup outSet,
+                            WGPUBindGroup constSet, size_t threads) {
+            wgpuComputePassEncoderSetPipeline(cpass, pipe);
+            wgpuComputePassEncoderSetBindGroup(cpass, 0, inSet, 0, nullptr);
+            wgpuComputePassEncoderSetBindGroup(cpass, 1, outSet, 0, nullptr);
+            wgpuComputePassEncoderSetBindGroup(cpass, 2, constSet, 0, nullptr);
+            wgpuComputePassEncoderDispatchWorkgroups(cpass, groupsFor(threads), 1, 1);
+        };
+
+        const size_t clearThreads = std::max<size_t>(bidForSlots ? gridCells : 0, 1);
+        dispatch(clearPipeline, ballsInputSet, clearOutputSet, visibilityConstantsBindGroups[0], clearThreads);
+
+        if (bidForSlots) {
+            dispatch(bidPipeline, ballsInputSet, bidOutputSet, visibilityConstantsBindGroups[1], request.count);
+            dispatch(resolvePipeline, ballsInputSet, resolveOutputSet, visibilityConstantsBindGroups[2], request.count);
+        }
+
+        const size_t compactThreads = bidForSlots ? gridCells : request.count;
+        dispatch(compactPipeline, bidForSlots ? winnersInputSet : ballsInputSet, compactOutputSet,
+                 visibilityConstantsBindGroups[3], compactThreads);
+
+        wgpuComputePassEncoderEnd(cpass);
+        wgpuComputePassEncoderRelease(cpass);
     }
 
     bool initImguiPipeline() {
@@ -829,6 +1372,7 @@ private:
             indices.insert(indices.end(), list->IdxBuffer.begin(), list->IdxBuffer.end());
         }
 
+        if (indices.size() % 2 != 0) { indices.push_back(0); }
         ensureImguiBuffers(vertices.size(), indices.size());
         wgpuQueueWriteBuffer(queue, imguiVertexBuffer, 0, vertices.data(),
                              vertices.size() * sizeof(ImDrawVert));
@@ -930,6 +1474,56 @@ private:
     WGPUBuffer rectsUniformBuffer = nullptr;
     WGPUBindGroup rectsStorageBindGroup = nullptr;
     WGPUBindGroup rectsUniformBindGroup = nullptr;
+
+    bool hasBalls = false;
+    BallDrawRequest pendingBalls;
+    uint32_t frameSeed = 0;
+
+    WGPUShaderModule ballsVertexModule = nullptr;
+    WGPUShaderModule ballsFragmentModule = nullptr;
+    WGPUShaderModule visibilityClearModule = nullptr;
+    WGPUShaderModule visibilityBidModule = nullptr;
+    WGPUShaderModule visibilityResolveModule = nullptr;
+    WGPUShaderModule visibilityCompactModule = nullptr;
+
+    WGPUBindGroupLayout ballDrawStorageLayout = nullptr;
+    WGPUBindGroupLayout ballDrawUniformLayout = nullptr;
+    WGPUPipelineLayout ballPipelineLayout = nullptr;
+    WGPURenderPipeline ballPipeline = nullptr;
+
+    WGPUBindGroupLayout computeInputLayout = nullptr;
+    WGPUBindGroupLayout computeOutputLayout = nullptr;
+    WGPUBindGroupLayout computeConstantsLayout = nullptr;
+    WGPUPipelineLayout computePipelineLayout = nullptr;
+
+    WGPUComputePipeline clearPipeline = nullptr;
+    WGPUComputePipeline bidPipeline = nullptr;
+    WGPUComputePipeline resolvePipeline = nullptr;
+    WGPUComputePipeline compactPipeline = nullptr;
+
+    WGPUBuffer ballBuffer = nullptr;
+    size_t ballCapacity = 0;
+    WGPUBuffer priorityBuffer = nullptr;
+    size_t priorityCapacity = 0;
+    WGPUBuffer winnerBuffer = nullptr;
+    size_t winnerCapacity = 0;
+    WGPUBuffer visibleBuffer = nullptr;
+    size_t visibleCapacity = 0;
+    WGPUBuffer argumentBuffer = nullptr;
+
+    WGPUBuffer ballUniformBuffer = nullptr;
+    WGPUBindGroup ballUniformBindGroup = nullptr;
+    WGPUBindGroup ballStorageBindGroup = nullptr;
+
+    WGPUBuffer visibilityUniformBuffers[4]{};
+    WGPUBindGroup visibilityConstantsBindGroups[4]{};
+
+    WGPUBindGroup ballsInputSet = nullptr;
+    WGPUBindGroup winnersInputSet = nullptr;
+    WGPUBindGroup clearOutputSet = nullptr;
+    WGPUBindGroup bidOutputSet = nullptr;
+    WGPUBindGroup resolveOutputSet = nullptr;
+    WGPUBindGroup compactOutputSet = nullptr;
 
     bool imguiReady = false;
     WGPUShaderModule imguiVertexModule = nullptr;

@@ -37,7 +37,7 @@ public:
     void showLevelSelect(GameMode mode);
     void startGame(GameMode mode, const LevelFiles& files);
     void openEditor(GameMode mode, std::optional<LevelFiles> files);
-    void quit() { running = false; }
+    void quit() { running = false; };
 
     BallView& ballRenderer() { return *balls; }
     const FrameTimings& frameTimings() const { return timings; }
