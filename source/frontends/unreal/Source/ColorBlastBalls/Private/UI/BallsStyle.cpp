@@ -58,6 +58,28 @@ const FButtonStyle& Button() {
     return Style;
 }
 
+const FButtonStyle& SelectedButton() {
+    static const FButtonStyle Style = [] {
+        auto Fill = [](const FColor& Color) {
+            return FSlateRoundedBoxBrush(BallsPalette::Linear(Color), 0.0f, BallsPalette::Linear(BallsPalette::Frame), 1.0f);
+        };
+        FButtonStyle Result;
+        Result.SetNormal(Fill(BallsPalette::Accent));
+        Result.SetHovered(Fill(BallsPalette::Shade(BallsPalette::Accent, 1.12f)));
+        Result.SetPressed(Fill(BallsPalette::Shade(BallsPalette::Accent, 0.88f)));
+        Result.SetDisabled(Fill(BallsPalette::Accent));
+        const FLinearColor Text = BallsPalette::Linear(BallsPalette::Background);
+        Result.SetNormalForeground(Text);
+        Result.SetHoveredForeground(Text);
+        Result.SetPressedForeground(Text);
+        Result.SetDisabledForeground(Text);
+        Result.SetNormalPadding(FMargin(8.0f, 4.0f));
+        Result.SetPressedPadding(FMargin(8.0f, 4.0f));
+        return Result;
+    }();
+    return Style;
+}
+
 const FSlateBrush* RoundedBox(float Radius) {
     static TMap<int32, TUniquePtr<FSlateRoundedBoxBrush>> Brushes;
     TUniquePtr<FSlateRoundedBoxBrush>& Brush = Brushes.FindOrAdd(FMath::RoundToInt(Radius));

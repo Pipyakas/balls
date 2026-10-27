@@ -31,6 +31,25 @@ private:
     FBallsApp* App = nullptr;
 };
 
+// The Settings options, shared by the Settings page (main menu) and the pause overlay. Changes apply immediately.
+class SBallsSettingsPanel final : public SCompoundWidget {
+public:
+    SLATE_BEGIN_ARGS(SBallsSettingsPanel) {}
+        SLATE_ARGUMENT(FBallsApp*, App)
+    SLATE_END_ARGS()
+
+    void Construct(const FArguments& InArgs);
+};
+
+class SBallsSettingsPage final : public SCompoundWidget {
+public:
+    SLATE_BEGIN_ARGS(SBallsSettingsPage) {}
+        SLATE_ARGUMENT(FBallsApp*, App)
+    SLATE_END_ARGS()
+
+    void Construct(const FArguments& InArgs);
+};
+
 class SBallsLevelSelect final : public SCompoundWidget {
 public:
     SLATE_BEGIN_ARGS(SBallsLevelSelect) {}

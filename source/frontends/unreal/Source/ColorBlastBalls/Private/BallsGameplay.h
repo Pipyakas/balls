@@ -22,6 +22,8 @@ public:
 
     void Tick(float DeltaSeconds, double FrameSeconds, double WorkSeconds);
     bool HandleKey(const FKey& Key);
+    // Pushes the app-wide Settings (ball collisions) into the running session.
+    void ApplySettings();
 
     void ChooseLauncher(int32 Column, int32 Row);
     void StartAutoRelease();
@@ -32,7 +34,11 @@ public:
     void SelectMachineLimit();
     void SwitchBackend(BackendKind Kind);
     void Restart();
-    void SetPaused(bool bInPaused) { bPaused = bInPaused; }
+    void SetPaused(bool bInPaused) {
+        bPaused = bInPaused;
+        bSettingsOpen = false;
+    }
+    void SetSettingsOpen(bool bOpen) { bSettingsOpen = bOpen; }
     void OpenNextLevel();
 
     GameMode GetMode() const { return Mode; }
@@ -41,6 +47,7 @@ public:
     const FString& GetLoadError() const { return LoadError; }
     const FToast& GetToast() const { return Toast; }
     bool IsPaused() const { return bPaused; }
+    bool IsSettingsOpen() const { return bSettingsOpen; }
     bool IsWon() const;
 
 private:
@@ -56,5 +63,6 @@ private:
     LevelWatcher Watcher;
     FToast Toast;
     bool bPaused = false;
+    bool bSettingsOpen = false;
     bool bProbeResultShown = true;
 };

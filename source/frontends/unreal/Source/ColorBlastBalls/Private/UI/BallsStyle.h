@@ -14,6 +14,8 @@ inline constexpr float StrongTextMinimumSize = 24.0f;
 
 FSlateFontInfo Font(float Size, bool bBold = false);
 const FButtonStyle& Button();
+// The selected option of a choice: accent fill.
+const FButtonStyle& SelectedButton();
 // White box meant to be tinted; Radius is nonzero only for decorative balls (UI is square).
 const FSlateBrush* RoundedBox(float Radius);
 const FSlateBrush* Panel();

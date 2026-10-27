@@ -18,6 +18,7 @@
 #include "Kismet/KismetSystemLibrary.h"
 #include "Misc/App.h"
 #include "Misc/CommandLine.h"
+#include "Misc/ConfigCacheIni.h"
 #include "Misc/Parse.h"
 #include "RenderTimer.h"
 #include "UI/SBallsGameplayHud.h"
@@ -98,17 +99,50 @@ std::optional<BackendKind> BackendFromCommandLine() {
     return std::nullopt;
 }
 
+// The Settings page values the core does not own (backend, VSync) live in the per-user GameUserSettings.ini.
+const TCHAR* PreferencesSection = TEXT("Balls");
+
+std::filesystem::path SettingsFile() {
+    const FString Path = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()) / TEXT("Balls/settings.txt");
+    return std::filesystem::path(TCHAR_TO_UTF8(*Path));
+}
+
+std::optional<BackendKind> SavedBackend() {
+    FString Name;
+    if (!GConfig || !GConfig->GetString(PreferencesSection, TEXT("Backend"), Name, GGameUserSettingsIni)) {
+        return std::nullopt;
+    }
+    for (const BackendKind Kind : allBackendKinds) {
+        if (Name.Equals(BallsText::FromUtf8(backendKindName(Kind)), ESearchCase::IgnoreCase) && isBackendAvailable(Kind)) {
+            return Kind;
+        }
+    }
+    return std::nullopt;
+}
+
+bool SavedVSync() {
+    bool bEnabled = false;
+    if (GConfig) {
+        GConfig->GetBool(PreferencesSection, TEXT("VSync"), bEnabled, GGameUserSettingsIni);
+    }
+    return bEnabled;
+}
+
 BackendKind InitialBackend() {
 #if PLATFORM_WINDOWS && defined(BALLS_PLUGIN_DIR)
     AddPhysicsPluginDirectory();
 #endif
-    return BackendFromCommandLine().value_or(fastestAvailableCpuBackend());
+    if (const std::optional<BackendKind> Requested = BackendFromCommandLine()) {
+        return *Requested;
+    }
+    return SavedBackend().value_or(fastestAvailableCpuBackend());
 }
 
 }
 
 FBallsApp::FBallsApp(UWorld* InWorld)
-    : World(InWorld), PreferredBackend(InitialBackend()) {
+    : World(InWorld), PreferredBackend(InitialBackend()), CurrentSettings(loadSettings(SettingsFile())),
+      bVSync(SavedVSync()) {
     BoardView = MakeUnique<FBallsBoardView>(World);
     Root = SNew(SBallsRoot).OnKey_Lambda([this](const FKey& Key) { return HandleKey(Key); });
     if (UGameViewportClient* Viewport = World->GetGameViewport()) {
@@ -127,6 +161,7 @@ FBallsApp::FBallsApp(UWorld* InWorld)
     // engine on-screen messages.
     if (GEngine) {
         GEngine->Exec(World, TEXT("DisableAllScreenMessages"));
+        GEngine->Exec(World, bVSync ? TEXT("r.VSync 1") : TEXT("r.VSync 0"));
         // The preset is desktop-only: Vulkan ES3.1 on Android has neither TSR nor usable DRS.
 #if !PLATFORM_ANDROID
         if (FParse::Param(FCommandLine::Get(), TEXT("BallsHighEnd"))) {
@@ -158,6 +193,21 @@ FBallsApp::FBallsApp(UWorld* InWorld)
     }
     if (FParse::Param(FCommandLine::Get(), TEXT("BallsEditor"))) {
         ShowMapEditor(GameMode::Normal, std::nullopt);
+    }
+    // -BallsScreen=<settings|levels-normal|levels-performance|pause|pause-settings> opens a screen directly, for
+    // screenshots and conformance checks (the pause ones need -BallsPlay too).
+    FString Screen;
+    if (FParse::Value(FCommandLine::Get(), TEXT("BallsScreen="), Screen)) {
+        if (Screen == TEXT("settings")) {
+            ShowSettings();
+        } else if (Screen == TEXT("levels-normal")) {
+            ShowLevelSelect(GameMode::Normal);
+        } else if (Screen == TEXT("levels-performance")) {
+            ShowLevelSelect(GameMode::Performance);
+        } else if (Gameplay && (Screen == TEXT("pause") || Screen == TEXT("pause-settings"))) {
+            Gameplay->SetPaused(true);
+            Gameplay->SetSettingsOpen(Screen == TEXT("pause-settings"));
+        }
     }
 }
 
@@ -226,6 +276,48 @@ void FBallsApp::ShowLevelSelect(GameMode Mode) {
     SetScreen(EScreen::LevelSelect, SNew(SBallsLevelSelect).App(this).Mode(Mode).Levels(Levels));
 }
 
+void FBallsApp::ShowSettings() {
+    SetScreen(EScreen::Settings, SNew(SBallsSettingsPage).App(this));
+}
+
+void FBallsApp::SetPreferredBackend(BackendKind Kind) {
+    PreferredBackend = Kind;
+    if (GConfig) {
+        GConfig->SetString(PreferencesSection, TEXT("Backend"), *BallsText::FromUtf8(backendKindName(Kind)),
+                           GGameUserSettingsIni);
+        GConfig->Flush(false, GGameUserSettingsIni);
+    }
+}
+
+void FBallsApp::ChooseBackend(BackendKind Kind) {
+    if (Gameplay && Gameplay->GetSession()) {
+        Gameplay->SwitchBackend(Kind);
+    } else if (isBackendAvailable(Kind)) {
+        SetPreferredBackend(Kind);
+    }
+}
+
+void FBallsApp::UpdateSettings(const Settings& Next) {
+    CurrentSettings = Next;
+    if (const Result<void> Saved = saveSettings(SettingsFile(), CurrentSettings); !Saved) {
+        UE_LOG(LogTemp, Warning, TEXT("BallsSettings: %s"), *BallsText::FromUtf8(Saved.error()));
+    }
+    if (Gameplay) {
+        Gameplay->ApplySettings();
+    }
+}
+
+void FBallsApp::SetVSyncEnabled(bool bEnabled) {
+    bVSync = bEnabled;
+    if (GConfig) {
+        GConfig->SetBool(PreferencesSection, TEXT("VSync"), bVSync, GGameUserSettingsIni);
+        GConfig->Flush(false, GGameUserSettingsIni);
+    }
+    if (GEngine) {
+        GEngine->Exec(World, bVSync ? TEXT("r.VSync 1") : TEXT("r.VSync 0"));
+    }
+}
+
 void FBallsApp::ShowMapEditor(GameMode Mode, std::optional<LevelFiles> Files) {
     TSharedPtr<FBallsMapEditor> Next = MakeShared<FBallsMapEditor>(*this, Mode, std::move(Files));
     MapEditorState = Next;
@@ -250,6 +342,7 @@ bool FBallsApp::HandleKey(const FKey& Key) {
     case EScreen::MapEditor:
         return MapEditorState && MapEditorState->HandleKey(Key);
     case EScreen::LevelSelect:
+    case EScreen::Settings:
         if (Key == EKeys::Escape) {
             ShowMainMenu();
             return true;

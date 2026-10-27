@@ -8,6 +8,7 @@
 #include "UI/BallsStyle.h"
 #include "UI/SBallsMenus.h"
 #include "Widgets/Layout/SBorder.h"
+#include "Widgets/Layout/SWidgetSwitcher.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/SBoxPanel.h"
@@ -839,7 +840,7 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
     for (int32 Index = 0; Index < static_cast<int32>(allBackendKinds.size()); ++Index) {
         const BackendKind Kind = allBackendKinds[Index];
         BackendButtons.Add(BallsWidgets::Button(
-            LabelText(FString::Printf(TEXT("%s (F%d)"), *BallsText::FromUtf8(backendKindName(Kind)), Index + 1)),
+            LabelText(BallsText::FromUtf8(backendKindName(Kind))),
             [Game, Kind] { Game->SwitchBackend(Kind); }, 18.0f, isBackendAvailable(Kind),
             TAttribute<bool>::CreateLambda([Session, Kind] { return Session() && Session()->backend() == Kind; })));
     }
@@ -896,6 +897,10 @@ TSharedRef<SWidget> SBallsGameplayHud::MakeOverlay() {
                 .BorderImage(BallsStyle::Panel())
                 .Padding(30.0f, 24.0f)
                 [
+                    SNew(SWidgetSwitcher)
+                    .WidgetIndex_Lambda([Game] { return Game->IsSettingsOpen() ? 1 : 0; })
+                    + SWidgetSwitcher::Slot()
+                    [
                     SNew(SVerticalBox)
                     + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.0f, 0.0f, 0.0f, 24.0f)
                     [
@@ -925,7 +930,39 @@ TSharedRef<SWidget> SBallsGameplayHud::MakeOverlay() {
                     ]
                     + SVerticalBox::Slot().AutoHeight()
                     [
+                        // Settings belong to the pause overlay; the win overlay only offers the next steps.
+                        SNew(SBox)
+                        .Visibility_Lambda([Game] { return Game->IsWon() ? EVisibility::Collapsed : EVisibility::Visible; })
+                        [
+                            OverlayButton(LabelText(TEXT("Settings")), [Game] { Game->SetSettingsOpen(true); })
+                        ]
+                    ]
+                    + SVerticalBox::Slot().AutoHeight()
+                    [
                         OverlayButton(LabelText(TEXT("Main Menu")), [Owner] { Owner->ShowMainMenu(); })
+                    ]
+                    ]
+                    + SWidgetSwitcher::Slot()
+                    [
+                        SNew(SVerticalBox)
+                        + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.0f, 0.0f, 0.0f, 12.0f)
+                        [
+                            SNew(STextBlock)
+                            .Text(LabelText(TEXT("Settings")))
+                            .Font(BallsStyle::Font(44.0f, true))
+                            .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Text))
+                        ]
+                        + SVerticalBox::Slot().FillHeight(1.0f)
+                        [
+                            SNew(SBox).MaxDesiredHeight(520.0f)[SNew(SBallsSettingsPanel).App(Owner)]
+                        ]
+                        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 0.0f)
+                        [
+                            SNew(SBox).HeightOverride(OverlayButtonHeight)
+                            [
+                                BallsWidgets::Button(LabelText(TEXT("Back")), [Game] { Game->SetSettingsOpen(false); }, 26.0f)
+                            ]
+                        ]
                     ]
                 ]
             ]

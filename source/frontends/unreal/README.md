@@ -14,7 +14,7 @@ game runs on the engine's empty `/Engine/Maps/Entry` map, and `ABallsGameMode` s
   pause and win overlays, and toasts.
 - **Map editor.** Paint/extend/erase/pick tools, brush color and hit counts, launcher balls, undo/redo, and
   save/save-and-play through the same `LevelEditor` core the other front ends use.
-- **Same rules as raylib.** Esc/P pause, R restarts, F1/F2/F3 switch the physics backend, Space starts
+- **Same rules as raylib.** the Settings page switches the physics backend, the Start button starts
   performance mode, and saving a level's `.txt` files hot-reloads it.
 
 ## Build and run
@@ -34,6 +34,8 @@ D:\Unreal\UnrealEngine\Engine\Binaries\Win64\UnrealEditor.exe "$PWD\source\front
 - `-BallsPlay=<normal|performance>:<level>` opens a level directly.
 - `-BallsBackend=<scalar|avx2|cuda|hybrid>` picks the starting physics backend.
 - `-BallsEditor` opens the map editor instead of the main menu.
+- `-BallsScreen=<settings|levels-normal|levels-performance|pause|pause-settings>` opens a screen directly (the pause
+  ones need `-BallsPlay` too), for screenshots and conformance checks.
 - `-BallsHighEnd` turns on the desktop quality preset: TSR anti-aliasing plus dynamic resolution
   (50-100% screen percentage, 60 fps budget). Lumen/Nanite/VSM need an SM6 build; see
   `data/docs/ue5-high-end-features.md`.

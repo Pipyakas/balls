@@ -10,7 +10,6 @@
 namespace {
 
 constexpr float ToastSeconds = 3.0f;
-const FKey BackendKeys[] = {EKeys::F1, EKeys::F2, EKeys::F3, EKeys::F4};
 
 }
 
@@ -28,6 +27,7 @@ void FBallsGameplay::LoadSession() {
     }
     LoadError.Reset();
     Session = std::make_unique<GameSession>(Mode, std::move(*Level), App.GetPreferredBackend());
+    ApplySettings();
 }
 
 void FBallsGameplay::HotReload() {
@@ -41,6 +41,7 @@ void FBallsGameplay::HotReload() {
     } else {
         LoadError.Reset();
         Session = std::make_unique<GameSession>(Mode, std::move(*Level), App.GetPreferredBackend());
+        ApplySettings();
     }
     bPaused = false;
     ShowToast(TEXT("Reloaded ") + BallsText::FromUtf8(Files.name), false);
@@ -75,33 +76,29 @@ void FBallsGameplay::Tick(float DeltaSeconds, double FrameSeconds, double WorkSe
     }
 }
 
+// The design gives gameplay no keyboard shortcuts: every action is a visible control. Only the load-error screen keeps
+// Esc as Back, like the menus.
 bool FBallsGameplay::HandleKey(const FKey& Key) {
-    if (!Session) {
-        if (Key == EKeys::Escape) {
-            App.ShowLevelSelect(Mode);
-            return true;
-        }
-        return false;
-    }
-    if (Key == EKeys::Escape || Key == EKeys::P) {
-        bPaused = !bPaused;
-        return true;
-    }
-    if (Key == EKeys::R) {
-        Restart();
-        return true;
-    }
-    for (int32 Index = 0; Index < UE_ARRAY_COUNT(BackendKeys); ++Index) {
-        if (Key == BackendKeys[Index]) {
-            SwitchBackend(allBackendKinds[Index]);
-            return true;
-        }
-    }
-    if (Mode == GameMode::Performance && Key == EKeys::SpaceBar) {
-        StartAutoRelease();
+    if (!Session && Key == EKeys::Escape) {
+        App.ShowLevelSelect(Mode);
         return true;
     }
     return false;
+}
+
+void FBallsGameplay::ApplySettings() {
+    if (!Session) {
+        return;
+    }
+    Simulation& Sim = Session->simulation();
+    const bool bWanted = App.GetSettings().ballCollisions;
+    Sim.setBallCollisions(bWanted);
+    // Only the Scalar backend implements collisions; asking for them elsewhere moves the game to Scalar.
+    if (bWanted && !Sim.ballCollisionsActive() && Session->switchBackend(BackendKind::Scalar)) {
+        App.SetPreferredBackend(BackendKind::Scalar);
+        Session->simulation().setBallCollisions(true);
+        ShowToast(TEXT("Ball collisions need the Scalar backend - switched to Scalar."), false);
+    }
 }
 
 void FBallsGameplay::ChooseLauncher(int32 Column, int32 Row) {
