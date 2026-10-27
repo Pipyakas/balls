@@ -3,6 +3,7 @@
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 #include <vulkan/vulkan.hpp>
 
+#include <format>
 #include <mutex>
 #include <string>
 #include <string_view>
@@ -42,9 +43,19 @@ std::string& cachedError() {
 std::shared_ptr<VulkanComputeDevice> currentDevice() {
     std::lock_guard lock(deviceMutex());
     if (attemptedPreference() != computePreference()) {
+        if (cachedDevice() && cachedDevice().use_count() > 1) {
+            // NVRHI's static Vulkan build shares Vulkan-Hpp dispatch state inside this plugin.
+            cachedError() = std::format(
+                "cannot change compute GPU preference while a Vulkan backend is active; requested '{}'",
+                computePreference());
+            return {};
+        }
         cachedDevice().reset();
         cachedError().clear();
         attemptedPreference() = computePreference();
+    }
+    if (cachedDevice()) {
+        cachedError().clear();
     }
     if (!cachedDevice() && cachedError().empty()) {
         cachedDevice() = VulkanComputeDevice::create(computePreference(), cachedError());
@@ -58,6 +69,13 @@ std::string failureReason() {
     return cachedError();
 }
 
+void releaseIdleDevice() {
+    std::lock_guard lock(deviceMutex());
+    if (cachedDevice() && cachedDevice().use_count() == 1) {
+        cachedDevice().reset();
+    }
+}
+
 }
 
 BALLS_PLUGIN_EXPORT int ballsPhysicsInterfaceVersion() { return physicsPluginInterfaceVersion; }
@@ -66,6 +84,8 @@ BALLS_PLUGIN_EXPORT void ballsSetComputeGpu(const char* preference) {
     std::lock_guard lock(deviceMutex());
     computePreference() = preference && preference[0] ? preference : "auto";
 }
+
+BALLS_PLUGIN_EXPORT void ballsReleaseIdleDevice() { releaseIdleDevice(); }
 
 BALLS_PLUGIN_EXPORT const char* ballsBackendUnavailableReason(const char* kindName) {
     static std::string reason;
@@ -102,7 +122,10 @@ BALLS_PLUGIN_EXPORT PhysicsBackend* ballsCreateBackend(const char* kindName) {
     return new VulkanBackend(device);
 }
 
-BALLS_PLUGIN_EXPORT void ballsDestroyBackend(PhysicsBackend* backend) { delete backend; }
+BALLS_PLUGIN_EXPORT void ballsDestroyBackend(PhysicsBackend* backend) {
+    delete backend;
+    releaseIdleDevice();
+}
 
 BALLS_PLUGIN_EXPORT size_t ballsStreamedBytesPerBall(bool gridActive) {
     constexpr size_t readBytes = 2 * sizeof(uint32_t);

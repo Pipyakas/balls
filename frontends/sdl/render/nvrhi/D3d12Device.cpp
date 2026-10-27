@@ -1,5 +1,6 @@
 #include "render/nvrhi/GraphicsDevice.h"
 #include "render/nvrhi/MessageLog.h"
+#include "gpu/GpuAdapters.h"
 
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
@@ -33,7 +34,8 @@ std::string narrow(const wchar_t* text) {
 
 class D3d12Device final : public GraphicsDevice {
 public:
-    explicit D3d12Device(SDL_Window* window) : window(window) {}
+    D3d12Device(SDL_Window* window, std::string gpuPreference)
+        : window(window), gpuPreference(std::move(gpuPreference)) {}
     ~D3d12Device() override;
 
     bool initialize(std::string& error);
@@ -51,6 +53,7 @@ private:
     void releaseBackBuffers();
 
     SDL_Window* window;
+    std::string gpuPreference;
     ComPtr<IDXGIFactory6> factory;
     ComPtr<IDXGIAdapter1> adapter;
     ComPtr<ID3D12Device> nativeDevice;
@@ -84,22 +87,27 @@ bool D3d12Device::initialize(std::string& error) {
         error = "CreateDXGIFactory2 failed";
         return false;
     }
-    for (UINT index = 0;
-         factory->EnumAdapterByGpuPreference(index, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter)) !=
-         DXGI_ERROR_NOT_FOUND;
-         ++index) {
-        DXGI_ADAPTER_DESC1 description{};
-        adapter->GetDesc1(&description);
-        if ((description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0 &&
-            SUCCEEDED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&nativeDevice)))) {
-            adapterName = narrow(description.Description);
-            break;
-        }
-    }
-    if (!nativeDevice) {
-        error = "no D3D12 feature level 11.0 adapter";
+    const std::vector<GpuAdapterInfo> adapters = enumerateGpuAdapters(GpuApi::D3d12);
+    const int selected = selectGpuAdapter(adapters, gpuPreference, GpuRole::Render);
+    if (selected < 0) {
+        error = std::format("no usable D3D12 adapter matches graphics GPU preference '{}'",
+                            gpuPreference.empty() ? "auto" : gpuPreference);
         return false;
     }
+    const UINT adapterIndex = static_cast<UINT>(adapters[static_cast<size_t>(selected)].index);
+    if (FAILED(factory->EnumAdapters1(adapterIndex, &adapter)) || !adapter) {
+        error = std::format("selected D3D12 graphics adapter '{}' disappeared during enumeration",
+                            adapters[static_cast<size_t>(selected)].name);
+        return false;
+    }
+    DXGI_ADAPTER_DESC1 description{};
+    if (FAILED(adapter->GetDesc1(&description)) || (description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0 ||
+        FAILED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&nativeDevice)))) {
+        error = std::format("selected D3D12 graphics adapter '{}' is no longer usable",
+                            adapters[static_cast<size_t>(selected)].name);
+        return false;
+    }
+    adapterName = narrow(description.Description);
     D3D12_COMMAND_QUEUE_DESC queueDescription{};
     queueDescription.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
     if (FAILED(nativeDevice->CreateCommandQueue(&queueDescription, IID_PPV_ARGS(&queue)))) {
@@ -206,8 +214,9 @@ bool D3d12Device::setVsync(bool enabled) {
 
 }
 
-std::unique_ptr<GraphicsDevice> createD3d12GraphicsDevice(SDL_Window* window, std::string& error) {
-    auto device = std::make_unique<D3d12Device>(window);
+std::unique_ptr<GraphicsDevice> createD3d12GraphicsDevice(SDL_Window* window, std::string_view gpuPreference,
+                                                          std::string& error) {
+    auto device = std::make_unique<D3d12Device>(window, std::string(gpuPreference));
     if (!device->initialize(error)) {
         return nullptr;
     }
