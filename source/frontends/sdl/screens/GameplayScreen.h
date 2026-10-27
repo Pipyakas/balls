@@ -76,5 +76,6 @@ private:
     bool spawnDropdownOpen = false;
     bool countDropdownOpen = false;
     bool limitDropdownOpen = false;
+    float pauseSettingsScroll = 0.0f;
     DebugPanelState debugState;
 };
