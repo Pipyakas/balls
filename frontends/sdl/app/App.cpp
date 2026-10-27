@@ -70,8 +70,12 @@ App::~App() {
     }
 }
 
-bool App::initialize(const LaunchOptions& options, std::string& error) {
-    SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | rendererWindowFlags(options.graphicsApi);
+bool App::openWindowAndRenderer(const LaunchOptions& options, std::string_view api, std::string& error) {
+    renderer.reset();
+    if (window) {
+        SDL_DestroyWindow(window);
+    }
+    SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | rendererWindowFlags(api);
     if (options.hidden) {
         flags |= SDL_WINDOW_HIDDEN;
     }
@@ -84,7 +88,11 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
         return false;
     }
     SDL_SetWindowMinimumSize(window, minimumWindowWidth, minimumWindowHeight);
+    renderer = createRenderer(window, api, error);
+    return renderer != nullptr;
+}
 
+bool App::initialize(const LaunchOptions& options, std::string& error) {
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     imguiCreated = true;
@@ -97,9 +105,13 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
         font = io.Fonts->AddFontDefault();
     }
 
-    renderer = createRenderer(window, options.graphicsApi, error);
-    if (!renderer) {
-        return false;
+    if (!openWindowAndRenderer(options, options.graphicsApi, error)) {
+        const std::string_view fallback = fallbackGraphicsApi(options.graphicsApi);
+        std::string fallbackError;
+        if (fallback.empty() || !openWindowAndRenderer(options, fallback, fallbackError)) {
+            error = fallback.empty() ? error : std::format("{}; {} fallback: {}", error, fallback, fallbackError);
+            return false;
+        }
     }
     balls = std::make_unique<BallView>(*renderer);
     profile.load();

@@ -43,10 +43,13 @@ build/bin/Release/ColorBlastBalls.exe
 Or just `build.bat` / `run.bat`.
 
 `FetchCudaSdk.ps1` downloads NVIDIA's NVRTC and runtime header wheels into `.deps/cuda`. The CUDA kernel is
-compiled to PTX at build time and embedded in the exe, so the CUDA toolkit is not required. Without the SDK, or
-with `-DBALLS_ENABLE_CUDA=OFF`, the game builds with CPU backends only.
+compiled at build time to SASS for sm_50, 60, 70, 75, 80, 86 and 89 plus `compute_75` and `compute_50` PTX, and
+all of it is embedded in the CUDA plugin, so the CUDA toolkit is not required. Without the SDK, or with
+`-DBALLS_ENABLE_CUDA=OFF`, the game builds with CPU backends only.
 
-At runtime only an NVIDIA driver is needed for the CUDA backend. On machines without one, the CUDA button is
+At runtime only an NVIDIA driver is needed for the CUDA backend: R527 or newer for the SASS images, which
+cover Maxwell through Ada, or one that supports CUDA 12.9 for the PTX that newer GPUs JIT. Set
+`BALLS_CUDA_IMAGE=sm_75` (or `compute_50`, ...) to force one image. On machines without one, the CUDA button is
 disabled and the game runs on AVX2 (or Scalar on CPUs without AVX2).
 
 ### Tests and benchmark

@@ -24,13 +24,13 @@ if(BALLS_ENABLE_CUDA AND EXISTS "${BALLS_CUDA_SDK_DIR}/include/nvrtc.h")
     set(BALLS_KERNEL_SOURCES
         "${CMAKE_SOURCE_DIR}/core/sim/kernels/BallStepCore.h"
         "${CMAKE_CURRENT_SOURCE_DIR}/cuda/BallKernels.cu")
-    set(BALLS_KERNEL_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/BallKernelsPtx.h")
+    set(BALLS_KERNEL_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/BallKernelImages.h")
     add_custom_command(
         OUTPUT "${BALLS_KERNEL_HEADER}"
         COMMAND ${CMAKE_COMMAND} -E env "PATH=${BALLS_CUDA_SDK_DIR}/bin"
                 $<TARGET_FILE:balls_ptxgen> "${BALLS_KERNEL_HEADER}" ${BALLS_KERNEL_SOURCES}
         DEPENDS balls_ptxgen ${BALLS_KERNEL_SOURCES}
-        COMMENT "Compiling CUDA kernels to PTX with NVRTC")
+        COMMENT "Compiling CUDA kernels to SASS and PTX with NVRTC")
     add_custom_target(balls_kernels DEPENDS "${BALLS_KERNEL_HEADER}")
 
     add_library(balls_physics_cuda SHARED

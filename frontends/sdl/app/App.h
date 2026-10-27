@@ -46,6 +46,7 @@ public:
     void setVsync(bool enabled);
 
 private:
+    bool openWindowAndRenderer(const LaunchOptions& options, std::string_view api, std::string& error);
     using Clock = std::chrono::steady_clock;
 
     void applyPendingScreen();

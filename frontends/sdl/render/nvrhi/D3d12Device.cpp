@@ -91,13 +91,13 @@ bool D3d12Device::initialize(std::string& error) {
         DXGI_ADAPTER_DESC1 description{};
         adapter->GetDesc1(&description);
         if ((description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0 &&
-            SUCCEEDED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&nativeDevice)))) {
+            SUCCEEDED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&nativeDevice)))) {
             adapterName = narrow(description.Description);
             break;
         }
     }
     if (!nativeDevice) {
-        error = "no D3D12 feature level 12.0 adapter";
+        error = "no D3D12 feature level 11.0 adapter";
         return false;
     }
     D3D12_COMMAND_QUEUE_DESC queueDescription{};
