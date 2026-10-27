@@ -88,10 +88,13 @@ bool App::openWindowAndRenderer(const LaunchOptions& options, std::string_view a
         return false;
     }
     SDL_SetWindowMinimumSize(window, minimumWindowWidth, minimumWindowHeight);
-    renderer = createRenderer(window, api, options.gpu, error);
+    const std::string wantedRenderer =
+        options.renderer.empty() ? (activeRenderer.empty() ? "nvrhi" : activeRenderer) : options.renderer;
+    renderer = createRenderer(window, wantedRenderer, api, options.gpu, error);
     if (!renderer) {
         return false;
     }
+    activeRenderer = wantedRenderer;
     activeGraphicsApi = std::string(api);
     renderGpuPreference = options.gpu;
 #if defined(BALLS_RENDERER_WEBGPU)
@@ -114,6 +117,56 @@ bool App::openWindowAndRenderer(const LaunchOptions& options, std::string_view a
     return true;
 }
 
+
+void App::applyPendingRendererSwitch() {
+    if (!pendingRendererSwitch) {
+        return;
+    }
+    auto [wantedRenderer, wantedApi] = *pendingRendererSwitch;
+    pendingRendererSwitch.reset();
+    if (wantedRenderer.empty()) {
+        wantedRenderer = activeRenderer;
+    }
+    if (wantedApi.empty()) {
+        wantedApi = activeGraphicsApi;
+    }
+    if (wantedRenderer == activeRenderer && wantedApi == activeGraphicsApi) {
+        return;
+    }
+    const bool vsync = isVsyncEnabled();
+    const std::string prevRenderer = activeRenderer;
+    const std::string prevApi = activeGraphicsApi;
+    balls.reset();
+    renderer.reset();
+    std::string error;
+    renderer = createRenderer(window, wantedRenderer, wantedApi, renderGpuPreference, error);
+    if (renderer) {
+        activeRenderer = wantedRenderer;
+        activeGraphicsApi = wantedApi;
+        SDL_Log("Switched renderer to %s (%s)", activeRenderer.c_str(), activeGraphicsApi.c_str());
+    } else {
+        SDL_Log("Could not switch renderer to %s (%s): %s", wantedRenderer.c_str(), wantedApi.c_str(), error.c_str());
+        std::string fallbackError;
+        renderer = createRenderer(window, prevRenderer, prevApi, renderGpuPreference, fallbackError);
+    }
+    if (!renderer) {
+        running = false;
+        return;
+    }
+    const GpuApi adapterApi =
+        (activeGraphicsApi == "vulkan" || activeGraphicsApi == "webgpu-vulkan") ? GpuApi::Vulkan :
+#if defined(_WIN32)
+        GpuApi::D3d12
+#else
+        GpuApi::Vulkan
+#endif
+    ;
+    renderAdapterList = enumerateGpuAdapters(adapterApi);
+    activeRenderAdapter = selectGpuAdapter(renderAdapterList, renderGpuPreference, GpuRole::Render);
+    balls = std::make_unique<BallView>(*renderer);
+    setVsync(vsync);
+}
+
 void App::applyPendingRenderAdapter() {
     if (!pendingRenderAdapter) {
         return;
@@ -129,14 +182,14 @@ void App::applyPendingRenderAdapter() {
     balls.reset();
     renderer.reset();
     std::string error;
-    renderer = createRenderer(window, activeGraphicsApi, wantedPreference, error);
+    renderer = createRenderer(window, activeRenderer, activeGraphicsApi, wantedPreference, error);
     if (renderer) {
         renderGpuPreference = wantedPreference;
         activeRenderAdapter = wanted;
         SDL_Log("Rendering on %s", renderAdapterList[static_cast<size_t>(wanted)].name.c_str());
     } else {
         std::string ignored;
-        renderer = createRenderer(window, activeGraphicsApi, previousPreference, ignored);
+        renderer = createRenderer(window, activeRenderer, activeGraphicsApi, previousPreference, ignored);
         SDL_Log("Could not render on %s: %s", renderAdapterList[static_cast<size_t>(wanted)].name.c_str(), error.c_str());
     }
     if (!renderer) {
@@ -255,6 +308,7 @@ bool App::frame() {
                     millisecondsBetween(workStart, presentStart) - synchronizationMs, renderer->lastGpuBusyMs(),
                     millisecondsBetween(presentStart, frameEnd) + synchronizationMs + gpuWaitMs});
     applyPendingRenderAdapter();
+    applyPendingRendererSwitch();
     applyPendingScreen();
     return running;
 }
@@ -301,6 +355,20 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
         renderer->requestScreenshot(screenshotPath);
         screenshotPending = true;
         return std::nullopt;
+    }
+    if (path == "/renderer") {
+        const std::string r = request.text("renderer").value_or(activeRenderer);
+        const std::string a = request.text("api").value_or(activeGraphicsApi);
+        requestRenderer(r, a);
+        return ControlResponse::ok("{\"ok\":true}");
+    }
+    if (path == "/settings") {
+        if (request.text("renderer").has_value() || request.text("graphicsApi").has_value() || request.text("api").has_value()) {
+            const std::string r = request.text("renderer").value_or(activeRenderer);
+            const std::string a = request.text("graphicsApi").value_or(request.text("api").value_or(activeGraphicsApi));
+            requestRenderer(r, a);
+        }
+        return ControlResponse::ok("{\"ok\":true}");
     }
     if (path == "/render-gpu") {
         const auto index = request.integer("index");

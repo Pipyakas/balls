@@ -488,7 +488,7 @@ void GameplayScreen::draw() {
     drawHeader(layout);
     drawMainSection(layout);
     drawInteractionSection(layout);
-    drawDebugPanel(layout.debugSection, *session, app.frameTimings());
+    drawDebugPanel(layout.debugSection, *session, app.frameTimings(), app.rendererDescription());
     drawOverlay();
     drawToast();
 }
