@@ -3,6 +3,43 @@
   "EngineAssociation": "",
   "Category": "",
   "Description": "Unreal Engine front end for Balls",
+  "Plugins": [
+    {
+      "Name": "Box3DUnreal",
+      "Enabled": false,
+      "Optional": true
+    },
+    {
+      "Name": "FlatNodes",
+      "Enabled": false,
+      "Optional": true
+    },
+    {
+      "Name": "Flow",
+      "Enabled": false,
+      "Optional": true
+    },
+    {
+      "Name": "TBImGui",
+      "Enabled": false,
+      "Optional": true
+    },
+    {
+      "Name": "UE5Coro",
+      "Enabled": false,
+      "Optional": true
+    },
+    {
+      "Name": "WcwMemoryMonitorModule",
+      "Enabled": false,
+      "Optional": true
+    },
+    {
+      "Name": "XDash",
+      "Enabled": false,
+      "Optional": true
+    }
+  ],
   "Modules": [
     {
       "Name": "BallsRendering",
@@ -18,6 +55,9 @@
   "PreBuildSteps": {
     "Win64": [
       "\"$(ProjectDir)\\BuildCore.bat\""
+    ],
+    "Android": [
+      "\"$(ProjectDir)\\BuildCoreAndroid.bat\""
     ]
   }
 }

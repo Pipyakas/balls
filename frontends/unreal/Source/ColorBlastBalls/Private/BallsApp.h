@@ -5,9 +5,11 @@
 #include "CoreMinimal.h"
 
 #include <filesystem>
+#include <optional>
 
 class FBallsBoardView;
 class FBallsGameplay;
+class FBallsMapEditor;
 class SBallsRoot;
 class SWidget;
 class UWorld;
@@ -24,6 +26,7 @@ public:
 
     void ShowMainMenu();
     void ShowLevelSelect(GameMode Mode);
+    void ShowMapEditor(GameMode Mode, std::optional<LevelFiles> Files);
     void StartGame(GameMode Mode, const LevelFiles& Files);
     void Quit();
 
@@ -33,7 +36,7 @@ public:
     std::filesystem::path LevelDirectory(GameMode Mode) const;
 
 private:
-    enum class EScreen { MainMenu, LevelSelect, Gameplay };
+    enum class EScreen { MainMenu, LevelSelect, Gameplay, MapEditor };
 
     void SetScreen(EScreen Screen, TSharedRef<SWidget> Content);
     void RecordFrame(float DeltaSeconds);
@@ -42,6 +45,7 @@ private:
     TSharedPtr<SBallsRoot> Root;
     TUniquePtr<FBallsBoardView> BoardView;
     TSharedPtr<FBallsGameplay> Gameplay;
+    TSharedPtr<FBallsMapEditor> MapEditorState;
     EScreen CurrentScreen = EScreen::MainMenu;
     GameMode LevelSelectMode = GameMode::Normal;
     BackendKind PreferredBackend = BackendKind::Scalar;

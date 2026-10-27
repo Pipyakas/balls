@@ -7,6 +7,7 @@
 #include "UI/BallsStyle.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Layout/SBorder.h"
+#include "Widgets/Layout/SSafeZone.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/SBoxPanel.h"
@@ -100,7 +101,7 @@ void SBallsMainMenu::Construct(const FArguments& InArgs) {
             ]
             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, MenuButtonGap * 0.5f)
             [
-                MenuButton(TEXT("Map Editor (raylib only for now)"), [] {}, false)
+                MenuButton(TEXT("Map Editor"), [Owner] { Owner->ShowMapEditor(GameMode::Normal, std::nullopt); })
             ]
             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, MenuButtonGap * 0.5f)
             [
@@ -164,26 +165,33 @@ void SBallsLevelSelect::Construct(const FArguments& InArgs) {
         [
             SNew(SBorder).BorderImage(BallsStyle::White()).BorderBackgroundColor(BallsPalette::Linear(BallsPalette::Background))
         ]
-        + SOverlay::Slot().HAlign(HAlign_Center).Padding(0.0f, 40.0f)
+        + SOverlay::Slot()
         [
-            SNew(SBox).WidthOverride(ListWidth)
+            // The background above runs under the display cutout; the content stays inside the safe area.
+            SNew(SSafeZone)
+            .IsTitleSafe(true)
+            .HAlign(HAlign_Center)
+            .Padding(FMargin(0.0f, 40.0f))
             [
-                SNew(SVerticalBox)
-                + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.0f, 0.0f, 0.0f, 30.0f)
+                SNew(SBox).WidthOverride(ListWidth)
                 [
-                    SNew(STextBlock)
-                    .Text(FText::FromString(Mode == GameMode::Normal ? TEXT("Normal Mode") : TEXT("Performance Mode")))
-                    .Font(BallsStyle::Font(52.0f, true))
-                    .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Accent))
-                ]
-                + SVerticalBox::Slot().FillHeight(1.0f)
-                [
-                    List
-                ]
-                + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left).Padding(0.0f, 30.0f, 0.0f, 0.0f)
-                [
-                    SizedButton(200.0f, 56.0f, BallsWidgets::Button(FText::FromString(TEXT("Back")),
-                                                                     [Owner] { Owner->ShowMainMenu(); }, 24.0f))
+                    SNew(SVerticalBox)
+                    + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.0f, 0.0f, 0.0f, 30.0f)
+                    [
+                        SNew(STextBlock)
+                        .Text(FText::FromString(Mode == GameMode::Normal ? TEXT("Normal Mode") : TEXT("Performance Mode")))
+                        .Font(BallsStyle::Font(52.0f, true))
+                        .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Accent))
+                    ]
+                    + SVerticalBox::Slot().FillHeight(1.0f)
+                    [
+                        List
+                    ]
+                    + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left).Padding(0.0f, 30.0f, 0.0f, 0.0f)
+                    [
+                        SizedButton(200.0f, 56.0f, BallsWidgets::Button(FText::FromString(TEXT("Back")),
+                                                                         [Owner] { Owner->ShowMainMenu(); }, 24.0f))
+                    ]
                 ]
             ]
         ]

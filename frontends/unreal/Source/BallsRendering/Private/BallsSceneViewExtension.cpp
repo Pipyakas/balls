@@ -23,6 +23,10 @@ BEGIN_SHADER_PARAMETER_STRUCT(FBallsDrawParameters, )
     SHADER_PARAMETER(FVector2f, UnpackScale)
     SHADER_PARAMETER(float, Radius)
     SHADER_PARAMETER(float, Brightness)
+    // 1 when drawing into HDR scene color (pre-exposed, linear); 0 over the tonemapped image.
+    SHADER_PARAMETER(float, SceneReferred)
+    // Exponent applied to the output; 1/2.2 when drawing into a non-sRGB display-referred target.
+    SHADER_PARAMETER(float, OutputGamma)
     SHADER_PARAMETER_ARRAY(FVector4f, Palette, [8])
     RENDER_TARGET_BINDING_SLOTS()
 END_SHADER_PARAMETER_STRUCT()
@@ -57,7 +61,11 @@ void FBallsSceneViewExtension::SubscribeToPostProcessingPass(EPostProcessingPass
                                                              FPostProcessingPassDelegateArray& InOutPassCallbacks,
                                                              bool bIsPassEnabled) {
     // Drawing after motion blur keeps the balls in HDR scene color, so bloom and tonemapping apply to them.
-    if (Pass == EPostProcessingPass::MotionBlur) {
+    // The mobile renderer has no motion blur pass and never calls that subscription, so on mobile the balls are
+    // drawn over the tonemapped image instead.
+    const EPostProcessingPass TargetPass =
+        View.GetFeatureLevel() <= ERHIFeatureLevel::ES3_1 ? EPostProcessingPass::Tonemap : EPostProcessingPass::MotionBlur;
+    if (Pass == TargetPass) {
         InOutPassCallbacks.Add(
             FPostProcessingPassDelegate::CreateRaw(this, &FBallsSceneViewExtension::DrawBalls_RenderThread));
     }
@@ -91,7 +99,12 @@ FScreenPassTexture FBallsSceneViewExtension::DrawBalls_RenderThread(FRDGBuilder&
     Parameters->BoardToClip = BoardToClipMatrix(*Data, View);
     Parameters->UnpackScale = Data->UnpackScale;
     Parameters->Radius = Data->Radius;
-    Parameters->Brightness = BallBrightness;
+    const bool bMobile = View.GetFeatureLevel() <= ERHIFeatureLevel::ES3_1;
+    const bool bSrgbTarget = EnumHasAnyFlags(Output.Texture->Desc.Flags, TexCreate_SRGB);
+    Parameters->SceneReferred = bMobile ? 0.0f : 1.0f;
+    // Over a tonemapped image there is no bloom to feed, so the balls only need to read as their palette colors.
+    Parameters->Brightness = bMobile ? 1.0f : BallBrightness;
+    Parameters->OutputGamma = bMobile && !bSrgbTarget ? 1.0f / 2.2f : 1.0f;
     for (int32 Index = 0; Index < 8; ++Index) {
         Parameters->Palette[Index] = FVector4f(Data->Palette[Index]);
     }

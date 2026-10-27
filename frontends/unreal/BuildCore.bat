@@ -1,18 +1,34 @@
 @echo off
 rem Builds balls_core.lib with the settings Unreal links against (/MD runtime, no LTO).
-setlocal
+setlocal EnableExtensions
 set "REPO=%~dp0..\.."
 set "OUT=%REPO%\build-unreal"
+set "LOCK=%TEMP%\balls_core_win64.lock"
+set MSBUILDDISABLENODEREUSE=1
 
 where cmake >nul 2>&1 || (echo BuildCore: CMake not found on PATH. & exit /b 1)
 
+rem UnrealBuildTool runs this pre-build step once per target and builds targets in parallel, so several
+rem copies can reach the same CMake/MSBuild tree at once (ZERO_CHECK tlogs are not concurrency-safe).
+rem Serialize them with a lock directory; a lock older than 15 minutes is treated as left by a crash.
+:acquire
+2>nul mkdir "%LOCK%"
+if not errorlevel 1 goto locked
+powershell -NoProfile -Command "if ((Test-Path -LiteralPath '%LOCK%') -and ((Get-Date) - (Get-Item -LiteralPath '%LOCK%').LastWriteTime).TotalMinutes -gt 15) { Remove-Item -LiteralPath '%LOCK%' -Recurse -Force }" >nul 2>&1
+ping 127.0.0.1 -n 3 >nul
+goto acquire
+
+:locked
 if not exist "%OUT%\CMakeCache.txt" (
     cmake -S "%REPO%" -B "%OUT%" -DBALLS_BUILD_GAME=OFF -DBALLS_STATIC_CRT=OFF -DBALLS_LTO=OFF
-    if errorlevel 1 exit /b 1
+    if errorlevel 1 goto failed
 )
-cmake --build "%OUT%" --config Release --target balls_core --parallel
-if errorlevel 1 (
-    echo BuildCore: balls_core failed to build.
-    exit /b 1
-)
+cmake --build "%OUT%" --config Release --target balls_core --parallel 1
+if errorlevel 1 goto failed
+rmdir "%LOCK%" 2>nul
 exit /b 0
+
+:failed
+echo BuildCore: balls_core failed to build.
+rmdir "%LOCK%" 2>nul
+exit /b 1

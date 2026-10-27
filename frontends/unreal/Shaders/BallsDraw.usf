@@ -5,6 +5,8 @@ float4x4 BoardToClip;
 float2 UnpackScale;
 float Radius;
 float Brightness;
+float SceneReferred;
+float OutputGamma;
 float4 Palette[8];
 
 static const float2 QuadCorners[6] = {
@@ -40,5 +42,7 @@ void MainPS(float4 SvPosition : SV_POSITION, float2 Local : TEXCOORD0,
     const float Diffuse = saturate(dot(Normal, LightDirection));
     const float Specular = pow(saturate(dot(reflect(-LightDirection, Normal), float3(0.0, 0.0, 1.0))), 24.0);
     const float3 Lit = Color * (0.35 + 0.75 * Diffuse) + Specular * 0.6;
-    OutColor = float4(Lit * Brightness * View.PreExposure, Coverage);
+    const float Exposure = lerp(1.0, View.PreExposure, SceneReferred);
+    const float3 Linear = Lit * Brightness * Exposure;
+    OutColor = float4(OutputGamma == 1.0 ? Linear : pow(saturate(Linear), OutputGamma), Coverage);
 }

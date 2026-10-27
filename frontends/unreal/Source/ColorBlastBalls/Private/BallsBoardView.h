@@ -34,7 +34,11 @@ private:
     UWorld* World = nullptr;
     TStrongObjectPtr<ACameraActor> Camera;
     TStrongObjectPtr<AActor> BoardActor;
+    // Backdrop is exactly the play field; Outside fills the rest of the screen and the four walls (left, right,
+    // top, bottom) mark where balls bounce.
     TStrongObjectPtr<UStaticMeshComponent> Backdrop;
+    TStrongObjectPtr<UStaticMeshComponent> Outside;
+    TArray<TStrongObjectPtr<UStaticMeshComponent>> Walls;
     TArray<TStrongObjectPtr<UInstancedStaticMeshComponent>> BrickMeshes;
     TArray<TStrongObjectPtr<AActor>> SceneActors;
     FBallsRenderer BallRenderer;

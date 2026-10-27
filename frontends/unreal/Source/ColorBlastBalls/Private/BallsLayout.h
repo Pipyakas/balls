@@ -3,8 +3,8 @@
 #include "CoreMinimal.h"
 
 // Screen split shared by the Slate HUD and the board camera, in Slate units of the game viewport.
-// Unlike the raylib front end it uses three columns: header and controls on the left, the board in the
-// middle at full height, and the debug panel on the right.
+// The play field always claims the long axis edge-to-edge: full height in landscape (panels on the
+// left/right), full width in portrait (panels on the top/bottom).
 struct FBallsGameplayLayout {
     FSlateRect Header;
     FSlateRect MainSection;
@@ -12,10 +12,18 @@ struct FBallsGameplayLayout {
     FSlateRect DebugSection;
     FSlateRect Board;
     float CellSize = 1.0f;
+    bool bPortrait = false;
 
     FVector2D BoardToScreen(float Column, float Row) const {
         return FVector2D(Board.Left + Column * CellSize, Board.Top + Row * CellSize);
     }
 };
 
-FBallsGameplayLayout ComputeGameplayLayout(FVector2D ScreenSize, int32 BoardColumns, int32 BoardRows);
+// Button size of the portrait launcher row for a panel of the given width.
+float PortraitLauncherSize(float PanelWidth);
+
+// ScreenSize is in Slate units and DpiScale is the Slate-to-pixel scale; the layout stays inside the platform's
+// safe area (display cutout, rounded corners). bCompactControls shrinks the portrait bottom panel to one scrolling
+// row of launchers so the board gets the rest of the height; performance mode needs the full-size panel.
+FBallsGameplayLayout ComputeGameplayLayout(FVector2D ScreenSize, int32 BoardColumns, int32 BoardRows, float DpiScale,
+                                           bool bCompactControls);

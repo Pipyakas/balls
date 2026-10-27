@@ -23,9 +23,11 @@ constexpr float ControlGap = 10.0f;
 constexpr float OverlayWidth = 420.0f;
 constexpr float OverlayButtonHeight = 60.0f;
 constexpr float LauncherGapShare = 0.18f;
-constexpr float MaximumLauncherSize = 110.0f;
+constexpr float MaximumLauncherSize = 200.0f;
 constexpr float BackRowFade = 0.55f;
 constexpr float MinimumLabelPixels = 9.0f;
+// A touch that moves further than this (Slate units) scrolls the launcher row instead of picking a launcher.
+constexpr float DragThreshold = 8.0f;
 
 enum class EAlign { Left, Center, Right };
 
@@ -89,6 +91,53 @@ FLauncherGrid ComputeLauncherGrid(const FSlateRect& Area, int32 Columns, int32 V
     return Grid;
 }
 
+struct FPortraitLauncherSlot {
+    const QueuedLauncher* Queued = nullptr;
+    int32 Column = 0;
+    int32 Row = 0;
+    FSlateRect Rect;
+};
+
+struct FPortraitLauncherGrid {
+    TArray<FPortraitLauncherSlot> Slots;
+    float SlotSize = 0.0f;
+    float Gap = 0.0f;
+    // How far the row can scroll sideways; 0 when every launcher fits.
+    float MaximumScroll = 0.0f;
+};
+
+// Portrait puts the launchers in one compact row at the bottom, regardless of the queue's own column/row
+// layout. Buttons keep a fixed size and the row scrolls sideways when it is wider than the panel.
+FPortraitLauncherGrid ComputePortraitLauncherGrid(const LauncherQueue& Queue, const FSlateRect& Area, float Scroll) {
+    FPortraitLauncherGrid Grid;
+    for (int32 Column = 0; Column < Queue.columnCount(); ++Column) {
+        for (int32 Row = 0; Row < Queue.visibleRows(); ++Row) {
+            if (const QueuedLauncher* Queued = Queue.visible(Column, Row)) {
+                FPortraitLauncherSlot Slot;
+                Slot.Queued = Queued;
+                Slot.Column = Column;
+                Slot.Row = Row;
+                Grid.Slots.Add(Slot);
+            }
+        }
+    }
+    const int32 Count = Grid.Slots.Num();
+    const FVector2D Size = Area.GetSize();
+    // Area is the panel shrunk by the 12-unit margin on each side.
+    Grid.SlotSize = FMath::Min(PortraitLauncherSize(static_cast<float>(Size.X) + 24.0f), static_cast<float>(Size.Y));
+    Grid.Gap = Grid.SlotSize * LauncherGapShare;
+    const float RowWidth = Count * Grid.SlotSize + FMath::Max(Count - 1, 0) * Grid.Gap;
+    Grid.MaximumScroll = FMath::Max(0.0f, RowWidth - static_cast<float>(Size.X));
+    const float Offset = RowWidth <= Size.X ? (static_cast<float>(Size.X) - RowWidth) * 0.5f
+                                            : -FMath::Clamp(Scroll, 0.0f, Grid.MaximumScroll);
+    const float Top = Area.Top + (static_cast<float>(Size.Y) - Grid.SlotSize) * 0.5f;
+    for (int32 Index = 0; Index < Count; ++Index) {
+        const float Left = Area.Left + Offset + Index * (Grid.SlotSize + Grid.Gap);
+        Grid.Slots[Index].Rect = FSlateRect(Left, Top, Left + Grid.SlotSize, Top + Grid.SlotSize);
+    }
+    return Grid;
+}
+
 FSlateRect BrickLabelArea(const Brick& Piece, const FBallsGameplayLayout& Layout) {
     int32 MinColumn = Piece.cells.front().column;
     int32 MaxColumn = MinColumn;
@@ -136,8 +185,10 @@ FLinearColor FpsColor(double Fps) {
 
 class FPanelWriter {
 public:
-    FPanelWriter(FSlateWindowElementList& InOut, int32 InLayer, const FGeometry& InGeometry, const FSlateRect& InArea)
-        : Out(InOut), Layer(InLayer), Geometry(InGeometry), Area(InArea), Cursor(InArea.Top + Padding) {}
+    FPanelWriter(FSlateWindowElementList& InOut, int32 InLayer, const FGeometry& InGeometry, const FSlateRect& InArea,
+                 float InLineHeight = 34.0f)
+        : Out(InOut), Layer(InLayer), Geometry(InGeometry), Area(InArea), Cursor(InArea.Top + Padding),
+          LineHeight(InLineHeight) {}
 
     void Heading(const FString& Text) {
         Cursor += 6.0f;
@@ -168,15 +219,15 @@ public:
     }
 
 private:
-    static constexpr float LineHeight = 26.0f;
     static constexpr float TextSize = 20.0f;
-    static constexpr float Padding = 16.0f;
+    static constexpr float Padding = 20.0f;
 
     FSlateWindowElementList& Out;
     int32 Layer;
     const FGeometry& Geometry;
     FSlateRect Area;
     float Cursor;
+    float LineHeight;
 };
 
 // Custom-painted parts of the HUD, plus launcher clicks.
@@ -195,8 +246,20 @@ public:
     FVector2D ComputeDesiredSize(float) const override { return FVector2D::ZeroVector; }
 
     FReply OnMouseMove(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override {
-        Mouse = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
-        return FReply::Unhandled();
+        const FVector2D Point = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
+        Mouse = Point;
+        if (!bPressed) {
+            return FReply::Unhandled();
+        }
+        // A sideways drag scrolls the launcher row; the press then no longer picks a launcher.
+        if (!bDragging && FMath::Abs(Point.X - PressPoint.X) > DragThreshold) {
+            bDragging = true;
+        }
+        if (bDragging) {
+            Scroll = FMath::Clamp(Scroll - static_cast<float>(Point.X - LastPoint.X), 0.0f, MaximumScroll(MyGeometry));
+        }
+        LastPoint = Point;
+        return FReply::Handled();
     }
 
     void OnMouseLeave(const FPointerEvent& MouseEvent) override { Mouse = FVector2D(-1.0); }
@@ -207,13 +270,51 @@ public:
             return FReply::Unhandled();
         }
         const FVector2D Point = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
+        const FBallsGameplayLayout Layout = LayoutFor(MyGeometry);
+        if (Layout.bPortrait) {
+            // Launchers fire on release so a drag can scroll the row first. Only one touch drives the row; a
+            // second finger must not pick another launcher.
+            if (bPressed || !Layout.InteractionSection.ContainsPoint(Point)) {
+                return FReply::Unhandled();
+            }
+            bPressed = true;
+            bDragging = false;
+            PressPoint = Point;
+            LastPoint = Point;
+            return FReply::Handled().CaptureMouse(SharedThis(this));
+        }
         int32 Column = -1;
         int32 Row = -1;
-        if (FindLauncher(MyGeometry.GetLocalSize(), Point, Column, Row)) {
+        const bool bHit = FindLauncher(MyGeometry, Point, Column, Row);
+        UE_LOG(LogTemp, Verbose, TEXT("BallsHud: click %.0f,%.0f hit %d at %d,%d"), Point.X, Point.Y, bHit, Column, Row);
+        if (bHit) {
             Gameplay->ChooseLauncher(Column, Row);
             return FReply::Handled();
         }
         return FReply::Unhandled();
+    }
+
+    FReply OnMouseButtonUp(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override {
+        if (!bPressed || MouseEvent.GetEffectingButton() != EKeys::LeftMouseButton) {
+            return FReply::Unhandled();
+        }
+        bPressed = false;
+        const FVector2D Point = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
+        if (!bDragging) {
+            int32 Column = -1;
+            int32 Row = -1;
+            const bool bHit = FindLauncher(MyGeometry, Point, Column, Row);
+            UE_LOG(LogTemp, Verbose, TEXT("BallsHud: tap %.0f,%.0f hit %d at %d,%d"), Point.X, Point.Y, bHit, Column, Row);
+            if (bHit) {
+                Gameplay->ChooseLauncher(Column, Row);
+            }
+        }
+        bDragging = false;
+        // A finger leaves no hover; keeping the position would highlight whichever launcher slides under it.
+        if (MouseEvent.IsTouchEvent()) {
+            Mouse = FVector2D(-1.0);
+        }
+        return FReply::Handled().ReleaseMouseCapture();
     }
 
     int32 OnPaint(const FPaintArgs& Args, const FGeometry& Geometry, const FSlateRect& CullingRect,
@@ -236,41 +337,94 @@ public:
         }
 
         const Simulation& Sim = Session->simulation();
-        const FBallsGameplayLayout Layout = ComputeGameplayLayout(Size, Sim.board().columns(), Sim.board().rows());
-        const FLinearColor PanelTint = FLinearColor::White;
+        const FBallsGameplayLayout Layout = LayoutFor(Geometry);
+        const FLinearColor PanelTint = BallsPalette::Linear(BallsPalette::Panel, 0.97f);
 
-        DrawBox(Out, LayerId, Geometry, Layout.Header, BallsStyle::Panel(), PanelTint);
+        if (Layout.bPortrait) {
+            DrawBox(Out, LayerId, Geometry, Layout.Header, BallsStyle::RoundedBox(4.0f), PanelTint);
+            DrawText(Out, LayerId + 1, Geometry,
+                     Gameplay->GetMode() == GameMode::Normal ? TEXT("Normal Mode") : TEXT("Performance Mode"),
+                     FVector2D(Layout.Header.Left + 20.0f, Layout.Header.Top + 7.0f), BallsStyle::Font(15.0f),
+                     BallsPalette::Linear(BallsPalette::TextMuted));
+            DrawText(Out, LayerId + 1, Geometry, BallsText::FromUtf8(Gameplay->GetFiles().name),
+                     FVector2D(Layout.Header.Left + 20.0f, Layout.Header.Top + 25.0f), BallsStyle::Font(24.0f, true),
+                     BallsPalette::Linear(BallsPalette::Text));
+            PaintStatsStrip(Out, LayerId + 1, Geometry, *Session, Layout.Header);
+            DrawBox(Out, LayerId, Geometry, Layout.InteractionSection, BallsStyle::RoundedBox(4.0f), PanelTint);
+            if (Gameplay->GetMode() == GameMode::Normal) {
+                PaintLaunchers(Out, LayerId + 1, Geometry, *Session, Layout);
+            }
+            PaintBrickLabels(Out, LayerId + 1, Geometry, Sim.board(), Layout);
+            PaintToast(Out, LayerId + 3, Geometry);
+            return LayerId + 3;
+        }
+
+        const FSlateRect LeftColumn(Layout.Header.Left, Layout.Header.Top, Layout.Header.Right,
+                                    Layout.InteractionSection.Bottom);
+
+        DrawBox(Out, LayerId, Geometry, LeftColumn, BallsStyle::RoundedBox(4.0f), PanelTint);
         DrawText(Out, LayerId + 1, Geometry,
                  Gameplay->GetMode() == GameMode::Normal ? TEXT("Normal Mode") : TEXT("Performance Mode"),
-                 FVector2D(Layout.Header.Left + 16.0f, Layout.Header.Top + 12.0f), BallsStyle::Font(20.0f),
+                 FVector2D(Layout.Header.Left + 20.0f, Layout.Header.Top + 12.0f), BallsStyle::Font(20.0f),
                  BallsPalette::Linear(BallsPalette::TextMuted));
         DrawText(Out, LayerId + 1, Geometry, BallsText::FromUtf8(Gameplay->GetFiles().name),
-                 FVector2D(Layout.Header.Left + 16.0f, Layout.Header.Top + 42.0f), BallsStyle::Font(28.0f, true),
+                 FVector2D(Layout.Header.Left + 20.0f, Layout.Header.Top + 42.0f), BallsStyle::Font(28.0f, true),
                  BallsPalette::Linear(BallsPalette::Text));
+        DrawBox(Out, LayerId + 1, Geometry,
+                FSlateRect(Layout.Header.Left + 20.0f, Layout.Header.Bottom - 1.0f, Layout.Header.Right - 20.0f,
+                           Layout.Header.Bottom + 1.0f),
+                BallsStyle::RoundedBox(1.0f), BallsPalette::Linear(BallsPalette::Frame, 0.45f));
 
         PaintBrickLabels(Out, LayerId + 1, Geometry, Sim.board(), Layout);
 
-        DrawBox(Out, LayerId, Geometry, Layout.InteractionSection, BallsStyle::Panel(), PanelTint);
         if (Gameplay->GetMode() == GameMode::Normal) {
+            DrawText(Out, LayerId + 1, Geometry, TEXT("Launchers"),
+                     FVector2D(Layout.InteractionSection.Left + 20.0f, Layout.InteractionSection.Top + 16.0f),
+                     BallsStyle::Font(20.0f, true), BallsPalette::Linear(BallsPalette::TextMuted));
             PaintLaunchers(Out, LayerId + 1, Geometry, *Session, Layout);
         }
 
-        DrawBox(Out, LayerId, Geometry, Layout.DebugSection, BallsStyle::Panel(), PanelTint);
-        PaintDebugPanel(Out, LayerId + 1, Geometry, *Session, Layout.DebugSection);
+        DrawBox(Out, LayerId, Geometry, Layout.DebugSection, BallsStyle::RoundedBox(4.0f), PanelTint);
+        PaintDebugPanel(Out, LayerId + 1, Geometry, *Session, Layout.DebugSection, Layout.bPortrait);
 
         PaintToast(Out, LayerId + 3, Geometry);
         return LayerId + 3;
     }
 
 private:
-    bool FindLauncher(FVector2D Size, FVector2D Point, int32& OutColumn, int32& OutRow) const {
+    FBallsGameplayLayout LayoutFor(const FGeometry& Geometry) const {
+        const Simulation& Sim = Gameplay->GetSession()->simulation();
+        return ComputeGameplayLayout(Geometry.GetLocalSize(), Sim.board().columns(), Sim.board().rows(),
+                                     Geometry.GetAccumulatedLayoutTransform().GetScale(),
+                                     Gameplay->GetMode() == GameMode::Normal);
+    }
+
+    float MaximumScroll(const FGeometry& Geometry) const {
+        const FBallsGameplayLayout Layout = LayoutFor(Geometry);
+        return ComputePortraitLauncherGrid(Gameplay->GetSession()->launchers(), Shrink(Layout.InteractionSection, 12.0f),
+                                           0.0f)
+            .MaximumScroll;
+    }
+
+    bool FindLauncher(const FGeometry& Geometry, FVector2D Point, int32& OutColumn, int32& OutRow) const {
         GameSession* Session = Gameplay->GetSession();
-        const Simulation& Sim = Session->simulation();
-        const FBallsGameplayLayout Layout = ComputeGameplayLayout(Size, Sim.board().columns(), Sim.board().rows());
+        const FBallsGameplayLayout Layout = LayoutFor(Geometry);
         if (!Layout.InteractionSection.ContainsPoint(Point)) {
             return false;
         }
         const LauncherQueue& Queue = Session->launchers();
+        if (Layout.bPortrait) {
+            const FPortraitLauncherGrid Portrait =
+                ComputePortraitLauncherGrid(Queue, Shrink(Layout.InteractionSection, 12.0f), Scroll);
+            for (const FPortraitLauncherSlot& Slot : Portrait.Slots) {
+                if (Slot.Rect.ContainsPoint(Point)) {
+                    OutColumn = Slot.Column;
+                    OutRow = Slot.Row;
+                    return true;
+                }
+            }
+            return false;
+        }
         const FLauncherGrid Grid = ComputeLauncherGrid(Shrink(Layout.InteractionSection, 12.0f), Queue.columnCount(),
                                                        Queue.visibleRows());
         for (int32 Column = 0; Column < Queue.columnCount(); ++Column) {
@@ -314,6 +468,10 @@ private:
                            BallsStyle::Font(26.0f), BallsPalette::Linear(BallsPalette::TextMuted));
             return;
         }
+        if (Layout.bPortrait) {
+            PaintLaunchersPortrait(Out, Layer, Geometry, Session, Layout);
+            return;
+        }
         const bool bInteractive = !Gameplay->IsPaused() && Session.state() == SessionState::Running;
         const FLauncherGrid Grid = ComputeLauncherGrid(Shrink(Layout.InteractionSection, 12.0f), Queue.columnCount(),
                                                        Queue.visibleRows());
@@ -346,11 +504,75 @@ private:
         }
     }
 
-    void PaintDebugPanel(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry, const GameSession& Session,
-                         const FSlateRect& Area) const {
-        FPanelWriter Writer(Out, Layer, Geometry, Area);
-        const Simulation& Sim = Session.simulation();
-        const SimulationStats& Stats = Sim.stats();
+    void PaintLaunchersPortrait(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,
+                                const GameSession& Session, const FBallsGameplayLayout& Layout) const {
+        const LauncherQueue& Queue = Session.launchers();
+        const bool bInteractive = !Gameplay->IsPaused() && Session.state() == SessionState::Running;
+        const FSlateRect Area = Shrink(Layout.InteractionSection, 12.0f);
+        const FPortraitLauncherGrid Grid = ComputePortraitLauncherGrid(Queue, Area, Scroll);
+        const FSlateBrush* Rounded = BallsStyle::RoundedBox(Grid.SlotSize * 0.22f);
+        // The row scrolls sideways under the panel edges, so cut off what falls outside it.
+        Out.PushClip(FSlateClippingZone(RectGeometry(Geometry, Layout.InteractionSection)));
+        for (const FPortraitLauncherSlot& Slot : Grid.Slots) {
+            const FSlateRect Rect = Slot.Rect;
+            FColor Fill = BallsPalette::Ball(Slot.Queued->launcher.color);
+            if (Slot.Row > 0) {
+                Fill = BallsPalette::Shade(Fill, BackRowFade + (1.0f - BackRowFade) / static_cast<float>(Slot.Row + 1));
+            }
+            if (bInteractive && Rect.ContainsPoint(Mouse)) {
+                Fill = BallsPalette::Shade(Fill, 1.2f);
+            }
+            const float Depth = Grid.SlotSize * 0.1f;
+            const FSlateRect Face(Rect.Left, Rect.Top, Rect.Right, Rect.Bottom - Depth);
+            DrawBox(Out, Layer, Geometry, Face.OffsetBy(FVector2D(0.0, Depth)), Rounded,
+                    BallsPalette::Linear(BallsPalette::Shade(Fill, 0.6f)));
+            DrawBox(Out, Layer + 1, Geometry, Face, Rounded, BallsPalette::Linear(Fill));
+            const FString Label = BallsText::CompactCount(Slot.Queued->launcher.ballCount);
+            const FSlateFontInfo Font = BallsStyle::Font(Grid.SlotSize * 0.36f, true);
+            DrawTextInRect(Out, Layer + 2, Geometry, Label, Face.OffsetBy(FVector2D(2.0)), Font,
+                           BallsPalette::Linear(BallsPalette::Shade(Fill, 0.45f)));
+            DrawTextInRect(Out, Layer + 3, Geometry, Label, Face, Font, BallsPalette::Linear(BallsPalette::Text));
+        }
+        Out.PopClip();
+    }
+
+    void PaintStatsStrip(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,
+                         const GameSession& Session, const FSlateRect& Strip) const {
+        const SimulationStats& Stats = Session.simulation().stats();
+        const FBallsFrameTimings& Frames = App->GetFrameTimings();
+        const FBallsFrameSample& Sample = Frames.Average();
+        const FSlateFontInfo LabelFont = BallsStyle::Font(15.0f);
+        const FSlateFontInfo ValueFont = BallsStyle::Font(18.0f, true);
+        float X = Strip.Left + 300.0f;
+        const float Y = Strip.Top + (Strip.GetSize().Y - 18.0f) * 0.5f;
+        auto Pair = [&](const FString& Label, const FString& Value, const FLinearColor& Color) {
+            if (X > Strip.Right - 170.0f) {
+                return;
+            }
+            DrawText(Out, Layer, Geometry, Label, FVector2D(X, Y + 3.0f), LabelFont,
+                     BallsPalette::Linear(BallsPalette::TextMuted));
+            X += static_cast<float>(BallsStyle::Measure(Label, LabelFont).X) + 6.0f;
+            DrawText(Out, Layer, Geometry, Value, FVector2D(X, Y), ValueFont, Color);
+            X += static_cast<float>(BallsStyle::Measure(Value, ValueFont).X) + 18.0f;
+        };
+        Pair(TEXT("FPS"), FString::Printf(TEXT("%.0f"), Frames.FramesPerSecond()), FpsColor(Frames.FramesPerSecond()));
+        Pair(TEXT("Min"), FString::Printf(TEXT("%.0f"), Frames.WorstFpsLastSecond()),
+             FpsColor(Frames.WorstFpsLastSecond()));
+        Pair(TEXT("Frame"), FString::Printf(TEXT("%.1f ms"), Sample.FrameMs),
+             BallsPalette::Linear(BallsPalette::Text));
+        Pair(TEXT("GPU"), FString::Printf(TEXT("%.1f ms"), Sample.GpuMs), BallsPalette::Linear(BallsPalette::Text));
+        Pair(TEXT("Balls"), BallsText::Grouped(Stats.ballCount), BallsPalette::Linear(BallsPalette::Text));
+        Pair(TEXT("Bricks"),
+             BallsText::Grouped(static_cast<BallCount>(Session.simulation().board().aliveBrickCount())),
+             BallsPalette::Linear(BallsPalette::Text));
+        Pair(TEXT("Launch"), BallsText::Grouped(static_cast<BallCount>(Session.launchers().launcherCount())),
+             BallsPalette::Linear(BallsPalette::Text));
+        Pair(TEXT("Backend"), BallsText::FromUtf8(backendKindName(Session.backend())),
+             BallsPalette::Linear(BallsPalette::Text));
+    }
+
+    void WritePerformance(FPanelWriter& Writer, const GameSession& Session) const {
+        const SimulationStats& Stats = Session.simulation().stats();
         const FBallsFrameTimings& Frames = App->GetFrameTimings();
         const FBallsFrameSample& Sample = Frames.Average();
 
@@ -372,7 +594,11 @@ private:
         if (const std::string Detail = backendDetail(Session.backend()); !Detail.empty()) {
             Writer.Row(TEXT("Device"), BallsText::FromUtf8(Detail));
         }
+    }
 
+    void WriteObjects(FPanelWriter& Writer, const GameSession& Session) const {
+        const Simulation& Sim = Session.simulation();
+        const SimulationStats& Stats = Sim.stats();
         Writer.Heading(TEXT("Objects"));
         const BallCount Balls = Stats.ballCount;
         const BallCount Bricks = static_cast<BallCount>(Sim.board().aliveBrickCount());
@@ -389,7 +615,10 @@ private:
                                                : (Limit == unlimitedBalls ? FString(TEXT("Max (2^64-1)"))
                                                                           : BallsText::Grouped(Limit)));
         }
+    }
 
+    void WriteColors(FPanelWriter& Writer, const GameSession& Session) const {
+        const SimulationStats& Stats = Session.simulation().stats();
         Writer.Heading(TEXT("Balls per color"));
         for (int32 Color = 0; Color < ballColorCount; ++Color) {
             Writer.ColorRow(Color, BallsText::Grouped(Stats.ballsByColor[Color]));
@@ -398,6 +627,33 @@ private:
             Writer.Heading(TEXT("Backend fault"));
             Writer.Row(TEXT("Fell back to CPU"), FString(), BallsPalette::Linear(BallsPalette::Danger));
         }
+    }
+
+    void PaintDebugPanelPortrait(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,
+                                 const GameSession& Session, const FSlateRect& Area) const {
+        constexpr float Gap = 8.0f;
+        const float Third = Area.GetSize().X / 3.0f;
+        FPanelWriter Performance(Out, Layer, Geometry,
+                                 FSlateRect(Area.Left, Area.Top, Area.Left + Third - Gap, Area.Bottom), 26.0f);
+        FPanelWriter Objects(Out, Layer, Geometry,
+                             FSlateRect(Area.Left + Third, Area.Top, Area.Left + Third * 2.0f - Gap, Area.Bottom), 26.0f);
+        FPanelWriter Colors(Out, Layer, Geometry,
+                            FSlateRect(Area.Left + Third * 2.0f, Area.Top, Area.Right, Area.Bottom), 26.0f);
+        WritePerformance(Performance, Session);
+        WriteObjects(Objects, Session);
+        WriteColors(Colors, Session);
+    }
+
+    void PaintDebugPanel(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry, const GameSession& Session,
+                         const FSlateRect& Area, bool bPortrait) const {
+        if (bPortrait) {
+            PaintDebugPanelPortrait(Out, Layer, Geometry, Session, Area);
+            return;
+        }
+        FPanelWriter Writer(Out, Layer, Geometry, Area);
+        WritePerformance(Writer, Session);
+        WriteObjects(Writer, Session);
+        WriteColors(Writer, Session);
     }
 
     void PaintToast(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry) const {
@@ -409,7 +665,10 @@ private:
         const FSlateFontInfo Font = BallsStyle::Font(24.0f, true);
         const FVector2D Extent = BallsStyle::Measure(Toast.Text, Font);
         const float Left = static_cast<float>((Geometry.GetLocalSize().X - Extent.X) * 0.5 - 20.0);
-        const FSlateRect Rect(Left, 24.0f, Left + static_cast<float>(Extent.X) + 40.0f, 72.0f);
+        const float SafeTop = ComputeGameplayLayout(Geometry.GetLocalSize(), 1, 1,
+                                                    Geometry.GetAccumulatedLayoutTransform().GetScale(), true)
+                                  .Header.Top;
+        const FSlateRect Rect(Left, SafeTop + 24.0f, Left + static_cast<float>(Extent.X) + 40.0f, SafeTop + 72.0f);
         DrawBox(Out, Layer, Geometry, Rect, BallsStyle::RoundedBox(18.0f),
                 BallsPalette::Linear(Toast.bIsError ? BallsPalette::Danger : BallsPalette::PanelLight, Alpha));
         DrawTextInRect(Out, Layer + 1, Geometry, Toast.Text, Rect, Font, BallsPalette::Linear(BallsPalette::Text, Alpha));
@@ -418,6 +677,12 @@ private:
     FBallsApp* App = nullptr;
     TSharedPtr<FBallsGameplay> Gameplay;
     FVector2D Mouse = FVector2D(-1.0);
+    // Portrait launcher row: sideways scroll and the press that may become a tap or a drag.
+    float Scroll = 0.0f;
+    bool bPressed = false;
+    bool bDragging = false;
+    FVector2D PressPoint = FVector2D::ZeroVector;
+    FVector2D LastPoint = FVector2D::ZeroVector;
 };
 
 FText LabelText(const FString& Text) { return FText::FromString(Text); }
@@ -425,11 +690,14 @@ FText LabelText(const FString& Text) { return FText::FromString(Text); }
 }
 
 FBallsGameplayLayout SBallsGameplayHud::CurrentLayout() const {
-    const FVector2D Size = GetCachedGeometry().GetLocalSize();
+    const FGeometry& Geometry = GetCachedGeometry();
+    const FVector2D Size = Geometry.GetLocalSize();
+    const float DpiScale = Geometry.GetAccumulatedLayoutTransform().GetScale();
     const GameSession* Session = Gameplay->GetSession();
+    const bool bCompact = Gameplay->GetMode() == GameMode::Normal;
     return Session ? ComputeGameplayLayout(Size, Session->simulation().board().columns(),
-                                           Session->simulation().board().rows())
-                   : ComputeGameplayLayout(Size, 1, 1);
+                                           Session->simulation().board().rows(), DpiScale, bCompact)
+                   : ComputeGameplayLayout(Size, 1, 1, DpiScale, bCompact);
 }
 
 void SBallsGameplayHud::Construct(const FArguments& InArgs) {
