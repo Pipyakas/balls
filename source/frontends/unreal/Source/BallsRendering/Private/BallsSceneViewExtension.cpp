@@ -13,6 +13,14 @@
 
 namespace {
 
+// Profiling only: the ball pass is the largest single item in this frame, and these two switches split it into
+// vertex work (draw the quads off-screen) and repeated draws (marginal cost of one more million-ball pass).
+static TAutoConsoleVariable<int32> CVarBallsDrawPasses(
+    TEXT("r.Balls.DrawPasses"), 1, TEXT("Draw the ball pass this many times (profiling)."), ECVF_RenderThreadSafe);
+static TAutoConsoleVariable<int32> CVarBallsVertexOnly(
+    TEXT("r.Balls.VertexOnly"), 0, TEXT("Cull every ball quad in the vertex shader (profiling)."),
+    ECVF_RenderThreadSafe);
+
 BEGIN_SHADER_PARAMETER_STRUCT(FBallsDrawParameters, )
     SHADER_PARAMETER_STRUCT_REF(FViewUniformShaderParameters, View)
     SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, PackedBalls)
@@ -24,6 +32,8 @@ BEGIN_SHADER_PARAMETER_STRUCT(FBallsDrawParameters, )
     SHADER_PARAMETER(float, SceneReferred)
     // Exponent applied to the output; 1/2.2 when drawing into a non-sRGB display-referred target.
     SHADER_PARAMETER(float, OutputGamma)
+    // Profiling switch: every quad goes off-screen, so the pass measures vertex work alone.
+    SHADER_PARAMETER(float, VertexOnly)
     SHADER_PARAMETER_ARRAY(FVector4f, Palette, [8])
     RENDER_TARGET_BINDING_SLOTS()
 END_SHADER_PARAMETER_STRUCT()
@@ -103,6 +113,7 @@ FScreenPassTexture FBallsSceneViewExtension::DrawBalls_RenderThread(FRDGBuilder&
     // Desktop uses the frame's brightness, which drops to 1 when the graphics level turns bloom off.
     Parameters->Brightness = bMobile ? 1.0f : Data->Brightness;
     Parameters->OutputGamma = bMobile && !bSrgbTarget ? 1.0f / 2.2f : 1.0f;
+    Parameters->VertexOnly = CVarBallsVertexOnly.GetValueOnRenderThread() != 0 ? 1.0f : 0.0f;
     for (int32 Index = 0; Index < 8; ++Index) {
         Parameters->Palette[Index] = FVector4f(Data->Palette[Index]);
     }
@@ -133,7 +144,10 @@ FScreenPassTexture FBallsSceneViewExtension::DrawBalls_RenderThread(FRDGBuilder&
 
             SetShaderParameters(RHICmdList, VertexShader, VertexShader.GetVertexShader(), *Parameters);
             SetShaderParameters(RHICmdList, PixelShader, PixelShader.GetPixelShader(), *Parameters);
-            RHICmdList.DrawPrimitive(0, 2, BallCount);
+            const int32 Passes = FMath::Clamp(CVarBallsDrawPasses.GetValueOnRenderThread(), 1, 8);
+            for (int32 Pass = 0; Pass < Passes; ++Pass) {
+                RHICmdList.DrawPrimitive(0, 2, BallCount);
+            }
         });
 
     return MoveTemp(Output);

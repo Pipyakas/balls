@@ -135,15 +135,16 @@ std::optional<BackendKind> SavedBackend() {
 
 // The Unreal port owns this one: the design has no graphics level, but its post chain costs more than the scene.
 EBallsGraphics SavedGraphics() {
-    FString Name;
-    if (GConfig && GConfig->GetString(PreferencesSection, TEXT("Graphics"), Name, GGameUserSettingsIni)) {
-        if (const std::optional<EBallsGraphics> Parsed = BallsGraphics::Parse(Name)) {
-            return *Parsed;
-        }
-    }
+    // The command line wins: screenshots and measurements pin the level they want to capture.
     FString Requested;
     if (FParse::Value(FCommandLine::Get(), TEXT("BallsGraphics="), Requested)) {
         if (const std::optional<EBallsGraphics> Parsed = BallsGraphics::Parse(Requested)) {
+            return *Parsed;
+        }
+    }
+    FString Name;
+    if (GConfig && GConfig->GetString(PreferencesSection, TEXT("Graphics"), Name, GGameUserSettingsIni)) {
+        if (const std::optional<EBallsGraphics> Parsed = BallsGraphics::Parse(Name)) {
             return *Parsed;
         }
     }
