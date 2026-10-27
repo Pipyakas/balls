@@ -8,6 +8,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(BALLS_FRONTEND "sdl" CACHE STRING "Game front end to build: sdl or none")
 set_property(CACHE BALLS_FRONTEND PROPERTY STRINGS sdl none)
 option(BALLS_BUILD_TOOLS "Build tests and benchmarks" ON)
+option(BALLS_BUILD_UNITY_PLUGIN "Build the C ABI plugin the Unity front end loads" ON)
 option(BALLS_ENABLE_CUDA "Build the CUDA physics backend (needs NVRTC at build time)" ON)
 option(BALLS_STATIC_CRT "Link the static MSVC runtime (physics plugins need the shared runtime)" OFF)
 # Off by default: it made no measurable difference to the physics (AVX2 972 vs 985 M ball-steps/s, the CUDA work
@@ -96,6 +97,10 @@ endif()
 
 add_subdirectory(source/core)
 add_subdirectory(source/backends)
+
+if(BALLS_BUILD_UNITY_PLUGIN)
+    add_subdirectory(source/plugin)
+endif()
 
 if(BALLS_FRONTEND STREQUAL "sdl")
     add_subdirectory(source/frontends/sdl)

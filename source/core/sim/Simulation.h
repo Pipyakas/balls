@@ -57,6 +57,8 @@ public:
     void animate(float frameSeconds) { brickBoard.animate(frameSeconds); }
 
     const BrickBoard& board() const { return brickBoard; }
+    // For hosts that render the board themselves and clear its dirty-cell list once they have consumed it.
+    BrickBoard& board() { return brickBoard; }
     PhysicsBackend& backend() { return *physics; }
     const PhysicsBackend& backend() const { return *physics; }
     const SimulationStats& stats() const { return statistics; }
