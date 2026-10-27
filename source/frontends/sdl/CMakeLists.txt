@@ -168,6 +168,7 @@ elseif(BALLS_RENDERER STREQUAL "webgpu")
     endif()
 else()
     target_sources(${BALLS_SDL_TARGET} PRIVATE render/SdlGpuRenderer.cpp)
+    target_compile_definitions(${BALLS_SDL_TARGET} PRIVATE BALLS_RENDERER_SDLGPU)
 endif()
 
 if(BALLS_WITH_WEBGPU AND NOT BALLS_RENDERER STREQUAL "webgpu")

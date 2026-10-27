@@ -15,8 +15,11 @@
 #include <imgui_impl_sdl3.h>
 
 #include <algorithm>
+#include <cstring>
 #include <filesystem>
 #include <format>
+#include <fstream>
+#include <vector>
 
 namespace {
 
@@ -27,6 +30,30 @@ constexpr float fontLoadPixels = 32.0f;
 constexpr float channelScale = 1.0f / 255.0f;
 constexpr const char* windowTitle = "Balls";
 constexpr const char* screenshotExtension = ".bmp";
+
+// ImGui asserts inside AddFontFromFileTTF when the file cannot be opened, which aborts the app
+// on devices where the asset extraction only produced an empty or unreadable font file.
+ImFont* loadFontFromDisk(ImFontAtlas& atlas, const std::filesystem::path& path, float pixels) {
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(path, error)) {
+        return nullptr;
+    }
+    const auto bytes = std::filesystem::file_size(path, error);
+    if (error || bytes == 0) {
+        return nullptr;
+    }
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream) {
+        return nullptr;
+    }
+    std::vector<char> contents(static_cast<size_t>(bytes));
+    if (!stream.read(contents.data(), static_cast<std::streamsize>(bytes))) {
+        return nullptr;
+    }
+    void* owned = ImGui::MemAlloc(static_cast<size_t>(bytes));
+    std::memcpy(owned, contents.data(), static_cast<size_t>(bytes));
+    return atlas.AddFontFromMemoryTTF(owned, static_cast<int>(bytes), pixels);
+}
 
 double millisecondsBetween(std::chrono::steady_clock::time_point start, std::chrono::steady_clock::time_point end) {
     return std::chrono::duration<double, std::milli>(end - start).count();
@@ -217,17 +244,12 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.LogFilename = nullptr;
-    const auto regularPath = fontPath(palette::regularFontFile);
-    if (std::filesystem::exists(regularPath)) {
-        fonts.regular = io.Fonts->AddFontFromFileTTF(regularPath.string().c_str(), fontLoadPixels);
-    }
+    fonts.regular = loadFontFromDisk(*io.Fonts, fontPath(palette::regularFontFile), fontLoadPixels);
     if (!fonts.regular) {
+        SDL_Log("Fonts: %s unreadable, using the built-in font", palette::regularFontFile);
         fonts.regular = io.Fonts->AddFontDefault();
     }
-    const auto strongPath = fontPath(palette::strongFontFile);
-    if (std::filesystem::exists(strongPath)) {
-        fonts.strong = io.Fonts->AddFontFromFileTTF(strongPath.string().c_str(), fontLoadPixels);
-    }
+    fonts.strong = loadFontFromDisk(*io.Fonts, fontPath(palette::strongFontFile), fontLoadPixels);
     if (!fonts.strong) {
         fonts.strong = fonts.regular;
     }

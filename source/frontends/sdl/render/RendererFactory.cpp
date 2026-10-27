@@ -82,6 +82,8 @@ std::unique_ptr<IRenderer> createRenderer(SDL_Window* window, std::string_view r
             r = "nvrhi";
 #elif defined(BALLS_RENDERER_WEBGPU)
             r = "webgpu";
+#elif defined(BALLS_RENDERER_SDLGPU)
+            r = "sdlgpu";
 #endif
         }
     }
@@ -101,6 +103,12 @@ std::unique_ptr<IRenderer> createRenderer(SDL_Window* window, std::string_view r
 #if defined(BALLS_RENDERER_NVRHI)
     if (r == "nvrhi") {
         return createNvrhiRenderer(window, graphicsApiFor(api), gpuPreference, error);
+    }
+#endif
+
+#if defined(BALLS_RENDERER_SDLGPU)
+    if (r == "sdlgpu") {
+        return createSdlGpuRenderer(window, error);
     }
 #endif
 

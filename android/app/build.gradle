@@ -14,7 +14,7 @@ android {
         versionName "0.1.0"
         externalNativeBuild {
             cmake {
-                arguments "-DANDROID_PLATFORM=android-26", "-DANDROID_STL=c++_static", "-DBALLS_FRONTEND=sdl", "-DBALLS_BUILD_TOOLS=OFF", "-DBALLS_ENABLE_CUDA=OFF"
+                arguments "-DANDROID_PLATFORM=android-26", "-DANDROID_STL=c++_static", "-DBALLS_FRONTEND=sdl", "-DBALLS_BUILD_TOOLS=OFF", "-DBALLS_ENABLE_CUDA=OFF", "-DBALLS_RENDERER=" + (project.findProperty('ballsRenderer') ?: 'webgpu')
                 abiFilters 'arm64-v8a'
             }
         }
