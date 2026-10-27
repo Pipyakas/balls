@@ -8,7 +8,7 @@
 namespace {
 
 constexpr float settingsPanelWidth = 560.0f;
-constexpr float settingsPanelHeight = 900.0f;
+constexpr float settingsPanelHeight = 940.0f;
 
 } // namespace
 
