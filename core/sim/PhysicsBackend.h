@@ -113,6 +113,7 @@ public:
 using CreateBackendFunction = PhysicsBackend* (*)(const char* kindName);
 using DestroyBackendFunction = void (*)(PhysicsBackend* backend);
 using BackendTextFunction = const char* (*)(const char* kindName);
+using SetComputeGpuFunction = void (*)(const char* preference);
 using InterfaceVersionFunction = int (*)();
 using MeasureRooflineFunction = GpuRoofline (*)(size_t bufferBytes);
 using StreamedBytesFunction = size_t (*)(bool gridActive);

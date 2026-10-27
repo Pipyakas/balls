@@ -15,14 +15,17 @@ namespace {
 #if defined(_WIN32)
 constexpr std::string_view cpuPluginFile = "balls_physics_cpu.dll";
 constexpr std::string_view cudaPluginFile = "balls_physics_cuda.dll";
+constexpr std::string_view vulkanPluginFile = "balls_physics_vulkan.dll";
 constexpr bool usesShadowCopies = true;
 #elif defined(__APPLE__)
 constexpr std::string_view cpuPluginFile = "libballs_physics_cpu.dylib";
 constexpr std::string_view cudaPluginFile = "libballs_physics_cuda.dylib";
+constexpr std::string_view vulkanPluginFile = "libballs_physics_vulkan.dylib";
 constexpr bool usesShadowCopies = false;
 #else
 constexpr std::string_view cpuPluginFile = "libballs_physics_cpu.so";
 constexpr std::string_view cudaPluginFile = "libballs_physics_cuda.so";
+constexpr std::string_view vulkanPluginFile = "libballs_physics_vulkan.so";
 constexpr bool usesShadowCopies = false;
 #endif
 constexpr std::string_view shadowFolder = "ColorBlastBalls/physics-plugins";
@@ -35,8 +38,26 @@ struct PluginModule {
     BackendTextFunction detail = nullptr;
     MeasureRooflineFunction measureRoofline = nullptr;
     StreamedBytesFunction streamedBytes = nullptr;
+    SetComputeGpuFunction setComputeGpu = nullptr;
     std::string error;
 };
+
+std::mutex& computeGpuMutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
+std::string& computeGpuText() {
+    static std::string text;
+    return text;
+}
+
+void applyComputeGpuPreference(const PluginModule& module) {
+    if (module.setComputeGpu) {
+        const std::string preference = computeGpuPreference();
+        module.setComputeGpu(preference.c_str());
+    }
+}
 
 std::filesystem::path shadowDirectory() { return std::filesystem::temp_directory_path() / shadowFolder; }
 
@@ -83,6 +104,7 @@ std::shared_ptr<PluginModule> loadPlugin(std::string_view fileName, bool freshCo
                           library.resolve("ballsBackendDetail", module->detail);
     library.resolve("ballsMeasureRoofline", module->measureRoofline);
     library.resolve("ballsStreamedBytesPerBall", module->streamedBytes);
+    library.resolve("ballsSetComputeGpu", module->setComputeGpu);
     if (!complete) {
         module->error = std::format("{} is missing plugin entry points", fileName);
     } else if (interfaceVersion() != physicsPluginInterfaceVersion) {
@@ -118,12 +140,20 @@ std::string_view backendKindName(BackendKind kind) {
         return "CUDA";
     case BackendKind::Hybrid:
         return "Hybrid";
+    case BackendKind::Vulkan:
+        return "Vulkan";
     }
     return "?";
 }
 
 std::string_view backendPluginFileName(BackendKind kind) {
-    return kind == BackendKind::Cuda ? cudaPluginFile : cpuPluginFile;
+    if (kind == BackendKind::Cuda) {
+        return cudaPluginFile;
+    }
+    if (kind == BackendKind::Vulkan) {
+        return vulkanPluginFile;
+    }
+    return cpuPluginFile;
 }
 
 bool isBackendAvailable(BackendKind kind) { return backendUnavailableReason(kind).empty(); }
@@ -137,6 +167,7 @@ std::string backendUnavailableReason(BackendKind kind) {
     if (!plugin.error.empty()) {
         return plugin.error;
     }
+    applyComputeGpuPreference(plugin);
     return plugin.unavailableReason(kindArgument(kind).c_str());
 }
 
@@ -145,7 +176,11 @@ std::string backendDetail(BackendKind kind) {
         return std::format("{} + {}", backendDetail(BackendKind::Cuda), backendDetail(BackendKind::Avx2));
     }
     const PluginModule& plugin = queryPlugin(kind);
-    return plugin.error.empty() ? std::string(plugin.detail(kindArgument(kind).c_str())) : std::string{};
+    if (!plugin.error.empty()) {
+        return {};
+    }
+    applyComputeGpuPreference(plugin);
+    return std::string(plugin.detail(kindArgument(kind).c_str()));
 }
 
 BackendHandle createBackend(BackendKind kind) {
@@ -153,11 +188,24 @@ BackendHandle createBackend(BackendKind kind) {
         return HybridBackend::create(createBackend(BackendKind::Cuda), createBackend(BackendKind::Avx2));
     }
     const std::shared_ptr<PluginModule> plugin = loadPlugin(backendPluginFileName(kind), true);
+    if (plugin->error.empty()) {
+        applyComputeGpuPreference(*plugin);
+    }
     if (!plugin->error.empty() || std::string_view(plugin->unavailableReason(kindArgument(kind).c_str())) != "") {
         return BackendHandle(nullptr, BackendRelease{});
     }
     PhysicsBackend* backend = plugin->create(kindArgument(kind).c_str());
     return BackendHandle(backend, BackendRelease{plugin->destroy, plugin->library});
+}
+
+void setComputeGpuPreference(std::string_view preference) {
+    std::lock_guard lock(computeGpuMutex());
+    computeGpuText() = preference;
+}
+
+std::string computeGpuPreference() {
+    std::lock_guard lock(computeGpuMutex());
+    return computeGpuText().empty() ? std::string("auto") : computeGpuText();
 }
 
 BackendKind fastestAvailableCpuBackend() {
