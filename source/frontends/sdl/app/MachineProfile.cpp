@@ -6,6 +6,7 @@
 #include <SDL3/SDL_stdinc.h>
 
 #include <fstream>
+#include <sstream>
 #include <string>
 
 namespace {
@@ -13,6 +14,7 @@ namespace {
 constexpr const char* organizationName = "Pipyakas";
 constexpr const char* applicationName = "ColorBlastBalls";
 constexpr const char* profileFileName = "machine.txt";
+constexpr const char* benchmarkFileName = "benchmark.txt";
 
 std::filesystem::path preferenceDirectory() {
     char* directory = SDL_GetPrefPath(organizationName, applicationName);
@@ -28,6 +30,8 @@ std::filesystem::path preferenceDirectory() {
 
 std::filesystem::path MachineProfile::filePath() const { return preferenceDirectory() / profileFileName; }
 
+std::filesystem::path MachineProfile::benchmarkFilePath() const { return preferenceDirectory() / benchmarkFileName; }
+
 void MachineProfile::load() {
     std::ifstream file(filePath());
     std::string backendName;
@@ -38,6 +42,10 @@ void MachineProfile::load() {
             ballLimits[*kind] = {targetFps, limit};
         }
     }
+    std::ifstream benchmarkFile(benchmarkFilePath());
+    std::stringstream benchmarkText;
+    benchmarkText << benchmarkFile.rdbuf();
+    benchmarkRecord = parseBenchmarkRecord(benchmarkText.str());
 }
 
 void MachineProfile::save() const {
@@ -57,4 +65,11 @@ void MachineProfile::rememberBallLimit(BackendKind backend, double targetFps, Ba
 std::optional<MachineProfile::MeasuredLimit> MachineProfile::ballLimit(BackendKind backend) const {
     const auto it = ballLimits.find(backend);
     return it == ballLimits.end() ? std::nullopt : std::optional<MeasuredLimit>(it->second);
+}
+
+void MachineProfile::rememberBenchmark(BenchmarkRecord record) {
+    std::error_code error;
+    std::filesystem::create_directories(benchmarkFilePath().parent_path(), error);
+    std::ofstream(benchmarkFilePath(), std::ios::trunc) << serializeBenchmarkRecord(record);
+    benchmarkRecord = std::move(record);
 }

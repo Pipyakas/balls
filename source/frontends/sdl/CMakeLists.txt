@@ -75,6 +75,7 @@ add_executable(ColorBlastBalls WIN32
     ui/Painter.cpp
     ui/Widgets.cpp
     screens/MainMenuScreen.cpp
+    screens/MachineBenchmarkScreen.cpp
     screens/LevelSelectScreen.cpp
     screens/GameplayScreen.cpp
     screens/DebugPanel.cpp

@@ -32,6 +32,7 @@ public:
     void handleEvent(const SDL_Event& event);
 
     void showMainMenu();
+    void showMachineBenchmark();
     void showLevelSelect(GameMode mode);
     void startGame(GameMode mode, const LevelFiles& files);
     void openEditor(GameMode mode, std::optional<LevelFiles> files);
@@ -42,6 +43,7 @@ public:
     float lastFrameSeconds() const { return frameSeconds; }
     BackendKind preferredBackend() const { return backendChoice; }
     void setPreferredBackend(BackendKind kind) { backendChoice = kind; }
+    void adoptBenchmarkWinner(const BenchmarkCandidate& winner);
     bool isVsyncEnabled() const { return renderer && renderer->isVsyncEnabled(); }
     MachineProfile& machineProfile() { return profile; }
     void setVsync(bool enabled);
@@ -55,6 +57,7 @@ private:
     void updateTextInput();
     std::optional<ControlResponse> handleControl(const ControlRequest& request);
     std::string stateJson() const;
+    std::string benchmarkStateJson() const;
 
     SDL_Window* window = nullptr;
     std::unique_ptr<IRenderer> renderer;

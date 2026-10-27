@@ -6,6 +6,7 @@
 #include "render/Palette.h"
 #include "screens/GameplayScreen.h"
 #include "screens/LevelSelectScreen.h"
+#include "screens/MachineBenchmarkScreen.h"
 #include "screens/MainMenuScreen.h"
 #include "ui/Painter.h"
 #include "ui/Widgets.h"
@@ -39,6 +40,11 @@ std::optional<LevelFiles> findLevel(GameMode mode, std::string_view name) {
         }
     }
     return std::nullopt;
+}
+
+std::string_view gameVersion() {
+    const char* version = SDL_GetAppMetadataProperty(SDL_PROP_APP_METADATA_VERSION_STRING);
+    return version ? version : "";
 }
 
 std::string screenshotFileFor(const std::string& requested) {
@@ -123,8 +129,16 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
         controlServer.start(options.controlPort);
     }
     const auto startLevel = options.playMode ? findLevel(*options.playMode, options.playLevel) : std::nullopt;
+    const bool backendChosenOnCommandLine = options.playMode || options.backend;
+    const std::optional<BenchmarkRecord>& stored = profile.benchmark();
+    if (stored && stored->winner && !backendChosenOnCommandLine) {
+        adoptBenchmarkWinner(*stored->winner);
+    }
     if (startLevel) {
         startGame(*options.playMode, *startLevel);
+    } else if (!options.skipBenchmark && !backendChosenOnCommandLine &&
+               benchmarkNeeded(stored, currentHardwareFingerprint(gameVersion()))) {
+        showMachineBenchmark();
     } else {
         showMainMenu();
     }
@@ -248,6 +262,13 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
         quit();
         return ControlResponse::ok("{\"ok\":true}");
     }
+    if (path == "/benchmark") {
+        if (request.integer("run").value_or(0) != 0) {
+            showMachineBenchmark();
+            return ControlResponse::ok("{\"ok\":true}");
+        }
+        return ControlResponse::ok(benchmarkStateJson());
+    }
     if (path == "/menu") {
         showMainMenu();
         return ControlResponse::ok("{\"ok\":true}");
@@ -291,6 +312,27 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
 }
 
 void App::showMainMenu() { pendingScreen = std::make_unique<MainMenuScreen>(*this); }
+
+void App::showMachineBenchmark() {
+    pendingScreen = std::make_unique<MachineBenchmarkScreen>(*this, currentHardwareFingerprint(gameVersion()));
+}
+
+void App::adoptBenchmarkWinner(const BenchmarkCandidate& winner) {
+    if (isBackendAvailable(winner.kind)) {
+        backendChoice = winner.kind;
+    }
+}
+
+std::string App::benchmarkStateJson() const {
+    if (currentScreen && currentScreen->name() == "benchmark") {
+        return currentScreen->stateJson();
+    }
+    const std::optional<BenchmarkRecord>& stored = profile.benchmark();
+    if (!stored) {
+        return benchmarkJson("none", {}, std::nullopt);
+    }
+    return benchmarkJson(stored->complete ? "done" : "skipped", stored->results, stored->winner);
+}
 
 void App::showLevelSelect(GameMode mode) { pendingScreen = std::make_unique<LevelSelectScreen>(*this, mode); }
 
