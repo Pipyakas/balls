@@ -7,6 +7,8 @@ struct FrameSample {
     double cpuMs = 0.0;
     double gpuMs = 0.0;
     double presentMs = 0.0;
+    // 1 when the frame reached the screen, 0 when the compositor was not ready; averages to the shown share.
+    double presented = 1.0;
 };
 
 class FrameTimings {
@@ -16,6 +18,7 @@ public:
     const FrameSample& average() const { return averaged; }
     const FrameSample& latest() const { return newest; }
     double framesPerSecond() const { return averaged.frameMs > 0.0 ? 1000.0 / averaged.frameMs : 0.0; }
+    double shownFramesPerSecond() const { return framesPerSecond() * averaged.presented; }
     double worstFpsLastSecond() const { return worstFrameMs > 0.0 ? 1000.0 / worstFrameMs : 0.0; }
     double worstFrameMsLastSecond() const { return worstFrameMs; }
 

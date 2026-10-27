@@ -68,6 +68,8 @@ public:
     virtual bool lastScreenshotSucceeded() const = 0;
     virtual double lastGpuWaitMs() const = 0;
     virtual double lastGpuBusyMs() const = 0;
+    // Whether the last frame reached the screen; a frame the compositor was not ready for is rendered but not shown.
+    virtual bool lastFramePresented() const { return true; }
     virtual std::string deviceDescription() const = 0;
 };
 

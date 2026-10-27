@@ -103,6 +103,7 @@ public:
     bool lastScreenshotSucceeded() const override { return screenshotSucceeded; }
     double lastGpuWaitMs() const override { return gpuWaitMs; }
     double lastGpuBusyMs() const override { return gpuBusyMs; }
+    bool lastFramePresented() const override { return framePresented; }
     std::string deviceDescription() const override { return std::format("NVRHI {}", graphics->description()); }
 
 private:
@@ -185,6 +186,7 @@ private:
     size_t frameSlot = 0;
     double gpuWaitMs = 0.0;
     double gpuBusyMs = 0.0;
+    bool framePresented = true;
     std::string screenshotPath;
     bool screenshotSucceeded = false;
 };
@@ -512,7 +514,8 @@ void NvrhiRenderer::endFrame(ClearColor clearColor) {
     ImGui::Render();
     ImDrawData* drawData = ImGui::GetDrawData();
     const bool windowVisible = (SDL_GetWindowFlags(window) & (SDL_WINDOW_HIDDEN | SDL_WINDOW_MINIMIZED | SDL_WINDOW_OCCLUDED)) == 0;
-    const bool presentable = windowVisible && graphics->beginFrame();
+    const bool presentable = windowVisible && graphics->beginFrame() && graphics->readyToPresent();
+    framePresented = presentable;
     if (!pendingRects.empty()) {
         ensureBuffer(rectBuffer, rectCapacity, pendingRects.size() * sizeof(RendererRect), rectStride, false, false, "rects");
     }

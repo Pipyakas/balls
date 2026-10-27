@@ -23,6 +23,8 @@ using Microsoft::WRL::ComPtr;
 namespace {
 
 constexpr UINT backBufferCount = 3;
+constexpr UINT maximumQueuedFrames = 2;
+constexpr DWORD vsyncPresentWaitMilliseconds = 1000;
 constexpr DXGI_FORMAT swapChainFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 
 std::string narrow(const wchar_t* text) {
@@ -45,6 +47,12 @@ public:
     void present() override;
     bool setVsync(bool enabled) override;
     bool isVsyncEnabled() const override { return vsync; }
+    bool readyToPresent() override;
+
+    UINT swapChainFlags() const {
+        return DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT |
+               (tearingSupported ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0);
+    }
     nvrhi::Format backBufferFormat() const override { return nvrhi::Format::RGBA8_UNORM; }
     std::string description() const override { return std::format("D3D12 {}", adapterName); }
 
@@ -59,6 +67,7 @@ private:
     ComPtr<ID3D12Device> nativeDevice;
     ComPtr<ID3D12CommandQueue> queue;
     ComPtr<IDXGISwapChain3> swapChain;
+    HANDLE frameLatencyWaitable = nullptr;
     nvrhi::DeviceHandle nvrhiDevice;
     std::array<nvrhi::TextureHandle, backBufferCount> backBuffers;
     std::string adapterName;
@@ -132,7 +141,7 @@ bool D3d12Device::initialize(std::string& error) {
     swapChainDescription.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     swapChainDescription.BufferCount = backBufferCount;
     swapChainDescription.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-    swapChainDescription.Flags = tearingSupported ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
+    swapChainDescription.Flags = swapChainFlags();
     ComPtr<IDXGISwapChain1> swapChain1;
     if (FAILED(factory->CreateSwapChainForHwnd(queue.Get(), windowHandle, &swapChainDescription, nullptr, nullptr,
                                                &swapChain1)) ||
@@ -141,6 +150,8 @@ bool D3d12Device::initialize(std::string& error) {
         return false;
     }
     factory->MakeWindowAssociation(windowHandle, DXGI_MWA_NO_ALT_ENTER);
+    swapChain->SetMaximumFrameLatency(maximumQueuedFrames);
+    frameLatencyWaitable = swapChain->GetFrameLatencyWaitableObject();
 
     nvrhi::d3d12::DeviceDesc deviceDescription;
     deviceDescription.errorCB = &MessageLog::instance();
@@ -193,13 +204,20 @@ bool D3d12Device::beginFrame() {
         nvrhiDevice->runGarbageCollection();
         width = static_cast<UINT>(pixelWidth);
         height = static_cast<UINT>(pixelHeight);
-        if (FAILED(swapChain->ResizeBuffers(backBufferCount, width, height, swapChainFormat,
-                                            tearingSupported ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0)) ||
+        if (FAILED(swapChain->ResizeBuffers(backBufferCount, width, height, swapChainFormat, swapChainFlags())) ||
             !createBackBuffers()) {
             return false;
         }
     }
     return true;
+}
+
+bool D3d12Device::readyToPresent() {
+    if (!frameLatencyWaitable) {
+        return true;
+    }
+    const DWORD timeout = vsync ? vsyncPresentWaitMilliseconds : 0;
+    return WaitForSingleObjectEx(frameLatencyWaitable, timeout, FALSE) == WAIT_OBJECT_0;
 }
 
 void D3d12Device::present() {
