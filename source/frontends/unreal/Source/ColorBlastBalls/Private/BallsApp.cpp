@@ -754,6 +754,17 @@ void FBallsApp::HandleControl(const FString& Path, const TMap<FString, FString>&
         OutBody = TEXT("{\"ok\":true}");
         return;
     }
+    if (Path == TEXT("/launcher")) {
+        // Normal mode has no auto-release; this is how automation and the design captures pick a launcher.
+        if (!Gameplay || !Gameplay->GetSession()) {
+            OutCode = 409;
+            OutBody = TEXT("{\"ok\":false,\"error\":\"no game\"}");
+            return;
+        }
+        Gameplay->ChooseLauncher(IntParam(TEXT("column"), 0), IntParam(TEXT("row"), 0));
+        OutBody = TEXT("{\"ok\":true}");
+        return;
+    }
     if (Path == TEXT("/rate")) {
         if (!Gameplay) {
             OutCode = 409;
