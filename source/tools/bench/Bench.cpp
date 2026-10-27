@@ -25,6 +25,7 @@ struct BenchOptions {
     bool scatterSimulation = false;
     bool roofline = false;
     bool rooflineOnLevel = false;
+    bool collisions = false;
     int substeps = 2;
 };
 
@@ -83,6 +84,8 @@ BenchOptions parseOptions(int argumentCount, char** arguments) {
             options.fullSimulation = true;
         } else if (argument == "--scatter") {
             options.scatterSimulation = true;
+        } else if (argument == "--collisions") {
+            options.collisions = true;
         }
     }
     return options;
@@ -108,9 +111,10 @@ std::vector<BallSpawn> scatterBalls(const BrickBoard& board, size_t count, float
     return balls;
 }
 
-void runRawStep(const BrickLayout& layout, BackendKind kind, size_t ballCount, int ticks) {
+void runRawStep(const BrickLayout& layout, BackendKind kind, size_t ballCount, int ticks, bool collisions) {
     Simulation simulation(createBackend(kind));
     simulation.load(layout);
+    simulation.setBallCollisions(collisions);
     PhysicsBackend& backend = simulation.backend();
     const auto balls = scatterBalls(simulation.board(), ballCount, simulation.tuning().ballSpeed);
     backend.addBalls(balls);
@@ -130,14 +134,16 @@ void runRawStep(const BrickLayout& layout, BackendKind kind, size_t ballCount, i
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     const double msPerTick = seconds * 1000.0 / ticks;
     const double ballStepsPerSecond = static_cast<double>(ballCount) * ticks / seconds;
-    std::printf("%-7s balls=%9zu  %8.3f ms/tick  %8.1f M ball-steps/s  hits/tick=%zu\n",
-                std::string(backendKindName(kind)).c_str(), ballCount, msPerTick, ballStepsPerSecond / 1e6,
-                hitTotal / static_cast<size_t>(ticks));
+    std::printf("%-7s collisions=%d balls=%9zu  %8.3f ms/tick  %8.1f M ball-steps/s  hits/tick=%zu\n",
+                std::string(backendKindName(kind)).c_str(), collisions ? 1 : 0, ballCount, msPerTick,
+                ballStepsPerSecond / 1e6, hitTotal / static_cast<size_t>(ticks));
 }
 
-void runFullSimulation(const BrickLayout& layout, BackendKind kind, size_t ballCount, int ticks) {
+void runFullSimulation(const BrickLayout& layout, BackendKind kind, size_t ballCount, int ticks,
+                       bool collisions) {
     Simulation simulation(createBackend(kind));
     simulation.load(layout);
+    simulation.setBallCollisions(collisions);
     const size_t perColor = ballCount / ballColorCount;
     for (BallColor color : allBallColors) {
         simulation.launchBalls(color, static_cast<int>(perColor));
@@ -147,15 +153,18 @@ void runFullSimulation(const BrickLayout& layout, BackendKind kind, size_t ballC
         simulation.tick();
     }
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-    std::printf("%-7s full balls=%9zu  %8.3f ms/tick  remaining balls=%zu bricks=%d\n",
-                std::string(backendKindName(kind)).c_str(), ballCount, seconds * 1000.0 / ticks,
-                simulation.backend().ballCount(), simulation.board().aliveBrickCount());
+    std::printf("%-7s collisions=%d full balls=%9zu  %8.3f ms/tick  remaining balls=%zu bricks=%d\n",
+                std::string(backendKindName(kind)).c_str(), collisions ? 1 : 0, ballCount,
+                seconds * 1000.0 / ticks, simulation.backend().ballCount(),
+                simulation.board().aliveBrickCount());
 }
 
-void runScatteredSimulation(const BrickLayout& layout, BackendKind kind, size_t ballCount, int ticks, int substeps) {
+void runScatteredSimulation(const BrickLayout& layout, BackendKind kind, size_t ballCount, int ticks,
+                            int substeps, bool collisions) {
     constexpr int warmupTicks = 30;
     Simulation simulation(createBackend(kind));
     simulation.load(layout);
+    simulation.setBallCollisions(collisions);
     const size_t perColor = ballCount / ballColorCount;
     for (BallColor color : allBallColors) {
         simulation.scatterBalls(color, static_cast<BallCount>(perColor));
@@ -169,10 +178,11 @@ void runScatteredSimulation(const BrickLayout& layout, BackendKind kind, size_t 
         simulation.tick(substeps);
     }
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-    std::printf("%-7s scatter balls=%9zu  %8.3f ms/tick  %8.1f M ball-steps/s  bricks %d -> %d\n",
-                std::string(backendKindName(kind)).c_str(), ballCount, seconds * 1000.0 / ticks,
-                static_cast<double>(ballCount) * ticks / seconds / 1e6, bricksBefore,
-                simulation.board().aliveBrickCount());
+    std::printf(
+        "%-7s collisions=%d scatter balls=%9zu  %8.3f ms/tick  %8.1f M ball-steps/s  bricks %d -> %d\n",
+        std::string(backendKindName(kind)).c_str(), collisions ? 1 : 0, ballCount, seconds * 1000.0 / ticks,
+        static_cast<double>(ballCount) * ticks / seconds / 1e6, bricksBefore,
+        simulation.board().aliveBrickCount());
 }
 
 BrickLayout emptyBoard(int width, int rows) {
@@ -212,15 +222,17 @@ void runRoofline(const BenchOptions& options, const BrickLayout* level) {
             kernelMs += backend.deviceStepMs();
         }
         kernelMs /= options.ticks;
-        const double achievedGigabytesPerSecond = static_cast<double>(ballCount * bytesPerBall) / (kernelMs * 1.0e6);
-        std::printf("balls=%10zu substeps=%d kernel %7.3f ms  %6.1f GB/s = %5.1f%% of copy  %6.0f M ball-substeps/s\n",
+        const double achievedGigabytesPerSecond =
+            static_cast<double>(ballCount * bytesPerBall) / (kernelMs * 1.0e6);
+        std::printf("balls=%10zu substeps=%d kernel %7.3f ms  %6.1f GB/s = %5.1f%% of copy  %6.0f M "
+                    "ball-substeps/s\n",
                     ballCount, options.substeps, kernelMs, achievedGigabytesPerSecond,
                     100.0 * achievedGigabytesPerSecond / roofline.copyGigabytesPerSecond,
                     static_cast<double>(ballCount) * options.substeps / (kernelMs * 1.0e3));
     }
 }
 
-}
+} // namespace
 
 int main(int argumentCount, char** arguments) {
     const BenchOptions options = parseOptions(argumentCount, arguments);
@@ -245,11 +257,12 @@ int main(int argumentCount, char** arguments) {
         }
         for (size_t count : options.ballCounts) {
             if (options.scatterSimulation) {
-                runScatteredSimulation(level->bricks, kind, count, options.ticks, options.substeps);
+                runScatteredSimulation(level->bricks, kind, count, options.ticks, options.substeps,
+                                       options.collisions);
             } else if (options.fullSimulation) {
-                runFullSimulation(level->bricks, kind, count, options.ticks);
+                runFullSimulation(level->bricks, kind, count, options.ticks, options.collisions);
             } else {
-                runRawStep(level->bricks, kind, count, options.ticks);
+                runRawStep(level->bricks, kind, count, options.ticks, options.collisions);
             }
         }
     }
