@@ -1,6 +1,7 @@
 #include "app/App.h"
 
 #include "app/Input.h"
+#include "app/Paths.h"
 #include "app/PreferenceDirectory.h"
 #include "editor/MapEditorScreen.h"
 #include "game/Settings.h"
@@ -21,6 +22,8 @@
 #include <algorithm>
 #include <filesystem>
 #include <format>
+#include <fstream>
+#include <sstream>
 
 namespace {
 
@@ -64,14 +67,29 @@ std::string_view gameVersion() {
     return version ? version : "";
 }
 
-// The command line wins, then the Settings default (the benchmark winner or the player's pick), then the fastest CPU
-// backend, skipping any that cannot load on this machine.
+constexpr const char* targetBenchmarkFileName = "target-benchmark.txt";
+
+// The scoring machine's machine-benchmark record, measured with balls_bench --machine-benchmark and
+// shipped with the assets, so the game starts on the backend that is fastest where it is judged.
+std::optional<BenchmarkCandidate> targetMachineWinner() {
+    std::ifstream file(assetRoot() / targetBenchmarkFileName, std::ios::binary);
+    std::stringstream text;
+    text << file.rdbuf();
+    const std::optional<BenchmarkRecord> record = parseBenchmarkRecord(text.str());
+    return record ? record->winner : std::nullopt;
+}
+
+// The command line wins, then the Settings default (this machine's own benchmark winner or the player's pick), then
+// the scoring machine's winner, then the fastest CPU backend, skipping any that cannot load on this machine.
 BackendKind startupBackend(std::optional<BackendKind> commandLine, std::string_view settingsDefault) {
     if (commandLine && isBackendAvailable(*commandLine)) {
         return *commandLine;
     }
     if (const auto saved = parseBackendKind(settingsDefault); saved && isBackendAvailable(*saved)) {
         return *saved;
+    }
+    if (const auto target = targetMachineWinner(); target && isBackendAvailable(target->kind)) {
+        return target->kind;
     }
     return fastestAvailableCpuBackend();
 }
@@ -245,13 +263,8 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
         controlServer.start(options.controlPort);
     }
     const auto startLevel = options.playMode ? findLevel(*options.playMode, options.playLevel) : std::nullopt;
-    const bool backendChosenOnCommandLine = options.playMode || options.backend;
-    const std::optional<BenchmarkRecord>& stored = profile.benchmark();
     if (startLevel) {
         startGame(*options.playMode, *startLevel);
-    } else if (!options.skipBenchmark && !backendChosenOnCommandLine &&
-               benchmarkNeeded(stored, currentHardwareFingerprint(gameVersion()))) {
-        showMachineBenchmark();
     } else {
         showMainMenu();
     }

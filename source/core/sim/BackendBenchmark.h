@@ -14,7 +14,7 @@
 #include <vector>
 
 // What the machine benchmark ran on. A change in any field (new GPU, driver update, game update) means the stored
-// scores no longer describe this machine, so the benchmark runs again.
+// scores no longer describe this machine until Settings > Run machine benchmark measures it again.
 struct HardwareFingerprint {
     std::string cpuModel;
     unsigned logicalCores = 0;
@@ -49,8 +49,7 @@ struct BenchmarkRecord {
     HardwareFingerprint fingerprint;
     std::vector<CandidateResult> results;
     std::optional<BenchmarkCandidate> winner;
-    // False when the player skipped before every candidate finished: the winner is used, and the benchmark runs
-    // again on the next launch.
+    // False when the player skipped before every candidate finished: the winner among the finished ones is used.
     bool complete = false;
 };
 

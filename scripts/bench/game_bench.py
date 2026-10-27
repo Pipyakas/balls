@@ -63,7 +63,7 @@ def summarize(samples):
 def run(arguments):
     process = None
     if not arguments.attach:
-        command = [str(Path(arguments.exe).resolve()), "--hidden", "--skip-benchmark", "--control-port", str(arguments.port), "--play", "performance", arguments.level]
+        command = [str(Path(arguments.exe).resolve()), "--hidden", "--control-port", str(arguments.port), "--play", "performance", arguments.level]
         process = subprocess.Popen(command)
     results = []
     try:

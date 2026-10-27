@@ -18,7 +18,6 @@ struct LaunchOptions {
     int controlPort = 0;
     bool background = false;
     bool hidden = false;
-    bool skipBenchmark = false;
     bool vsync = false;
     int windowWidth = 1440;
     int windowHeight = 900;
