@@ -82,6 +82,9 @@ const FButtonStyle* SwatchStyle(BallColor Color) {
     return &Styles[toIndex(Color)];
 }
 
+// Steppers change by 1, or by 10 with Shift held ("Map editor").
+int32 StepSize() { return FSlateApplication::Get().GetModifierKeys().IsShiftDown() ? 10 : 1; }
+
 TSharedRef<SWidget> Stepper(const FString& Label, int32 Min, int32 Max, TFunction<int32()> Get,
                             TFunction<void(int32)> Set) {
     TSharedRef<SHorizontalBox> Row = SNew(SHorizontalBox);
@@ -91,7 +94,7 @@ TSharedRef<SWidget> Stepper(const FString& Label, int32 Min, int32 Max, TFunctio
     ];
     Row->AddSlot().AutoWidth().VAlign(VAlign_Center)
     [
-        BallsWidgets::Button(FText::FromString(TEXT("-")), [Get, Set, Min] { Set(FMath::Max(Min, Get() - 1)); }, 16.0f)
+        BallsWidgets::Button(FText::FromString(TEXT("-")), [Get, Set, Min] { Set(FMath::Max(Min, Get() - StepSize())); }, 16.0f)
     ];
     Row->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(6.0f, 0.0f)
     [
@@ -104,7 +107,7 @@ TSharedRef<SWidget> Stepper(const FString& Label, int32 Min, int32 Max, TFunctio
     ];
     Row->AddSlot().AutoWidth().VAlign(VAlign_Center)
     [
-        BallsWidgets::Button(FText::FromString(TEXT("+")), [Get, Set, Max] { Set(FMath::Min(Max, Get() + 1)); }, 16.0f)
+        BallsWidgets::Button(FText::FromString(TEXT("+")), [Get, Set, Max] { Set(FMath::Min(Max, Get() + StepSize())); }, 16.0f)
     ];
     return Row;
 }

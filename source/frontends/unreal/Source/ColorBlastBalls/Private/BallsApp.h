@@ -61,6 +61,9 @@ public:
     };
     std::optional<FMachineLimit> GetMachineLimit(BackendKind Kind) const;
     void RememberMachineLimit(BackendKind Kind, double TargetFps, BallCount Balls);
+    // A forced orientation resizes the window on desktop (portrait: 90% of the display height at 9:16; landscape:
+    // 1440 x 900); where it cannot, the layout letterboxes instead.
+    void ApplyOrientation();
     bool IsVSyncEnabled() const { return bVSync; }
     void SetVSyncEnabled(bool bEnabled);
     FBallsGameplay* GetGameplay() const { return Gameplay.Get(); }
@@ -83,6 +86,7 @@ private:
     BackendKind PreferredBackend = BackendKind::Scalar;
     Settings CurrentSettings;
     bool bVSync = false;
+    bool bOrientationApplied = false;
     TWeakPtr<SBallsLevelSelect> LevelSelect;
     FBallsToast Toast;
     FBallsFrameTimings FrameTimings;

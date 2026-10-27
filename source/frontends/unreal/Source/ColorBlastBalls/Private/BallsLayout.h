@@ -1,5 +1,6 @@
 #pragma once
 
+#include "BallsCoreIncludes.h"
 #include "CoreMinimal.h"
 
 // Screen split shared by the Slate HUD and the board camera, in Slate units of the game viewport.
@@ -18,6 +19,11 @@ struct FBallsGameplayLayout {
         return FVector2D(Board.Left + Column * CellSize, Board.Top + Row * CellSize);
     }
 };
+
+// The Settings page's Layout > Orientation. Auto follows the window shape; a forced orientation lays out inside a
+// centered 9:16 (portrait) or 16:10 (landscape) frame when the window cannot take that shape, so the rest of the
+// window stays empty (the game's "letterbox").
+void SetLayoutOrientation(LayoutOrientation Orientation);
 
 // Button size of the portrait launcher row for a panel of the given width.
 float PortraitLauncherSize(float PanelWidth);

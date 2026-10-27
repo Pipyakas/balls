@@ -17,6 +17,8 @@
 #include "Misc/Paths.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Framework/Application/SlateApplication.h"
+#include "GenericPlatform/GenericApplication.h"
+#include "Widgets/SWindow.h"
 #include "Misc/App.h"
 #include "Misc/CommandLine.h"
 #include "Misc/ConfigCacheIni.h"
@@ -179,6 +181,7 @@ FBallsApp::FBallsApp(UWorld* InWorld)
 #if PLATFORM_ANDROID
     StageAndroidLevels();
 #endif
+    ApplyOrientation();
     ShowMainMenu();
 
     // -BallsPlay=normal:DA_FirstLevel opens a level directly, like the raylib build's --play.
@@ -341,8 +344,30 @@ void FBallsApp::SetPreferredBackend(BackendKind Kind) {
     }
 }
 
+void FBallsApp::ApplyOrientation() {
+    SetLayoutOrientation(CurrentSettings.layout);
+#if !PLATFORM_ANDROID
+    UGameViewportClient* Viewport = World ? World->GetGameViewport() : nullptr;
+    const TSharedPtr<SWindow> Window = Viewport ? Viewport->GetWindow() : nullptr;
+    if (!Window || CurrentSettings.layout == LayoutOrientation::Auto || Window->IsWindowMaximized() ||
+        Window->GetWindowMode() != EWindowMode::Windowed) {
+        return;
+    }
+    FDisplayMetrics Metrics;
+    FDisplayMetrics::RebuildDisplayMetrics(Metrics);
+    const bool bPortrait = CurrentSettings.layout == LayoutOrientation::Portrait;
+    const float Height = bPortrait ? static_cast<float>(Metrics.PrimaryDisplayHeight) * 0.9f : 900.0f;
+    const float Width = bPortrait ? Height * 9.0f / 16.0f : 1440.0f;
+    Window->Resize(FVector2D(Width, Height));
+#endif
+}
+
 void FBallsApp::UpdateSettings(const Settings& Next) {
+    const bool bLayoutChanged = Next.layout != CurrentSettings.layout;
     CurrentSettings = Next;
+    if (bLayoutChanged) {
+        ApplyOrientation();
+    }
     if (const Result<void> Saved = saveSettings(SettingsFile(), CurrentSettings); !Saved) {
         UE_LOG(LogTemp, Warning, TEXT("BallsSettings: %s"), *BallsText::FromUtf8(Saved.error()));
     }
@@ -434,6 +459,11 @@ void FBallsApp::RecordFrame(float DeltaSeconds) {
 void FBallsApp::Tick(float DeltaSeconds) {
     RecordFrame(DeltaSeconds);
     Toast.SecondsLeft = FMath::Max(0.0f, Toast.SecondsLeft - DeltaSeconds);
+    // The viewport window may not exist yet in the constructor, so a saved forced orientation resizes it here.
+    if (!bOrientationApplied && World && World->GetGameViewport() && World->GetGameViewport()->GetWindow()) {
+        bOrientationApplied = true;
+        ApplyOrientation();
+    }
     if (CurrentScreen == EScreen::MapEditor) {
         if (MapEditorState) {
             MapEditorState->Tick(DeltaSeconds);
