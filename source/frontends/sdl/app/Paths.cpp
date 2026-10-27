@@ -35,4 +35,4 @@ std::filesystem::path levelDirectory(GameMode mode) {
     return assetRoot() / "levels" / (mode == GameMode::Normal ? "normal" : "performance");
 }
 
-std::filesystem::path fontPath() { return assetRoot() / "fonts" / "Ubuntu-Bold.ttf"; }
+std::filesystem::path fontPath(std::string_view fileName) { return assetRoot() / "fonts" / fileName; }

@@ -69,7 +69,7 @@ void drawLaunchers(const LauncherQueue& queue, const LauncherGridLayout& grid, b
             const std::string label = compactCount(queued->launcher.ballCount);
             ui::drawTextInRect(label, {labelRect.x + 2.0f, labelRect.y + 2.0f, labelRect.width, labelRect.height},
                                labelSize, palette::shade(fill, 0.45f));
-            ui::drawTextInRect(label, labelRect, labelSize, palette::text);
+            ui::drawTextInRect(label, labelRect, labelSize, palette::textStrong);
         }
     }
 }

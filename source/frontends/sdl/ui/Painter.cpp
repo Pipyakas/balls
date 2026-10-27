@@ -10,7 +10,7 @@ namespace {
 struct PainterState {
     float viewWidth = 1.0f;
     float viewHeight = 1.0f;
-    ImFont* font = nullptr;
+    gfx::FontSet fonts;
     std::vector<RendererRect> scene;
     std::vector<Rect> clips;
 };
@@ -21,6 +21,10 @@ ImU32 packColor(Color color) { return IM_COL32(color.r, color.g, color.b, color.
 
 ImDrawList& layer() { return *ImGui::GetBackgroundDrawList(); }
 
+ImFont* fontFor(float size) {
+    return state.fonts.strong && size >= state.fonts.strongMinimumSize ? state.fonts.strong : state.fonts.regular;
+}
+
 float cornerRadius(Rect rect, float roundness) {
     return std::clamp(roundness, 0.0f, 1.0f) * std::min(rect.width, rect.height) * 0.5f;
 }
@@ -29,10 +33,10 @@ float cornerRadius(Rect rect, float roundness) {
 
 namespace gfx {
 
-void beginFrame(float viewWidth, float viewHeight, ImFont* font) {
+void beginFrame(float viewWidth, float viewHeight, FontSet fonts) {
     state.viewWidth = viewWidth;
     state.viewHeight = viewHeight;
-    state.font = font;
+    state.fonts = fonts;
     state.scene.clear();
     state.clips.clear();
 }
@@ -123,18 +127,20 @@ void endClip() {
 Rect currentClip() { return state.clips.empty() ? Rect{0.0f, 0.0f, state.viewWidth, state.viewHeight} : state.clips.back(); }
 
 Vec2 measureText(std::string_view text, float size) {
-    if (!state.font || text.empty()) {
+    ImFont* font = fontFor(size);
+    if (!font || text.empty()) {
         return {0.0f, size};
     }
-    const ImVec2 extent = state.font->CalcTextSizeA(size, 1.0e9f, 0.0f, text.data(), text.data() + text.size());
+    const ImVec2 extent = font->CalcTextSizeA(size, 1.0e9f, 0.0f, text.data(), text.data() + text.size());
     return {extent.x, size};
 }
 
 void drawText(std::string_view text, Vec2 position, float size, Color color) {
-    if (!state.font || text.empty()) {
+    ImFont* font = fontFor(size);
+    if (!font || text.empty()) {
         return;
     }
-    layer().AddText(state.font, size, {position.x, position.y}, packColor(color), text.data(), text.data() + text.size());
+    layer().AddText(font, size, {position.x, position.y}, packColor(color), text.data(), text.data() + text.size());
 }
 
 }

@@ -37,7 +37,7 @@ void MainMenuScreen::draw() {
     const float centerX = static_cast<float>(gfx::screenWidth()) * 0.5f;
     const float top = static_cast<float>(gfx::screenHeight()) * 0.22f;
     ui::drawText("COLOR BLAST", {centerX, top}, titleSize, palette::accent, ui::Align::Center);
-    ui::drawText("BALLS", {centerX, top + titleSize}, titleSize * 0.7f, palette::text, ui::Align::Center);
+    ui::drawText("BALLS", {centerX, top + titleSize}, titleSize * 0.7f, palette::textStrong, ui::Align::Center);
 
     const float firstButtonY = top + titleSize * 2.2f;
     auto buttonRect = [&](int index) {

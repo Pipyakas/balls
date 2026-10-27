@@ -99,11 +99,12 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.LogFilename = nullptr;
-    const std::string fontFile = fontPath().string();
-    font = io.Fonts->AddFontFromFileTTF(fontFile.c_str(), fontLoadPixels);
-    if (!font) {
-        font = io.Fonts->AddFontDefault();
+    fonts.regular = io.Fonts->AddFontFromFileTTF(fontPath(palette::regularFontFile).string().c_str(), fontLoadPixels);
+    if (!fonts.regular) {
+        fonts.regular = io.Fonts->AddFontDefault();
     }
+    fonts.strong = io.Fonts->AddFontFromFileTTF(fontPath(palette::strongFontFile).string().c_str(), fontLoadPixels);
+    fonts.strongMinimumSize = palette::strongTextMinimumPixels;
 
     if (!openWindowAndRenderer(options, options.graphicsApi, error)) {
         const std::string_view fallback = fallbackGraphicsApi(options.graphicsApi);
@@ -169,7 +170,7 @@ bool App::frame() {
     const float deltaTime = std::min(frameSeconds, maximumFrameSeconds);
     renderer->beginFrame();
     const Clock::time_point workStart = Clock::now();
-    gfx::beginFrame(renderer->viewWidth(), renderer->viewHeight(), font);
+    gfx::beginFrame(renderer->viewWidth(), renderer->viewHeight(), fonts);
     currentScreen->update(deltaTime);
     currentScreen->draw();
     if (!currentScreen->drawsFrameTimings()) {
@@ -207,8 +208,7 @@ void App::drawFrameTimingsOverlay() const {
     const Vec2 extent = ui::measureText(text, 18.0f);
     const float x = 26.0f;
     const float y = static_cast<float>(gfx::screenHeight()) - extent.y - 10.0f;
-    gfx::fillRounded({x - 10.0f, y - 4.0f, extent.x + 20.0f, extent.y + 8.0f}, 0.4f,
-                     gfx::fade(palette::backgroundDeep, 0.85f));
+    ui::drawPanel({x - 10.0f, y - 4.0f, extent.x + 20.0f, extent.y + 8.0f}, gfx::fade(palette::backgroundDeep, 0.85f));
     ui::drawText(text, {x, y}, 18.0f, palette::textMuted);
 }
 
