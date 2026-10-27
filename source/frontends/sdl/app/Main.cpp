@@ -8,7 +8,7 @@
 #include <string>
 
 SDL_AppResult SDL_AppInit(void** appState, int argumentCount, char** arguments) {
-    SDL_SetAppMetadata("Balls", "0.1.0", "com.the company.colorblastballs");
+    SDL_SetAppMetadata("Balls", "0.1.0", "io.github.pipyakas.colorblastballs");
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         return SDL_APP_FAILURE;
