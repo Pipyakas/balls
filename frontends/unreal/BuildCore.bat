@@ -19,11 +19,11 @@ ping 127.0.0.1 -n 3 >nul
 goto acquire
 
 :locked
-if not exist "%OUT%\CMakeCache.txt" (
-    cmake -S "%REPO%" -B "%OUT%" -DBALLS_BUILD_GAME=OFF -DBALLS_STATIC_CRT=OFF -DBALLS_LTO=OFF
-    if errorlevel 1 goto failed
-)
-cmake --build "%OUT%" --config Release --target balls_core --parallel 1
+rem Always configure: the core's options changed (BALLS_FRONTEND replaced BALLS_BUILD_GAME), and re-running is cheap.
+cmake -S "%REPO%" -B "%OUT%" -DBALLS_FRONTEND=none -DBALLS_STATIC_CRT=OFF -DBALLS_LTO=OFF
+if errorlevel 1 goto failed
+rem balls_core is the static library; the physics plugins (CPU, CUDA) are DLLs the core loads at run time.
+cmake --build "%OUT%" --config Release --target balls_core balls_physics_plugins --parallel 1
 if errorlevel 1 goto failed
 rmdir "%LOCK%" 2>nul
 exit /b 0

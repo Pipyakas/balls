@@ -10,7 +10,7 @@
 namespace {
 
 constexpr float ToastSeconds = 3.0f;
-const FKey BackendKeys[] = {EKeys::F1, EKeys::F2, EKeys::F3};
+const FKey BackendKeys[] = {EKeys::F1, EKeys::F2, EKeys::F3, EKeys::F4};
 
 }
 
@@ -52,7 +52,7 @@ bool FBallsGameplay::IsWon() const {
     return Session && Mode == GameMode::Normal && Session->state() == SessionState::Won;
 }
 
-void FBallsGameplay::Tick(float DeltaSeconds, double FrameSeconds) {
+void FBallsGameplay::Tick(float DeltaSeconds, double FrameSeconds, double WorkSeconds) {
     Toast.SecondsLeft = FMath::Max(0.0f, Toast.SecondsLeft - DeltaSeconds);
     if (Watcher.pollChanged(std::chrono::steady_clock::now())) {
         HotReload();
@@ -60,7 +60,7 @@ void FBallsGameplay::Tick(float DeltaSeconds, double FrameSeconds) {
     if (!Session || bPaused) {
         return;
     }
-    Session->reportFrameSeconds(FrameSeconds);
+    Session->reportFrameSeconds(FrameSeconds, WorkSeconds);
     Session->update(DeltaSeconds);
 
     const CapacityProbe& Probe = Session->capacityProbe();

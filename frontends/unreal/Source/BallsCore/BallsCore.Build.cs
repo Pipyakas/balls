@@ -17,6 +17,19 @@ public class BallsCore : ModuleRules
         else
         {
             PublicAdditionalLibraries.Add(Path.Combine(RepoRoot, "build-unreal", "core", "Release", "balls_core.lib"));
+
+            // The physics backends (CPU, CUDA) are DLLs the core loads at run time. Packaged builds stage them next
+            // to the executable; the editor finds them through BALLS_PLUGIN_DIR (see FBallsApp).
+            string PluginDirectory = Path.Combine(RepoRoot, "build-unreal", "bin", "Release");
+            PublicDefinitions.Add("BALLS_PLUGIN_DIR=\"" + PluginDirectory.Replace('\\', '/') + "\"");
+            foreach (string Plugin in new[] { "balls_physics_cpu.dll", "balls_physics_cuda.dll" })
+            {
+                string PluginPath = Path.Combine(PluginDirectory, Plugin);
+                if (File.Exists(PluginPath))
+                {
+                    RuntimeDependencies.Add("$(BinaryOutputDir)/" + Plugin, PluginPath);
+                }
+            }
         }
         PublicDefinitions.Add("BALLS_ASSET_DIR=\"" + Path.Combine(RepoRoot, "assets").Replace('\\', '/') + "\"");
     }

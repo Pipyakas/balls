@@ -50,4 +50,5 @@ private:
     GameMode LevelSelectMode = GameMode::Normal;
     BackendKind PreferredBackend = BackendKind::Scalar;
     FBallsFrameTimings FrameTimings;
+    FBallsFrameSample LatestSample;
 };

@@ -20,7 +20,7 @@ public:
 
     FBallsGameplay(FBallsApp& App, GameMode Mode, LevelFiles Files);
 
-    void Tick(float DeltaSeconds, double FrameSeconds);
+    void Tick(float DeltaSeconds, double FrameSeconds, double WorkSeconds);
     bool HandleKey(const FKey& Key);
 
     void ChooseLauncher(int32 Column, int32 Row);

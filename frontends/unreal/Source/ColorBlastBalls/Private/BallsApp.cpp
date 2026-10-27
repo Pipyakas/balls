@@ -12,6 +12,7 @@
 #include "Engine/World.h"
 #include "GameFramework/PlayerController.h"
 #include "HAL/PlatformFileManager.h"
+#include "HAL/PlatformProcess.h"
 #include "HAL/PlatformTime.h"
 #include "Misc/Paths.h"
 #include "Kismet/KismetSystemLibrary.h"
@@ -72,6 +73,18 @@ void ApplyHighEndPreset(UWorld* World) {
            Read(TEXT("r.DynamicRes.MinScreenPercentage")), Read(TEXT("r.DynamicRes.MaxScreenPercentage")));
 }
 
+#if PLATFORM_WINDOWS && defined(BALLS_PLUGIN_DIR)
+// The core loads its physics backends (CPU, CUDA) as DLLs by file name. Packaged builds stage them beside the
+// executable; the editor and development builds find them in the core's build output.
+void AddPhysicsPluginDirectory() {
+    static const bool bAdded = [] {
+        FPlatformProcess::PushDllDirectory(*FString(UTF8_TO_TCHAR(BALLS_PLUGIN_DIR)));
+        return true;
+    }();
+    (void)bAdded;
+}
+#endif
+
 std::optional<BackendKind> BackendFromCommandLine() {
     FString Name;
     if (!FParse::Value(FCommandLine::Get(), TEXT("BallsBackend="), Name)) {
@@ -85,10 +98,17 @@ std::optional<BackendKind> BackendFromCommandLine() {
     return std::nullopt;
 }
 
+BackendKind InitialBackend() {
+#if PLATFORM_WINDOWS && defined(BALLS_PLUGIN_DIR)
+    AddPhysicsPluginDirectory();
+#endif
+    return BackendFromCommandLine().value_or(fastestAvailableCpuBackend());
+}
+
 }
 
 FBallsApp::FBallsApp(UWorld* InWorld)
-    : World(InWorld), PreferredBackend(BackendFromCommandLine().value_or(fastestAvailableCpuBackend())) {
+    : World(InWorld), PreferredBackend(InitialBackend()) {
     BoardView = MakeUnique<FBallsBoardView>(World);
     Root = SNew(SBallsRoot).OnKey_Lambda([this](const FKey& Key) { return HandleKey(Key); });
     if (UGameViewportClient* Viewport = World->GetGameViewport()) {
@@ -246,6 +266,7 @@ void FBallsApp::RecordFrame(float DeltaSeconds) {
     Sample.GameMs = FPlatformTime::ToMilliseconds(GGameThreadTime);
     Sample.RenderMs = FPlatformTime::ToMilliseconds(GRenderThreadTime);
     Sample.GpuMs = FPlatformTime::ToMilliseconds(RHIGetGPUFrameCycles(0));
+    LatestSample = Sample;
     FrameTimings.Record(Sample);
 }
 
@@ -262,7 +283,9 @@ void FBallsApp::Tick(float DeltaSeconds) {
     }
     // Hold a reference: the tick can open the next level, which replaces Gameplay.
     const TSharedPtr<FBallsGameplay> Current = Gameplay;
-    Current->Tick(DeltaSeconds, FApp::GetDeltaTime());
+    // The probe sizes its jumps from the slower of the CPU and GPU work per frame, like the SDL front end.
+    const double WorkSeconds = FMath::Max3(LatestSample.GameMs, LatestSample.RenderMs, LatestSample.GpuMs) / 1000.0;
+    Current->Tick(DeltaSeconds, FApp::GetDeltaTime(), WorkSeconds);
     GameSession* Session = Current->GetSession();
     const FGeometry& Geometry = Root->GetCachedGeometry();
     const FVector2D ViewportSize = Geometry.GetLocalSize();
