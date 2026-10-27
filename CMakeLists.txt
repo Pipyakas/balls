@@ -72,10 +72,20 @@ if(WIN32 AND EXISTS "${BALLS_CUPTI_DIR}/include/cupti.h" AND EXISTS "${BALLS_CUD
     target_link_options(balls_insncount PRIVATE ${BALLS_LINK_OPTIMIZE})
 endif()
 
-if(WIN32 AND TARGET nvrhi_d3d11 AND TARGET nvrhi_d3d12 AND TARGET nvrhi_vk)
-    add_executable(balls_gpucompute tools/gpucompute/GpuComputeBench.cpp)
+if(TARGET nvrhi AND TARGET nvrhi_vk)
+    add_executable(balls_gpucompute tools/gpucompute/GpuComputeBench.cpp tools/gpucompute/BallStepVariants.cpp)
     target_include_directories(balls_gpucompute PRIVATE tools/gpucompute)
-    target_link_libraries(balls_gpucompute PRIVATE balls_core nvrhi nvrhi_d3d11 nvrhi_d3d12 nvrhi_vk dxgi d3d11 d3d12)
+    target_link_libraries(balls_gpucompute PRIVATE balls_core)
+    if(MSVC)
+        target_link_libraries(balls_gpucompute PRIVATE nvrhi nvrhi_vk)
+    else()
+        # nvrhi and nvrhi_vk are static archives with cyclic references, so the GNU and Clang
+        # linkers need them rescanned rather than linked in file order.
+        target_link_libraries(balls_gpucompute PRIVATE $<LINK_GROUP:RESCAN,nvrhi,nvrhi_vk>)
+    endif()
+    if(WIN32)
+        target_link_libraries(balls_gpucompute PRIVATE nvrhi_d3d11 nvrhi_d3d12 dxgi d3d11 d3d12)
+    endif()
     if(TARGET Vulkan::Headers)
         target_link_libraries(balls_gpucompute PRIVATE Vulkan::Headers)
     else()
