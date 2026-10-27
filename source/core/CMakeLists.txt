@@ -29,6 +29,7 @@ target_include_directories(balls_core PUBLIC
     $<INSTALL_INTERFACE:include>)
 target_compile_features(balls_core PUBLIC cxx_std_20)
 target_compile_options(balls_core PRIVATE ${BALLS_WARNINGS} ${BALLS_OPTIMIZE})
+balls_precompile(balls_core)
 target_link_options(balls_core INTERFACE ${BALLS_LINK_OPTIMIZE})
 # WorkerPool needs threads and DynamicLibrary loads physics plugins with dlopen on POSIX.
 find_package(Threads REQUIRED)
