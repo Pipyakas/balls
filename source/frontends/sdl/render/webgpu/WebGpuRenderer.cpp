@@ -180,8 +180,6 @@ public:
         const bool statusOk = (surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal ||
                                surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal);
         if (!statusOk || !surfaceTexture.texture) {
-            SDL_Log("beginFrame: failed get current texture status=%d texture=%p",
-                    static_cast<int>(surfaceTexture.status), surfaceTexture.texture);
             return false;
         }
 
@@ -237,15 +235,14 @@ public:
         wgpuCommandBufferRelease(cmd);
 
         const WGPUStatus pres = wgpuSurfacePresent(surface);
-        if (pres != WGPUStatus_Success) {
-            SDL_Log("endFrame: wgpuSurfacePresent failed with status %d", static_cast<int>(pres));
-        }
         const auto frameEnd = Clock::now();
         lastBusyMs = std::chrono::duration<double, std::milli>(frameEnd - submitStart).count();
 
         wgpuTextureViewRelease(currentSurfaceView);
         currentSurfaceView = nullptr;
-        wgpuTextureRelease(currentSurfaceTexture);
+        if (pres == WGPUStatus_Success) {
+            wgpuTextureRelease(currentSurfaceTexture);
+        }
         currentSurfaceTexture = nullptr;
     }
 
@@ -328,6 +325,7 @@ private:
             config.usage = WGPUTextureUsage_RenderAttachment;
             config.width = static_cast<uint32_t>(pixelWidth);
             config.height = static_cast<uint32_t>(pixelHeight);
+            config.alphaMode = caps.alphaModeCount > 0 ? caps.alphaModes[0] : WGPUCompositeAlphaMode_Opaque;
             config.presentMode = wantedMode;
             wgpuSurfaceConfigure(surface, &config);
             wgpuSurfaceCapabilitiesFreeMembers(caps);
