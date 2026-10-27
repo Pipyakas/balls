@@ -5,6 +5,7 @@
 #include <fstream>
 #include <map>
 #include <sstream>
+#include <unordered_set>
 #include <vector>
 
 namespace {
@@ -169,6 +170,8 @@ Result<BrickLayout> parseBrickLayout(std::string_view text) {
     if (!typeLines) {
         return Error{"missing [BrickTypes] section"};
     }
+    std::unordered_set<int> typeIds;
+    typeIds.reserve(typeLines->size());
     for (const auto& tokens : *typeLines) {
         if (tokens.size() != 3) {
             return Error{"[BrickTypes] lines must be '<Id> <Color> <Hits>'"};
@@ -179,13 +182,13 @@ Result<BrickLayout> parseBrickLayout(std::string_view text) {
         if (!id || !color || !hits || *hits <= 0) {
             return Error{std::format("[BrickTypes] invalid line '{} {} {}'", tokens[0], tokens[1], tokens[2])};
         }
-        if (layout.findType(*id)) {
+        if (!typeIds.insert(*id).second) {
             return Error{std::format("[BrickTypes] duplicate id {}", *id)};
         }
         layout.types.push_back({*id, *color, *hits});
     }
     for (int& id : layout.cellIds) {
-        if (id != emptyBrickId && !layout.findType(id)) {
+        if (id != emptyBrickId && !typeIds.contains(id)) {
             id = emptyBrickId;
         }
     }

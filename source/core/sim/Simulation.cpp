@@ -20,6 +20,9 @@ void Simulation::load(const BrickLayout& layout) {
     statistics = {};
     accumulator = 0.0f;
     uploadedRevision = ~0ull;
+    targetField.discardPendingRebuilds();
+    targetsUploadPending = true;
+    hitsUploadPending = true;
     syncBoardIfChanged();
 }
 
@@ -27,6 +30,8 @@ void Simulation::replaceBackend(BackendHandle backend) {
     const std::vector<BallSpawn> balls = physics->exportBalls();
     physics = std::move(backend);
     uploadedRevision = ~0ull;
+    targetsUploadPending = true;
+    hitsUploadPending = true;
     syncBoardIfChanged();
     physics->addBalls(balls);
     physics->setBallCollisions(ballCollisionsWanted);
@@ -53,11 +58,21 @@ void Simulation::launchBalls(BallColor color, BallCount count) {
     statistics.totalBallsSpawned += count;
 }
 
-void Simulation::scatterBalls(BallColor color, BallCount count) {
+BallCount Simulation::ballRoom() const {
+    const BallCount limit = static_cast<BallCount>(physics->ballCapacityLimit());
+    const BallCount live = liveBallCount();
+    return limit > live ? limit - live : 0;
+}
+
+void Simulation::scatterBalls(BallColor color, BallCount requested) {
+    // Spawns are 20 bytes against 8 to 12 stored, so a probe step of billions of balls hands them to the backend
+    // in batches instead of holding them all.
+    constexpr size_t scatterFlushBalls = size_t{1} << 22;
+    const BallCount count = std::min(requested, ballRoom());
     std::uniform_real_distribution<float> unit(0.0f, 1.0f);
     const float width = static_cast<float>(brickBoard.columns());
     const float height = static_cast<float>(brickBoard.rows());
-    pendingSpawns.reserve(pendingSpawns.size() + static_cast<size_t>(count));
+    pendingSpawns.reserve(pendingSpawns.size() + std::min(static_cast<size_t>(count), scatterFlushBalls));
     for (BallCount i = 0; i < count; ++i) {
         float x = 0.0f;
         float y = 0.0f;
@@ -71,6 +86,10 @@ void Simulation::scatterBalls(BallColor color, BallCount count) {
         const float angle = unit(random) * 2.0f * std::numbers::pi_v<float>;
         pendingSpawns.push_back({x, y, std::cos(angle) * settings.ballSpeed, std::sin(angle) * settings.ballSpeed,
                                  toIndex(color)});
+        if (pendingSpawns.size() >= scatterFlushBalls) {
+            physics->addBalls(pendingSpawns);
+            pendingSpawns.clear();
+        }
     }
     statistics.ballsByColor[toIndex(color)] += count;
     statistics.totalBallsSpawned += count;
@@ -102,28 +121,47 @@ StepParams Simulation::stepParams(int substeps) const {
             settings.retargetBounceThreshold,
             renderPackScale(static_cast<float>(brickBoard.columns())),
             renderPackScale(static_cast<float>(brickBoard.rows())),
-            substeps};
+            substeps,
+            elapsedTicks,
+            isCleared() && !ballCollisionsActive() ? 1 : 0};
 }
 
 void Simulation::syncBoardIfChanged() {
+    targetsUploadPending = targetField.takeFinishedRebuild(brickBoard) || targetsUploadPending;
     const bool layoutChanged = uploadedRevision != brickBoard.revision();
-    if (!layoutChanged && !hostHitsPending) {
+    if (!layoutChanged && !hostHitsPending && !targetsUploadPending) {
         return;
     }
     if (layoutChanged) {
-        targetField.rebuild(brickBoard);
-        uploadedNearBrickCells = brickBoard.nearBrickFlags();
+        targetsUploadPending = targetField.requestRebuild(brickBoard) || targetsUploadPending;
+    }
+    const bool onlyChangedCells = uploadedRevision != ~0ull;
+    const bool sendHits = hostHitsPending || hitsUploadPending;
+    if (sendHits) {
+        uploadedBrickHitsLeft = brickBoard.hitsLeftPerBrick();
     }
     hostHitsPending = false;
-    uploadedBrickHitsLeft = brickBoard.hitsLeftPerBrick();
+    hitsUploadPending = false;
+    const std::span<const int32_t> hitsLeft =
+        sendHits ? std::span<const int32_t>(uploadedBrickHitsLeft) : std::span<const int32_t>{};
+    const std::span<const int32_t> targets =
+        targetsUploadPending ? std::span<const int32_t>(targetField.targetCells()) : std::span<const int32_t>{};
     physics->uploadBoard({brickBoard.columns(), brickBoard.rows(), brickBoard.paddedCells(), brickBoard.brickColors(),
-                          targetField.targetCells(), uploadedNearBrickCells, uploadedBrickHitsLeft});
+                          targets, brickBoard.nearBrickFlags(), hitsLeft, brickBoard.changedCells(), onlyChangedCells});
+    brickBoard.clearChangedCells();
+    targetsUploadPending = false;
     uploadedRevision = brickBoard.revision();
 }
 
 void Simulation::applyDeviceHits() {
     const DeviceHitResults results = physics->deviceHitResults();
     bool anyDestroyed = false;
+    for (const uint32_t brick : results.hitBricks) {
+        const int index = static_cast<int>(brick);
+        const bool wasAlive = brickBoard.bricks()[index].isAlive();
+        brickBoard.applyHit(index);
+        anyDestroyed = anyDestroyed || (wasAlive && !brickBoard.bricks()[index].isAlive());
+    }
     for (size_t brick = 0; brick < results.brickHitsLeft.size(); ++brick) {
         const int index = static_cast<int>(brick);
         const bool wasAlive = brickBoard.bricks()[index].isAlive();
@@ -168,6 +206,7 @@ void Simulation::tick(int substeps) {
     syncBoardIfChanged();
     hits.clear();
     physics->step(stepParams(substeps), hits);
+    elapsedTicks += static_cast<uint32_t>(substeps);
     if (physics->resolvesHitsOnDevice()) {
         applyDeviceHits();
         if (!hits.empty()) {

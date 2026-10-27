@@ -131,7 +131,7 @@ void VulkanBackend::ensureReadback(nvrhi::BufferHandle& buffer, size_t bytes, co
 }
 
 bool VulkanBackend::initialize() {
-    static_assert(sizeof(StepParams) == 44);
+    static_assert(sizeof(ShaderStepParams) == 44);
     static_assert(sizeof(StepConstants) == 80);
     static_assert(sizeof(CompactionConstants) == 16);
 
@@ -521,7 +521,7 @@ void VulkanBackend::step(const StepParams& params, std::vector<BallHit>& hits) {
     const size_t sortCellCount = static_cast<size_t>(std::max(sortColumns, 0)) * static_cast<size_t>(std::max(sortRows, 0));
     const bool sorting = sortCellCount > 0 && sortCellCount <= maximumSortCells && sortSchedule.sortThisTick(count);
     const uint32_t ballCount = static_cast<uint32_t>(count);
-    StepConstants stepData{params, ballCount, killedCapacity, stepShape.groupsPerRow, static_cast<uint32_t>(capacity),
+    StepConstants stepData{shaderStepParams(params), ballCount, killedCapacity, stepShape.groupsPerRow, static_cast<uint32_t>(capacity),
                            0u, sortColumns, sortRows, 0u, 0u};
     StepConstants countData = stepData;
     countData.groupsPerRow = countShape.groupsPerRow;

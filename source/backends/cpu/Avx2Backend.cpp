@@ -6,13 +6,61 @@
 #include <atomic>
 #include <bit>
 
+#include <limits>
+#include <optional>
+
 #if defined(_MSC_VER)
 #include <intrin.h>
 #endif
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
 namespace {
 
+struct PhysicalMemory {
+    size_t total = 0;
+    size_t available = 0;
+};
+
+bool isMemoryLow() {
+#if defined(_WIN32)
+    static const HANDLE lowMemory = CreateMemoryResourceNotification(LowMemoryResourceNotification);
+    BOOL low = FALSE;
+    return lowMemory && QueryMemoryResourceNotification(lowMemory, &low) && low;
+#else
+    return false;
+#endif
+}
+
+std::optional<PhysicalMemory> physicalMemory() {
+#if defined(_WIN32)
+    MEMORYSTATUSEX memory{};
+    memory.dwLength = sizeof(memory);
+    if (!GlobalMemoryStatusEx(&memory)) {
+        return std::nullopt;
+    }
+    return PhysicalMemory{static_cast<size_t>(memory.ullTotalPhys), static_cast<size_t>(memory.ullAvailPhys)};
+#else
+    const long pageSize = sysconf(_SC_PAGESIZE);
+    const long pages = sysconf(_SC_PHYS_PAGES);
+    const long availablePages = sysconf(_SC_AVPHYS_PAGES);
+    if (pageSize <= 0 || pages <= 0 || availablePages < 0) {
+        return std::nullopt;
+    }
+    return PhysicalMemory{static_cast<size_t>(pages) * static_cast<size_t>(pageSize),
+                          static_cast<size_t>(availablePages) * static_cast<size_t>(pageSize)};
+#endif
+}
+
 constexpr size_t ballsPerChunk = 16384;
+constexpr int paddingRowsAboveFirstRow = 1;
+constexpr float coastMargin = 1e-3f;
 
 struct LaneConstants {
     __m256 deltaTime;
@@ -56,8 +104,14 @@ struct LaneConstants {
     __m256i colorMask;
     __m256i bounceMask;
     __m256i savedBounceLimit;
+    __m256i lastNearRow;
+    __m256 tickTime;
+    __m256 coastLeft;
+    __m256 coastRight;
+    __m256 coastTop;
+    __m256 coastBottom;
 
-    LaneConstants(const StepParams& params, int sentinel)
+    LaneConstants(const StepParams& params, int sentinel, int nearRowsEnd)
         : deltaTime(_mm256_set1_ps(params.deltaTime)), radius(_mm256_set1_ps(params.radius)),
           radiusSquared(_mm256_set1_ps(params.radius * params.radius)),
           twiceRadius(_mm256_set1_ps(2.0f * params.radius)),
@@ -89,7 +143,14 @@ struct LaneConstants {
           directionMask(_mm256_set1_epi32(static_cast<int>(compact::directionMask))),
           colorMask(_mm256_set1_epi32(static_cast<int>(compact::colorMask))),
           bounceMask(_mm256_set1_epi32(static_cast<int>(compact::bounceMask))),
-          savedBounceLimit(_mm256_set1_epi32(compact::savedBounceLimit)) {}
+          savedBounceLimit(_mm256_set1_epi32(compact::savedBounceLimit)),
+          lastNearRow(_mm256_set1_epi32(nearRowsEnd - paddingRowsAboveFirstRow - 1)),
+          tickTime(_mm256_set1_ps(params.deltaTime * static_cast<float>(params.substeps))),
+          coastLeft(_mm256_set1_ps(params.radius + coastMargin)),
+          coastRight(_mm256_set1_ps(params.fieldWidth - params.radius - coastMargin)),
+          coastTop(_mm256_set1_ps(std::max(params.radius, static_cast<float>(nearRowsEnd - paddingRowsAboveFirstRow)) +
+                                  coastMargin)),
+          coastBottom(_mm256_set1_ps(params.fieldHeight - params.radius - coastMargin)) {}
 };
 
 inline __m256 select(__m256 mask, __m256 whenTrue, __m256 whenFalse) {
@@ -226,12 +287,50 @@ bool Avx2Backend::isSupportedByCpu() {
 #endif
 }
 
+void Avx2Backend::materializeFreeFlight() {
+    if (!store.frozen) {
+        return;
+    }
+    pool->runChunks(store.count, ballsPerChunk,
+                    [&](size_t, size_t begin, size_t end) { store.materializeRange(begin, end); });
+    store.frozen = false;
+}
+
+// What is physically free right now, less a margin for the rest of the game and the system, at 8 bytes per ball.
+// Paging even part of the balls out would cost more than the frame budget, so the ceiling stops short of it, and
+// once Windows reports memory as low no more balls are taken at all.
+size_t Avx2Backend::ballCapacityLimit() const {
+    constexpr size_t bytesPerBall = 8;
+    constexpr size_t minimumMarginBytes = size_t{1} << 30;
+    constexpr size_t marginDivisor = 32;
+    if (isMemoryLow()) {
+        return store.count;
+    }
+    const std::optional<PhysicalMemory> memory = physicalMemory();
+    if (!memory) {
+        return std::numeric_limits<size_t>::max();
+    }
+    const size_t margin = std::max(minimumMarginBytes, memory->total / marginDivisor);
+    const size_t spare = memory->available > margin ? memory->available - margin : 0;
+    return store.count + spare / bytesPerBall;
+}
+
 void Avx2Backend::step(const StepParams& params, std::vector<BallHit>& hits) {
+    store.clockTick = params.tick + static_cast<unsigned int>(params.substeps);
+    store.flightParams = params;
     if (store.count == 0) {
         return;
     }
     store.speed = params.speed;
-    store.prepareGrid();
+    // Free flight only pays off when the visibility grid limits a frame to the sampled balls: placing every ball
+    // from the closed form costs more than the SIMD step, so without a grid the balls keep being stepped.
+    const bool gridded = store.prepareGrid();
+    if (params.freeFlight && gridded) {
+        store.freeze(params.tick);
+        store.renderFreeFlightSample();
+        return;
+    }
+    materializeFreeFlight();
     if (store.count <= ballsPerChunk) {
         stepRange(params, 0, store.count, hits);
         return;
@@ -303,8 +402,11 @@ LaneStepResult stepLanes(LaneState& state, const LaneConstants& k, const BoardVi
     __m256 sameColor = k.zero;
     __m256 contact = k.zero;
     __m256 embedded = k.zero;
+    const __m256i maybeNear = _mm256_xor_si256(_mm256_cmpgt_epi32(row, k.lastNearRow), k.minusOneInt);
     const __m256i cellIndex = _mm256_add_epi32(_mm256_mullo_epi32(row, k.paddedWidth), _mm256_add_epi32(column, k.paddedOffset));
-    const __m256i nearBrick = _mm256_i32gather_epi32(board.nearBrickCells, cellIndex, 4);
+    const __m256i nearBrick = _mm256_testz_si256(maybeNear, maybeNear)
+                                  ? _mm256_setzero_si256()
+                                  : _mm256_i32gather_epi32(board.nearBrickCells, cellIndex, 4);
     if (!_mm256_testz_si256(nearBrick, nearBrick)) {
         considerCell(best, board.paddedCells, x, y, column, row, k);
         considerCell(best, board.paddedCells, x, y, otherColumn, row, k);
@@ -373,6 +475,21 @@ LaneStepResult stepLanes(LaneState& state, const LaneConstants& k, const BoardVi
     state.vy = vy;
     state.bounces = bounces;
     return {_mm256_and_ps(sameColor, contact), embedded, best.brick, best.column, best.row};
+}
+
+bool coastsWholeTick(const LaneState& state, const LaneConstants& k) {
+    const __m256 endX = _mm256_fmadd_ps(state.vx, k.tickTime, state.x);
+    const __m256 endY = _mm256_fmadd_ps(state.vy, k.tickTime, state.y);
+    const __m256 insideX = _mm256_and_ps(greaterThan(endX, k.coastLeft), lessThan(endX, k.coastRight));
+    const __m256 insideY = _mm256_and_ps(greaterThan(_mm256_min_ps(endY, state.y), k.coastTop), lessThan(endY, k.coastBottom));
+    return _mm256_movemask_ps(_mm256_and_ps(insideX, insideY)) == 0xff;
+}
+
+void coast(LaneState& state, const LaneConstants& k, int substeps) {
+    for (int substep = 0; substep < substeps; ++substep) {
+        state.x = _mm256_fmadd_ps(state.vx, k.deltaTime, state.x);
+        state.y = _mm256_fmadd_ps(state.vy, k.deltaTime, state.y);
+    }
 }
 
 LaneState decodeLanes(__m256i position, __m256i state, const LaneConstants& k) {
@@ -457,7 +574,7 @@ void resolveEmbeddedLanes(LaneState& state, unsigned lanes, const LaneStepResult
 
 void Avx2Backend::stepRange(const StepParams& params, size_t begin, size_t end, std::vector<BallHit>& hits) {
     const BoardView board = boardView();
-    const LaneConstants k(params, cells.sentinelBrick());
+    const LaneConstants k(params, cells.sentinelBrick(), cells.nearRowsEnd);
     uint32_t* const positions = store.position.data();
     uint32_t* const states = store.state.data();
     uint32_t* const packedPositions = store.packed.data();
@@ -471,7 +588,11 @@ void Avx2Backend::stepRange(const StepParams& params, size_t begin, size_t end, 
         const __m256i startBounces = state.bounces;
         __m256 active = allLanes;
         __m256i hitBrick = k.minusOneInt;
-        for (int substep = 0; substep < params.substeps; ++substep) {
+        const bool coasting = coastsWholeTick(state, k);
+        if (coasting) {
+            coast(state, k, params.substeps);
+        }
+        for (int substep = 0; substep < (coasting ? 0 : params.substeps); ++substep) {
             const LaneState before = state;
             const LaneStepResult result = stepLanes(state, k, board);
             state = blendState(active, state, before);

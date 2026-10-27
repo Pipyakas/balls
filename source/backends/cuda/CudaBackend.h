@@ -25,12 +25,16 @@ public:
     void step(const StepParams& params, std::vector<BallHit>& hits) override;
     void removeBalls(std::span<const uint32_t> descendingIndices) override;
     size_t ballCount() const override { return count; }
+    size_t ballCapacityLimit() const override;
     BallSnapshot snapshot() override;
     std::vector<BallSpawn> exportBalls() override;
     std::vector<BallSpawn> takeTail(size_t count) override;
     bool takeCompactTail(size_t count, CompactBalls& balls) override;
     bool addCompact(const CompactBalls& balls) override;
-    void clear() override { count = 0; }
+    void clear() override {
+        count = 0;
+        frozen = false;
+    }
     BallTally truncate(size_t newCount) override;
     std::string_view faultMessage() const override { return fault; }
     bool resolvesHitsOnDevice() const override { return true; }
@@ -40,6 +44,16 @@ public:
     double deviceStepMs() const override { return lastStepKernelMs; }
 
 private:
+    struct DeviceVisibilityGridArgument {
+        CUdeviceptr slots;
+        int width;
+        int height;
+        float scaleX;
+        float scaleY;
+        unsigned int frameSeed;
+        unsigned int bidderMask;
+    };
+
     std::vector<BallSpawn> exportRange(size_t first);
     struct DeviceBalls {
         CUdeviceptr position;
@@ -62,11 +76,15 @@ private:
     bool succeeded(CUresult result, const char* what);
     bool isFaulted() const { return !fault.empty(); }
     bool launch(CUfunction function, size_t threads, void** arguments, const char* what);
-    void ensureBallCapacity(size_t required);
+    bool ensureBallCapacity(size_t required);
+    bool growThroughHost(size_t wanted);
     void ensurePackedCapacity(size_t required);
     void ensureArray(DeviceArray& array, size_t bytes);
     void upload(DeviceArray& array, const void* data, size_t bytes);
     void compactKilledBalls(unsigned int killed);
+    void uploadBrickHits(std::span<const int32_t> hitsLeft);
+    void uploadWholeBoard(const BoardUpload& board);
+    void applyChangedCellWords(const BoardUpload& board);
     void releaseRenderBuffer();
     bool copyIntoRenderBuffer(CUdeviceptr source, size_t elements);
     bool writeGridIntoRenderBuffer();
@@ -77,6 +95,11 @@ private:
     bool ensureSortBuffers();
     void releaseSortBuffers();
     bool countBallsByCell();
+    void chooseSortGrid();
+    bool prepareVisibilityGrid(DeviceVisibilityGridArgument& grid);
+    void renderFreeFlight(const StepParams& params);
+    void materializeFreeFlight();
+    BallSpawn projectToEpoch(const BallSpawn& spawn) const;
 
     const CudaDriver& driver;
     CUfunction stepFunction = nullptr;
@@ -86,6 +109,9 @@ private:
     CUfunction countCellsFunction = nullptr;
     CUfunction scanCellsFunction = nullptr;
     CUfunction stepAndSortFunction = nullptr;
+    CUfunction applyCellWordsFunction = nullptr;
+    CUfunction freeFlightRenderFunction = nullptr;
+    CUfunction materializeFreeFlightFunction = nullptr;
     DeviceBalls balls{};
     size_t capacity = 0;
     size_t packedCapacity = 0;
@@ -101,10 +127,14 @@ private:
     DeviceArray gridSlots;
     DeviceArray gridPacked;
     DeviceArray cellCursors;
+    DeviceArray cellWordUpdates;
+    size_t uploadedCellWords = 0;
     CUdeviceptr sortedPosition = 0;
     CUdeviceptr sortedState = 0;
     size_t sortedCapacity = 0;
     SortSchedule sortSchedule;
+    int sortColumns = 1;
+    int sortRows = 1;
     unsigned int frameSeed = 0;
     int gridWidth = 0;
     int gridHeight = 0;
@@ -113,6 +143,7 @@ private:
     unsigned int killedCapacity = 0;
     float ballSpeed = 1.0f;
     std::vector<int32_t> hostBrickHitsLeft;
+    std::vector<uint32_t> hostHitBricks;
     FrameCounters lastCounters{};
     std::vector<uint32_t> hostPacked;
     CUgraphicsResource renderResource = nullptr;
@@ -124,4 +155,9 @@ private:
     CUevent stepStarted = nullptr;
     CUevent stepFinished = nullptr;
     double lastStepKernelMs = 0.0;
+    // Free flight: while set, every stored ball is its state at freeFlightEpoch and nothing is stepped.
+    bool frozen = false;
+    unsigned int freeFlightEpoch = 0;
+    unsigned int clockTick = 0;
+    StepParams lastParams{};
 };

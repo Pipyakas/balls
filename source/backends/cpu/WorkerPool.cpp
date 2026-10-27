@@ -10,7 +10,28 @@
 
 namespace {
 
+void requestFullSpeed() {
+#if defined(_WIN32)
+    THREAD_POWER_THROTTLING_STATE state{};
+    state.Version = THREAD_POWER_THROTTLING_CURRENT_VERSION;
+    state.ControlMask = THREAD_POWER_THROTTLING_EXECUTION_SPEED;
+    state.StateMask = 0;
+    SetThreadInformation(GetCurrentThread(), ThreadPowerThrottling, &state, sizeof(state));
+#endif
+}
+
+void requestFullSpeedForProcess() {
+#if defined(_WIN32)
+    PROCESS_POWER_THROTTLING_STATE state{};
+    state.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+    state.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
+    state.StateMask = 0;
+    SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling, &state, sizeof(state));
+#endif
+}
+
 void applyPriority(WorkerPriority priority) {
+    requestFullSpeed();
 #if defined(_WIN32)
     if (priority == WorkerPriority::Background) {
         SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_BELOW_NORMAL);
@@ -23,6 +44,8 @@ void applyPriority(WorkerPriority priority) {
 }
 
 WorkerPool::WorkerPool(size_t threadCount, WorkerPriority priority) {
+    requestFullSpeedForProcess();
+    requestFullSpeed();
     const size_t helperCount = threadCount > 1 ? threadCount - 1 : 0;
     workers.reserve(helperCount);
     for (size_t i = 0; i < helperCount; ++i) {

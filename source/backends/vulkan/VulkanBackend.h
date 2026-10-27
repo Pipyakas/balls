@@ -39,8 +39,31 @@ public:
     double deviceStepMs() const override { return lastStepKernelMs; }
 
 private:
+    // The leading StepParams fields in the order the step shader's constant buffer declares them; the fields core
+    // appended later (the tick clock, free flight) are not read by this backend.
+    struct ShaderStepParams {
+        float deltaTime;
+        float radius;
+        float speed;
+        float fieldWidth;
+        float fieldHeight;
+        int paddedWidth;
+        int paddedCellCount;
+        int retargetBounceThreshold;
+        float packScaleX;
+        float packScaleY;
+        int substeps;
+    };
+
+    static ShaderStepParams shaderStepParams(const StepParams& params) {
+        return {params.deltaTime,  params.radius,        params.speed,
+                params.fieldWidth, params.fieldHeight,   params.paddedWidth,
+                params.paddedCellCount, params.retargetBounceThreshold, params.packScaleX,
+                params.packScaleY, params.substeps};
+    }
+
     struct StepConstants {
-        StepParams params;
+        ShaderStepParams params;
         uint32_t ballCount;
         uint32_t killedCapacity;
         uint32_t groupsPerRow;

@@ -11,6 +11,7 @@ namespace {
 constexpr float cellInset = 0.06f;
 constexpr float bevelShare = 0.16f;
 constexpr float minimumLabelPixels = 9.0f;
+constexpr float minimumBevelPixels = 4.0f;
 constexpr float boardFrameWidth = 1.0f;
 
 struct CellEdges {
@@ -100,18 +101,23 @@ void drawBoardBackground(const BrickBoard& board, const BoardTransform& transfor
 
 void drawBricks(const BrickBoard& board, const BoardTransform& transform) {
     const auto& bricks = board.bricks();
-    for (size_t index = 0; index < bricks.size(); ++index) {
-        const Brick& brick = bricks[index];
-        if (!brick.isAlive()) {
-            continue;
-        }
+    for (const int index : board.aliveBrickIndices()) {
+        const Brick& brick = bricks[static_cast<size_t>(index)];
         Color color = palette::brickColor(brick.color);
         if (brick.hitFlash > 0.0f) {
             color = palette::shade(color, 1.4f);
         }
+        if (transform.cellPixels < minimumBevelPixels) {
+            for (const BrickCell& cell : brick.cells) {
+                const Vec2 topLeft = transform.toScreen(static_cast<float>(cell.column),
+                                                        static_cast<float>(cell.row) + brick.riseOffset);
+                gfx::sceneRect({topLeft.x, topLeft.y, transform.cellPixels, transform.cellPixels}, color);
+            }
+            continue;
+        }
         for (const BrickCell& cell : brick.cells) {
             drawBrickCell(transform, static_cast<float>(cell.column), static_cast<float>(cell.row) + brick.riseOffset,
-                          openEdges(board, static_cast<int>(index), cell), color);
+                          openEdges(board, index, cell), color);
         }
         if (brick.maxHits <= 1) {
             continue;

@@ -3,6 +3,9 @@
 #include "level/LevelData.h"
 
 #include <cstdint>
+#include <functional>
+#include <queue>
+#include <utility>
 #include <vector>
 
 struct BrickCell {
@@ -29,7 +32,9 @@ public:
     bool applyHit(int brickIndex);
     bool applyHitsDownTo(int brickIndex, int hitsLeft);
     std::vector<int32_t> hitsLeftPerBrick() const;
-    std::vector<int32_t> nearBrickFlags() const;
+    const std::vector<int32_t>& nearBrickFlags() const { return nearFlags; }
+    const std::vector<int32_t>& changedCells() const { return dirtyCells; }
+    void clearChangedCells();
     bool settleColumns();
     void animate(float deltaTime);
 
@@ -44,19 +49,40 @@ public:
     const std::vector<Brick>& bricks() const { return brickList; }
     int brickAt(int column, int row) const { return cells[paddedIndex(column, row)]; }
     int aliveBrickCount() const { return aliveCount; }
+    const std::vector<int>& aliveBrickIndices() const { return aliveBricks; }
     const ColorTally& remainingHitsByColor() const { return remainingHits; }
     uint64_t revision() const { return changeRevision; }
 
 private:
-    bool tryRaise(int brickIndex);
+    int freeRowsAbove(int brickIndex) const;
+    bool raiseFully(int brickIndex);
+    void startAnimating(int brickIndex);
+    void markDead(int brickIndex);
     void placeBrick(int brickIndex, int32_t value);
+    void setCell(int index, int32_t value);
+    void markCellChanged(int index);
+    void rebuildNearCounts();
+    int lowestRowInColumn(int brickIndex, int column) const;
+    void queueFirstBrickBelow(int column, int row);
+    void queueBricksBelow(int brickIndex);
+    bool settleWholeBoard();
 
     int columnCount = 0;
     int rowCount = 0;
     std::vector<int32_t> cells;
     std::vector<int32_t> colors;
     std::vector<Brick> brickList;
+    std::priority_queue<std::pair<int, int>, std::vector<std::pair<int, int>>, std::greater<>> bricksToSettle;
+    bool wholeBoardSettlePending = false;
+    std::vector<int32_t> nearCounts;
+    std::vector<int32_t> nearFlags;
+    std::vector<uint8_t> cellChanged;
+    std::vector<int32_t> dirtyCells;
     ColorTally remainingHits{};
     int aliveCount = 0;
+    std::vector<int> aliveBricks;
+    std::vector<int> alivePosition;
+    std::vector<int> animatingBricks;
+    std::vector<uint8_t> brickAnimating;
     uint64_t changeRevision = 0;
 };

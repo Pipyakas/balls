@@ -153,6 +153,13 @@ extern "C" __global__ void gridToRenderKernel(const unsigned long long* slots, i
     renderSlots[index] = key == 0ull ? emptyRenderSlot : static_cast<unsigned int>(key);
 }
 
+extern "C" __global__ void applyCellWordsKernel(const int* updates, int updateCount, int* cellWords) {
+    const int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index < updateCount) {
+        cellWords[updates[2 * index]] = updates[2 * index + 1];
+    }
+}
+
 extern "C" __global__ void collectHolesKernel(const unsigned int* killedIndices, unsigned int killedCount,
                                               unsigned int survivorCount, unsigned int* holes,
                                               FrameCounters* counters) {
@@ -313,6 +320,7 @@ __device__ __forceinline__ void stepOneBall(unsigned int target, unsigned int st
         if (slot < killedCapacity) {
             outState[target] = deadColor << colorShift;
             killedIndices[slot] = target;
+            killedIndices[killedCapacity + slot] = static_cast<unsigned int>(brick);
             atomicAdd(&counters->killsByColor[color], 1u);
         } else {
             atomicAdd(&brickHitsLeft[brick], 1);
@@ -383,4 +391,57 @@ extern "C" __global__ void __launch_bounds__(stepSortThreads, 2)
                     balls.packed, board, params, brickHitsLeft, killedIndices, killedCapacity, counters, grid,
                     packedCapacity);
     }
+}
+
+// While every ball flies freely the stored state is each ball at the epoch tick. Rendering a frame only needs the
+// balls that bid for a visibility slot, so whole 256-ball chunks are sampled with a stride: the reads stay
+// contiguous and the cost follows the number of slots, not the number of balls.
+extern "C" __global__ void freeFlightRenderKernel(DeviceBalls balls, int count, StepParams params,
+                                                  unsigned int ticksSinceEpoch, VisibilityGrid grid,
+                                                  unsigned int packedCapacity, unsigned int chunkStride,
+                                                  unsigned int chunkOffset) {
+    const unsigned long long chunk =
+        static_cast<unsigned long long>(chunkOffset) + static_cast<unsigned long long>(blockIdx.x) * chunkStride;
+    const unsigned long long wide = chunk * blockDim.x + threadIdx.x;
+    if (wide >= static_cast<unsigned long long>(count)) {
+        return;
+    }
+    const unsigned int index = static_cast<unsigned int>(wide);
+    const unsigned int state = balls.state[index];
+    const unsigned int color = stateColor(state);
+    float x = 0.0f;
+    float y = 0.0f;
+    float vx = 0.0f;
+    float vy = 0.0f;
+    decodePosition(balls.position[index], x, y, params);
+    decodeVelocity(state, vx, vy, params);
+    const FreeFlightPosition flown = flyFreely(x, y, vx, vy, ticksSinceEpoch, params);
+    const unsigned int packed = packBallForRender(flown.x, flown.y, static_cast<int>(color), params.packScaleX,
+                                                  params.packScaleY);
+    if (grid.slots) {
+        bidForSlot(packed, index, grid);
+    } else if (index < packedCapacity) {
+        balls.packed[index] = packed;
+    }
+}
+
+extern "C" __global__ void materializeFreeFlightKernel(DeviceBalls balls, int count, StepParams params,
+                                                       unsigned int ticksSinceEpoch) {
+    const int index = static_cast<int>(blockIdx.x * blockDim.x + threadIdx.x);
+    if (index >= count) {
+        return;
+    }
+    const unsigned int state = balls.state[index];
+    const unsigned int color = stateColor(state);
+    float x = 0.0f;
+    float y = 0.0f;
+    float vx = 0.0f;
+    float vy = 0.0f;
+    decodePosition(balls.position[index], x, y, params);
+    decodeVelocity(state, vx, vy, params);
+    const FreeFlightPosition flown = flyFreely(x, y, vx, vy, ticksSinceEpoch, params);
+    const int bounces = static_cast<int>((state >> bounceShift) & bounceMask) +
+                        static_cast<int>(min(flown.wallCrossings, static_cast<unsigned int>(savedBounceLimit)));
+    balls.position[index] = encodePosition(flown.x, flown.y, params);
+    balls.state[index] = encodeState(flown.vx, flown.vy, color, bounces, params);
 }

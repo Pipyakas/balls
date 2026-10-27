@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 inline constexpr int emptyBrickId = -1;
@@ -25,6 +26,7 @@ struct BrickLayout {
 
     int cellId(int column, int row) const { return cellIds[static_cast<size_t>(row) * width + column]; }
     const BrickType* findType(int id) const;
+    std::unordered_map<int, const BrickType*> typesById() const;
 };
 
 struct Launcher {

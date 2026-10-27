@@ -264,7 +264,7 @@ void GameplayScreen::update(float deltaTime) {
         mode == GameMode::Normal ? session->launchers().visibleRows() : 0);
     handleLauncherClick(layout);
     const FrameSample& lastFrame = app.frameTimings().latest();
-    session->reportFrameSeconds(app.lastFrameSeconds(),
+    session->reportFrameSeconds(lastFrame.workMs() / millisecondsPerSecond,
                                 std::max(lastFrame.cpuMs, lastFrame.gpuMs) / millisecondsPerSecond);
     session->update(deltaTime);
     rememberFinishedProbe();

@@ -5,6 +5,7 @@
 #endif
 
 #include <algorithm>
+#include <cstdlib>
 #include <format>
 #include <string>
 #include <string_view>
@@ -19,7 +20,28 @@ constexpr const char* missingAvx2 = "CPU lacks AVX2/FMA";
 constexpr const char* avx2NotBuilt = "AVX2 backend not built for this CPU architecture";
 constexpr const char* unknownKind = "unknown backend";
 
-unsigned int threadCount() { return std::max(1u, std::thread::hardware_concurrency()); }
+constexpr const char* threadCountVariable = "BALLS_CPU_THREADS";
+
+unsigned int requestedThreadCount() {
+#if defined(_WIN32)
+    char* value = nullptr;
+    size_t length = 0;
+    if (_dupenv_s(&value, &length, threadCountVariable) != 0 || !value) {
+        return 0;
+    }
+    const int parsed = std::atoi(value);
+    std::free(value);
+#else
+    const char* value = std::getenv(threadCountVariable);
+    const int parsed = value ? std::atoi(value) : 0;
+#endif
+    return parsed > 0 ? static_cast<unsigned int>(parsed) : 0;
+}
+
+unsigned int threadCount() {
+    const unsigned int requested = requestedThreadCount();
+    return requested > 0 ? requested : std::max(1u, std::thread::hardware_concurrency());
+}
 
 }
 

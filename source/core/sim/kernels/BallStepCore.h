@@ -19,6 +19,11 @@ struct StepParams {
     float packScaleX;
     float packScaleY;
     int substeps;
+    // Ticks since the simulation started, at the start of this step; wraps after about a year at 120 Hz.
+    unsigned int tick;
+    // Nonzero when nothing on the board can change a ball's path (no bricks left, no ball-vs-ball collisions):
+    // every ball then flies a closed-form path between the walls and backends may stop stepping it.
+    int freeFlight;
 };
 
 struct BoardView {
@@ -255,4 +260,85 @@ BALLS_HOST_DEVICE int stepBallSubsteps(float& x, float& y, float& vx, float& vy,
         }
     }
     return noBrickHit;
+}
+
+// Free flight. Between two walls a ball's coordinate is a triangle wave of time. Unfolding the reflections turns it
+// into a straight line over a period of twice the travel span, so a ball's state at any tick is its unfolded phase
+// at an epoch tick plus a constant per-tick advance. Phases are 32-bit fixed point over one period, so the advance
+// wraps exactly and the position at tick t needs no stepping in between: phase(t) = phase(E) + advance * (t - E).
+inline constexpr float freeFlightPhaseUnits = 4294967296.0f;
+inline constexpr unsigned int freeFlightPhaseHalf = 0x80000000u;
+
+BALLS_HOST_DEVICE float freeFlightSpan(float extent, float radius) {
+    const float span = extent - 2.0f * radius;
+    return span > 1e-6f ? span : 1e-6f;
+}
+
+BALLS_HOST_DEVICE unsigned int freeFlightPhase(float position, float velocity, float extent, float radius) {
+    const float span = freeFlightSpan(extent, radius);
+    const float along = clampFloat(position - radius, 0.0f, span);
+    const float unfolded = velocity < 0.0f ? 2.0f * span - along : along;
+    const float fraction = unfolded / (2.0f * span);
+    const float wrapped = fraction >= 1.0f ? 0.0f : fraction;
+    return static_cast<unsigned int>(wrapped * freeFlightPhaseUnits);
+}
+
+BALLS_HOST_DEVICE unsigned int freeFlightAdvance(float velocity, float deltaTime, float extent, float radius) {
+    const float perTick = fabsf(velocity) * deltaTime / (2.0f * freeFlightSpan(extent, radius));
+    return static_cast<unsigned int>(perTick * freeFlightPhaseUnits + 0.5f);
+}
+
+// Folds a phase back into the box. Only the top 24 bits reach the float, which is all a float can hold.
+BALLS_HOST_DEVICE float foldFreeFlightPhase(unsigned int phase, float extent, float radius, float& direction) {
+    constexpr float phaseToFraction = 1.0f / 16777216.0f;
+    const float span = freeFlightSpan(extent, radius);
+    const float unfolded = static_cast<float>(phase >> 8) * phaseToFraction * 2.0f * span;
+    const bool outbound = phase < freeFlightPhaseHalf;
+    direction = outbound ? 1.0f : -1.0f;
+    return radius + (outbound ? unfolded : 2.0f * span - unfolded);
+}
+
+// Wall crossings between two phases on one axis, given the ticks flown; each half period is one wall.
+BALLS_HOST_DEVICE unsigned int freeFlightWallCrossings(unsigned int startPhase, unsigned int advance,
+                                                       unsigned int ticks) {
+    const unsigned long long travelled = static_cast<unsigned long long>(startPhase) +
+                                         static_cast<unsigned long long>(advance) * ticks;
+    return static_cast<unsigned int>((travelled >> 31) - (startPhase >> 31));
+}
+
+struct FreeFlightPosition {
+    float x;
+    float y;
+    float vx;
+    float vy;
+    unsigned int wallCrossings;
+};
+
+// Where a ball that was at (x, y) moving (vx, vy) at some tick is after flying freely for `ticks` more.
+BALLS_HOST_DEVICE FreeFlightPosition flyFreely(float x, float y, float vx, float vy, unsigned int ticks,
+                                              const StepParams& params) {
+    const unsigned int phaseX = freeFlightPhase(x, vx, params.fieldWidth, params.radius);
+    const unsigned int phaseY = freeFlightPhase(y, vy, params.fieldHeight, params.radius);
+    const unsigned int advanceX = freeFlightAdvance(vx, params.deltaTime, params.fieldWidth, params.radius);
+    const unsigned int advanceY = freeFlightAdvance(vy, params.deltaTime, params.fieldHeight, params.radius);
+    FreeFlightPosition flown{};
+    float directionX = 1.0f;
+    float directionY = 1.0f;
+    flown.x = foldFreeFlightPhase(phaseX + advanceX * ticks, params.fieldWidth, params.radius, directionX);
+    flown.y = foldFreeFlightPhase(phaseY + advanceY * ticks, params.fieldHeight, params.radius, directionY);
+    flown.vx = fabsf(vx) * directionX;
+    flown.vy = fabsf(vy) * directionY;
+    flown.wallCrossings = freeFlightWallCrossings(phaseX, advanceX, ticks) +
+                          freeFlightWallCrossings(phaseY, advanceY, ticks);
+    return flown;
+}
+
+// The state that reaches (x, y, vx, vy) after flying freely for `ticks`: how a ball added while a backend holds
+// every ball at an older epoch is stored without stepping anything.
+BALLS_HOST_DEVICE FreeFlightPosition flyFreelyBackwards(float x, float y, float vx, float vy, unsigned int ticks,
+                                                       const StepParams& params) {
+    FreeFlightPosition reversed = flyFreely(x, y, -vx, -vy, ticks, params);
+    reversed.vx = -reversed.vx;
+    reversed.vy = -reversed.vy;
+    return reversed;
 }

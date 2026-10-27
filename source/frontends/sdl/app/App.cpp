@@ -425,7 +425,8 @@ bool App::frame() {
     timings.record({millisecondsBetween(updateStart, frameEnd),
                     millisecondsBetween(workStart, presentStart) - synchronizationMs,
                     renderer->lastGpuBusyMs(),
-                    millisecondsBetween(presentStart, frameEnd) + synchronizationMs + gpuWaitMs});
+                    millisecondsBetween(presentStart, frameEnd) + synchronizationMs + gpuWaitMs,
+                    renderer->lastFramePresented() ? 1.0 : 0.0, renderer->lastPresentWaitMs()});
     applyPendingRenderAdapter();
     applyPendingScreen();
     return running;
@@ -434,8 +435,8 @@ bool App::frame() {
 void App::drawFrameTimingsOverlay() const {
     const FrameSample& sample = timings.average();
     const std::string text =
-        std::format("{:.0f} fps   cpu {:.2f}   gpu {:.2f}   present {:.2f} ms", timings.framesPerSecond(),
-                    sample.cpuMs, sample.gpuMs, sample.presentMs);
+        std::format("{:.0f} fps ({:.0f} shown)   cpu {:.2f}   gpu {:.2f}   present {:.2f} ms", timings.framesPerSecond(),
+                    timings.shownFramesPerSecond(), sample.cpuMs, sample.gpuMs, sample.presentMs);
     const Vec2 extent = ui::measureText(text, 18.0f);
     const float x = 26.0f;
     const float y = static_cast<float>(gfx::screenHeight()) - extent.y - 10.0f;
@@ -454,11 +455,13 @@ std::string App::stateJson() const {
     const FrameSample& sample = timings.average();
     return std::format(
         "{{\"ok\":true,\"frontend\":\"sdl\",\"renderer\":\"{}\",\"screen\":\"{}\",\"window\":[{},{}],"
-        "\"fps\":{:.1f},\"minFps\":{:.1f},\"frameMs\":{:.3f},\"cpuMs\":{:.3f},\"gpuMs\":{:.3f},"
+        "\"fps\":{:.1f},\"minFps\":{:.1f},\"workFps\":{:.1f},\"minWorkFps\":{:.1f},\"shownFps\":{:.1f},\"frameMs\":{:.3f},\"cpuMs\":{:.3f},\"gpuMs\":{:.3f},"
         "\"presentMs\":{:.3f},\"preferredBackend\":\"{}\",\"computeGpu\":\"{}\",\"vsync\":{},\"toast\":\"{}\","
         "\"details\":{}}}",
         jsonEscape(renderer->deviceDescription()), currentScreen->name(), gfx::screenWidth(),
-        gfx::screenHeight(), timings.framesPerSecond(), timings.worstFpsLastSecond(), sample.frameMs,
+        gfx::screenHeight(), timings.framesPerSecond(), timings.worstFpsLastSecond(),
+        timings.workFramesPerSecond(), timings.worstWorkFpsLastSecond(), timings.shownFramesPerSecond(),
+        sample.frameMs,
         sample.cpuMs, sample.gpuMs, sample.presentMs, backendKindName(backendChoice),
         jsonEscape(backendDetail(BackendKind::Vulkan)), isVsyncEnabled(),
         jsonEscape(toast.secondsLeft > 0.0f ? toast.text : std::string{}), currentScreen->stateJson());

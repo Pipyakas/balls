@@ -4,8 +4,20 @@
 #include <set>
 
 const BrickType* BrickLayout::findType(int id) const {
+    if (id >= 0 && static_cast<size_t>(id) < types.size() && types[static_cast<size_t>(id)].id == id) {
+        return &types[static_cast<size_t>(id)];
+    }
     const auto it = std::find_if(types.begin(), types.end(), [id](const BrickType& type) { return type.id == id; });
     return it == types.end() ? nullptr : &*it;
+}
+
+std::unordered_map<int, const BrickType*> BrickLayout::typesById() const {
+    std::unordered_map<int, const BrickType*> index;
+    index.reserve(types.size());
+    for (const BrickType& type : types) {
+        index.try_emplace(type.id, &type);
+    }
+    return index;
 }
 
 ColorTally countBrickHitsByColor(const BrickLayout& layout) {

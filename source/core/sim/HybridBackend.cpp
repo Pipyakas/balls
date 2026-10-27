@@ -10,12 +10,14 @@ namespace {
 
 constexpr double initialCpuShare = 0.08;
 constexpr double maximumCpuShare = 0.5;
-constexpr double shareSmoothing = 0.03;
+constexpr double shareSmoothing = 0.1;
+constexpr double settlingSmoothing = 0.35;
+constexpr int settlingMeasurements = 24;
 constexpr size_t minimumBallsToMeasure = 65536;
 constexpr size_t minimumHybridBalls = 262144;
 constexpr size_t minimumRebalanceBalls = 131072;
-constexpr double rebalanceTolerance = 0.1;
-constexpr size_t maximumBallsMovedPerStep = 1u << 18;
+constexpr double rebalanceTolerance = 0.02;
+constexpr size_t maximumBallsMovedPerStep = 1u << 22;
 constexpr double slotSelectionRange = 4294967296.0;
 
 using Clock = std::chrono::steady_clock;
@@ -60,12 +62,23 @@ size_t HybridBackend::targetCpuCount(size_t total) const {
     return static_cast<size_t>(std::llround(static_cast<double>(total) * measuredCpuShare));
 }
 
+size_t HybridBackend::ballCapacityLimit() const {
+    const size_t gpuLimit = gpu->ballCapacityLimit();
+    const size_t cpuLimit = cpu->ballCapacityLimit();
+    return gpuLimit > std::numeric_limits<size_t>::max() - cpuLimit ? std::numeric_limits<size_t>::max()
+                                                                     : gpuLimit + cpuLimit;
+}
+
+// Balls the GPU has no memory left for go to the CPU side, whatever the measured share says.
 void HybridBackend::addBalls(std::span<const BallSpawn> spawns) {
     const size_t cpuCount = cpu->ballCount();
     const size_t target = targetCpuCount(ballCount() + spawns.size());
-    const size_t cpuTake = std::min(target > cpuCount ? target - cpuCount : 0, spawns.size());
-    gpu->addBalls(spawns.first(spawns.size() - cpuTake));
-    cpu->addBalls(spawns.last(cpuTake));
+    const size_t gpuLimit = gpu->ballCapacityLimit();
+    const size_t gpuRoom = gpuLimit > gpu->ballCount() ? gpuLimit - gpu->ballCount() : 0;
+    const size_t cpuShare = std::min(target > cpuCount ? target - cpuCount : 0, spawns.size());
+    const size_t gpuTake = std::min(spawns.size() - cpuShare, gpuRoom);
+    gpu->addBalls(spawns.first(gpuTake));
+    cpu->addBalls(spawns.last(spawns.size() - gpuTake));
 }
 
 void HybridBackend::rebalance() {
@@ -98,11 +111,17 @@ void HybridBackend::updateShare(double cpuMs, size_t cpuCount, double gpuMs, siz
     const double cpuCostPerBall = cpuMs / static_cast<double>(cpuCount);
     const double gpuCostPerBall = gpuMs / static_cast<double>(gpuCount);
     const double balancedShare = gpuCostPerBall / (cpuCostPerBall + gpuCostPerBall);
-    measuredCpuShare += shareSmoothing * (std::min(balancedShare, maximumCpuShare) - measuredCpuShare);
+    const double smoothing = shareMeasurements < settlingMeasurements ? settlingSmoothing : shareSmoothing;
+    ++shareMeasurements;
+    measuredCpuShare += smoothing * (std::min(balancedShare, maximumCpuShare) - measuredCpuShare);
 }
 
 void HybridBackend::step(const StepParams& params, std::vector<BallHit>& hits) {
-    rebalance();
+    // In free flight neither side steps, so there is no throughput to balance, and every moved ball would make
+    // both sides write their balls back first.
+    if (!params.freeFlight) {
+        rebalance();
+    }
     stepGridWidth = gridWidth;
     stepGridHeight = gridHeight;
     const size_t cpuCount = cpu->ballCount();
@@ -121,7 +140,9 @@ void HybridBackend::step(const StepParams& params, std::vector<BallHit>& hits) {
     gpu->step(params, unusedHits);
     lastGpuMs = millisecondsSince(gpuStart);
     lastCpuMs = cpuStep.valid() ? cpuStep.get() : 0.0;
-    updateShare(lastCpuMs, cpuCount, lastGpuMs, gpuCount);
+    if (!params.freeFlight) {
+        updateShare(lastCpuMs, cpuCount, lastGpuMs, gpuCount);
+    }
     const uint32_t offset = static_cast<uint32_t>(gpu->ballCount());
     hits.reserve(hits.size() + cpuHits.size());
     for (const BallHit& hit : cpuHits) {

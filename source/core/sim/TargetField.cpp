@@ -1,33 +1,112 @@
 #include "sim/TargetField.h"
 
+#include <algorithm>
 #include <array>
+#include <chrono>
 
 namespace {
 
 constexpr int32_t noTarget = -1;
+constexpr int32_t paddingCell = -2;
+constexpr int asyncCellThreshold = 1 << 16;
+
+bool isReady(const std::future<std::vector<int32_t>>& future) {
+    return future.valid() && future.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+}
 
 }
 
 void TargetField::rebuild(const BrickBoard& board) {
-    targets.assign(static_cast<size_t>(board.paddedCellCount()) * ballColorCount, noTarget);
-    for (int colorIndex = 0; colorIndex < ballColorCount; ++colorIndex) {
-        floodColor(board, colorIndex);
+    discardPendingRebuilds();
+    targets = compute(copyOf(board), board.paddedCellCount() >= asyncCellThreshold);
+}
+
+bool TargetField::requestRebuild(const BrickBoard& board) {
+    const size_t expectedSize = static_cast<size_t>(board.paddedCellCount()) * ballColorCount;
+    if (board.paddedCellCount() < asyncCellThreshold || targets.size() != expectedSize) {
+        rebuild(board);
+        return true;
+    }
+    if (pending.valid()) {
+        rebuildQueued = true;
+    } else {
+        launch(copyOf(board));
+    }
+    return false;
+}
+
+bool TargetField::takeFinishedRebuild(const BrickBoard& board) {
+    if (!isReady(pending)) {
+        return false;
+    }
+    targets = pending.get();
+    if (rebuildQueued) {
+        rebuildQueued = false;
+        launch(copyOf(board));
+    }
+    return true;
+}
+
+void TargetField::discardPendingRebuilds() {
+    rebuildQueued = false;
+    if (pending.valid()) {
+        pending.wait();
+        pending = {};
     }
 }
 
-void TargetField::floodColor(const BrickBoard& board, int colorIndex) {
-    const int paddedWidth = board.paddedWidth();
-    const int cellCount = board.paddedCellCount();
-    int32_t* colorTargets = targets.data() + static_cast<size_t>(colorIndex) * cellCount;
-    const auto& cells = board.paddedCells();
-    const auto& brickColors = board.brickColors();
+void TargetField::launch(BoardCopy board) {
+    pending = std::async(std::launch::async, [copy = std::move(board)] { return compute(copy, true); });
+}
 
-    frontier.clear();
-    for (int row = 0; row < board.rows(); ++row) {
-        for (int column = 0; column < board.columns(); ++column) {
-            const int index = board.paddedIndex(column, row);
-            const int brick = cells[index];
-            if (brick >= 0 && brickColors[brick] == colorIndex) {
+TargetField::BoardCopy TargetField::copyOf(const BrickBoard& board) {
+    return {board.columns(), board.rows(), board.paddedCells(), board.brickColors()};
+}
+
+std::vector<int32_t> TargetField::compute(const BoardCopy& board, bool parallelColors) {
+    const size_t cellCount = static_cast<size_t>(board.columns + 2) * static_cast<size_t>(board.rows + 2);
+    std::vector<int32_t> result(cellCount * ballColorCount);
+    if (!parallelColors) {
+        for (int colorIndex = 0; colorIndex < ballColorCount; ++colorIndex) {
+            floodColor(board, colorIndex, result.data() + static_cast<size_t>(colorIndex) * cellCount);
+        }
+        return result;
+    }
+    std::array<std::future<void>, ballColorCount> colors;
+    for (int colorIndex = 0; colorIndex < ballColorCount; ++colorIndex) {
+        int32_t* colorTargets = result.data() + static_cast<size_t>(colorIndex) * cellCount;
+        colors[colorIndex] = std::async(std::launch::async, [&board, colorIndex, colorTargets] {
+            floodColor(board, colorIndex, colorTargets);
+        });
+    }
+    for (auto& color : colors) {
+        color.wait();
+    }
+    return result;
+}
+
+void TargetField::floodColor(const BoardCopy& board, int colorIndex, int32_t* colorTargets) {
+    const int paddedWidth = board.columns + 2;
+    const int paddedRows = board.rows + 2;
+    const int cellCount = paddedWidth * paddedRows;
+    const auto indexOf = [paddedWidth](int column, int row) { return row * paddedWidth + column; };
+
+    std::fill(colorTargets, colorTargets + cellCount, noTarget);
+    for (int column = 0; column < paddedWidth; ++column) {
+        colorTargets[indexOf(column, 0)] = paddingCell;
+        colorTargets[indexOf(column, paddedRows - 1)] = paddingCell;
+    }
+    for (int row = 0; row < paddedRows; ++row) {
+        colorTargets[indexOf(0, row)] = paddingCell;
+        colorTargets[indexOf(paddedWidth - 1, row)] = paddingCell;
+    }
+
+    std::vector<int32_t> frontier;
+    for (int row = 1; row <= board.rows; ++row) {
+        for (int column = 1; column <= board.columns; ++column) {
+            const int index = indexOf(column, row);
+            const int brick = board.cells[index];
+            if (brick >= 0 && board.brickColors[brick] == colorIndex) {
                 colorTargets[index] = index;
                 frontier.push_back(index);
             }
@@ -40,24 +119,26 @@ void TargetField::floodColor(const BrickBoard& board, int colorIndex) {
         const int index = frontier[head];
         for (int offset : neighborOffsets) {
             const int neighbor = index + offset;
-            const int column = neighbor % paddedWidth;
-            const int row = neighbor / paddedWidth;
-            const bool insideBoard = column >= 1 && column <= board.columns() && row >= 1 && row <= board.rows();
-            if (!insideBoard || colorTargets[neighbor] != noTarget) {
-                continue;
+            if (colorTargets[neighbor] == noTarget) {
+                colorTargets[neighbor] = colorTargets[index];
+                frontier.push_back(neighbor);
             }
-            colorTargets[neighbor] = colorTargets[index];
-            frontier.push_back(neighbor);
         }
     }
-    for (int index = 0; index < cellCount; ++index) {
-        const int column = index % paddedWidth;
-        const int row = index / paddedWidth;
-        if (colorTargets[index] != noTarget || frontier.empty()) {
-            continue;
+
+    for (int row = 0; row < paddedRows; ++row) {
+        for (int column = 0; column < paddedWidth; ++column) {
+            const int index = indexOf(column, row);
+            if (colorTargets[index] != paddingCell) {
+                continue;
+            }
+            if (frontier.empty()) {
+                colorTargets[index] = noTarget;
+                continue;
+            }
+            const int clampedColumn = column < 1 ? 1 : (column > board.columns ? board.columns : column);
+            const int clampedRow = row < 1 ? 1 : (row > board.rows ? board.rows : row);
+            colorTargets[index] = colorTargets[indexOf(clampedColumn, clampedRow)];
         }
-        const int clampedColumn = column < 1 ? 1 : (column > board.columns() ? board.columns() : column);
-        const int clampedRow = row < 1 ? 1 : (row > board.rows() ? board.rows() : row);
-        colorTargets[index] = colorTargets[clampedRow * paddedWidth + clampedColumn];
     }
 }
