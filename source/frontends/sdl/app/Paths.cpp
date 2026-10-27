@@ -36,3 +36,12 @@ std::filesystem::path levelDirectory(GameMode mode) {
 }
 
 std::filesystem::path fontPath(std::string_view fileName) { return assetRoot() / "fonts" / fileName; }
+
+std::filesystem::path pathFromUtf8(const char* text) {
+    return std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(text)));
+}
+
+std::string utf8Of(const std::filesystem::path& path) {
+    const std::u8string text = path.u8string();
+    return std::string(text.begin(), text.end());
+}

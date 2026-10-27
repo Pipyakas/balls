@@ -84,6 +84,7 @@ endif()
 enable_testing()
 add_executable(balls_tests source/tests/TestMain.cpp source/tests/LevelTests.cpp source/tests/SimulationTests.cpp
     source/tests/GameTests.cpp source/tests/ProbeTests.cpp source/tests/EditorTests.cpp source/tests/SettingsTests.cpp
+    source/tests/LevelImportTests.cpp
     source/tests/LayoutTests.cpp)
 target_link_libraries(balls_tests PRIVATE balls_core)
 add_dependencies(balls_tests balls_physics_plugins)
