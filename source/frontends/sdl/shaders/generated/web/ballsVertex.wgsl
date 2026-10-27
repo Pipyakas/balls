@@ -55,7 +55,7 @@ fn vertexMain(@builtin(vertex_index) param: u32, @builtin(instance_index) param_
     global_1 = param_1;
     vertexMain_1();
     let _e8 = global_2.y;
-    global_2.y = -(_e8);
+    global_2.y = _e8;
     let _e10 = global_2;
     let _e11 = out_u002e_var_u002e_TEXCOORD0_;
     let _e12 = out_u002e_var_u002e_TEXCOORD1_;

@@ -70,13 +70,13 @@ std::optional<LayoutOrientation> parseOrientation(std::string_view name) {
 
 std::string normalizeRendererName(std::string_view renderer) {
     const std::string lower = lowercase(trim(renderer));
-    if (lower == "webgpu" || lower == "dawn" || lower == "wgpu") {
-        return "webgpu";
+    if (lower == "nvrhi") {
+        return "nvrhi";
     }
     if (lower == "sdlgpu") {
         return "sdlgpu";
     }
-    return "nvrhi";
+    return "webgpu";
 }
 
 std::string normalizeGraphicsApiName(std::string_view api) {
@@ -143,8 +143,11 @@ Result<void> saveSettings(const std::filesystem::path& file, const Settings& set
     std::filesystem::create_directories(file.parent_path(), error);
     std::ofstream stream(file, std::ios::binary | std::ios::trunc);
     if (!stream) {
-        return Error{std::format("cannot write {}", file.string())};
+        return Error{std::format("could not open settings file for write: {}", file.string())};
     }
     stream << serializeSettings(settings);
+    if (!stream) {
+        return Error{std::format("failed writing settings to {}", file.string())};
+    }
     return {};
 }

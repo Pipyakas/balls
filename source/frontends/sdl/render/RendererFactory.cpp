@@ -4,7 +4,7 @@
 #include "render/webgpu/WebGpuRenderer.h"
 #endif
 
-#if defined(BALLS_RENDERER_NVRHI)
+#if defined(BALLS_RENDERER_NVRHI) || defined(BALLS_WITH_NVRHI)
 #include "render/nvrhi/GraphicsDevice.h"
 
 std::unique_ptr<IRenderer> createNvrhiRenderer(SDL_Window* window, GraphicsApi api, std::string_view gpuPreference,
@@ -18,7 +18,7 @@ std::unique_ptr<IRenderer> createNvrhiRenderer(SDL_Window* window, GraphicsApi a
 
 namespace {
 
-#if defined(BALLS_RENDERER_NVRHI)
+#if defined(BALLS_RENDERER_NVRHI) || defined(BALLS_WITH_NVRHI)
 GraphicsApi graphicsApiFor(std::string_view requested) {
 #if defined(_WIN32)
     return requested == "vulkan" ? GraphicsApi::Vulkan : GraphicsApi::D3d12;
@@ -46,12 +46,31 @@ bool isWebGpuCompiledIn() {
 #endif
 }
 
+bool isNvrhiCompiledIn() {
+#if defined(BALLS_RENDERER_NVRHI) || defined(BALLS_WITH_NVRHI)
+    return true;
+#else
+    return false;
+#endif
+}
+
 SDL_WindowFlags rendererWindowFlags(std::string_view renderer, std::string_view api) {
-    const std::string r = lowercase(renderer);
+    std::string r = lowercase(renderer);
+    if (r.empty()) {
+        if (api == "webgpu" || api.starts_with("webgpu-")) {
+            r = "webgpu";
+        } else {
+#if defined(BALLS_RENDERER_NVRHI) || defined(BALLS_WITH_NVRHI)
+            r = "nvrhi";
+#elif defined(BALLS_RENDERER_WEBGPU) || defined(BALLS_WITH_WEBGPU)
+            r = "webgpu";
+#endif
+        }
+    }
     if (r == "webgpu") {
         return 0;
     }
-#if defined(BALLS_RENDERER_NVRHI)
+#if defined(BALLS_RENDERER_NVRHI) || defined(BALLS_WITH_NVRHI)
     return windowFlagsFor(graphicsApiFor(api));
 #else
     return 0;
@@ -76,11 +95,13 @@ std::unique_ptr<IRenderer> createRenderer(SDL_Window* window, std::string_view r
     std::string r = lowercase(rendererName);
     if (r.empty()) {
         if (api == "webgpu" || api.starts_with("webgpu-")) {
+#if defined(BALLS_RENDERER_WEBGPU) || defined(BALLS_WITH_WEBGPU)
             r = "webgpu";
+#endif
         } else {
-#if defined(BALLS_RENDERER_NVRHI)
+#if defined(BALLS_RENDERER_NVRHI) || defined(BALLS_WITH_NVRHI)
             r = "nvrhi";
-#elif defined(BALLS_RENDERER_WEBGPU)
+#elif defined(BALLS_RENDERER_WEBGPU) || defined(BALLS_WITH_WEBGPU)
             r = "webgpu";
 #elif defined(BALLS_RENDERER_SDLGPU)
             r = "sdlgpu";
@@ -100,7 +121,7 @@ std::unique_ptr<IRenderer> createRenderer(SDL_Window* window, std::string_view r
     }
 #endif
 
-#if defined(BALLS_RENDERER_NVRHI)
+#if defined(BALLS_RENDERER_NVRHI) || defined(BALLS_WITH_NVRHI)
     if (r == "nvrhi") {
         return createNvrhiRenderer(window, graphicsApiFor(api), gpuPreference, error);
     }
@@ -114,9 +135,4 @@ std::unique_ptr<IRenderer> createRenderer(SDL_Window* window, std::string_view r
 
     error = std::format("unknown or unsupported renderer '{}'", rendererName);
     return nullptr;
-}
-
-std::unique_ptr<IRenderer> createRenderer(SDL_Window* window, std::string_view api,
-                                          std::string_view gpuPreference, std::string& error) {
-    return createRenderer(window, {}, api, gpuPreference, error);
 }

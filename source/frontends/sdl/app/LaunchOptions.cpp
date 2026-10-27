@@ -48,6 +48,9 @@ LaunchOptions parseLaunchOptions(int argumentCount, char** arguments) {
     if (const char* rendererEnvironment = std::getenv("BALLS_RENDERER")) {
         options.renderer = lowercase(rendererEnvironment);
     }
+    if (const char* apiEnvironment = std::getenv("BALLS_API")) {
+        options.graphicsApi = lowercase(apiEnvironment);
+    }
     if (const char* gpuEnvironment = std::getenv("BALLS_GPU")) {
         options.gpu = gpuEnvironment;
     }

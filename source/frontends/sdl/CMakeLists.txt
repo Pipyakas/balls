@@ -27,24 +27,13 @@ if(ANDROID)
 elseif(EMSCRIPTEN OR IOS)
     set(BALLS_DEFAULT_RENDERER "sdlgpu")
 else()
-    set(BALLS_DEFAULT_RENDERER "nvrhi")
+    set(BALLS_DEFAULT_RENDERER "webgpu")
 endif()
-set(BALLS_RENDERER "${BALLS_DEFAULT_RENDERER}" CACHE STRING "Renderer behind IRenderer: nvrhi (D3D12/Vulkan), sdlgpu, or webgpu (native Dawn spike)")
+set(BALLS_RENDERER "${BALLS_DEFAULT_RENDERER}" CACHE STRING "Renderer behind IRenderer: nvrhi (D3D12/Vulkan), sdlgpu, or webgpu (native wgpu-native/Dawn)")
 set_property(CACHE BALLS_RENDERER PROPERTY STRINGS nvrhi sdlgpu webgpu)
 
+option(BALLS_WITH_NVRHI "Build NVRHI desktop renderer alongside WebGPU" OFF)
 option(BALLS_WITH_WEBGPU "Build WebGPU desktop renderer alongside NVRHI" OFF)
-
-if(BALLS_RENDERER STREQUAL "nvrhi")
-    set(NVRHI_INSTALL OFF CACHE BOOL "" FORCE)
-    set(NVRHI_WITH_DX11 ${WIN32} CACHE BOOL "" FORCE)
-    set(NVRHI_WITH_VULKAN ON CACHE BOOL "" FORCE)
-    set(NVRHI_WITH_VALIDATION OFF CACHE BOOL "" FORCE)
-    FetchContent_Declare(nvrhi
-        GIT_REPOSITORY https://github.com/NVIDIA-RTX/NVRHI.git
-        GIT_TAG 6b96fb03e07539f08327aea76c56d55f1de9d906
-        GIT_SHALLOW FALSE)
-    FetchContent_MakeAvailable(nvrhi)
-endif()
 
 if(BALLS_WITH_WEBGPU OR BALLS_RENDERER STREQUAL "webgpu")
     if(ANDROID)
@@ -109,6 +98,7 @@ set(BALLS_SDL_SOURCES
     app/LaunchOptions.cpp
     app/FrameTimings.cpp
     app/MachineProfile.cpp
+    app/PreferenceDirectory.cpp
     control/ControlProtocol.cpp
     control/ControlServer.cpp
     render/RendererFactory.cpp
@@ -121,6 +111,8 @@ set(BALLS_SDL_SOURCES
     ui/Widgets.cpp
     screens/MainMenuScreen.cpp
     screens/LevelSelectScreen.cpp
+    screens/SettingsPanel.cpp
+    screens/SettingsScreen.cpp
     screens/GameplayScreen.cpp
     screens/DebugPanel.cpp
     editor/MapEditorScreen.cpp
@@ -165,10 +157,42 @@ elseif(BALLS_RENDERER STREQUAL "webgpu")
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${wgpu_native_SOURCE_DIR}/lib/wgpu_native.dll"
                 "$<TARGET_FILE_DIR:${BALLS_SDL_TARGET}>")
+    else()
+        add_custom_command(TARGET ${BALLS_SDL_TARGET} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${wgpu_native_SOURCE_DIR}/lib/libwgpu_native.so"
+                "$<TARGET_FILE_DIR:${BALLS_SDL_TARGET}>")
+        set_target_properties(${BALLS_SDL_TARGET} PROPERTIES
+            BUILD_RPATH "$ORIGIN"
+            INSTALL_RPATH "$ORIGIN")
     endif()
 else()
     target_sources(${BALLS_SDL_TARGET} PRIVATE render/SdlGpuRenderer.cpp)
     target_compile_definitions(${BALLS_SDL_TARGET} PRIVATE BALLS_RENDERER_SDLGPU)
+endif()
+
+if(BALLS_WITH_NVRHI AND NOT BALLS_RENDERER STREQUAL "nvrhi")
+    target_sources(ColorBlastBalls PRIVATE
+        render/nvrhi/NvrhiRenderer.cpp
+        render/nvrhi/GraphicsDevice.cpp
+        render/nvrhi/VulkanDevice.cpp
+        render/nvrhi/ImguiNvrhi.cpp
+        render/nvrhi/ShaderBytecode.cpp)
+    target_compile_definitions(ColorBlastBalls PRIVATE BALLS_WITH_NVRHI)
+    if(MSVC)
+        target_link_libraries(ColorBlastBalls PRIVATE nvrhi nvrhi_vk)
+    else()
+        target_link_libraries(ColorBlastBalls PRIVATE $<LINK_GROUP:RESCAN,nvrhi,nvrhi_vk>)
+    endif()
+    if(TARGET Vulkan::Headers)
+        target_link_libraries(ColorBlastBalls PRIVATE Vulkan::Headers)
+    else()
+        target_link_libraries(ColorBlastBalls PRIVATE Vulkan-Headers)
+    endif()
+    if(WIN32)
+        target_sources(ColorBlastBalls PRIVATE render/nvrhi/D3d12Device.cpp)
+        target_link_libraries(ColorBlastBalls PRIVATE nvrhi_d3d12 dxgi d3d12)
+    endif()
 endif()
 
 if(BALLS_WITH_WEBGPU AND NOT BALLS_RENDERER STREQUAL "webgpu")
@@ -180,6 +204,14 @@ if(BALLS_WITH_WEBGPU AND NOT BALLS_RENDERER STREQUAL "webgpu")
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${wgpu_native_SOURCE_DIR}/lib/wgpu_native.dll"
                 "$<TARGET_FILE_DIR:${BALLS_SDL_TARGET}>")
+    else()
+        add_custom_command(TARGET ${BALLS_SDL_TARGET} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${wgpu_native_SOURCE_DIR}/lib/libwgpu_native.so"
+                "$<TARGET_FILE_DIR:${BALLS_SDL_TARGET}>")
+        set_target_properties(${BALLS_SDL_TARGET} PROPERTIES
+            BUILD_RPATH "$ORIGIN"
+            INSTALL_RPATH "$ORIGIN")
     endif()
 endif()
 

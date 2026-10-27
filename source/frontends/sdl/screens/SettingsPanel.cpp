@@ -27,9 +27,27 @@ constexpr std::array<std::pair<LayoutOrientation, const char*>, 3> layoutOptions
     {LayoutOrientation::Portrait, "Portrait"},
 }};
 
+struct ApiChoice {
+    const char* id;
+    const char* label;
+};
+
+#if defined(_WIN32)
+constexpr std::array<ApiChoice, 3> apiChoices{{
+    {"auto", "Auto"},
+    {"d3d12", "Direct3D 12"},
+    {"vulkan", "Vulkan"},
+}};
+#else
+constexpr std::array<ApiChoice, 2> apiChoices{{
+    {"auto", "Auto"},
+    {"vulkan", "Vulkan"},
+}};
+#endif
+
 } // namespace
 
-SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind selectedBackend) {
+SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind selectedBackend, bool webGpuSupported) {
     SettingsPanelEdit edit{current, false, false, std::nullopt};
     const float innerX = area.x + panelPadding;
     const float innerWidth = area.width - panelPadding * 2.0f;
@@ -95,6 +113,42 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
     }
     cursor += optionHeight + hintGap;
     ui::drawText("Replaces the old V shortcut.", {innerX, cursor}, hintSize, palette::textMuted);
+    cursor += hintHeight + blockGap;
+
+    ui::drawText("Renderer", {innerX, cursor}, sectionSize, palette::text);
+    cursor += sectionHeight;
+    const Rect rendererOptions{innerX, cursor, innerWidth, optionHeight};
+    const bool isNvrhi = current.renderer == "nvrhi";
+    const bool isWebGpu = current.renderer == "webgpu";
+    if (ui::button(ui::columnSlice(rendererOptions, 0, 2, optionGap), "NVRHI", true, isNvrhi) && !isNvrhi) {
+        edit.settings.renderer = "nvrhi";
+        edit.changed = true;
+    }
+    const std::string webGpuLabel = webGpuSupported ? "WebGPU" : "WebGPU - not built";
+    if (ui::button(ui::columnSlice(rendererOptions, 1, 2, optionGap), webGpuLabel.c_str(), webGpuSupported, isWebGpu) &&
+        webGpuSupported && !isWebGpu) {
+        edit.settings.renderer = "webgpu";
+        edit.changed = true;
+    }
+    cursor += optionHeight + hintGap;
+    ui::drawText("Desktop only. Both draw the same frame.", {innerX, cursor}, hintSize, palette::textMuted);
+    cursor += hintHeight + blockGap;
+
+    ui::drawText("Graphics API", {innerX, cursor}, sectionSize, palette::text);
+    cursor += sectionHeight;
+    const Rect apiButtons{innerX, cursor, innerWidth, optionHeight};
+    for (size_t i = 0; i < apiChoices.size(); ++i) {
+        const ApiChoice& api = apiChoices[i];
+        const bool selected = current.graphicsApi == api.id;
+        if (ui::button(ui::columnSlice(apiButtons, static_cast<int>(i), static_cast<int>(apiChoices.size()), optionGap),
+                       api.label, true, selected) &&
+            !selected) {
+            edit.settings.graphicsApi = api.id;
+            edit.changed = true;
+        }
+    }
+    cursor += optionHeight + hintGap;
+    ui::drawText("The native API under the selected renderer.", {innerX, cursor}, hintSize, palette::textMuted);
     cursor += hintHeight + blockGap;
 
     ui::drawText("Physics", {innerX, cursor}, sectionSize, palette::textMuted);
