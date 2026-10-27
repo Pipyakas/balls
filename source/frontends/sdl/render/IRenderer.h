@@ -73,6 +73,9 @@ public:
 
 std::unique_ptr<IRenderer> createSdlGpuRenderer(SDL_Window* window, std::string& error);
 SDL_WindowFlags rendererWindowFlags(std::string_view api);
+SDL_WindowFlags rendererWindowFlags(std::string_view renderer, std::string_view api);
 std::string_view fallbackGraphicsApi(std::string_view api);
 std::unique_ptr<IRenderer> createRenderer(SDL_Window* window, std::string_view api, std::string_view gpuPreference,
                                           std::string& error);
+std::unique_ptr<IRenderer> createRenderer(SDL_Window* window, std::string_view renderer, std::string_view api,
+                                          std::string_view gpuPreference, std::string& error);

@@ -6,15 +6,26 @@ TEST_CASE("settings default to the game rules and automatic layout") {
     const Settings settings;
     EXPECT(!settings.ballCollisions);
     EXPECT(settings.layout == LayoutOrientation::Auto);
+    EXPECT(!settings.vsync);
+    EXPECT(settings.renderer == "nvrhi");
+    EXPECT(settings.graphicsApi == "auto");
 }
 
 TEST_CASE("settings survive a serialize and parse round trip") {
-    const Settings original{.ballCollisions = true, .layout = LayoutOrientation::Portrait};
+    const Settings original{
+        .ballCollisions = true,
+        .layout = LayoutOrientation::Portrait,
+        .vsync = true,
+        .renderer = "webgpu",
+        .graphicsApi = "vulkan",
+    };
     EXPECT(parseSettings(serializeSettings(original)) == original);
 }
 
 TEST_CASE("settings ignore unknown keys and keep defaults for bad values") {
-    const Settings parsed = parseSettings("futureOption=7\nballCollisions=maybe\nlayout = landscape\r\n");
+    const Settings parsed = parseSettings("futureOption=7\nballCollisions=maybe\nlayout = landscape\r\nrenderer=WebGPU\r\napi=D3D12\n");
     EXPECT(!parsed.ballCollisions);
     EXPECT(parsed.layout == LayoutOrientation::Landscape);
+    EXPECT(parsed.renderer == "webgpu");
+    EXPECT(parsed.graphicsApi == "d3d12");
 }

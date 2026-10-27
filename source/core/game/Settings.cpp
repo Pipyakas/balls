@@ -1,6 +1,8 @@
 #include "game/Settings.h"
 
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <format>
 #include <fstream>
 #include <sstream>
@@ -10,12 +12,22 @@ namespace {
 
 constexpr std::string_view collisionsKey = "ballCollisions";
 constexpr std::string_view layoutKey = "layout";
+constexpr std::string_view vsyncKey = "vsync";
+constexpr std::string_view rendererKey = "renderer";
+constexpr std::string_view graphicsApiKey = "graphicsApi";
 
 constexpr std::array<std::pair<LayoutOrientation, std::string_view>, 3> orientationNames{{
     {LayoutOrientation::Auto, "auto"},
     {LayoutOrientation::Landscape, "landscape"},
     {LayoutOrientation::Portrait, "portrait"},
 }};
+
+std::string lowercase(std::string_view text) {
+    std::string result(text);
+    std::ranges::transform(result, result.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return result;
+}
 
 std::string_view trim(std::string_view text) {
     const size_t first = text.find_first_not_of(" \t\r");
@@ -36,7 +48,7 @@ std::optional<bool> parseFlag(std::string_view value) {
     return std::nullopt;
 }
 
-}
+} // namespace
 
 std::string_view orientationName(LayoutOrientation orientation) {
     for (const auto& [value, name] : orientationNames) {
@@ -56,9 +68,35 @@ std::optional<LayoutOrientation> parseOrientation(std::string_view name) {
     return std::nullopt;
 }
 
+std::string normalizeRendererName(std::string_view renderer) {
+    const std::string lower = lowercase(trim(renderer));
+    if (lower == "webgpu" || lower == "dawn" || lower == "wgpu") {
+        return "webgpu";
+    }
+    if (lower == "sdlgpu") {
+        return "sdlgpu";
+    }
+    return "nvrhi";
+}
+
+std::string normalizeGraphicsApiName(std::string_view api) {
+    const std::string lower = lowercase(trim(api));
+    if (lower == "d3d12" || lower == "direct3d 12" || lower == "dx12") {
+        return "d3d12";
+    }
+    if (lower == "vulkan" || lower == "vk") {
+        return "vulkan";
+    }
+    return "auto";
+}
+
 std::string serializeSettings(const Settings& settings) {
-    return std::format("{}={}\n{}={}\n", collisionsKey, settings.ballCollisions ? "on" : "off", layoutKey,
-                       orientationName(settings.layout));
+    return std::format("{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n",
+                       collisionsKey, settings.ballCollisions ? "on" : "off",
+                       layoutKey, orientationName(settings.layout),
+                       vsyncKey, settings.vsync ? "on" : "off",
+                       rendererKey, normalizeRendererName(settings.renderer),
+                       graphicsApiKey, normalizeGraphicsApiName(settings.graphicsApi));
 }
 
 // Unknown keys and unreadable values keep their defaults, so an old or hand-edited file never blocks startup.
@@ -79,6 +117,12 @@ Settings parseSettings(std::string_view text) {
             settings.ballCollisions = parseFlag(value).value_or(settings.ballCollisions);
         } else if (key == layoutKey) {
             settings.layout = parseOrientation(value).value_or(settings.layout);
+        } else if (key == vsyncKey) {
+            settings.vsync = parseFlag(value).value_or(settings.vsync);
+        } else if (key == rendererKey) {
+            settings.renderer = normalizeRendererName(value);
+        } else if (key == graphicsApiKey || key == "api") {
+            settings.graphicsApi = normalizeGraphicsApiName(value);
         }
     }
     return settings;
