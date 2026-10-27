@@ -67,6 +67,8 @@ LaunchOptions parseLaunchOptions(int argumentCount, char** arguments) {
             options.vsync = true;
         } else if (argument == "--hidden") {
             options.hidden = true;
+        } else if (argument == "--skip-benchmark") {
+            options.skipBenchmark = true;
         }
     }
     return options;

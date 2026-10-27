@@ -64,7 +64,7 @@ def main():
     parser.add_argument("--fps", type=int, default=0, help="probe target FPS; default is the monitor refresh rate")
     arguments = parser.parse_args()
 
-    command = [str(Path(arguments.exe).resolve()), "--hidden", "--control-port", str(arguments.port)]
+    command = [str(Path(arguments.exe).resolve()), "--hidden", "--skip-benchmark", "--control-port", str(arguments.port)]
     process = subprocess.Popen(command)
     try:
         wait_for_server(arguments.port)
