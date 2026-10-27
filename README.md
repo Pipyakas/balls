@@ -84,6 +84,9 @@ sustained load.
 `docs/gpu-compute-apis.md` ports the step kernel and cell sort to HLSL and runs them through D3D11, D3D12 and
 Vulkan (`tools/gpucompute/`). Vulkan comes within 1.5% of CUDA on the brick level and 6% on the empty board.
 
+`docs/hardware-support.md` lists the oldest GPUs, CPUs, drivers and OS versions each backend and renderer API
+supports.
+
 ## Physics plugins
 
 Physics backends are DLL plugins loaded from next to the executable, so physics work only
