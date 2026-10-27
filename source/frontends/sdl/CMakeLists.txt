@@ -64,6 +64,7 @@ add_executable(ColorBlastBalls WIN32
     app/LaunchOptions.cpp
     app/FrameTimings.cpp
     app/MachineProfile.cpp
+    app/PreferenceDirectory.h
     control/ControlProtocol.cpp
     control/ControlServer.cpp
     render/RendererFactory.cpp
@@ -78,6 +79,8 @@ add_executable(ColorBlastBalls WIN32
     screens/MachineBenchmarkScreen.cpp
     screens/LevelSelectScreen.cpp
     screens/GameplayScreen.cpp
+    screens/SettingsScreen.cpp
+    screens/SettingsPanel.cpp
     screens/DebugPanel.cpp
     editor/MapEditorScreen.cpp
 )

@@ -15,6 +15,7 @@ struct Settings {
     // Ball-vs-ball collisions are a testing aid only: the game rules have balls pass through each other.
     bool ballCollisions = false;
     LayoutOrientation layout = LayoutOrientation::Auto;
+    bool vsync = false;
 
     bool operator==(const Settings&) const = default;
 };
