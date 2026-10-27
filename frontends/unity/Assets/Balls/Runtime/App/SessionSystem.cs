@@ -99,9 +99,17 @@ namespace Balls.App
         private void StartSession(in BallsInput.StartRequest request)
         {
             backend?.Dispose();
-            var created = new NativeGameBackend(request.mode, request.levelDirectory, request.levelName, request.backend);
-            backend = created;
-            sessionHandle = created.SessionHandle;
+            if (request.backend == Balls.Physics.Burst.BurstGameBackend.BackendBurst)
+            {
+                backend = new Balls.Physics.Burst.BurstGameBackend(request.mode, request.levelDirectory, request.levelName);
+                sessionHandle = System.IntPtr.Zero;
+            }
+            else
+            {
+                var created = new NativeGameBackend(request.mode, request.levelDirectory, request.levelName, request.backend);
+                backend = created;
+                sessionHandle = created.SessionHandle;
+            }
             // The GPU backends sample one grid cell per ball-sized block of the render target; a 1920-wide frame at
             // the 0.4-cell ball diameter is the default the other front ends use.
             backend.SetVisibilityGrid(160, 90);

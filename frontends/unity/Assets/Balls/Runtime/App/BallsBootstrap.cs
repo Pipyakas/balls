@@ -33,6 +33,8 @@ namespace Balls.App
         private bool captured;
         private bool autoPlay;
         private bool autoPlayed;
+        private bool parityRun;
+        private bool parityDone;
         private float startedAt;
         private float captureDelay = 6f;
 
@@ -121,6 +123,9 @@ namespace Balls.App
                     case "-balls-auto":
                         autoPlay = true;
                         break;
+                    case "-balls-parity":
+                        parityRun = true;
+                        break;
                 }
             }
         }
@@ -128,6 +133,15 @@ namespace Balls.App
         private void RunCaptureAgent()
         {
             float now = Time.realtimeSinceStartup;
+            if (parityRun && !parityDone && app != null && now - startedAt > 0.5f)
+            {
+                parityDone = true;
+                var result = ParityProbe.Run(app.LevelDirectoryFor(BallsApp.NormalMode), "DA_FirstLevel", 200, 300);
+                Debug.Log($"balls: parity compared={result.compared} mismatches={result.mismatches} " +
+                          $"worstDelta={result.worstDelta} first={result.firstMismatch} error='{result.error}'");
+                Application.Quit();
+                return;
+            }
             if (autoPlay && !autoPlayed && now - startedAt > 1.5f)
             {
                 autoPlayed = true;
