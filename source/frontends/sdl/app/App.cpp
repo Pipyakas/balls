@@ -137,6 +137,10 @@ bool App::openWindowAndRenderer(const LaunchOptions& options, std::string_view a
     }
 
     SDL_SetWindowMinimumSize(window, minimumWindowWidth, minimumWindowHeight);
+#if defined(__ANDROID__)
+    // Fullscreen hides the status bar, which otherwise clips the top gadget in portrait.
+    SDL_SetWindowFullscreen(window, true);
+#endif
     SDL_Log("App: wantedRenderer=%s api=%s", wantedRenderer.c_str(), std::string(api).c_str());
     renderer = createRenderer(window, wantedRenderer, api, options.gpu, error);
     if (!renderer) {

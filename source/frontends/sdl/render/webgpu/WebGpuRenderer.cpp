@@ -414,6 +414,20 @@ public:
     bool beginFrame() override {
         const auto waitStart = Clock::now();
 #if defined(__ANDROID__)
+        // Sleeping the phone (or any activity pause) destroys the ANativeWindow; SDL hands back a
+        // new pointer when the activity resumes, so the surface has to follow it or the app keeps
+        // presenting to a dead window and stays black.
+        void* currentWindow = SDL_GetPointerProperty(SDL_GetWindowProperties(window),
+                                                     SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr);
+        if (currentWindow != androidWindow) {
+            if (surface) {
+                wgpuSurfaceUnconfigure(surface);
+                wgpuSurfaceRelease(surface);
+                surface = nullptr;
+            }
+            androidWindow = currentWindow;
+            SDL_Log("WebGPU: Android window changed to %p", currentWindow);
+        }
         if (!surface) {
             surface = createSurfaceFromWindow(instance, window);
             if (!surface) {
@@ -1566,6 +1580,7 @@ private:
     WGPUDevice device = nullptr;
     WGPUQueue queue = nullptr;
     WGPUSurface surface = nullptr;
+    void* androidWindow = nullptr;
     int frames = 0;
 
     std::string backendName;
