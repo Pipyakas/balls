@@ -100,7 +100,21 @@ const FSlateBrush* White() {
 }
 
 FVector2D Measure(const FString& Text, const FSlateFontInfo& FontInfo) {
-    return FSlateApplication::Get().GetRenderer()->GetFontMeasureService()->Measure(Text, FontInfo);
+    // The HUD measures every label on every frame, and font measuring is its largest game-thread cost. Most of
+    // those labels never change (section headings, backend names, the device), so keep the extents by text and
+    // point size; the values that do change (FPS, counts) simply miss.
+    static TMap<TPair<FString, int32>, FVector2D> Cache;
+    const TPair<FString, int32> Key(Text, FontInfo.Size);
+    if (const FVector2D* Found = Cache.Find(Key)) {
+        return *Found;
+    }
+    const FVector2D Size =
+        FSlateApplication::Get().GetRenderer()->GetFontMeasureService()->Measure(Text, FontInfo);
+    if (Cache.Num() > 4096) {
+        Cache.Reset();
+    }
+    Cache.Add(Key, Size);
+    return Size;
 }
 
 }
