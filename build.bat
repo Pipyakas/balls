@@ -6,11 +6,11 @@ set "ROOT=%~dp0"
 set "FRONTEND=%~1"
 if "%FRONTEND%"=="" set "FRONTEND=all"
 
-if /i not "%FRONTEND%"=="all" (
-    call :BuildFrontend "%FRONTEND%"
-    exit /b %errorlevel%
-)
+if /i "%FRONTEND%"=="all" goto BuildAll
+call :BuildFrontend "%FRONTEND%"
+exit /b %errorlevel%
 
+:BuildAll
 set "BUILT=0"
 for /d %%F in (frontends\*) do (
     if exist "%%F\build.bat" (
