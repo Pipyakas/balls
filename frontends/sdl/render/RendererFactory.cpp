@@ -19,11 +19,21 @@ GraphicsApi graphicsApiFor(std::string_view requested) {
 
 SDL_WindowFlags rendererWindowFlags(std::string_view api) { return windowFlagsFor(graphicsApiFor(api)); }
 
+std::string_view fallbackGraphicsApi(std::string_view api) {
+#if defined(_WIN32)
+    return graphicsApiFor(api) == GraphicsApi::Vulkan ? "d3d12" : "vulkan";
+#else
+    return {};
+#endif
+}
+
 std::unique_ptr<IRenderer> createRenderer(SDL_Window* window, std::string_view api, std::string& error) {
     return createNvrhiRenderer(window, graphicsApiFor(api), error);
 }
 #else
 SDL_WindowFlags rendererWindowFlags(std::string_view) { return 0; }
+
+std::string_view fallbackGraphicsApi(std::string_view) { return {}; }
 
 std::unique_ptr<IRenderer> createRenderer(SDL_Window* window, std::string_view, std::string& error) {
     return createSdlGpuRenderer(window, error);
