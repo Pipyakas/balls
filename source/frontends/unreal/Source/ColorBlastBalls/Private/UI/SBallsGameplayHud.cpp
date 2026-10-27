@@ -706,7 +706,7 @@ private:
     }
 
     void PaintToast(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry) const {
-        const FBallsGameplay::FToast& Toast = Gameplay->GetToast();
+        const FBallsToast& Toast = Gameplay->GetToast();
         if (Toast.SecondsLeft <= 0.0f) {
             return;
         }

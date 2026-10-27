@@ -367,21 +367,49 @@ void SBallsSettingsPage::Construct(const FArguments& InArgs) {
     ];
 }
 
-void SBallsLevelSelect::Construct(const FArguments& InArgs) {
-    FBallsApp* Owner = InArgs._App;
-    const GameMode Mode = InArgs._Mode;
-    TSharedRef<SScrollBox> List = SNew(SScrollBox);
-    for (const LevelFiles& Files : InArgs._Levels) {
+FString SBallsLevelSelect::Signature() const {
+    FString Result;
+    for (const LevelFiles& Files : Levels) {
+        std::error_code Error;
+        const auto Bricks = std::filesystem::last_write_time(Files.bricksPath, Error);
+        const auto Launchers = std::filesystem::last_write_time(Files.launchersPath, Error);
+        Result += FString::Printf(TEXT("%s:%lld:%lld;"), *BallsText::FromUtf8(Files.name),
+                                  static_cast<long long>(Bricks.time_since_epoch().count()),
+                                  static_cast<long long>(Launchers.time_since_epoch().count()));
+    }
+    return Result;
+}
+
+void SBallsLevelSelect::RebuildList() {
+    const float Offset = List->GetScrollOffset();
+    List->ClearChildren();
+    FBallsApp* Owner = App;
+    const GameMode LevelMode = Mode;
+    for (const LevelFiles& Files : Levels) {
+        const FString Name = BallsText::FromUtf8(Files.name);
         List->AddSlot().Padding(0.0f, RowGap * 0.5f)
         [
             SNew(SBox).HeightOverride(RowHeight)
             [
-                BallsWidgets::Button(FText::FromString(BallsText::FromUtf8(Files.name)),
-                                     [Owner, Mode, Files] { Owner->StartGame(Mode, Files); }, 24.0f)
+                SNew(SHorizontalBox)
+                + SHorizontalBox::Slot().FillWidth(1.0f)
+                [
+                    BallsWidgets::Button(FText::FromString(Name), [Owner, LevelMode, Files] { Owner->StartGame(LevelMode, Files); },
+                                         24.0f, true,
+                                         TAttribute<bool>::CreateLambda([this, Name] {
+                                             return Name == HighlightName && FPlatformTime::Seconds() < HighlightUntil;
+                                         }))
+                ]
+                + SHorizontalBox::Slot().AutoWidth().Padding(8.0f, 0.0f, 0.0f, 0.0f)
+                [
+                    SizedButton(110.0f, RowHeight,
+                                BallsWidgets::Button(FText::FromString(TEXT("Edit")),
+                                                     [Owner, LevelMode, Files] { Owner->ShowMapEditor(LevelMode, Files); }, 20.0f))
+                ]
             ]
         ];
     }
-    if (InArgs._Levels.empty()) {
+    if (Levels.empty()) {
         List->AddSlot()
         [
             SNew(STextBlock)
@@ -391,6 +419,55 @@ void SBallsLevelSelect::Construct(const FArguments& InArgs) {
             .Justification(ETextJustify::Center)
         ];
     }
+    List->SetScrollOffset(Offset);
+}
+
+void SBallsLevelSelect::Refresh() {
+    Levels = findLevels(App->LevelDirectory(Mode));
+    ShownSignature = Signature();
+    RebuildList();
+}
+
+void SBallsLevelSelect::Highlight(const FString& LevelName) {
+    HighlightName = LevelName;
+    HighlightUntil = FPlatformTime::Seconds() + 2.0;
+    for (int32 Index = 0; Index < static_cast<int32>(Levels.size()); ++Index) {
+        if (BallsText::FromUtf8(Levels[Index].name) == LevelName) {
+            // Rows are RowHeight + RowGap apart; show the new one a little below the top.
+            List->SetScrollOffset(FMath::Max(0.0f, static_cast<float>(Index) * (RowHeight + RowGap) - RowHeight));
+            break;
+        }
+    }
+}
+
+// The list follows the folder: a level added, changed or removed while this screen is open shows up within a poll.
+EActiveTimerReturnType SBallsLevelSelect::Poll(double, float) {
+    std::vector<LevelFiles> Current = findLevels(App->LevelDirectory(Mode));
+    std::swap(Levels, Current);
+    const FString NewSignature = Signature();
+    if (NewSignature != ShownSignature) {
+        ShownSignature = NewSignature;
+        RebuildList();
+    } else {
+        Levels = std::move(Current);
+    }
+    return EActiveTimerReturnType::Continue;
+}
+
+void SBallsLevelSelect::Construct(const FArguments& InArgs) {
+    App = InArgs._App;
+    Mode = InArgs._Mode;
+    FBallsApp* Owner = App;
+    const GameMode LevelMode = Mode;
+    List = SNew(SScrollBox);
+    Refresh();
+    RegisterActiveTimer(0.5f, FWidgetActiveTimerDelegate::CreateSP(this, &SBallsLevelSelect::Poll));
+
+    const FString FolderPath = FString(UTF8_TO_TCHAR(App->LevelDirectory(Mode).string().c_str()));
+    auto Action = [](const TCHAR* Label, TFunction<void()> OnClicked) {
+        return SNew(SBox).WidthOverride(200.0f).HeightOverride(56.0f)
+            [BallsWidgets::Button(FText::FromString(Label), MoveTemp(OnClicked), 22.0f)];
+    };
 
     ChildSlot
     [
@@ -419,14 +496,60 @@ void SBallsLevelSelect::Construct(const FArguments& InArgs) {
                     ]
                     + SVerticalBox::Slot().FillHeight(1.0f)
                     [
-                        List
+                        List.ToSharedRef()
                     ]
-                    + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left).Padding(0.0f, 30.0f, 0.0f, 0.0f)
+                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 0.0f)
                     [
-                        SizedButton(200.0f, 56.0f, BallsWidgets::Button(FText::FromString(TEXT("Back")),
-                                                                         [Owner] { Owner->ShowMainMenu(); }, 24.0f))
+                        // So a tester knows where to drop files.
+                        SNew(STextBlock)
+                        .Text(FText::FromString(TEXT("Levels folder: ") + FolderPath))
+                        .Font(BallsStyle::Font(16.0f))
+                        .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
+                        .AutoWrapText(true)
+                    ]
+                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 0.0f)
+                    [
+                        SNew(SHorizontalBox)
+                        + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
+                        [
+                            Action(TEXT("Back"), [Owner] { Owner->ShowMainMenu(); })
+                        ]
+                        + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
+                        [
+                            Action(TEXT("New Level"), [Owner, LevelMode] { Owner->ShowMapEditor(LevelMode, std::nullopt); })
+                        ]
+                    ]
+                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 8.0f, 0.0f, 0.0f)
+                    [
+                        SNew(SHorizontalBox)
+                        + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
+                        [
+                            Action(TEXT("Import"), [Owner] { Owner->OpenLevelImportDialog(); })
+                        ]
+                        + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
+                        [
+                            Action(TEXT("Open Folder"), [Owner, LevelMode] { Owner->OpenLevelFolder(LevelMode); })
+                        ]
                     ]
                 ]
+            ]
+        ]
+        + SOverlay::Slot().HAlign(HAlign_Center).VAlign(VAlign_Top).Padding(0.0f, 24.0f)
+        [
+            SNew(SBorder)
+            .BorderImage(BallsStyle::White())
+            .BorderBackgroundColor_Lambda([Owner] {
+                const FBallsToast& Toast = Owner->GetToast();
+                return BallsPalette::Linear(Toast.bIsError ? BallsPalette::Danger : BallsPalette::PanelLight,
+                                            FMath::Min(1.0f, Toast.SecondsLeft));
+            })
+            .Padding(20.0f, 10.0f)
+            .Visibility_Lambda([Owner] { return Owner->GetToast().SecondsLeft > 0.0f ? EVisibility::HitTestInvisible : EVisibility::Collapsed; })
+            [
+                SNew(STextBlock)
+                .Text_Lambda([Owner] { return FText::FromString(Owner->GetToast().Text); })
+                .Font(BallsStyle::Font(24.0f, true))
+                .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Text))
             ]
         ]
     ];

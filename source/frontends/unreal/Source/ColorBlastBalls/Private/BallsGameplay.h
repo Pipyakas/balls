@@ -6,18 +6,13 @@
 #include <memory>
 
 class FBallsApp;
+struct FBallsToast;
 struct FKey;
 
 // One level being played: owns the core GameSession, hot reload and the pause/toast state.
 // Port of frontends/raylib/screens/GameplayScreen without the drawing.
 class FBallsGameplay {
 public:
-    struct FToast {
-        FString Text;
-        float SecondsLeft = 0.0f;
-        bool bIsError = false;
-    };
-
     FBallsGameplay(FBallsApp& App, GameMode Mode, LevelFiles Files);
 
     void Tick(float DeltaSeconds, double FrameSeconds, double WorkSeconds);
@@ -51,7 +46,7 @@ public:
     const LevelFiles& GetFiles() const { return Files; }
     GameSession* GetSession() const { return Session.get(); }
     const FString& GetLoadError() const { return LoadError; }
-    const FToast& GetToast() const { return Toast; }
+    const FBallsToast& GetToast() const;
     bool IsPaused() const { return bPaused; }
     bool IsSettingsOpen() const { return bSettingsOpen; }
     bool IsWon() const;
@@ -68,7 +63,6 @@ private:
     std::unique_ptr<GameSession> Session;
     FString LoadError;
     LevelWatcher Watcher;
-    FToast Toast;
     bool bPaused = false;
     bool bSettingsOpen = false;
     bool bProbeResultShown = true;

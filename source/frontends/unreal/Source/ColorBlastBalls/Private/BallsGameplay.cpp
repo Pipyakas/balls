@@ -9,7 +9,6 @@
 
 namespace {
 
-constexpr float ToastSeconds = 3.0f;
 
 }
 
@@ -58,14 +57,15 @@ void FBallsGameplay::HotReload() {
     ShowToast(TEXT("Reloaded ") + BallsText::FromUtf8(Files.name), false);
 }
 
-void FBallsGameplay::ShowToast(FString Text, bool bIsError) { Toast = {MoveTemp(Text), ToastSeconds, bIsError}; }
+void FBallsGameplay::ShowToast(FString Text, bool bIsError) { App.ShowToast(MoveTemp(Text), bIsError); }
+
+const FBallsToast& FBallsGameplay::GetToast() const { return App.GetToast(); }
 
 bool FBallsGameplay::IsWon() const {
     return Session && Mode == GameMode::Normal && Session->state() == SessionState::Won;
 }
 
 void FBallsGameplay::Tick(float DeltaSeconds, double FrameSeconds, double WorkSeconds) {
-    Toast.SecondsLeft = FMath::Max(0.0f, Toast.SecondsLeft - DeltaSeconds);
     if (Watcher.pollChanged(std::chrono::steady_clock::now())) {
         HotReload();
     }

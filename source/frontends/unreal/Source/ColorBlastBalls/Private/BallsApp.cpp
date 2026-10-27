@@ -16,10 +16,15 @@
 #include "HAL/PlatformTime.h"
 #include "Misc/Paths.h"
 #include "Kismet/KismetSystemLibrary.h"
+#include "Framework/Application/SlateApplication.h"
 #include "Misc/App.h"
 #include "Misc/CommandLine.h"
 #include "Misc/ConfigCacheIni.h"
 #include "Misc/Parse.h"
+#if PLATFORM_DESKTOP
+#include "DesktopPlatformModule.h"
+#include "IDesktopPlatform.h"
+#endif
 #include "RenderTimer.h"
 #include "UI/SBallsGameplayHud.h"
 #include "UI/SBallsMapEditor.h"
@@ -144,7 +149,9 @@ FBallsApp::FBallsApp(UWorld* InWorld)
     : World(InWorld), PreferredBackend(InitialBackend()), CurrentSettings(loadSettings(SettingsFile())),
       bVSync(SavedVSync()) {
     BoardView = MakeUnique<FBallsBoardView>(World);
-    Root = SNew(SBallsRoot).OnKey_Lambda([this](const FKey& Key) { return HandleKey(Key); });
+    Root = SNew(SBallsRoot)
+               .OnKey_Lambda([this](const FKey& Key) { return HandleKey(Key); })
+               .OnFilesDropped_Lambda([this](const TArray<FString>& Paths) { ImportLevels(Paths); });
     if (UGameViewportClient* Viewport = World->GetGameViewport()) {
         Viewport->AddViewportWidgetContent(Root.ToSharedRef(), RootZOrder);
     }
@@ -269,11 +276,56 @@ void FBallsApp::ShowMainMenu() {
 
 void FBallsApp::ShowLevelSelect(GameMode Mode) {
     LevelSelectMode = Mode;
+    TSharedRef<SBallsLevelSelect> Screen = SNew(SBallsLevelSelect).App(this).Mode(Mode);
+    LevelSelect = Screen;
+    SetScreen(EScreen::LevelSelect, Screen);
+}
+
+void FBallsApp::ShowToast(FString Text, bool bIsError) { Toast = {MoveTemp(Text), 3.0f, bIsError}; }
+
+void FBallsApp::ImportLevels(const TArray<FString>& Paths) {
+    const TSharedPtr<SBallsLevelSelect> Screen = LevelSelect.Pin();
+    if (CurrentScreen != EScreen::LevelSelect || !Screen) {
+        ShowToast(TEXT("Open Level select to import levels"), false);
+        return;
+    }
+    std::vector<std::filesystem::path> Picked;
+    for (const FString& Path : Paths) {
+        Picked.emplace_back(TCHAR_TO_UTF8(*Path));
+    }
+    const LevelImportReport Report = importLevels(Picked, LevelDirectory(LevelSelectMode), LevelSelectMode);
+    ShowToast(BallsText::FromUtf8(Report.summary()), Report.anyFailed() && Report.importedCount() == 0);
+    Screen->Refresh();
+    if (const std::optional<std::string> Highlight = Report.levelToHighlight()) {
+        Screen->Highlight(BallsText::FromUtf8(*Highlight));
+    }
+}
+
+void FBallsApp::OpenLevelImportDialog() {
+#if PLATFORM_DESKTOP
+    IDesktopPlatform* Platform = FDesktopPlatformModule::Get();
+    if (!Platform) {
+        ShowToast(TEXT("Import failed: no file picker on this platform"), true);
+        return;
+    }
+    TArray<FString> Picked;
+    const void* ParentWindow = FSlateApplication::Get().FindBestParentWindowHandleForDialogs(nullptr);
+    const FString Directory = FString(UTF8_TO_TCHAR(LevelDirectory(LevelSelectMode).string().c_str()));
+    if (Platform->OpenFileDialog(ParentWindow, TEXT("Import levels"), Directory, FString(), TEXT("Level files (*.txt)|*.txt"),
+                                 EFileDialogFlags::Multiple, Picked) &&
+        Picked.Num() > 0) {
+        ImportLevels(Picked);
+    }
+#else
+    ShowToast(TEXT("Import failed: no file picker on this platform"), true);
+#endif
+}
+
+void FBallsApp::OpenLevelFolder(GameMode Mode) {
     const std::filesystem::path Directory = LevelDirectory(Mode);
-    const std::vector<LevelFiles> Levels = findLevels(Directory);
-    UE_LOG(LogTemp, Verbose, TEXT("BallsLevels: %s -> %d"), ANSI_TO_TCHAR(Directory.string().c_str()),
-           static_cast<int32>(Levels.size()));
-    SetScreen(EScreen::LevelSelect, SNew(SBallsLevelSelect).App(this).Mode(Mode).Levels(Levels));
+    std::error_code Error;
+    std::filesystem::create_directories(Directory, Error);
+    FPlatformProcess::ExploreFolder(UTF8_TO_TCHAR(Directory.string().c_str()));
 }
 
 void FBallsApp::ShowSettings() {
@@ -389,6 +441,7 @@ void FBallsApp::RecordFrame(float DeltaSeconds) {
 
 void FBallsApp::Tick(float DeltaSeconds) {
     RecordFrame(DeltaSeconds);
+    Toast.SecondsLeft = FMath::Max(0.0f, Toast.SecondsLeft - DeltaSeconds);
     if (CurrentScreen == EScreen::MapEditor) {
         if (MapEditorState) {
             MapEditorState->Tick(DeltaSeconds);

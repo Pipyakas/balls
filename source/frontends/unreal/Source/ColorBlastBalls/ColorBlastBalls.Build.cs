@@ -12,5 +12,10 @@ public class ColorBlastBalls : ModuleRules
         {
             "ApplicationCore", "BallsCore", "BallsRendering", "InputCore", "RenderCore", "RHI", "Slate", "SlateCore",
         });
+        // The file picker behind the level Import button.
+        if (Target.Platform == UnrealTargetPlatform.Win64)
+        {
+            PrivateDependencyModuleNames.Add("DesktopPlatform");
+        }
     }
 }

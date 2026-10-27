@@ -10,10 +10,17 @@
 class FBallsBoardView;
 class FBallsGameplay;
 class FBallsMapEditor;
+class SBallsLevelSelect;
 class SBallsRoot;
 class SWidget;
 class UWorld;
 struct FKey;
+
+struct FBallsToast {
+    FString Text;
+    float SecondsLeft = 0.0f;
+    bool bIsError = false;
+};
 
 // Owns the screens (main menu, level select, gameplay) and the world view. Port of frontends/raylib/app/App.
 class FBallsApp {
@@ -28,6 +35,15 @@ public:
     void ShowLevelSelect(GameMode Mode);
     void ShowMapEditor(GameMode Mode, std::optional<LevelFiles> Files);
     void ShowSettings();
+
+    // One toast at a time, shown over whichever screen is up (3 s).
+    void ShowToast(FString Text, bool bIsError);
+    const FBallsToast& GetToast() const { return Toast; }
+    // Level import ("Importing levels"): files from the picker or dropped on the window. Outside Level select
+    // the drop only toasts a hint.
+    void ImportLevels(const TArray<FString>& Paths);
+    void OpenLevelImportDialog();
+    void OpenLevelFolder(GameMode Mode);
     void StartGame(GameMode Mode, const LevelFiles& Files);
     void Quit();
 
@@ -67,6 +83,8 @@ private:
     BackendKind PreferredBackend = BackendKind::Scalar;
     Settings CurrentSettings;
     bool bVSync = false;
+    TWeakPtr<SBallsLevelSelect> LevelSelect;
+    FBallsToast Toast;
     FBallsFrameTimings FrameTimings;
     FBallsFrameSample LatestSample;
 };
