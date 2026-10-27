@@ -115,6 +115,7 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
     }
     balls = std::make_unique<BallView>(*renderer);
     profile.load();
+    setComputeGpuPreference(options.computeGpu);
     setVsync(options.vsync);
     backendChoice = options.backend && isBackendAvailable(*options.backend) ? *options.backend
                                                                             : fastestAvailableCpuBackend();
@@ -222,11 +223,11 @@ std::string App::stateJson() const {
     const FrameSample& sample = timings.average();
     return std::format("{{\"ok\":true,\"frontend\":\"sdl\",\"renderer\":\"{}\",\"screen\":\"{}\",\"window\":[{},{}],"
                        "\"fps\":{:.1f},\"minFps\":{:.1f},\"frameMs\":{:.3f},\"cpuMs\":{:.3f},\"gpuMs\":{:.3f},"
-                       "\"presentMs\":{:.3f},\"preferredBackend\":\"{}\",\"vsync\":{},\"details\":{}}}",
+                       "\"presentMs\":{:.3f},\"preferredBackend\":\"{}\",\"computeGpu\":\"{}\",\"vsync\":{},\"details\":{}}}",
                        jsonEscape(renderer->deviceDescription()), currentScreen->name(), gfx::screenWidth(),
                        gfx::screenHeight(), timings.framesPerSecond(), timings.worstFpsLastSecond(), sample.frameMs,
-                       sample.cpuMs, sample.gpuMs, sample.presentMs, backendKindName(backendChoice), isVsyncEnabled(),
-                       currentScreen->stateJson());
+                       sample.cpuMs, sample.gpuMs, sample.presentMs, backendKindName(backendChoice),
+                       jsonEscape(backendDetail(BackendKind::Vulkan)), isVsyncEnabled(), currentScreen->stateJson());
 }
 
 std::optional<ControlResponse> App::handleControl(const ControlRequest& request) {

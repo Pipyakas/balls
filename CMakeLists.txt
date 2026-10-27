@@ -44,6 +44,10 @@ if(BALLS_FRONTEND STREQUAL "sdl")
     add_subdirectory(frontends/sdl)
 endif()
 
+if(TARGET nvrhi AND TARGET nvrhi_vk)
+    add_subdirectory(physics/vulkan)
+endif()
+
 # Vulkan-Headers is already fetched by the NVRHI renderer. This interface-only target
 # supplies declarations to balls_core without linking Vulkan loader libraries.
 if(TARGET Vulkan-Headers)

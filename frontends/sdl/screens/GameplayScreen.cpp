@@ -27,7 +27,8 @@ constexpr float controlRowHeight = 44.0f;
 constexpr float controlGap = 10.0f;
 constexpr float groupLabelHeight = 26.0f;
 constexpr float groupGap = 14.0f;
-constexpr std::array<SDL_Scancode, 4> backendKeys{SDL_SCANCODE_F1, SDL_SCANCODE_F2, SDL_SCANCODE_F3, SDL_SCANCODE_F4};
+constexpr std::array<SDL_Scancode, 5> backendKeys{SDL_SCANCODE_F1, SDL_SCANCODE_F2, SDL_SCANCODE_F3, SDL_SCANCODE_F4,
+                                                  SDL_SCANCODE_F5};
 constexpr int backendsPerRow = 2;
 
 constexpr double millisecondsPerSecond = 1000.0;
