@@ -70,7 +70,7 @@ Color fpsColor(float fps) {
 }
 
 int debugRowCount(const Simulation& simulation) {
-    int rows = 9;
+    int rows = 10;
     if (simulation.backend().deviceStepMs() > 0.0) {
         rows += 1;
     }
@@ -101,6 +101,7 @@ void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& f
     const float minimumFps = static_cast<float>(frames.worstFpsLastSecond());
     writer.row("FPS", std::format("{:.0f}", fps), fpsColor(fps));
     writer.row("Min FPS (1s)", std::format("{:.0f}", minimumFps), fpsColor(minimumFps));
+    writer.row("Shown FPS", std::format("{:.0f}", frames.shownFramesPerSecond()));
     writer.row("Frame", std::format("{:.2f} ms", sample.frameMs));
     writer.row("CPU", std::format("{:.2f} ms", sample.cpuMs));
     writer.row("  Physics", std::format("{:.2f} ms  x{}", stats.lastFramePhysicsMs, stats.ticksLastFrame));
