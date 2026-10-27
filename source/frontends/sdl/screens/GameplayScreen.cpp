@@ -29,9 +29,15 @@ constexpr float controlRowHeight = 44.0f;
 constexpr float controlGap = 10.0f;
 constexpr float groupLabelHeight = 26.0f;
 constexpr float groupGap = 14.0f;
-constexpr std::array<SDL_Scancode, 5> backendKeys{SDL_SCANCODE_F1, SDL_SCANCODE_F2, SDL_SCANCODE_F3, SDL_SCANCODE_F4,
-                                                  SDL_SCANCODE_F5};
+constexpr std::array<SDL_Scancode, 4> backendKeys{SDL_SCANCODE_F1, SDL_SCANCODE_F2, SDL_SCANCODE_F3, SDL_SCANCODE_F4};
 constexpr int backendsPerRow = 2;
+
+// The design drops gameplay shortcuts; only the backends that still have one (until feature/settings-page lands)
+// show it, so Vulkan never gets a key.
+std::string backendButtonLabel(BackendKind kind, int index) {
+    return static_cast<size_t>(index) < backendKeys.size() ? std::format("{} (F{})", backendKindName(kind), index + 1)
+                                                           : std::string(backendKindName(kind));
+}
 
 constexpr double millisecondsPerSecond = 1000.0;
 constexpr int minimumProbeTargetFps = 10;
@@ -355,7 +361,7 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
     const Rect backendRows = group("Physics", backendRowCount);
     for (int i = 0; i < backendCount; ++i) {
         const BackendKind kind = allBackendKinds[i];
-        if (ui::button(buttonCell(backendRows, i, backendsPerRow, backendRowCount), std::format("{} (F{})", backendKindName(kind), i + 1),
+        if (ui::button(buttonCell(backendRows, i, backendsPerRow, backendRowCount), backendButtonLabel(kind, i),
                        isBackendAvailable(kind), session->backend() == kind) &&
             session->switchBackend(kind)) {
             app.setPreferredBackend(kind);
