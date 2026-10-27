@@ -177,6 +177,7 @@ CMakeLists.txt        builds everything under source/
 - `feature/*` branches hold side work that is not ready for `main`.
 - `submission` is the branch copied to the game's scoring repository.
 - Commits use `feat:` / `fix:` / `perf:` / `refactor:` / `build:` / `docs:` / `chore:` prefixes.
+- Commit small, working steps and push after every commit, so other machines and agents never wait on unpushed work.
 
 ### Local checkout layout
 
