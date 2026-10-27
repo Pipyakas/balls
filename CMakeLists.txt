@@ -80,7 +80,7 @@ endif()
 
 enable_testing()
 add_executable(balls_tests tests/TestMain.cpp tests/LevelTests.cpp tests/SimulationTests.cpp tests/GameTests.cpp
-    tests/ProbeTests.cpp tests/EditorTests.cpp)
+    tests/ProbeTests.cpp tests/EditorTests.cpp tests/BrickBoardTests.cpp)
 target_link_libraries(balls_tests PRIVATE balls_core)
 add_dependencies(balls_tests balls_physics_plugins)
 target_compile_options(balls_tests PRIVATE ${BALLS_WARNINGS})

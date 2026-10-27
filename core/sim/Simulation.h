@@ -60,12 +60,13 @@ private:
 
     SimulationTuning settings;
     BackendHandle physics;
-    std::vector<int32_t> uploadedNearBrickCells;
     std::vector<int32_t> uploadedBrickHitsLeft;
     BrickBoard brickBoard;
     TargetField targetField;
     uint64_t uploadedRevision = ~0ull;
     bool hostHitsPending = false;
+    bool targetsUploadPending = true;
+    bool hitsUploadPending = true;
     std::vector<BallSpawn> pendingSpawns;
     std::vector<BallHit> hits;
     std::vector<uint32_t> killedBalls;

@@ -63,6 +63,8 @@ struct BoardUpload {
     std::span<const int32_t> targetCells;
     std::span<const int32_t> nearBrickCells;
     std::span<const int32_t> brickHitsLeft;
+    std::span<const int32_t> changedCells;
+    bool onlyChangedCells = false;
 };
 
 struct GpuRoofline {
@@ -76,6 +78,7 @@ struct GpuRoofline {
 
 struct DeviceHitResults {
     std::span<const int32_t> brickHitsLeft;
+    std::span<const uint32_t> hitBricks;
     BallTally killsByColor{};
     BallCount killed = 0;
 };

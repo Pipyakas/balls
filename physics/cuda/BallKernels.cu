@@ -153,6 +153,13 @@ extern "C" __global__ void gridToRenderKernel(const unsigned long long* slots, i
     renderSlots[index] = key == 0ull ? emptyRenderSlot : static_cast<unsigned int>(key);
 }
 
+extern "C" __global__ void applyCellWordsKernel(const int* updates, int updateCount, int* cellWords) {
+    const int index = blockIdx.x * blockDim.x + threadIdx.x;
+    if (index < updateCount) {
+        cellWords[updates[2 * index]] = updates[2 * index + 1];
+    }
+}
+
 extern "C" __global__ void collectHolesKernel(const unsigned int* killedIndices, unsigned int killedCount,
                                               unsigned int survivorCount, unsigned int* holes,
                                               FrameCounters* counters) {
@@ -313,6 +320,7 @@ __device__ __forceinline__ void stepOneBall(unsigned int target, unsigned int st
         if (slot < killedCapacity) {
             outState[target] = deadColor << colorShift;
             killedIndices[slot] = target;
+            killedIndices[killedCapacity + slot] = static_cast<unsigned int>(brick);
             atomicAdd(&counters->killsByColor[color], 1u);
         } else {
             atomicAdd(&brickHitsLeft[brick], 1);

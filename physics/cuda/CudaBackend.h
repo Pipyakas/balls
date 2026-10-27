@@ -67,6 +67,9 @@ private:
     void ensureArray(DeviceArray& array, size_t bytes);
     void upload(DeviceArray& array, const void* data, size_t bytes);
     void compactKilledBalls(unsigned int killed);
+    void uploadBrickHits(std::span<const int32_t> hitsLeft);
+    void uploadWholeBoard(const BoardUpload& board);
+    void applyChangedCellWords(const BoardUpload& board);
     void releaseRenderBuffer();
     bool copyIntoRenderBuffer(CUdeviceptr source, size_t elements);
     bool writeGridIntoRenderBuffer();
@@ -77,6 +80,7 @@ private:
     bool ensureSortBuffers();
     void releaseSortBuffers();
     bool countBallsByCell();
+    void chooseSortGrid();
 
     const CudaDriver& driver;
     CUfunction stepFunction = nullptr;
@@ -86,6 +90,7 @@ private:
     CUfunction countCellsFunction = nullptr;
     CUfunction scanCellsFunction = nullptr;
     CUfunction stepAndSortFunction = nullptr;
+    CUfunction applyCellWordsFunction = nullptr;
     DeviceBalls balls{};
     size_t capacity = 0;
     size_t packedCapacity = 0;
@@ -101,10 +106,14 @@ private:
     DeviceArray gridSlots;
     DeviceArray gridPacked;
     DeviceArray cellCursors;
+    DeviceArray cellWordUpdates;
+    size_t uploadedCellWords = 0;
     CUdeviceptr sortedPosition = 0;
     CUdeviceptr sortedState = 0;
     size_t sortedCapacity = 0;
     SortSchedule sortSchedule;
+    int sortColumns = 1;
+    int sortRows = 1;
     unsigned int frameSeed = 0;
     int gridWidth = 0;
     int gridHeight = 0;
@@ -113,6 +122,7 @@ private:
     unsigned int killedCapacity = 0;
     float ballSpeed = 1.0f;
     std::vector<int32_t> hostBrickHitsLeft;
+    std::vector<uint32_t> hostHitBricks;
     FrameCounters lastCounters{};
     std::vector<uint32_t> hostPacked;
     CUgraphicsResource renderResource = nullptr;

@@ -22,6 +22,7 @@ constexpr unsigned int colorShift = 26u;
 constexpr unsigned int colorMask = 7u;
 constexpr unsigned int deadColor = 7u;
 constexpr int maxSortCells = 4096;
+constexpr size_t killedRecordWords = 2;
 constexpr size_t sortBallsPerBlock = 4096;
 constexpr unsigned int stepSortThreads = 512;
 constexpr size_t ballsPerStepThread = 2;
@@ -73,17 +74,30 @@ constexpr int emptyFarCell = -1;
 constexpr int emptyNearCell = -2;
 constexpr int cellBrickShift = 3;
 
+int32_t cellWordAt(const BoardUpload& board, size_t cell) {
+    const int32_t brick = board.paddedCells[cell];
+    if (brick >= 0) {
+        return (brick << cellBrickShift) | board.brickColors[static_cast<size_t>(brick)];
+    }
+    return board.nearBrickCells[cell] != 0 ? emptyNearCell : emptyFarCell;
+}
+
 std::vector<int32_t> buildCellWords(const BoardUpload& board) {
-    std::vector<int32_t> words(board.paddedCells.size(), emptyFarCell);
+    std::vector<int32_t> words(board.paddedCells.size());
     for (size_t cell = 0; cell < words.size(); ++cell) {
-        const int32_t brick = board.paddedCells[cell];
-        if (brick >= 0) {
-            words[cell] = (brick << cellBrickShift) | board.brickColors[static_cast<size_t>(brick)];
-        } else if (board.nearBrickCells[cell] != 0) {
-            words[cell] = emptyNearCell;
-        }
+        words[cell] = cellWordAt(board, cell);
     }
     return words;
+}
+
+std::vector<int32_t> buildCellWordUpdates(const BoardUpload& board) {
+    std::vector<int32_t> updates;
+    updates.reserve(board.changedCells.size() * 2);
+    for (const int32_t cell : board.changedCells) {
+        updates.push_back(cell);
+        updates.push_back(cellWordAt(board, static_cast<size_t>(cell)));
+    }
+    return updates;
 }
 
 unsigned int blocksFor(size_t threads) {
@@ -106,8 +120,9 @@ CudaBackend::CudaBackend() : driver(CudaDriver::instance()) {
     countCellsFunction = driver.function("countCellsKernel");
     scanCellsFunction = driver.function("scanCellsKernel");
     stepAndSortFunction = driver.function("stepAndSortBallsKernel");
+    applyCellWordsFunction = driver.function("applyCellWordsKernel");
     if (!stepFunction || !collectHolesFunction || !fillHolesFunction || !gridToRenderFunction ||
-        !countCellsFunction || !scanCellsFunction || !stepAndSortFunction) {
+        !countCellsFunction || !scanCellsFunction || !stepAndSortFunction || !applyCellWordsFunction) {
         fault = "CUDA kernels missing from module";
         return;
     }
@@ -188,7 +203,8 @@ CudaBackend::~CudaBackend() {
     for (CUdeviceptr pointer :
          {balls.position, balls.state, balls.packed, paddedCells.pointer,
           brickColors.pointer, targetCells.pointer, cellWords.pointer, brickHitsLeft.pointer, killedIndices.pointer, holes.pointer,
-          counters.pointer, gridSlots.pointer, gridPacked.pointer, cellCursors.pointer, sortedPosition, sortedState}) {
+          counters.pointer, gridSlots.pointer, gridPacked.pointer, cellCursors.pointer, cellWordUpdates.pointer,
+          sortedPosition, sortedState}) {
         if (pointer) {
             api.memFree(pointer);
         }
@@ -284,14 +300,47 @@ void CudaBackend::uploadBoard(const BoardUpload& board) {
         return;
     }
     driver.makeCurrent();
+    if (board.onlyChangedCells && uploadedCellWords == board.paddedCells.size()) {
+        applyChangedCellWords(board);
+    } else {
+        uploadWholeBoard(board);
+    }
+    if (!board.targetCells.empty()) {
+        upload(targetCells, board.targetCells.data(), board.targetCells.size_bytes());
+    }
+    if (!board.brickHitsLeft.empty()) {
+        uploadBrickHits(board.brickHitsLeft);
+    }
+    fieldWidth = static_cast<float>(board.columns);
+    fieldHeight = static_cast<float>(board.rows);
+    chooseSortGrid();
+}
+
+void CudaBackend::applyChangedCellWords(const BoardUpload& board) {
+    if (board.changedCells.empty()) {
+        return;
+    }
+    const std::vector<int32_t> updates = buildCellWordUpdates(board);
+    upload(cellWordUpdates, updates.data(), updates.size() * sizeof(int32_t));
+    CUdeviceptr updatesPointer = cellWordUpdates.pointer;
+    CUdeviceptr wordsPointer = cellWords.pointer;
+    int updateCount = static_cast<int>(board.changedCells.size());
+    void* arguments[] = {&updatesPointer, &updateCount, &wordsPointer};
+    launch(applyCellWordsFunction, board.changedCells.size(), arguments, "applyCellWordsKernel");
+}
+
+void CudaBackend::uploadWholeBoard(const BoardUpload& board) {
     upload(paddedCells, board.paddedCells.data(), board.paddedCells.size_bytes());
     std::vector<int32_t> colors(board.brickColors.begin(), board.brickColors.end());
     colors.push_back(-1);
     upload(brickColors, colors.data(), colors.size() * sizeof(int32_t));
-    upload(targetCells, board.targetCells.data(), board.targetCells.size_bytes());
     const std::vector<int32_t> words = buildCellWords(board);
     upload(cellWords, words.data(), words.size() * sizeof(int32_t));
-    hostBrickHitsLeft.assign(board.brickHitsLeft.begin(), board.brickHitsLeft.end());
+    uploadedCellWords = words.size();
+}
+
+void CudaBackend::uploadBrickHits(std::span<const int32_t> hitsLeft) {
+    hostBrickHitsLeft.assign(hitsLeft.begin(), hitsLeft.end());
     brickCount = hostBrickHitsLeft.size();
     hostBrickHitsLeft.push_back(0);
     upload(brickHitsLeft, hostBrickHitsLeft.data(), hostBrickHitsLeft.size() * sizeof(int32_t));
@@ -301,10 +350,8 @@ void CudaBackend::uploadBoard(const BoardUpload& board) {
         totalHits += static_cast<BallCount>(std::max(hits, 0));
     }
     killedCapacity = static_cast<unsigned int>(std::max<BallCount>(totalHits, minimumKilledCapacity));
-    ensureArray(killedIndices, static_cast<size_t>(killedCapacity) * 4);
+    ensureArray(killedIndices, static_cast<size_t>(killedCapacity) * killedRecordWords * 4);
     ensureArray(holes, static_cast<size_t>(killedCapacity) * 4);
-    fieldWidth = static_cast<float>(board.columns);
-    fieldHeight = static_cast<float>(board.rows);
 }
 
 void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {
@@ -393,8 +440,7 @@ void CudaBackend::step(const StepParams& params, std::vector<BallHit>&) {
     }
     if (sortSchedule.sortThisTick(count)) {
         if (countBallsByCell()) {
-            sorted = {cellCursors.pointer, sortedPosition, sortedState, static_cast<int>(fieldWidth),
-                      static_cast<int>(fieldHeight)};
+            sorted = {cellCursors.pointer, sortedPosition, sortedState, sortColumns, sortRows};
         }
     }
     const bool sorting = sorted.columns > 0;
@@ -428,10 +474,10 @@ void CudaBackend::step(const StepParams& params, std::vector<BallHit>&) {
         return;
     }
     compactKilledBalls(lastCounters.killedCount);
-    if (brickCount > 0) {
-        succeeded(api.memcpyDeviceToHost(hostBrickHitsLeft.data(), brickHitsLeft.pointer, brickCount * sizeof(int32_t)),
-                  "download brick hits");
-    }
+    hostHitBricks.resize(lastCounters.killedCount);
+    succeeded(api.memcpyDeviceToHost(hostHitBricks.data(), killedIndices.pointer + static_cast<size_t>(killedCapacity) * 4,
+                                     hostHitBricks.size() * sizeof(uint32_t)),
+              "download hit bricks");
 }
 
 void CudaBackend::compactKilledBalls(unsigned int killed) {
@@ -459,7 +505,7 @@ DeviceHitResults CudaBackend::deviceHitResults() const {
     if (lastCounters.killedCount == 0) {
         return results;
     }
-    results.brickHitsLeft = std::span<const int32_t>(hostBrickHitsLeft.data(), brickCount);
+    results.hitBricks = hostHitBricks;
     for (int color = 0; color < ballColorCount; ++color) {
         results.killsByColor[color] = lastCounters.killsByColor[color];
     }
@@ -610,9 +656,21 @@ bool CudaBackend::ensureSortBuffers() {
     return true;
 }
 
+void CudaBackend::chooseSortGrid() {
+    const int columns = std::max(static_cast<int>(fieldWidth), 1);
+    const int rows = std::max(static_cast<int>(fieldHeight), 1);
+    int cellsPerBucketSide = 1;
+    const auto bucketsAlong = [&](int cells) { return (cells + cellsPerBucketSide - 1) / cellsPerBucketSide; };
+    while (bucketsAlong(columns) * bucketsAlong(rows) > maxSortCells) {
+        ++cellsPerBucketSide;
+    }
+    sortColumns = bucketsAlong(columns);
+    sortRows = bucketsAlong(rows);
+}
+
 bool CudaBackend::countBallsByCell() {
-    const int columns = static_cast<int>(fieldWidth);
-    const int rows = static_cast<int>(fieldHeight);
+    const int columns = sortColumns;
+    const int rows = sortRows;
     const int cellCount = columns * rows;
     if (count == 0 || cellCount <= 0 || cellCount > maxSortCells || !ensureSortBuffers()) {
         return false;

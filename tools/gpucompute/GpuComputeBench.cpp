@@ -365,7 +365,7 @@ Workload buildWorkload(const BrickLayout& layout, const Options& options) {
     field.rebuild(board);
     const auto paddedCells = board.paddedCells();
     const auto brickColors = board.brickColors();
-    const std::vector<int32_t> nearBrick = board.nearBrickFlags();
+    const std::vector<int32_t>& nearBrick = board.nearBrickFlags();
     work.cellWords.assign(paddedCells.size(), emptyFarCell);
     for (size_t cell = 0; cell < paddedCells.size(); ++cell) {
         const int32_t brick = paddedCells[cell];
