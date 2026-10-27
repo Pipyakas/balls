@@ -6,11 +6,18 @@ TEST_CASE("settings default to the game rules and automatic layout") {
     const Settings settings;
     EXPECT(!settings.ballCollisions);
     EXPECT(settings.layout == LayoutOrientation::Auto);
+    EXPECT(!settings.vsync);
 }
 
 TEST_CASE("settings survive a serialize and parse round trip") {
-    const Settings original{.ballCollisions = true, .layout = LayoutOrientation::Portrait};
+    const Settings original{.ballCollisions = true, .layout = LayoutOrientation::Portrait, .vsync = true};
     EXPECT(parseSettings(serializeSettings(original)) == original);
+}
+
+TEST_CASE("vsync parses on and off while bad values keep the default") {
+    EXPECT(parseSettings("vsync=on\n").vsync);
+    EXPECT(!parseSettings("vsync=off\n").vsync);
+    EXPECT(!parseSettings("vsync=maybe\n").vsync);
 }
 
 TEST_CASE("settings ignore unknown keys and keep defaults for bad values") {

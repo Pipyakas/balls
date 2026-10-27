@@ -456,8 +456,9 @@ void NvrhiRenderer::drawScene(ClearColor clearColor) {
         nvrhi::GraphicsState state;
         state.pipeline = rectPipeline;
         state.framebuffer = framebuffer;
-        // NVRHI's Vulkan backend keeps the scissor dynamic, so every draw has to supply one; without it the
-        // implementation draws nothing. Rect clipping already happened on the CPU, so the whole viewport is it.
+        // Every API needs an explicit scissor here: NVRHI's Vulkan backend keeps it dynamic and draws nothing without
+        // one, and D3D12 otherwise keeps the last ImGui clip rectangle, hiding every rectangle outside it. Rect
+        // clipping already happened on the CPU, so the whole viewport is the scissor.
         state.viewport = nvrhi::ViewportState().addViewport(viewport).addScissorRect(nvrhi::Rect(viewport));
         state.bindings = {rectStorageSet, rectConstantsSet};
         commandList->setGraphicsState(state);
