@@ -29,6 +29,12 @@ void Simulation::replaceBackend(BackendHandle backend) {
     uploadedRevision = ~0ull;
     syncBoardIfChanged();
     physics->addBalls(balls);
+    physics->setBallCollisions(ballCollisionsWanted);
+}
+
+void Simulation::setBallCollisions(bool enabled) {
+    ballCollisionsWanted = enabled;
+    physics->setBallCollisions(enabled);
 }
 
 void Simulation::launchBalls(BallColor color, BallCount count) {

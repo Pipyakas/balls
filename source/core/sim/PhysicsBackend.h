@@ -15,7 +15,7 @@
 #define BALLS_PLUGIN_EXPORT extern "C" __attribute__((visibility("default")))
 #endif
 
-inline constexpr int physicsPluginInterfaceVersion = 2;
+inline constexpr int physicsPluginInterfaceVersion = 3;
 
 struct BallSpawn {
     float x = 0.0f;
@@ -104,6 +104,10 @@ public:
     virtual DeviceHitResults deviceHitResults() const { return {}; }
     virtual bool shareRenderBuffer(unsigned int, size_t) { return false; }
     virtual void setVisibilityGrid(int, int) {}
+    // Optional ball-vs-ball collisions, a testing aid outside the game rules. Backends that do not
+    // implement them keep the default and ignore setBallCollisions.
+    virtual bool supportsBallCollisions() const { return false; }
+    virtual void setBallCollisions(bool) {}
     virtual double deviceStepMs() const { return 0.0; }
     virtual void shareCoresWithGpu() {}
     virtual bool takeCompactTail(size_t, CompactBalls&) { return false; }
