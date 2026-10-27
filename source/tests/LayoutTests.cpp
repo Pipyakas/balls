@@ -105,6 +105,98 @@ TEST_CASE("gadgets sit exactly one gap from the board frame") {
                 gadgetGap));
 }
 
+TEST_CASE("auto orientation keeps one gap for every board shape") {
+    constexpr float wideFrameWidth = 1440.0f;
+    constexpr float wideFrameHeight = 900.0f;
+    constexpr float tallFrameWidth = 480.0f;
+    constexpr float tallFrameHeight = 900.0f;
+    constexpr float squareSize = 800.0f;
+    const CoreGameplayLayout wideAuto =
+        compute(wideFrameWidth, wideFrameHeight, 20, 8, LayoutOrientation::Auto, false);
+    EXPECT(wideAuto.isPortrait == false);
+    EXPECT(near(wideAuto.main.x - (wideAuto.leftGadget.x + wideAuto.leftGadget.width), gadgetGap));
+    EXPECT(near(wideAuto.rightGadget.x - (wideAuto.main.x + wideAuto.main.width), gadgetGap));
+    const CoreGameplayLayout tallAuto =
+        compute(tallFrameWidth, tallFrameHeight, 8, 20, LayoutOrientation::Auto, true);
+    EXPECT(tallAuto.isPortrait == true);
+    EXPECT(near(tallAuto.main.y - (tallAuto.topGadget.y + tallAuto.topGadget.height), gadgetGap));
+    EXPECT(near(tallAuto.bottomGadget.y - (tallAuto.main.y + tallAuto.main.height), gadgetGap));
+    const CoreGameplayLayout squareAuto =
+        compute(squareSize, squareSize, 10, 10, LayoutOrientation::Auto, false);
+    EXPECT(squareAuto.isPortrait == false);
+    EXPECT(near(squareAuto.main.x - (squareAuto.leftGadget.x + squareAuto.leftGadget.width), gadgetGap));
+    EXPECT(near(squareAuto.rightGadget.x - (squareAuto.main.x + squareAuto.main.width), gadgetGap));
+}
+
+TEST_CASE("forced orientation keeps one gap against the window shape") {
+    constexpr float wideFrameWidth = 1440.0f;
+    constexpr float wideFrameHeight = 900.0f;
+    constexpr float tallFrameWidth = 480.0f;
+    constexpr float tallFrameHeight = 900.0f;
+    const CoreGameplayLayout forcedPortraitWide =
+        compute(wideFrameWidth, wideFrameHeight, 20, 8, LayoutOrientation::Portrait, false);
+    EXPECT(forcedPortraitWide.isPortrait == true);
+    EXPECT(near(forcedPortraitWide.main.y -
+                    (forcedPortraitWide.topGadget.y + forcedPortraitWide.topGadget.height),
+                gadgetGap));
+    EXPECT(
+        near(forcedPortraitWide.bottomGadget.y - (forcedPortraitWide.main.y + forcedPortraitWide.main.height),
+             gadgetGap));
+    const CoreGameplayLayout forcedLandscapeTall =
+        compute(tallFrameWidth, tallFrameHeight, 8, 20, LayoutOrientation::Landscape, false);
+    EXPECT(forcedLandscapeTall.isPortrait == false);
+    EXPECT(near(forcedLandscapeTall.main.x -
+                    (forcedLandscapeTall.leftGadget.x + forcedLandscapeTall.leftGadget.width),
+                gadgetGap));
+    EXPECT(near(forcedLandscapeTall.rightGadget.x -
+                    (forcedLandscapeTall.main.x + forcedLandscapeTall.main.width),
+                gadgetGap));
+    const CoreGameplayLayout forcedPortraitSquare =
+        compute(800.0f, 800.0f, 10, 10, LayoutOrientation::Portrait, false);
+    EXPECT(forcedPortraitSquare.isPortrait == true);
+    EXPECT(near(forcedPortraitSquare.main.y -
+                    (forcedPortraitSquare.topGadget.y + forcedPortraitSquare.topGadget.height),
+                gadgetGap));
+    EXPECT(near(forcedPortraitSquare.bottomGadget.y -
+                    (forcedPortraitSquare.main.y + forcedPortraitSquare.main.height),
+                gadgetGap));
+}
+
+TEST_CASE("both orientations keep one gap for wide, tall and square boards") {
+    constexpr float frameWidth = 1200.0f;
+    constexpr float frameHeight = 800.0f;
+    const CoreGameplayLayout wideLandscape =
+        compute(frameWidth, frameHeight, 20, 8, LayoutOrientation::Landscape, false);
+    EXPECT(near(wideLandscape.main.x - (wideLandscape.leftGadget.x + wideLandscape.leftGadget.width),
+                gadgetGap));
+    EXPECT(near(wideLandscape.rightGadget.x - (wideLandscape.main.x + wideLandscape.main.width), gadgetGap));
+    const CoreGameplayLayout widePortrait =
+        compute(frameWidth, frameHeight, 20, 8, LayoutOrientation::Portrait, false);
+    EXPECT(near(widePortrait.main.y - (widePortrait.topGadget.y + widePortrait.topGadget.height), gadgetGap));
+    EXPECT(near(widePortrait.bottomGadget.y - (widePortrait.main.y + widePortrait.main.height), gadgetGap));
+    const CoreGameplayLayout tallLandscape =
+        compute(frameWidth, frameHeight, 8, 20, LayoutOrientation::Landscape, false);
+    EXPECT(near(tallLandscape.main.x - (tallLandscape.leftGadget.x + tallLandscape.leftGadget.width),
+                gadgetGap));
+    EXPECT(near(tallLandscape.rightGadget.x - (tallLandscape.main.x + tallLandscape.main.width), gadgetGap));
+    const CoreGameplayLayout tallPortrait =
+        compute(frameWidth, frameHeight, 8, 20, LayoutOrientation::Portrait, false);
+    EXPECT(near(tallPortrait.main.y - (tallPortrait.topGadget.y + tallPortrait.topGadget.height), gadgetGap));
+    EXPECT(near(tallPortrait.bottomGadget.y - (tallPortrait.main.y + tallPortrait.main.height), gadgetGap));
+    const CoreGameplayLayout squareLandscape =
+        compute(frameWidth, frameHeight, 10, 10, LayoutOrientation::Landscape, false);
+    EXPECT(near(squareLandscape.main.x - (squareLandscape.leftGadget.x + squareLandscape.leftGadget.width),
+                gadgetGap));
+    EXPECT(near(squareLandscape.rightGadget.x - (squareLandscape.main.x + squareLandscape.main.width),
+                gadgetGap));
+    const CoreGameplayLayout squarePortrait =
+        compute(frameWidth, frameHeight, 10, 10, LayoutOrientation::Portrait, false);
+    EXPECT(near(squarePortrait.main.y - (squarePortrait.topGadget.y + squarePortrait.topGadget.height),
+                gadgetGap));
+    EXPECT(near(squarePortrait.bottomGadget.y - (squarePortrait.main.y + squarePortrait.main.height),
+                gadgetGap));
+}
+
 TEST_CASE("portrait keeps compact controls to one launcher row") {
     const float frameWidth = 480.0f;
     const CoreGameplayLayout layout = compute(frameWidth, 800.0f, 10, 20, LayoutOrientation::Portrait, true);
