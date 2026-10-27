@@ -22,4 +22,5 @@ cp "$build_dir"/bin/*.so "$dist_dir/" 2>/dev/null || true
 rm -rf "$dist_dir/assets"
 cp -r "$build_dir/bin/assets" "$dist_dir/assets"
 
-echo "Built $dist_dir/ColorBlastBalls"
+echo
+echo "Built: $(pwd)/$dist_dir/ColorBlastBalls"

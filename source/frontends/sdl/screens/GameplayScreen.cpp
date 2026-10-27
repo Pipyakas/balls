@@ -34,6 +34,8 @@ constexpr float groupGap = 14.0f;
 constexpr float minimumControlColumnWidth = 220.0f;
 constexpr float controlColumnGap = 16.0f;
 constexpr float scrollbarGutter = 10.0f;
+constexpr float probeStatusHeight = 28.0f;
+constexpr float probeStatusSize = 17.0f;
 
 float listHeight(size_t rows) {
     return (controlRowHeight + controlGap) * static_cast<float>(rows) - controlGap;
@@ -72,7 +74,7 @@ std::string autoLimitLabel(const GameSession& session) {
     return measured ? std::format("Auto {}", groupedBalls(*measured)) : std::string("Auto (probe)");
 }
 
-std::string probeButtonLabel(const GameSession& session) {
+std::string probeStatus(const GameSession& session) {
     const CapacityProbe& probe = session.capacityProbe();
     if (probe.isActive()) {
         return std::format("Probing... {} balls, {:.0f} fps",
@@ -81,7 +83,10 @@ std::string probeButtonLabel(const GameSession& session) {
     if (probe.phase() == ProbePhase::Done) {
         return std::format("Max @{:.0f} FPS: {}", probe.targetFps(), groupedBalls(probe.bestPassingCount()));
     }
-    return "Find max balls";
+    if (const auto measured = session.machineBallLimit()) {
+        return std::format("Max: {}", groupedBalls(*measured));
+    }
+    return {};
 }
 
 } // namespace
@@ -129,6 +134,17 @@ void GameplayScreen::applyRememberedMachineLimit() {
     }
     if (const auto limit = app.machineProfile().ballLimit(session->backend())) {
         session->useMachineBallLimit(limit->balls);
+    }
+}
+
+// Auto means the most balls this machine holds at the target frame rate: the remembered probe result when it was
+// measured at this target, otherwise a new probe.
+void GameplayScreen::useAutoBallLimit() {
+    const auto remembered = app.machineProfile().ballLimit(session->backend());
+    if (remembered && static_cast<int>(remembered->targetFps) == probeTargetFps) {
+        session->useMachineBallLimit(remembered->balls);
+    } else {
+        startProbe();
     }
 }
 
@@ -407,7 +423,8 @@ int GameplayScreen::drawOptionDropdown(Rect area, std::string_view current,
     ui::dropdown(row, current, open);
     float cursor = area.y + controlRowHeight + controlGap;
     if (open) {
-        const Rect list{area.x, area.y, area.width, cursor - area.y};
+        const Rect list{area.x, area.y, area.width,
+                        controlRowHeight + (controlRowHeight + controlGap) * static_cast<float>(options.size())};
         for (size_t i = 0; i < options.size(); ++i) {
             const Rect option{area.x, cursor, area.width, controlRowHeight};
             if (ui::button(option, options[i], true, static_cast<int>(i) == selected)) {
@@ -455,17 +472,6 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
         session->startAutoRelease();
     }
 
-    const Rect probeRows = group("Capacity probe", controlRowHeight * 2.0f + controlGap);
-    ui::stepper(ui::rowSlice(probeRows, 0, 2, controlGap), "Target FPS", probeTargetFps,
-                minimumProbeTargetFps, maximumProbeTargetFps);
-    if (ui::button(ui::rowSlice(probeRows, 1, 2, controlGap), probeButtonLabel(*session))) {
-        if (session->capacityProbe().isActive()) {
-            session->cancelCapacityProbe();
-        } else {
-            startProbe();
-        }
-    }
-
     static const std::array<std::string, spawnRateOptions.size()> spawnLabels = [] {
         std::array<std::string, spawnRateOptions.size()> labels{};
         for (size_t i = 0; i < spawnRateOptions.size(); ++i) {
@@ -506,19 +512,29 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
         }
         return labels;
     }();
-    const int selectedLimit = session->isUsingMachineBallLimit() ? 0 : session->ballLimitIndex() + 1;
-    const float limitHeight =
+    const bool autoLimit = session->isUsingMachineBallLimit() || session->capacityProbe().isActive();
+    const int selectedLimit = autoLimit ? 0 : session->ballLimitIndex() + 1;
+    const float dropdownHeight =
         controlRowHeight + (limitDropdownOpen ? (controlRowHeight + controlGap) * limitLabels.size() : 0.0f);
-    const int pickedLimit = drawOptionDropdown(group("Ball limit", limitHeight), limitLabels[selectedLimit],
-                                               limitLabels, selectedLimit, limitDropdownOpen);
+    const float autoRowsHeight = autoLimit ? controlGap + controlRowHeight + probeStatusHeight : 0.0f;
+    const Rect limitArea = group("Ball limit", dropdownHeight + autoRowsHeight);
+    const int pickedLimit = drawOptionDropdown(limitArea, limitLabels[selectedLimit], limitLabels, selectedLimit,
+                                               limitDropdownOpen);
     if (pickedLimit == 0) {
-        if (const auto measured = session->machineBallLimit()) {
-            session->useMachineBallLimit(*measured);
-        } else {
+        useAutoBallLimit();
+    } else if (pickedLimit > 0) {
+        session->cancelCapacityProbe();
+        session->selectBallLimit(pickedLimit - 1);
+    }
+    if (autoLimit && pickedLimit < 0) {
+        const float stepperY = limitArea.y + dropdownHeight + controlGap;
+        if (ui::stepper({limitArea.x, stepperY, limitArea.width, controlRowHeight}, "Target FPS", probeTargetFps,
+                        minimumProbeTargetFps, maximumProbeTargetFps)) {
             startProbe();
         }
-    } else if (pickedLimit > 0) {
-        session->selectBallLimit(pickedLimit - 1);
+        ui::drawTextInRect(probeStatus(*session),
+                           {limitArea.x, stepperY + controlRowHeight, limitArea.width, probeStatusHeight},
+                           probeStatusSize, palette::textMuted, ui::Align::Left);
     }
 
     const float backendHeight = (controlRowHeight + controlGap) * allBackendKinds.size() - controlGap;
