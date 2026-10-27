@@ -456,7 +456,9 @@ void NvrhiRenderer::drawScene(ClearColor clearColor) {
         nvrhi::GraphicsState state;
         state.pipeline = rectPipeline;
         state.framebuffer = framebuffer;
-        state.viewport = nvrhi::ViewportState().addViewport(viewport);
+        // D3D12 always applies the scissor, even for pipelines built without it, and the command list otherwise keeps
+        // the last ImGui clip rectangle from the previous frame, which hides every rectangle outside it.
+        state.viewport = nvrhi::ViewportState().addViewport(viewport).addScissorRect(nvrhi::Rect(viewport));
         state.bindings = {rectStorageSet, rectConstantsSet};
         commandList->setGraphicsState(state);
         commandList->draw(nvrhi::DrawArguments().setVertexCount(verticesPerQuad).setInstanceCount(
