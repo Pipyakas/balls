@@ -44,6 +44,14 @@ if(BALLS_FRONTEND STREQUAL "sdl")
     add_subdirectory(frontends/sdl)
 endif()
 
+# Vulkan-Headers is already fetched by the NVRHI renderer. This interface-only target
+# supplies declarations to balls_core without linking Vulkan loader libraries.
+if(TARGET Vulkan-Headers)
+    target_link_libraries(balls_core PRIVATE Vulkan-Headers)
+elseif(TARGET Vulkan::Headers)
+    target_link_libraries(balls_core PRIVATE Vulkan::Headers)
+endif()
+
 if(NOT BALLS_BUILD_TOOLS)
     return()
 endif()
@@ -80,7 +88,7 @@ endif()
 
 enable_testing()
 add_executable(balls_tests tests/TestMain.cpp tests/LevelTests.cpp tests/SimulationTests.cpp tests/GameTests.cpp
-    tests/ProbeTests.cpp tests/EditorTests.cpp)
+    tests/ProbeTests.cpp tests/EditorTests.cpp tests/GpuAdapterTests.cpp)
 target_link_libraries(balls_tests PRIVATE balls_core)
 add_dependencies(balls_tests balls_physics_plugins)
 target_compile_options(balls_tests PRIVATE ${BALLS_WARNINGS})
