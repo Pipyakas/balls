@@ -13,9 +13,12 @@
 #include "sim/BackendFactory.h"
 
 #include <chrono>
+#include <filesystem>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
+#include <vector>
 
 struct SDL_Window;
 union SDL_Event;
@@ -45,11 +48,24 @@ public:
     bool isVsyncEnabled() const { return renderer && renderer->isVsyncEnabled(); }
     MachineProfile& machineProfile() { return profile; }
     void setVsync(bool enabled);
+    void showToast(std::string text, bool isError);
+    void openLevelImportDialog(const std::filesystem::path& startFolder);
+    void openFolder(const std::filesystem::path& folder);
 
 private:
     bool openWindowAndRenderer(const LaunchOptions& options, std::string_view api, std::string& error);
     using Clock = std::chrono::steady_clock;
 
+    struct Toast {
+        std::string text;
+        float secondsLeft = 0.0f;
+        bool isError = false;
+    };
+
+    static void receiveImportDialogResult(void* userdata, const char* const* fileList, int filter);
+    void deliverImport(std::vector<std::filesystem::path> paths);
+    void deliverFinishedDialogs();
+    void drawToast();
     void applyPendingScreen();
     void drawFrameTimingsOverlay() const;
     void updateTextInput();
@@ -72,5 +88,10 @@ private:
     bool screenshotPending = false;
     std::string screenshotPath;
     float frameSeconds = 0.0f;
+    Toast toast;
+    std::vector<std::filesystem::path> droppedPaths;
+    std::mutex dialogMutex;
+    std::vector<std::vector<std::filesystem::path>> finishedDialogs;
+    std::vector<std::string> dialogErrors;
     Clock::time_point previousUpdateStart = Clock::now();
 };

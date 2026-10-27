@@ -27,6 +27,12 @@ constexpr float fontLoadPixels = 32.0f;
 constexpr float channelScale = 1.0f / 255.0f;
 constexpr const char* windowTitle = "Balls";
 constexpr const char* screenshotExtension = ".bmp";
+constexpr float toastSeconds = 3.0f;
+constexpr char importPathSeparator = '|';
+constexpr float toastTextSize = 24.0f;
+constexpr float toastHeight = 48.0f;
+constexpr float toastPadding = 20.0f;
+constexpr float toastMargin = 24.0f;
 
 double millisecondsBetween(std::chrono::steady_clock::time_point start, std::chrono::steady_clock::time_point end) {
     return std::chrono::duration<double, std::milli>(end - start).count();
@@ -138,7 +144,91 @@ void App::handleEvent(const SDL_Event& event) {
     input::handleEvent(event);
     if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
         running = false;
+    } else if (event.type == SDL_EVENT_DROP_BEGIN) {
+        droppedPaths.clear();
+    } else if (event.type == SDL_EVENT_DROP_FILE && event.drop.data) {
+        droppedPaths.push_back(pathFromUtf8(event.drop.data));
+    } else if (event.type == SDL_EVENT_DROP_COMPLETE && !droppedPaths.empty()) {
+        deliverImport(std::move(droppedPaths));
+        droppedPaths.clear();
     }
+}
+
+void App::showToast(std::string text, bool isError) { toast = {std::move(text), toastSeconds, isError}; }
+
+void App::deliverImport(std::vector<std::filesystem::path> paths) {
+    if (!currentScreen || !currentScreen->importLevels(paths)) {
+        showToast("Open Level select to import levels", false);
+    }
+}
+
+// SDL may call this from its own dialog thread, so the result is only queued here and handed to the screen on
+// the next frame.
+void App::receiveImportDialogResult(void* userdata, const char* const* fileList, int) {
+    App& app = *static_cast<App*>(userdata);
+    std::lock_guard lock(app.dialogMutex);
+    if (!fileList) {
+        app.dialogErrors.push_back(SDL_GetError());
+        return;
+    }
+    std::vector<std::filesystem::path> picked;
+    for (const char* const* file = fileList; *file; ++file) {
+        picked.push_back(pathFromUtf8(*file));
+    }
+    if (!picked.empty()) {
+        app.finishedDialogs.push_back(std::move(picked));
+    }
+}
+
+void App::openLevelImportDialog(const std::filesystem::path& startFolder) {
+    static const SDL_DialogFileFilter levelFilter{"Level files (*_Bricks.txt, *_SpawnBall.txt)", "txt"};
+    const std::string location = utf8Of(startFolder);
+    SDL_ShowOpenFileDialog(&App::receiveImportDialogResult, this, window, &levelFilter, 1, location.c_str(), true);
+}
+
+void App::deliverFinishedDialogs() {
+    std::vector<std::vector<std::filesystem::path>> picked;
+    std::vector<std::string> errors;
+    {
+        std::lock_guard lock(dialogMutex);
+        picked.swap(finishedDialogs);
+        errors.swap(dialogErrors);
+    }
+    for (const std::string& error : errors) {
+        showToast("Import failed: " + error, true);
+    }
+    for (auto& paths : picked) {
+        deliverImport(std::move(paths));
+    }
+}
+
+void App::openFolder(const std::filesystem::path& folder) {
+    std::error_code error;
+    std::filesystem::create_directories(folder, error);
+    std::string url = "file:///";
+    const std::u8string genericPath = folder.lexically_normal().generic_u8string();
+    for (const char8_t unit : genericPath) {
+        const char character = static_cast<char>(unit);
+        url += character == ' ' ? std::string("%20") : std::string(1, character);
+    }
+    if (!SDL_OpenURL(url.c_str())) {
+        showToast(std::format("Could not open {}: {}", utf8Of(folder), SDL_GetError()), true);
+    }
+}
+
+void App::drawToast() {
+    toast.secondsLeft = std::max(0.0f, toast.secondsLeft - frameSeconds);
+    if (toast.secondsLeft <= 0.0f) {
+        return;
+    }
+    const float alpha = std::min(1.0f, toast.secondsLeft);
+    const float maximumWidth = static_cast<float>(gfx::screenWidth()) - 2.0f * toastMargin;
+    const float size = std::min(toastTextSize, toastTextSize * maximumWidth / std::max(ui::measureText(toast.text, toastTextSize).x, 1.0f));
+    const Vec2 extent = ui::measureText(toast.text, size);
+    const Rect rect{(static_cast<float>(gfx::screenWidth()) - extent.x) * 0.5f - toastPadding, toastMargin,
+                    extent.x + 2.0f * toastPadding, toastHeight};
+    ui::drawPanel(rect, gfx::fade(toast.isError ? palette::danger : palette::panelLight, alpha), 0.4f);
+    ui::drawTextInRect(toast.text, rect, size, gfx::fade(palette::text, alpha));
 }
 
 void App::setVsync(bool enabled) {
@@ -171,11 +261,13 @@ bool App::frame() {
     renderer->beginFrame();
     const Clock::time_point workStart = Clock::now();
     gfx::beginFrame(renderer->viewWidth(), renderer->viewHeight(), fonts);
+    deliverFinishedDialogs();
     currentScreen->update(deltaTime);
     currentScreen->draw();
     if (!currentScreen->drawsFrameTimings()) {
         drawFrameTimingsOverlay();
     }
+    drawToast();
     controlServer.pump([this](const ControlRequest& request) { return handleControl(request); });
     renderer->drawRects(gfx::sceneRects());
     updateTextInput();
@@ -222,11 +314,11 @@ std::string App::stateJson() const {
     const FrameSample& sample = timings.average();
     return std::format("{{\"ok\":true,\"frontend\":\"sdl\",\"renderer\":\"{}\",\"screen\":\"{}\",\"window\":[{},{}],"
                        "\"fps\":{:.1f},\"minFps\":{:.1f},\"frameMs\":{:.3f},\"cpuMs\":{:.3f},\"gpuMs\":{:.3f},"
-                       "\"presentMs\":{:.3f},\"preferredBackend\":\"{}\",\"vsync\":{},\"details\":{}}}",
+                       "\"presentMs\":{:.3f},\"preferredBackend\":\"{}\",\"vsync\":{},\"toast\":\"{}\",\"details\":{}}}",
                        jsonEscape(renderer->deviceDescription()), currentScreen->name(), gfx::screenWidth(),
                        gfx::screenHeight(), timings.framesPerSecond(), timings.worstFpsLastSecond(), sample.frameMs,
                        sample.cpuMs, sample.gpuMs, sample.presentMs, backendKindName(backendChoice), isVsyncEnabled(),
-                       currentScreen->stateJson());
+                       jsonEscape(toast.secondsLeft > 0.0f ? toast.text : std::string{}), currentScreen->stateJson());
 }
 
 std::optional<ControlResponse> App::handleControl(const ControlRequest& request) {
@@ -243,6 +335,22 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
         renderer->requestScreenshot(screenshotPath);
         screenshotPending = true;
         return std::nullopt;
+    }
+    if (path == "/import") {
+        std::vector<std::filesystem::path> paths;
+        const std::string list = request.text("path").value_or("");
+        for (size_t start = 0; start < list.size();) {
+            const size_t end = std::min(list.find(importPathSeparator, start), list.size());
+            if (end > start) {
+                paths.push_back(pathFromUtf8(list.substr(start, end - start).c_str()));
+            }
+            start = end + 1;
+        }
+        if (paths.empty()) {
+            return ControlResponse::error(400, "missing path");
+        }
+        deliverImport(std::move(paths));
+        return ControlResponse::ok(std::format("{{\"ok\":true,\"toast\":\"{}\"}}", jsonEscape(toast.text)));
     }
     if (path == "/quit") {
         quit();
