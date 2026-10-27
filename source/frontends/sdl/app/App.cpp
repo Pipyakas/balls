@@ -94,7 +94,17 @@ bool App::openWindowAndRenderer(const LaunchOptions& options, std::string_view a
     }
     activeGraphicsApi = std::string(api);
     renderGpuPreference = options.gpu;
+#if defined(BALLS_RENDERER_WEBGPU)
+    // The WebGPU adapter list mirrors the Dawn backend selected from the api string.
+    const GpuApi adapterApi =
+        api == "webgpu-vulkan" ? GpuApi::Vulkan : (api == "webgpu-d3d12" ? GpuApi::D3d12 :
 #if defined(_WIN32)
+                                                                               GpuApi::D3d12
+#else
+                                                                               GpuApi::Vulkan
+#endif
+                                                );
+#elif defined(_WIN32)
     const GpuApi adapterApi = api == "vulkan" ? GpuApi::Vulkan : GpuApi::D3d12;
 #else
     const GpuApi adapterApi = GpuApi::Vulkan;

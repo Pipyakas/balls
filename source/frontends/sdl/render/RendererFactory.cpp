@@ -1,6 +1,32 @@
 #include "render/IRenderer.h"
 
-#if defined(BALLS_RENDERER_NVRHI)
+#if defined(BALLS_RENDERER_WEBGPU)
+#include "render/webgpu/WebGpuRenderer.h"
+
+#include <string>
+
+namespace {
+
+constexpr std::string_view webgpuPrefix = "webgpu-";
+
+}
+
+SDL_WindowFlags rendererWindowFlags(std::string_view) { return 0; }
+
+std::string_view fallbackGraphicsApi(std::string_view) { return {}; }
+
+std::unique_ptr<IRenderer> createRenderer(SDL_Window* window, std::string_view api, std::string_view gpuPreference,
+                                          std::string& error) {
+    // api is "webgpu" (backend auto), or "webgpu-d3d12"/"webgpu-vulkan" to pin the Dawn backend.
+    std::string_view backend = api;
+    if (backend == "webgpu") {
+        backend = {};
+    } else if (backend.starts_with(webgpuPrefix)) {
+        backend = backend.substr(webgpuPrefix.size());
+    }
+    return createWebGpuRenderer(window, backend, gpuPreference, error);
+}
+#elif defined(BALLS_RENDERER_NVRHI)
 #include "render/nvrhi/GraphicsDevice.h"
 
 std::unique_ptr<IRenderer> createNvrhiRenderer(SDL_Window* window, GraphicsApi api, std::string_view gpuPreference,
