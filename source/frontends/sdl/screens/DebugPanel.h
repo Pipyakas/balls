@@ -10,3 +10,5 @@
 
 void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& frames,
                     std::string_view deviceDescription = {});
+void drawPortraitDebugStrip(Rect area, const GameSession& session, const FrameTimings& frames);
+

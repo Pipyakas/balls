@@ -17,6 +17,7 @@ add_library(balls_core STATIC
     game/SpawnController.cpp
     game/GameSession.cpp
     game/Settings.cpp
+    ui/GameplayLayout.cpp
     editor/LevelEditor.cpp
 )
 target_include_directories(balls_core PUBLIC
@@ -35,3 +36,4 @@ target_compile_features(balls_physics_interface INTERFACE cxx_std_20)
 
 install(TARGETS balls_core ARCHIVE DESTINATION lib)
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/ DESTINATION include FILES_MATCHING PATTERN "*.h")
+

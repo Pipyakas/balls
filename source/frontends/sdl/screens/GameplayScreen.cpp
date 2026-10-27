@@ -17,6 +17,13 @@
 #include <chrono>
 #include <format>
 
+static float portraitLauncherPressSlop() { return 8.0f; }
+static float clampPortraitScroll(float scroll, float rowWidth, float areaWidth) {
+    const float overflow = rowWidth - areaWidth;
+    if (overflow <= 0.0f) { return 0.0f; }
+    return std::clamp(scroll, 0.0f, overflow);
+}
+
 namespace {
 
 constexpr float controlsScrollStep = 40.0f;
@@ -30,7 +37,8 @@ constexpr float controlGap = 10.0f;
 constexpr float groupLabelHeight = 26.0f;
 constexpr float groupGap = 14.0f;
 constexpr std::array<SDL_Scancode, 5> backendKeys{SDL_SCANCODE_F1, SDL_SCANCODE_F2, SDL_SCANCODE_F3, SDL_SCANCODE_F4,
-                                                  SDL_SCANCODE_F5};
+                                                  SDL_SCANCODE_F5
+};
 constexpr int backendsPerRow = 2;
 
 constexpr double millisecondsPerSecond = 1000.0;
@@ -168,16 +176,41 @@ void GameplayScreen::handleShortcuts() {
 }
 
 void GameplayScreen::handleLauncherClick(const GameplayLayout& layout) {
-    if (mode != GameMode::Normal || !input::mousePressed(input::MouseButton::Left)) {
+    if (mode != GameMode::Normal) {
+        portraitPressing = false;
+        portraitDragged = false;
+        return;
+    }
+    if (input::mouseReleased(input::MouseButton::Left) && portraitPressing && layout.isPortrait) {
+        const Vec2 released = input::mousePosition();
+        if (!portraitDragged && pointInRect(released, layout.interactionSection)) {
+            const LauncherGridLayout grid = computePortraitLauncherRow(
+                ui::shrink(layout.interactionSection, 12.0f), session->launchers().columnCount());
+            const LauncherSlotHit hit =
+                findPortraitLauncherAt(session->launchers(), grid, portraitLauncherScroll, released);
+            if (hit.column >= 0) {
+                session->chooseLauncher(hit.column, hit.row);
+            }
+        }
+        portraitPressing = false;
+        portraitDragged = false;
+    }
+    if (!input::mousePressed(input::MouseButton::Left)) {
         return;
     }
     const Vec2 mouse = input::mousePosition();
     if (!pointInRect(mouse, layout.interactionSection)) {
         return;
     }
-    const LauncherGridLayout grid = computeLauncherGrid(ui::shrink(layout.interactionSection, 12.0f),
-                                                        session->launchers().columnCount(),
-                                                        session->launchers().visibleRows());
+    if (layout.isPortrait) {
+        portraitPressing = true;
+        portraitDragged = false;
+        portraitPressStart = mouse;
+        return;
+    }
+    const LauncherGridLayout grid =
+        computeLauncherGrid(ui::shrink(layout.interactionSection, 12.0f), session->launchers().columnCount(),
+                            session->launchers().visibleRows());
     const LauncherSlotHit hit = findLauncherAt(session->launchers(), grid, mouse);
     if (hit.column >= 0) {
         session->chooseLauncher(hit.column, hit.row);
@@ -201,7 +234,8 @@ void GameplayScreen::update(float deltaTime) {
     }
     const GameplayLayout layout = computeGameplayLayout(
         {static_cast<float>(gfx::screenWidth()), static_cast<float>(gfx::screenHeight())},
-        session->simulation().board().columns(), session->simulation().board().rows());
+        session->simulation().board().columns(), session->simulation().board().rows(), app.settings().layout,
+        mode == GameMode::Normal);
     handleLauncherClick(layout);
     const FrameSample& lastFrame = app.frameTimings().latest();
     session->reportFrameSeconds(app.lastFrameSeconds(), std::max(lastFrame.cpuMs, lastFrame.gpuMs) / millisecondsPerSecond);
@@ -412,6 +446,10 @@ void GameplayScreen::drawInteractionSection(const GameplayLayout& layout) {
         drawPerformanceControls(layout.interactionSection);
         return;
     }
+    if (layout.isPortrait) {
+        drawPortraitLauncherRow(layout.interactionSection);
+        return;
+    }
     const LauncherGridLayout grid = computeLauncherGrid(ui::shrink(layout.interactionSection, 12.0f),
                                                         session->launchers().columnCount(),
                                                         session->launchers().visibleRows());
@@ -420,6 +458,45 @@ void GameplayScreen::drawInteractionSection(const GameplayLayout& layout) {
     gfx::endClip();
     if (session->launchers().isEmpty()) {
         ui::drawTextInRect("All launchers released", layout.interactionSection, 26.0f, palette::textMuted);
+    }
+}
+
+void GameplayScreen::drawPortraitLauncherRow(Rect area) {
+    constexpr float wheelStep = 40.0f;
+    constexpr float barHeight = 4.0f;
+    const Rect inner = ui::shrink(area, 12.0f);
+    const LauncherGridLayout grid = computePortraitLauncherRow(inner, session->launchers().columnCount());
+    const float rowWidth = portraitRowWidth(session->launchers(), grid);
+    if (pointInRect(input::mousePosition(), inner)) {
+        portraitLauncherScroll = clampPortraitScroll(portraitLauncherScroll - input::wheelMove() * wheelStep,
+                                                     rowWidth, inner.width);
+    }
+    if (portraitPressing && input::mouseDown(input::MouseButton::Left) &&
+        pointInRect(input::mousePosition(), inner)) {
+        const Vec2 mouse = input::mousePosition();
+        const float dragged =
+            std::abs(mouse.x - portraitPressStart.x) + std::abs(mouse.y - portraitPressStart.y);
+        if (dragged > 8.0f) {
+            portraitDragged = true;
+        }
+        if (portraitDragged) {
+            portraitLauncherScroll = clampPortraitScroll(
+                portraitLauncherScroll - (mouse.x - portraitPressStart.x), rowWidth, inner.width);
+            portraitPressStart = mouse;
+        }
+    }
+    gfx::beginClip(inner);
+    drawPortraitLaunchers(session->launchers(), grid, portraitLauncherScroll,
+                          !paused && session->state() == SessionState::Running);
+    if (session->launchers().isEmpty()) {
+        ui::drawTextInRect("All launchers released", inner, 26.0f, palette::textMuted);
+    }
+    gfx::endClip();
+    const float overflow = rowWidth - inner.width;
+    if (overflow > 0.0f) {
+        const float barWidth = std::max(24.0f, inner.width * inner.width / rowWidth);
+        const float barX = inner.x + portraitLauncherScroll / overflow * (inner.width - barWidth);
+        gfx::fillRect({barX, inner.y + inner.height - barHeight, barWidth, barHeight}, palette::frame);
     }
 }
 
@@ -484,11 +561,16 @@ void GameplayScreen::draw() {
     }
     const GameplayLayout layout = computeGameplayLayout(
         {static_cast<float>(gfx::screenWidth()), static_cast<float>(gfx::screenHeight())},
-        session->simulation().board().columns(), session->simulation().board().rows());
+        session->simulation().board().columns(), session->simulation().board().rows(), app.settings().layout,
+        mode == GameMode::Normal);
     drawHeader(layout);
     drawMainSection(layout);
     drawInteractionSection(layout);
-    drawDebugPanel(layout.debugSection, *session, app.frameTimings(), app.rendererDescription());
+    if (layout.isPortrait) {
+        drawPortraitDebugStrip(layout.debugSection, *session, app.frameTimings());
+    } else {
+        drawDebugPanel(layout.debugSection, *session, app.frameTimings(), app.rendererDescription());
+    }
     drawOverlay();
     drawToast();
 }
@@ -607,3 +689,12 @@ std::optional<ControlResponse> GameplayScreen::handleControl(const ControlReques
     }
     return std::nullopt;
 }
+
+
+
+
+
+
+
+
+

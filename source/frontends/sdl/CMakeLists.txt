@@ -19,7 +19,7 @@ FetchContent_MakeAvailable(SDL3)
 if(SDL_SHARED)
     set(BALLS_SDL3_LINK_TARGET SDL3::SDL3)
 else()
-    set(BALLS_SDL3_LINK_TARGET ${BALLS_SDL3_LINK_TARGET})
+    set(BALLS_SDL3_LINK_TARGET SDL3::SDL3-static)
 endif()
 
 if(ANDROID)
@@ -253,3 +253,4 @@ if(MSVC)
 endif()
 add_custom_command(TARGET ${BALLS_SDL_TARGET} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${BALLS_ASSET_DIR}" "$<TARGET_FILE_DIR:${BALLS_SDL_TARGET}>/assets")
+

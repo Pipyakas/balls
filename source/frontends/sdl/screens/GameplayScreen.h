@@ -44,6 +44,7 @@ private:
     void drawHeader(const GameplayLayout& layout);
     void drawMainSection(const GameplayLayout& layout);
     void drawInteractionSection(const GameplayLayout& layout);
+    void drawPortraitLauncherRow(Rect area);
     void drawPerformanceControls(Rect area);
     void drawOverlay();
     void drawToast();
@@ -59,4 +60,10 @@ private:
     bool probeResultSaved = true;
     int probeTargetFps = 60;
     float controlsScroll = 0.0f;
+    float portraitLauncherScroll = 0.0f;
+    Vec2 portraitPressStart{};
+    bool portraitPressing = false;
+    bool portraitDragged = false;
 };
+
+
