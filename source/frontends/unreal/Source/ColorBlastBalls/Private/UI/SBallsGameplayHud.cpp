@@ -39,6 +39,11 @@ constexpr float MinimumLabelPixels = 9.0f;
 // A touch that moves further than this (Slate units) scrolls the launcher row instead of picking a launcher.
 constexpr float DragThreshold = 8.0f;
 
+// Profiling switch: 0 paints the gameplay gadgets away so the frame can be measured without them.
+static TAutoConsoleVariable<int32> CVarBallsHud(TEXT("r.Balls.Hud"), 1,
+                                                TEXT("Paint the gameplay gadgets (0 hides them, profiling)."),
+                                                ECVF_RenderThreadSafe);
+
 enum class EAlign { Left, Center, Right };
 
 FSlateRect Shrink(const FSlateRect& Rect, float Amount) {
@@ -350,6 +355,13 @@ public:
                   bool bParentEnabled) const override {
         GameSession* Session = Gameplay->GetSession();
         const FVector2D Size = Geometry.GetLocalSize();
+        // Profiling: painting the gadgets is the game thread's largest fixed cost, so r.Balls.Hud 0 drops them to
+        // measure what the frame costs without them.
+        if (CVarBallsHud.GetValueOnGameThread() == 0) {
+            DrawBox(Out, LayerId, Geometry, FSlateRect(FVector2D::ZeroVector, Size), BallsStyle::White(),
+                    BallsPalette::Linear(BallsPalette::Background));
+            return LayerId + 1;
+        }
         if (!Session) {
             DrawBox(Out, LayerId, Geometry, FSlateRect(FVector2D::ZeroVector, Size), BallsStyle::White(),
                     BallsPalette::Linear(BallsPalette::Background));
@@ -804,7 +816,11 @@ void SBallsGameplayHud::Construct(const FArguments& InArgs) {
         + SOverlay::Slot()
         [
             SNew(SCanvas)
-            .Visibility_Lambda(HasSession)
+            .Visibility_Lambda([HasSession] {
+                return HasSession() != EVisibility::Collapsed && CVarBallsHud.GetValueOnGameThread() != 0
+                           ? EVisibility::Visible
+                           : EVisibility::Collapsed;
+            })
             + SCanvas::Slot()
             .Position_Lambda([this] {
                 const FSlateRect Header = CurrentLayout().Header;

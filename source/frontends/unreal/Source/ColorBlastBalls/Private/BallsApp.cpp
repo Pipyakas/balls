@@ -869,17 +869,18 @@ void FBallsApp::HandleControl(const FString& Path, const TMap<FString, FString>&
         return;
     }
     if (Path == TEXT("/cvar")) {
-        // Profiling hook for the ball pass only: r.Balls.DrawPasses and r.Balls.VertexOnly split its vertex and
-        // fragment cost, and nothing else may be set from HTTP.
+        // Profiling hook for the ball pass and the frame cap: r.Balls.DrawPasses and r.Balls.VertexOnly split its
+        // vertex and fragment cost, and t.MaxFPS lifts the display's cap so a measurement can see the real frame
+        // time instead of the vsync clamp. Nothing else may be set from HTTP.
         const FString CvarName = Param(TEXT("name"));
         const FString Value = Param(TEXT("value"));
+        const bool bAllowed =
+            CvarName.StartsWith(TEXT("r.Balls.")) || CvarName.Equals(TEXT("t.MaxFPS"), ESearchCase::IgnoreCase);
         IConsoleVariable* Variable =
-            CvarName.StartsWith(TEXT("r.Balls.")) && !Value.IsEmpty()
-                ? IConsoleManager::Get().FindConsoleVariable(*CvarName)
-                : nullptr;
+            bAllowed && !Value.IsEmpty() ? IConsoleManager::Get().FindConsoleVariable(*CvarName) : nullptr;
         if (!Variable) {
             OutCode = 400;
-            OutBody = TEXT("{\"ok\":false,\"error\":\"only r.Balls.* can be set, with a value\"}");
+            OutBody = TEXT("{\"ok\":false,\"error\":\"only r.Balls.* and t.MaxFPS can be set, with a value\"}");
             return;
         }
         Variable->Set(*Value, ECVF_SetByCode);
