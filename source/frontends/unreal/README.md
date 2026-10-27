@@ -14,7 +14,7 @@ game runs on the engine's empty `/Engine/Maps/Entry` map, and `ABallsGameMode` s
   pause and win overlays, and toasts.
 - **Map editor.** Paint/extend/erase/pick tools, brush color and hit counts, launcher balls, undo/redo, and
   save/save-and-play through the same `LevelEditor` core the other front ends use.
-- **Same rules as raylib.** the Settings page switches the physics backend, the Start button starts
+- **Same rules as the design.** The Settings page switches the physics backend, the Start button starts
   performance mode, and saving a level's `.txt` files hot-reloads it.
 
 ## Build and run

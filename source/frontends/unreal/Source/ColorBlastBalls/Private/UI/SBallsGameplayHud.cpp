@@ -24,7 +24,7 @@ constexpr float ControlGap = 10.0f;
 constexpr float OverlayWidth = 420.0f;
 constexpr float OverlayButtonHeight = 60.0f;
 constexpr float LauncherGapShare = 0.18f;
-constexpr float MaximumLauncherSize = 200.0f;
+constexpr float MaximumLauncherSize = 110.0f;
 constexpr float BackRowFade = 0.55f;
 constexpr float MinimumLabelPixels = 9.0f;
 // A touch that moves further than this (Slate units) scrolls the launcher row instead of picking a launcher.
@@ -198,12 +198,13 @@ public:
         Cursor += LineHeight + 4.0f;
     }
 
+    // Each value sits under its label so the 200-unit gadget fits; headings and color rows stay one line.
     void Row(const FString& Label, const FString& Value, FLinearColor ValueColor = BallsPalette::Linear(BallsPalette::Text)) {
-        DrawText(Out, Layer, Geometry, Label, FVector2D(Area.Left + Padding, Cursor), BallsStyle::Font(TextSize),
+        DrawText(Out, Layer, Geometry, Label, FVector2D(Area.Left + Padding, Cursor), BallsStyle::Font(LabelSize),
                  BallsPalette::Linear(BallsPalette::TextMuted));
-        DrawText(Out, Layer, Geometry, Value, FVector2D(Area.Right - Padding, Cursor), BallsStyle::Font(TextSize),
-                 ValueColor, EAlign::Right);
-        Cursor += LineHeight;
+        DrawText(Out, Layer, Geometry, Value, FVector2D(Area.Left + Padding, Cursor + LabelSize + 1.0f),
+                 BallsStyle::Font(ValueSize), ValueColor);
+        Cursor += LabelSize + ValueSize + 8.0f;
     }
 
     void ColorRow(int32 ColorIndex, const FString& Value) {
@@ -221,7 +222,9 @@ public:
 
 private:
     static constexpr float TextSize = 20.0f;
-    static constexpr float Padding = 20.0f;
+    static constexpr float LabelSize = 15.0f;
+    static constexpr float ValueSize = 18.0f;
+    static constexpr float Padding = 12.0f;
 
     FSlateWindowElementList& Out;
     int32 Layer;
@@ -339,7 +342,9 @@ public:
 
         const Simulation& Sim = Session->simulation();
         const FBallsGameplayLayout Layout = LayoutFor(Geometry);
-        const FLinearColor PanelTint = BallsPalette::Linear(BallsPalette::Panel, 0.97f);
+        const FLinearColor PanelTint = BallsPalette::Linear(BallsPalette::Panel);
+        PaintBoardFrame(Out, LayerId, Geometry, Layout);
+        PaintLaunchPoint(Out, LayerId + 1, Geometry, Sim, Layout);
 
         if (Layout.bPortrait) {
             DrawBox(Out, LayerId, Geometry, Layout.Header, BallsStyle::RoundedBox(0.0f), PanelTint);
@@ -364,24 +369,23 @@ public:
                                     Layout.InteractionSection.Bottom);
 
         DrawBox(Out, LayerId, Geometry, LeftColumn, BallsStyle::RoundedBox(0.0f), PanelTint);
-        DrawText(Out, LayerId + 1, Geometry,
-                 Gameplay->GetMode() == GameMode::Normal ? TEXT("Normal Mode") : TEXT("Performance Mode"),
-                 FVector2D(Layout.Header.Left + 20.0f, Layout.Header.Top + 12.0f), BallsStyle::Font(20.0f),
-                 BallsPalette::Linear(BallsPalette::TextMuted));
-        DrawText(Out, LayerId + 1, Geometry, BallsText::FromUtf8(Gameplay->GetFiles().name),
-                 FVector2D(Layout.Header.Left + 20.0f, Layout.Header.Top + 42.0f), BallsStyle::Font(28.0f, true),
-                 BallsPalette::Linear(BallsPalette::Text));
+        // "<Normal|Performance> - <level name>", with the Pause button at the right edge.
+        FString Title = FString::Printf(TEXT("%s - %s"), Gameplay->GetMode() == GameMode::Normal ? TEXT("Normal") : TEXT("Performance"),
+                                        *BallsText::FromUtf8(Gameplay->GetFiles().name));
+        const FSlateFontInfo TitleFont = BallsStyle::Font(22.0f);
+        const float TitleRoom = Layout.Header.GetSize().X - 16.0f - 96.0f - 20.0f;
+        while (Title.Len() > 4 && BallsStyle::Measure(Title, TitleFont).X > TitleRoom) {
+            Title = Title.Left(Title.Len() - 2) + TEXT("~");
+        }
+        DrawText(Out, LayerId + 1, Geometry, Title, FVector2D(Layout.Header.Left + 16.0f, Layout.Header.GetCenter().Y - 13.0f),
+                 TitleFont, BallsPalette::Linear(BallsPalette::Text));
         DrawBox(Out, LayerId + 1, Geometry,
-                FSlateRect(Layout.Header.Left + 20.0f, Layout.Header.Bottom - 1.0f, Layout.Header.Right - 20.0f,
-                           Layout.Header.Bottom + 1.0f),
+                FSlateRect(Layout.Header.Left, Layout.Header.Bottom - 1.0f, Layout.Header.Right, Layout.Header.Bottom),
                 BallsStyle::RoundedBox(0.0f), BallsPalette::Linear(BallsPalette::Frame));
 
         PaintBrickLabels(Out, LayerId + 1, Geometry, Sim.board(), Layout);
 
         if (Gameplay->GetMode() == GameMode::Normal) {
-            DrawText(Out, LayerId + 1, Geometry, TEXT("Launchers"),
-                     FVector2D(Layout.InteractionSection.Left + 20.0f, Layout.InteractionSection.Top + 16.0f),
-                     BallsStyle::Font(20.0f, true), BallsPalette::Linear(BallsPalette::TextMuted));
             PaintLaunchers(Out, LayerId + 1, Geometry, *Session, Layout);
         }
 
@@ -393,6 +397,46 @@ public:
     }
 
 private:
+    // The board frame is the gadget color around the 3D board: four strips, so the board stays visible.
+    void PaintBoardFrame(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,
+                         const FBallsGameplayLayout& Layout) const {
+        const FSlateRect& Frame = Layout.MainSection;
+        const FSlateRect& Board = Layout.Board;
+        const FLinearColor Fill = BallsPalette::Linear(BallsPalette::Panel);
+        const FLinearColor Border = BallsPalette::Linear(BallsPalette::Frame);
+        const FSlateBrush* Square = BallsStyle::RoundedBox(0.0f);
+        DrawBox(Out, Layer, Geometry, FSlateRect(Frame.Left, Frame.Top, Frame.Right, Board.Top), Square, Fill);
+        DrawBox(Out, Layer, Geometry, FSlateRect(Frame.Left, Board.Bottom, Frame.Right, Frame.Bottom), Square, Fill);
+        DrawBox(Out, Layer, Geometry, FSlateRect(Frame.Left, Board.Top, Board.Left, Board.Bottom), Square, Fill);
+        DrawBox(Out, Layer, Geometry, FSlateRect(Board.Right, Board.Top, Frame.Right, Board.Bottom), Square, Fill);
+        const FSlateBrush* Outline = BallsStyle::White();
+        DrawBox(Out, Layer + 1, Geometry, FSlateRect(Frame.Left, Frame.Top, Frame.Right, Frame.Top + 1.0f), Outline, Border);
+        DrawBox(Out, Layer + 1, Geometry, FSlateRect(Frame.Left, Frame.Bottom - 1.0f, Frame.Right, Frame.Bottom), Outline, Border);
+        DrawBox(Out, Layer + 1, Geometry, FSlateRect(Frame.Left, Frame.Top, Frame.Left + 1.0f, Frame.Bottom), Outline, Border);
+        DrawBox(Out, Layer + 1, Geometry, FSlateRect(Frame.Right - 1.0f, Frame.Top, Frame.Right, Frame.Bottom), Outline, Border);
+    }
+
+    // The launch point marker: a dim triangle, 0.6 cell, where balls enter. Built from thin strips since Slate has
+    // no filled polygon primitive here.
+    void PaintLaunchPoint(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry, const Simulation& Sim,
+                          const FBallsGameplayLayout& Layout) const {
+        const FVector2D Center = Layout.BoardToScreen(Sim.launchX(), Sim.launchY());
+        const float Size = Layout.CellSize * 0.6f;
+        const float Top = static_cast<float>(Center.Y) - Size * 0.6f;
+        const float Height = Size;
+        constexpr int32 Strips = 16;
+        const FLinearColor Tint = BallsPalette::Linear(BallsPalette::TextDim);
+        for (int32 Strip = 0; Strip < Strips; ++Strip) {
+            const float From = static_cast<float>(Strip) / Strips;
+            const float To = static_cast<float>(Strip + 1) / Strips;
+            const float HalfWidth = Size * To;
+            DrawBox(Out, Layer, Geometry,
+                    FSlateRect(static_cast<float>(Center.X) - HalfWidth, Top + Height * From,
+                               static_cast<float>(Center.X) + HalfWidth, Top + Height * To),
+                    BallsStyle::White(), Tint);
+        }
+    }
+
     FBallsGameplayLayout LayoutFor(const FGeometry& Geometry) const {
         const Simulation& Sim = Gameplay->GetSession()->simulation();
         return ComputeGameplayLayout(Geometry.GetLocalSize(), Sim.board().columns(), Sim.board().rows(),
@@ -581,20 +625,22 @@ private:
         Writer.Row(TEXT("FPS"), FString::Printf(TEXT("%.0f"), Frames.FramesPerSecond()), FpsColor(Frames.FramesPerSecond()));
         Writer.Row(TEXT("Min FPS (1s)"), FString::Printf(TEXT("%.0f"), Frames.WorstFpsLastSecond()),
                    FpsColor(Frames.WorstFpsLastSecond()));
-        Writer.Row(TEXT("Frame"), FString::Printf(TEXT("%.2f ms"), Sample.FrameMs));
-        Writer.Row(TEXT("Game thread"), FString::Printf(TEXT("%.2f ms"), Sample.GameMs));
-        Writer.Row(TEXT("  Physics"), FString::Printf(TEXT("%.2f ms  x%d"), Stats.lastFramePhysicsMs, Stats.ticksLastFrame));
-        Writer.Row(TEXT("Render thread"), FString::Printf(TEXT("%.2f ms"), Sample.RenderMs));
-        Writer.Row(TEXT("GPU"), FString::Printf(TEXT("%.2f ms"), Sample.GpuMs));
+        Writer.Row(TEXT("Frame ms"), FString::Printf(TEXT("%.2f"), Sample.FrameMs));
+        Writer.Row(TEXT("Physics ms"), FString::Printf(TEXT("%.2f"), Stats.lastFramePhysicsMs));
+        Writer.Row(TEXT("GPU ms"), FString::Printf(TEXT("%.2f"), Sample.GpuMs));
         const CapacityProbe& Probe = Session.capacityProbe();
         if (Probe.phase() != ProbePhase::Idle) {
-            Writer.Row(TEXT("Probe"), FString::Printf(TEXT("%s @ %.0f fps"), ANSI_TO_TCHAR(probePhaseName(Probe.phase())),
-                                                      Probe.lastFps()));
+            Writer.Row(TEXT("Probe"), FString::Printf(TEXT("%s %.0f/%.0f fps"), ANSI_TO_TCHAR(probePhaseName(Probe.phase())),
+                                                      Probe.lastFps(), Probe.targetFps()));
         }
         Writer.Row(TEXT("Backend"), BallsText::FromUtf8(backendKindName(Session.backend())));
         if (const std::string Detail = backendDetail(Session.backend()); !Detail.empty()) {
             Writer.Row(TEXT("Device"), BallsText::FromUtf8(Detail));
         }
+        const Simulation& Sim = Session.simulation();
+        Writer.Row(TEXT("Ball collisions"), !Sim.ballCollisionsRequested()  ? FString(TEXT("Off"))
+                                            : Sim.ballCollisionsActive()    ? FString(TEXT("On"))
+                                                                            : FString(TEXT("On (unsupported)")));
     }
 
     void WriteObjects(FPanelWriter& Writer, const GameSession& Session) const {
@@ -721,9 +767,9 @@ void SBallsGameplayHud::Construct(const FArguments& InArgs) {
             + SCanvas::Slot()
             .Position_Lambda([this] {
                 const FSlateRect Header = CurrentLayout().Header;
-                return FVector2D(Header.Right - 130.0f, Header.GetCenter().Y - 20.0f);
+                return FVector2D(Header.Right - 108.0f, Header.GetCenter().Y - 20.0f);
             })
-            .Size(FVector2D(120.0f, 40.0f))
+            .Size(FVector2D(96.0f, 40.0f))
             [
                 BallsWidgets::Button(TAttribute<FText>::CreateLambda([Game] {
                                          return LabelText(Game->IsPaused() ? TEXT("Resume") : TEXT("Pause"));

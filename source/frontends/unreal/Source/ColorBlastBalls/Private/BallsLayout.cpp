@@ -4,9 +4,14 @@
 
 namespace {
 
-constexpr float HeaderHeight = 96.0f;
-constexpr float MinimumControlsWidth = 300.0f;
-constexpr float MinimumDebugWidth = 300.0f;
+// The game's "Gameplay layout": the board and its gadgets form one tight group, exactly GadgetGap apart, with any
+// leftover space going to the outer margins.
+constexpr float OuterMargin = 16.0f;
+constexpr float GadgetGap = 8.0f;
+constexpr float BoardPadding = 10.0f;
+constexpr float HeaderWidth = 420.0f;
+constexpr float HeaderHeight = 56.0f;
+constexpr float DebugWidth = 200.0f;
 
 constexpr float PortraitTopStrip = 72.0f;
 constexpr float PortraitBottomShare = 0.30f;
@@ -53,55 +58,55 @@ FBallsGameplayLayout ComputeGameplayLayout(FVector2D ScreenSize, int32 BoardColu
 
     // Everything below is laid out inside the safe area, so nothing is drawn under a cutout.
     const FMargin Safe = SafeMargin(DpiScale);
-    const float Left = Safe.Left;
-    const float Top = Safe.Top;
-    const float Width = FMath::Max(1.0f, ScreenWidth - Safe.Left - Safe.Right);
-    const float Height = FMath::Max(1.0f, ScreenHeight - Safe.Top - Safe.Bottom);
+    const float Left = Safe.Left + OuterMargin;
+    const float Top = Safe.Top + OuterMargin;
+    const float Width = FMath::Max(1.0f, ScreenWidth - Safe.Left - Safe.Right - 2.0f * OuterMargin);
+    const float Height = FMath::Max(1.0f, ScreenHeight - Safe.Top - Safe.Bottom - 2.0f * OuterMargin);
 
     if (!Layout.bPortrait) {
-        // Landscape: the play field is a full-height centre column; the panels split the remaining width.
-        const float MaxBoardWidth = FMath::Max(1.0f, Width - MinimumControlsWidth - MinimumDebugWidth);
-        const float Cell = BoardCellSize(MaxBoardWidth, Height, Columns, Rows);
-        const float BoardWidth = Cell * Columns;
-        const float BoardHeight = Cell * Rows;
-        const float BoardLeft = Left + (Width - BoardWidth) * 0.5f;
-        const float BoardTop = Top + (Height - BoardHeight) * 0.5f;
-        const float BoardRight = BoardLeft + BoardWidth;
+        // Landscape: left gadget (header + user interaction), board frame, right gadget (debug).
+        const float FixedWidth = HeaderWidth + DebugWidth + 2.0f * GadgetGap + 2.0f * BoardPadding;
+        const float Cell = BoardCellSize(Width - FixedWidth, Height - 2.0f * BoardPadding, Columns, Rows);
+        const float FrameWidth = Cell * Columns + 2.0f * BoardPadding;
+        const float FrameHeight = Cell * Rows + 2.0f * BoardPadding;
+        const float GroupWidth = HeaderWidth + GadgetGap + FrameWidth + GadgetGap + DebugWidth;
+        const float GroupLeft = Left + (Width - GroupWidth) * 0.5f;
+        const float FrameLeft = GroupLeft + HeaderWidth + GadgetGap;
+        const float FrameTop = Top + (Height - FrameHeight) * 0.5f;
 
         Layout.CellSize = Cell;
-        Layout.Board = FSlateRect(BoardLeft, BoardTop, BoardRight, BoardTop + BoardHeight);
-        Layout.Header = FSlateRect(Left, Top, BoardLeft, Top + HeaderHeight);
-        Layout.InteractionSection = FSlateRect(Left, Top + HeaderHeight, BoardLeft, Top + Height);
-        Layout.DebugSection = FSlateRect(BoardRight, Top, Left + Width, Top + Height);
-        Layout.MainSection = FSlateRect(BoardLeft, Top, BoardRight, Top + Height);
+        Layout.MainSection = FSlateRect(FrameLeft, FrameTop, FrameLeft + FrameWidth, FrameTop + FrameHeight);
+        Layout.Board = FSlateRect(FrameLeft + BoardPadding, FrameTop + BoardPadding,
+                                  FrameLeft + FrameWidth - BoardPadding, FrameTop + FrameHeight - BoardPadding);
+        Layout.Header = FSlateRect(GroupLeft, Top, GroupLeft + HeaderWidth, Top + HeaderHeight);
+        Layout.InteractionSection = FSlateRect(GroupLeft, Top + HeaderHeight, GroupLeft + HeaderWidth, Top + Height);
+        Layout.DebugSection = FSlateRect(FrameLeft + FrameWidth + GadgetGap, Top, GroupLeft + GroupWidth, Top + Height);
     } else {
-        // Portrait, matching the original mobile game: one stats/header strip on top, the play field
-        // full-width in the middle, and the launcher buttons in a bottom panel.
+        // Portrait: top gadget (header and stats strip), board frame, bottom gadget (user interaction).
         const float CompactBottom = PortraitLauncherSize(Width) + PortraitCompactPadding;
         float BottomPanel = bCompactControls
                                 ? CompactBottom
                                 : FMath::Clamp(Height * PortraitBottomShare, PortraitMinimumBottom, PortraitMaximumBottom);
-        if (Height - PortraitTopStrip - BottomPanel < PortraitMinimumBoard) {
-            BottomPanel = FMath::Max(bCompactControls ? CompactBottom : 120.0f,
-                                     Height - PortraitTopStrip - PortraitMinimumBoard);
+        const float Chrome = PortraitTopStrip + 2.0f * GadgetGap + 2.0f * BoardPadding;
+        if (Height - Chrome - BottomPanel < PortraitMinimumBoard) {
+            BottomPanel = FMath::Max(bCompactControls ? CompactBottom : 120.0f, Height - Chrome - PortraitMinimumBoard);
         }
-        const float MainTop = Top + PortraitTopStrip;
-        const float MainBottom = Top + Height - BottomPanel;
-        const float Cell = BoardCellSize(Width, MainBottom - MainTop, Columns, Rows);
-        const float BoardWidth = Cell * Columns;
-        const float BoardHeight = Cell * Rows;
-        const float BoardLeft = Left + (Width - BoardWidth) * 0.5f;
-        const float BoardTop = MainTop + (MainBottom - MainTop - BoardHeight) * 0.5f;
-        const float BoardBottom = BoardTop + BoardHeight;
+        const float Cell = BoardCellSize(Width - 2.0f * BoardPadding, Height - Chrome - BottomPanel, Columns, Rows);
+        const float FrameWidth = Cell * Columns + 2.0f * BoardPadding;
+        const float FrameHeight = Cell * Rows + 2.0f * BoardPadding;
+        const float GroupHeight = PortraitTopStrip + GadgetGap + FrameHeight + GadgetGap + BottomPanel;
+        const float GroupTop = Top + (Height - GroupHeight) * 0.5f;
+        const float FrameTop = GroupTop + PortraitTopStrip + GadgetGap;
+        const float FrameLeft = Left + (Width - FrameWidth) * 0.5f;
 
         Layout.CellSize = Cell;
-        Layout.Board = FSlateRect(BoardLeft, BoardTop, BoardLeft + BoardWidth, BoardBottom);
-        Layout.Header = FSlateRect(Left, Top, Left + Width, MainTop);
-        // The compact launcher row is a fixed panel at the bottom; the full panel starts under the board.
+        Layout.MainSection = FSlateRect(FrameLeft, FrameTop, FrameLeft + FrameWidth, FrameTop + FrameHeight);
+        Layout.Board = FSlateRect(FrameLeft + BoardPadding, FrameTop + BoardPadding,
+                                  FrameLeft + FrameWidth - BoardPadding, FrameTop + FrameHeight - BoardPadding);
+        Layout.Header = FSlateRect(Left, GroupTop, Left + Width, GroupTop + PortraitTopStrip);
         Layout.InteractionSection =
-            FSlateRect(Left, bCompactControls ? MainBottom : BoardBottom, Left + Width, Top + Height);
+            FSlateRect(Left, FrameTop + FrameHeight + GadgetGap, Left + Width, GroupTop + GroupHeight);
         Layout.DebugSection = Layout.Header;
-        Layout.MainSection = FSlateRect(Left, MainTop, Left + Width, MainBottom);
     }
 
     return Layout;
