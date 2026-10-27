@@ -11,8 +11,7 @@ namespace {
 constexpr float cellInset = 0.06f;
 constexpr float bevelShare = 0.16f;
 constexpr float minimumLabelPixels = 9.0f;
-constexpr float boardFrameWidth = 8.0f;
-constexpr float boardFrameRadius = 10.0f;
+constexpr float boardFrameWidth = 1.0f;
 
 struct CellEdges {
     bool left;
@@ -95,7 +94,7 @@ void drawBoardBackground(const BrickBoard& board, const BoardTransform& transfor
     const float width = static_cast<float>(board.columns()) * transform.cellPixels;
     const float height = static_cast<float>(board.rows()) * transform.cellPixels;
     const Rect area{transform.origin.x, transform.origin.y, width, height};
-    gfx::sceneRect(ui::shrink(area, -boardFrameWidth), palette::frame, boardFrameRadius);
+    gfx::sceneRect(ui::shrink(area, -boardFrameWidth), palette::frame);
     gfx::sceneRect(area, palette::backgroundDeep);
 }
 
@@ -125,7 +124,7 @@ void drawBricks(const BrickBoard& board, const BoardTransform& transform) {
         const std::string label = std::to_string(brick.hitsLeft);
         ui::drawTextInRect(label, {bounds.x + 1.5f, bounds.y + 1.5f, bounds.width, bounds.height}, labelSize,
                            palette::shade(color, 0.4f));
-        ui::drawTextInRect(label, bounds, labelSize, palette::text);
+        ui::drawTextInRect(label, bounds, labelSize, palette::textStrong);
     }
 }
 
@@ -133,5 +132,5 @@ void drawLaunchPoint(Vec2 launchCell, const BoardTransform& transform) {
     const Vec2 center = transform.toScreen(launchCell.x, launchCell.y);
     const float size = transform.cellPixels * 0.6f;
     gfx::fillTriangle({center.x, center.y - size * 0.6f}, {center.x - size, center.y + size * 0.4f},
-                 {center.x + size, center.y + size * 0.4f}, palette::shade(palette::frame, 1.2f));
+                 {center.x + size, center.y + size * 0.4f}, palette::textDim);
 }

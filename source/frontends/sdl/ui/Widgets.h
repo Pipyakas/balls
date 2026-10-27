@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/Input.h"
+#include "render/Palette.h"
 #include "ui/Painter.h"
 
 #include <string>
@@ -10,11 +11,24 @@ namespace ui {
 
 enum class Align { Left, Center, Right };
 
+namespace style {
+
+inline constexpr float roundnessScale = 0.0f;
+inline constexpr float borderWidth = 1.0f;
+inline constexpr float focusBorderWidth = 2.0f;
+inline constexpr float buttonRoundness = 0.3f;
+inline constexpr float fieldRoundness = 0.2f;
+inline constexpr float buttonLabelShare = 0.45f;
+inline constexpr float buttonLabelMaximum = 26.0f;
+
+}
+
 Vec2 measureText(std::string_view text, float size);
 void drawText(std::string_view text, Vec2 position, float size, Color color, Align align = Align::Left);
 void drawTextInRect(std::string_view text, Rect rect, float size, Color color, Align align = Align::Center);
 
 void drawPanel(Rect rect, Color fill, float roundness = 0.08f);
+void drawBorder(Rect rect, float roundness = 0.0f, Color color = palette::frame);
 bool button(Rect rect, std::string_view label, bool enabled = true, bool selected = false);
 bool stepper(Rect rect, std::string_view label, int& value, int minimum, int maximum, int step = 1);
 bool textField(Rect rect, std::string& text, bool& focused, size_t maximumLength);
