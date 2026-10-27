@@ -72,7 +72,7 @@ namespace Balls.App.Screens
                     TypeSizes.Header, labelColor, TextAnchor.MiddleLeft);
                 string detail = row.status switch
                 {
-                    2 => $"{row.ballStepsPerSecond:N0} M ball-steps/s",
+                    2 => $"{row.ballStepsPerSecond / 1e6:N0} M ball-steps/s",
                     3 => $"failed: {row.Failure}",
                     4 => "not available",
                     1 => $"{row.progress * 100f:F0}%",
@@ -97,7 +97,7 @@ namespace Balls.App.Screens
                 {
                     finishedAt = Time.realtimeSinceStartup;
                 }
-                if (Time.realtimeSinceStartup - finishedAt > SkipDelay)
+                if (!BallsApp.HoldingForCapture && Time.realtimeSinceStartup - finishedAt > SkipDelay)
                 {
                     Continue();
                 }

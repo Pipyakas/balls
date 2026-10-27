@@ -32,6 +32,9 @@ namespace Balls.Ui
         /// <summary>A full-width button. Returns true on click.</summary>
         public bool Button(Rect units, string label, int size = TypeSizes.Header, bool enabled = true)
         {
+            // Buttons shrink their type rather than clip: the game's labels are exact strings, so the wording stays and
+            // only the size gives way when a narrow gadget cannot hold it.
+            size = FitSize(label, units.width - 16f, size);
             if (!enabled)
             {
                 theme.Fill(units, Palette.Control);
@@ -169,6 +172,21 @@ namespace Balls.Ui
                 changed = true;
             }
             return changed;
+        }
+
+        private int FitSize(string text, float widthUnits, int size)
+        {
+            int fitted = size;
+            while (fitted > 12)
+            {
+                GUIStyle probe = theme.TextStyle(fitted, Palette.Text);
+                if (probe.CalcSize(new GUIContent(text)).x / theme.Scale <= widthUnits)
+                {
+                    break;
+                }
+                --fitted;
+            }
+            return fitted;
         }
 
         private bool ButtonSquare(Rect units, string label)

@@ -57,6 +57,9 @@ namespace Balls.App
 
         public string StartupError { get; set; } = "";
 
+        /// <summary>Set while a headless capture is pending, so screens stay put instead of auto-advancing.</summary>
+        public static bool HoldingForCapture { get; set; }
+
         public bool Running => current is Screens.GameplayScreen;
 
         public void AddScreen<T>(T screen) where T : Screen

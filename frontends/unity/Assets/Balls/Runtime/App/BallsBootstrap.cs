@@ -34,7 +34,7 @@ namespace Balls.App
         private bool autoPlay;
         private bool autoPlayed;
         private float startedAt;
-        private const float CaptureDelay = 6f;
+        private float captureDelay = 6f;
 
         public BallsApp App => app;
 
@@ -73,6 +73,7 @@ namespace Balls.App
                 Debug.LogException(error);
             }
 
+            BallsApp.HoldingForCapture = screenshotPath != null;
             startedAt = Time.realtimeSinceStartup;
             viewCamera = RenderPrimitives.CreateCamera(7, 14, 3);
             app.Camera = viewCamera;
@@ -108,8 +109,14 @@ namespace Balls.App
                 {
                     case "-balls-shot" when index + 1 < args.Length:
                         screenshotPath = args[index + 1];
-                        captureAt = Time.realtimeSinceStartup + CaptureDelay;
+                        captureAt = Time.realtimeSinceStartup + captureDelay;
                         quitAt = captureAt + 2f;
+                        break;
+                    case "-balls-shot-delay" when index + 1 < args.Length:
+                        if (float.TryParse(args[index + 1], out float seconds))
+                        {
+                            captureDelay = Mathf.Max(0.5f, seconds);
+                        }
                         break;
                     case "-balls-auto":
                         autoPlay = true;
