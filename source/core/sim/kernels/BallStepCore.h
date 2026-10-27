@@ -94,6 +94,47 @@ BALLS_HOST_DEVICE void pushOutOfCell(float& x, float& y, float& normalX, float& 
     }
 }
 
+// Whether the straight line from (x, y) to the centre of the target cell crosses no other brick. The nearest
+// same-color brick is found by distance alone, so it is often behind other bricks; aiming at it anyway sends the
+// ball into the blocking brick, back off the wall behind it, and at the same target again, forever, and every
+// ball near that column ends up on the same line. Cells are walked with a grid DDA (Amanatides and Woo).
+template <typename Board>
+BALLS_HOST_DEVICE bool targetInSight(float x, float y, int targetColumn, int targetRow, const Board& board,
+                                     int paddedWidth) {
+    constexpr float unreachable = 1e30f;
+    const float toX = static_cast<float>(targetColumn) + 0.5f - x;
+    const float toY = static_cast<float>(targetRow) + 0.5f - y;
+    int column = static_cast<int>(floorf(x));
+    int row = static_cast<int>(floorf(y));
+    const int stepColumn = toX > 0.0f ? 1 : -1;
+    const int stepRow = toY > 0.0f ? 1 : -1;
+    const float deltaX = toX != 0.0f ? fabsf(1.0f / toX) : unreachable;
+    const float deltaY = toY != 0.0f ? fabsf(1.0f / toY) : unreachable;
+    float nextX = toX != 0.0f ? (stepColumn > 0 ? static_cast<float>(column + 1) - x : x - static_cast<float>(column)) * deltaX
+                              : unreachable;
+    float nextY = toY != 0.0f ? (stepRow > 0 ? static_cast<float>(row + 1) - y : y - static_cast<float>(row)) * deltaY
+                              : unreachable;
+    const int cellsToCross = (column > targetColumn ? column - targetColumn : targetColumn - column) +
+                             (row > targetRow ? row - targetRow : targetRow - row);
+    for (int crossed = 0; crossed < cellsToCross; ++crossed) {
+        if (nextX < nextY) {
+            nextX += deltaX;
+            column += stepColumn;
+        } else {
+            nextY += deltaY;
+            row += stepRow;
+        }
+        if (column == targetColumn && row == targetRow) {
+            return true;
+        }
+        int color = -1;
+        if (board.occupant(paddedCellIndex(column, row, paddedWidth), color) >= 0) {
+            return false;
+        }
+    }
+    return column == targetColumn && row == targetRow;
+}
+
 template <typename Board>
 BALLS_HOST_DEVICE void retargetTowardNearestBrick(float x, float y, float& vx, float& vy, int color,
                                                   float normalX, float normalY, const Board& board,
@@ -116,6 +157,11 @@ BALLS_HOST_DEVICE void retargetTowardNearestBrick(float x, float y, float& vx, f
     const float directionX = toTargetX / distance;
     const float directionY = toTargetY / distance;
     if (directionX * normalX + directionY * normalY < 0.0f) {
+        return;
+    }
+    const int targetColumn = target % params.paddedWidth - 1;
+    const int targetRow = target / params.paddedWidth - 1;
+    if (!targetInSight(x, y, targetColumn, targetRow, board, params.paddedWidth)) {
         return;
     }
     vx = directionX * params.speed;

@@ -465,8 +465,28 @@ LaneStepResult stepLanes(LaneState& state, const LaneConstants& k, const BoardVi
         const __m256 facing = _mm256_cmp_ps(
             _mm256_fmadd_ps(directionX, normalX, _mm256_mul_ps(directionY, normalY)), k.zero, _CMP_GE_OQ);
         const __m256 hasTarget = _mm256_castsi256_ps(_mm256_cmpgt_epi32(target, k.minusOneInt));
-        const __m256 apply = _mm256_and_ps(_mm256_and_ps(retarget, hasTarget),
-                                           _mm256_and_ps(facing, greaterThan(lengthSquared, k.retargetEpsilon)));
+        __m256 apply = _mm256_and_ps(_mm256_and_ps(retarget, hasTarget),
+                                     _mm256_and_ps(facing, greaterThan(lengthSquared, k.retargetEpsilon)));
+        // Few lanes retarget in a step, so the line-of-sight walk runs per lane.
+        if (unsigned lanes = static_cast<unsigned>(_mm256_movemask_ps(apply)); lanes != 0) {
+            alignas(32) float laneX[simdLaneCount];
+            alignas(32) float laneY[simdLaneCount];
+            alignas(32) int32_t laneTarget[simdLaneCount];
+            alignas(32) int32_t inSight[simdLaneCount] = {};
+            _mm256_store_ps(laneX, x);
+            _mm256_store_ps(laneY, y);
+            _mm256_store_si256(reinterpret_cast<__m256i*>(laneTarget), target);
+            const int paddedWidth = _mm256_cvtsi256_si32(k.paddedWidth);
+            while (lanes != 0) {
+                const int lane = std::countr_zero(lanes);
+                lanes &= lanes - 1;
+                inSight[lane] = targetInSight(laneX[lane], laneY[lane], laneTarget[lane] % paddedWidth - 1,
+                                              laneTarget[lane] / paddedWidth - 1, board, paddedWidth)
+                                    ? -1
+                                    : 0;
+            }
+            apply = _mm256_and_ps(apply, _mm256_castsi256_ps(_mm256_load_si256(reinterpret_cast<const __m256i*>(inSight))));
+        }
         vx = select(apply, _mm256_mul_ps(directionX, k.speed), vx);
         vy = select(apply, _mm256_mul_ps(directionY, k.speed), vy);
     }
