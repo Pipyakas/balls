@@ -25,11 +25,11 @@ GameplayLayout convertLayout(const CoreGameplayLayout& core) {
 } // namespace
 
 GameplayLayout computeGameplayLayout(Vec2 screenSize, int boardColumns, int boardRows) {
-    return computeGameplayLayout(screenSize, boardColumns, boardRows, LayoutOrientation::Landscape, false);
+    return computeGameplayLayout(screenSize, boardColumns, boardRows, LayoutOrientation::Landscape, 0);
 }
 
 GameplayLayout computeGameplayLayout(Vec2 screenSize, int boardColumns, int boardRows,
-                                     LayoutOrientation orientation, bool compactControls) {
+                                     LayoutOrientation orientation, int launcherRows) {
     return convertLayout(computeCoreGameplayLayout(screenSize.x, screenSize.y, boardColumns, boardRows,
-                                                   orientation, compactControls));
+                                                   orientation, launcherRows));
 }

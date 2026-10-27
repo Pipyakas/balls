@@ -20,7 +20,7 @@ struct LauncherGridLayout {
 };
 
 LauncherGridLayout computeLauncherGrid(Rect area, int columns, int visibleRows);
-LauncherGridLayout computePortraitLauncherRow(Rect area, int columns);
+LauncherGridLayout computePortraitLauncherGrid(Rect area, int columns, int visibleRows);
 float portraitRowWidth(const LauncherQueue& queue, const LauncherGridLayout& grid);
 void drawLaunchers(const LauncherQueue& queue, const LauncherGridLayout& grid, bool interactive);
 void drawPortraitLaunchers(const LauncherQueue& queue, const LauncherGridLayout& grid, float scroll,
