@@ -46,6 +46,10 @@ std::string_view trim(std::string_view text) {
     return text;
 }
 
+// The Microsoft Basic Render Driver (WARP) does not always carry DXGI_ADAPTER_FLAG_SOFTWARE.
+constexpr uint32_t microsoftVendorId = 0x1414;
+constexpr uint32_t warpDeviceId = 0x008c;
+
 bool usable(const GpuAdapterInfo& adapter, GpuRole role) {
     return role == GpuRole::Render ? adapter.usableForRender() : adapter.usableForCompute();
 }
@@ -400,6 +404,7 @@ std::vector<GpuAdapterInfo> enumerateD3d12Adapters() {
             return {};
         }
         std::vector<GpuAdapterInfo> adapters;
+        std::vector<DXGI_ADAPTER_DESC1> seenAdapters;
         for (UINT index = 0;; ++index) {
             IDXGIAdapter1* rawAdapter = nullptr;
             const HRESULT enumResult = factory->EnumAdapters1(index, &rawAdapter);
@@ -415,6 +420,17 @@ std::vector<GpuAdapterInfo> enumerateD3d12Adapters() {
             if (FAILED(dxgiAdapter->GetDesc1(&description))) {
                 continue;
             }
+            // DXGI can list one GPU twice with different LUIDs (seen on a GTX 1650 desktop with a remote-display
+            // driver installed), so duplicates are matched on the PCI identity and memory size instead.
+            const bool alreadyListed = std::ranges::any_of(seenAdapters, [&](const DXGI_ADAPTER_DESC1& seen) {
+                return seen.VendorId == description.VendorId && seen.DeviceId == description.DeviceId &&
+                       seen.SubSysId == description.SubSysId && seen.Revision == description.Revision &&
+                       seen.DedicatedVideoMemory == description.DedicatedVideoMemory;
+            });
+            if (alreadyListed) {
+                continue;
+            }
+            seenAdapters.push_back(description);
             GpuAdapterInfo adapter;
             adapter.api = GpuApi::D3d12;
             adapter.index = static_cast<int>(index);
@@ -423,11 +439,12 @@ std::vector<GpuAdapterInfo> enumerateD3d12Adapters() {
             adapter.deviceId = description.DeviceId;
             adapter.vendor = vendorFromPciId(adapter.vendorId);
             adapter.deviceLocalBytes = description.DedicatedVideoMemory;
-            const bool software = (description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0;
+            const bool software = (description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0 ||
+                                  (description.VendorId == microsoftVendorId && description.DeviceId == warpDeviceId);
             adapter.kind = software ? GpuKind::Software
                                     : (description.DedicatedVideoMemory > 0 ? GpuKind::Discrete : GpuKind::Integrated);
 
-            if (!software) {
+            {
                 constexpr D3D_FEATURE_LEVEL featureLevels[] = {
                     static_cast<D3D_FEATURE_LEVEL>(0xc200),  // 12_2
                     D3D_FEATURE_LEVEL_12_1,
@@ -447,7 +464,8 @@ std::vector<GpuAdapterInfo> enumerateD3d12Adapters() {
                     D3D12_FEATURE_DATA_ARCHITECTURE1 architecture{};
                     architecture.NodeIndex = 0;
                     if (SUCCEEDED(device->CheckFeatureSupport(D3D12_FEATURE_ARCHITECTURE1, &architecture,
-                                                              sizeof(architecture)))) {
+                                                              sizeof(architecture))) &&
+                        !software) {
                         adapter.kind = architecture.UMA || description.DedicatedVideoMemory == 0
                                            ? GpuKind::Integrated
                                            : GpuKind::Discrete;
@@ -596,7 +614,13 @@ int selectGpuAdapter(std::span<const GpuAdapterInfo> adapters, std::string_view 
             const auto integrated = std::ranges::find_if(candidates, [&](size_t index) {
                 return adapters[index].kind == GpuKind::Integrated;
             });
-            return static_cast<int>(integrated != candidates.end() ? *integrated : candidates.front());
+            if (integrated != candidates.end()) {
+                return static_cast<int>(*integrated);
+            }
+            const auto hardware = std::ranges::find_if(candidates, [&](size_t index) {
+                return adapters[index].kind != GpuKind::Software;
+            });
+            return static_cast<int>(hardware != candidates.end() ? *hardware : candidates.front());
         }
 
         if (normalizedPreference == "integrated") {

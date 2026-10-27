@@ -39,7 +39,9 @@ struct GpuAdapterInfo {
     bool hasComputeQueue = false;
 
     bool usableForCompute() const { return hasComputeQueue && kind != GpuKind::Software; }
-    bool usableForRender() const { return hasGraphicsQueue && kind != GpuKind::Software; }
+    // Software rasterizers (WARP, lavapipe) can render: on a machine whose GPU is busy with physics that is a real
+    // option, so they are usable when picked explicitly. "auto" only falls back to them when nothing else renders.
+    bool usableForRender() const { return hasGraphicsQueue; }
     // "NVIDIA GeForce RTX 3070 Laptop GPU (discrete, wave 32, 8192 MB)" for logs and menus.
     std::string summary() const;
 };

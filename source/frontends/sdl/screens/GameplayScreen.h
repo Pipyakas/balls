@@ -39,6 +39,7 @@ private:
     void applyRememberedMachineLimit();
     void rememberFinishedProbe();
     void startProbe();
+    void selectComputeAdapter(int adapter);
 
     void drawHeader(const GameplayLayout& layout);
     void drawMainSection(const GameplayLayout& layout);
@@ -57,4 +58,5 @@ private:
     bool paused = false;
     bool probeResultSaved = true;
     int probeTargetFps = 60;
+    float controlsScroll = 0.0f;
 };

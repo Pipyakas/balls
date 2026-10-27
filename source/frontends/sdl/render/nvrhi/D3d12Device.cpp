@@ -101,7 +101,7 @@ bool D3d12Device::initialize(std::string& error) {
         return false;
     }
     DXGI_ADAPTER_DESC1 description{};
-    if (FAILED(adapter->GetDesc1(&description)) || (description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) != 0 ||
+    if (FAILED(adapter->GetDesc1(&description)) ||
         FAILED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&nativeDevice)))) {
         error = std::format("selected D3D12 graphics adapter '{}' is no longer usable",
                             adapters[static_cast<size_t>(selected)].name);
