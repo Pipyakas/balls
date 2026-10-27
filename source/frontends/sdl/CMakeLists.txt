@@ -87,7 +87,7 @@ target_link_libraries(balls_imgui PUBLIC ${BALLS_SDL3_LINK_TARGET})
 if(ANDROID)
     set(BALLS_SDL_TARGET main)
 else()
-    set(BALLS_SDL_TARGET ${BALLS_SDL_TARGET})
+    set(BALLS_SDL_TARGET ColorBlastBalls)
 endif()
 
 set(BALLS_SDL_SOURCES
