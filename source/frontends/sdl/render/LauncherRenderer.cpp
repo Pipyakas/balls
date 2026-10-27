@@ -63,9 +63,9 @@ LauncherGridLayout computePortraitLauncherRow(Rect area, int columns) {
     grid.area = area;
     grid.slotSize =
         std::clamp(area.width * portraitLauncherFraction, portraitLauncherMinimum, portraitLauncherMaximum);
-    grid.slotSize = std::min(grid.slotSize, std::max(area.height, 1.0f));
+    grid.slotSize = std::min(grid.slotSize, std::max(area.height - 24.0f, 1.0f));
     grid.gap = grid.slotSize * gapShare;
-    grid.origin = {area.x, area.y + (area.height - grid.slotSize) * 0.5f};
+    grid.origin = {area.x + 6.0f, area.y + (area.height - grid.slotSize) * 0.5f};
     (void)columns;
     return grid;
 }
