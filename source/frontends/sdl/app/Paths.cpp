@@ -24,15 +24,26 @@ std::filesystem::path executableDirectory() {
 #if defined(__ANDROID__)
 static void extractAndroidAssets(const std::filesystem::path& dest) {
     std::error_code ec;
-    if (std::filesystem::exists(dest / ".extracted")) {
-        return;
+    const std::filesystem::path marker = dest / ".extracted";
+    constexpr const char* extractionVersion = "4";
+    // An older build created directories in place of files (AAssetManager_openDir succeeds on a
+    // file path), so an unpacks with any other marker is thrown away and redone.
+    if (std::filesystem::exists(marker)) {
+        std::ifstream previous(marker);
+        std::string version;
+        previous >> version;
+        if (version == extractionVersion) {
+            return;
+        }
+        std::filesystem::remove_all(dest, ec);
     }
     std::filesystem::create_directories(dest, ec);
-    fprintf(stderr, "Paths: extracting to %s\\n", dest.string().c_str());
+    SDL_Log("Paths: extracting assets to %s", dest.string().c_str());
 
     JNIEnv* env = static_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
     jobject activity = static_cast<jobject>(SDL_GetAndroidActivity());
     if (!env || !activity) {
+        SDL_Log("Paths: no JNI env (%p) or activity (%p)", static_cast<void*>(env), static_cast<void*>(activity));
         return;
     }
     jclass activityClass = env->GetObjectClass(activity);
@@ -43,40 +54,60 @@ static void extractAndroidAssets(const std::filesystem::path& dest) {
     }
     jobject assetManagerObj = env->CallObjectMethod(activity, getAssets);
     AAssetManager* mgr = AAssetManager_fromJava(env, assetManagerObj);
+    SDL_Log("Paths: asset manager %p", static_cast<void*>(mgr));
 
-    std::function<void(const std::string&, const std::filesystem::path&)> extract = [&](const std::string& assetPath, const std::filesystem::path& destPath) {
-        AAssetDir* dir = AAssetManager_openDir(mgr, assetPath.c_str());
-        if (!dir) {
+    // AAssetDir_getNextFileName lists files only, never subdirectories, so the level folders
+    // looked empty. AssetManager.list() returns files and directories alike.
+    jclass assetManagerClass = env->GetObjectClass(assetManagerObj);
+    jmethodID listAssets = env->GetMethodID(assetManagerClass, "list", "(Ljava/lang/String;)[Ljava/lang/String;");
+
+    std::function<void(const std::string&, const std::filesystem::path&)> extract =
+        [&](const std::string& assetPath, const std::filesystem::path& destPath) {
             AAsset* asset = AAssetManager_open(mgr, assetPath.c_str(), AASSET_MODE_STREAMING);
-            if (!asset) {
+            if (asset) {
+                std::filesystem::create_directories(destPath.parent_path(), ec);
+                std::ofstream out(destPath, std::ios::binary | std::ios::trunc);
+                char buffer[65536];
+                int bytesRead = 0;
+                while ((bytesRead = AAsset_read(asset, buffer, sizeof(buffer))) > 0) {
+                    out.write(buffer, bytesRead);
+                }
+                AAsset_close(asset);
                 return;
             }
-            std::filesystem::create_directories(destPath.parent_path(), ec);
-            std::ofstream out(destPath, std::ios::binary | std::ios::trunc);
-            char buffer[65536];
-            int bytesRead = 0;
-            while ((bytesRead = AAsset_read(asset, buffer, sizeof(buffer))) > 0) {
-                out.write(buffer, bytesRead);
+            if (!listAssets) {
+                return;
             }
-            AAsset_close(asset);
-            return;
-        }
-        std::filesystem::create_directories(destPath, ec);
-        const char* name = nullptr;
-        while ((name = AAssetDir_getNextFileName(dir)) != nullptr) {
-            std::string childAsset = assetPath.empty() ? std::string(name) : assetPath + "/" + name;
-            std::filesystem::path childDest = destPath / name;
-            extract(childAsset, childDest);
-        }
-        AAssetDir_close(dir);
-    };
+            jstring directoryPath = env->NewStringUTF(assetPath.c_str());
+            auto names = static_cast<jobjectArray>(env->CallObjectMethod(assetManagerObj, listAssets, directoryPath));
+            env->DeleteLocalRef(directoryPath);
+            if (!names) {
+                SDL_Log("Paths: cannot list %s", assetPath.c_str());
+                return;
+            }
+            std::filesystem::create_directories(destPath, ec);
+            const jsize count = env->GetArrayLength(names);
+            for (jsize index = 0; index < count; ++index) {
+                auto nameValue = static_cast<jstring>(env->GetObjectArrayElement(names, index));
+                const char* name = env->GetStringUTFChars(nameValue, nullptr);
+                const std::string childAsset = assetPath.empty() ? std::string(name) : assetPath + "/" + name;
+                extract(childAsset, destPath / name);
+                env->ReleaseStringUTFChars(nameValue, name);
+                env->DeleteLocalRef(nameValue);
+            }
+            env->DeleteLocalRef(names);
+            SDL_Log("Paths: %s has %d entries", assetPath.c_str(), static_cast<int>(count));
+        };
 
     extract("fonts", dest / "fonts");
     extract("levels", dest / "levels");
 
-    std::ofstream marker(dest / ".extracted");
-    marker << "1";
+    std::ofstream written(marker);
+    written << extractionVersion;
 
+    if (assetManagerClass) {
+        env->DeleteLocalRef(assetManagerClass);
+    }
     if (assetManagerObj) {
         env->DeleteLocalRef(assetManagerObj);
     }

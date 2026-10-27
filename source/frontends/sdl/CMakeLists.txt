@@ -157,7 +157,8 @@ elseif(BALLS_RENDERER STREQUAL "webgpu")
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${wgpu_native_SOURCE_DIR}/lib/wgpu_native.dll"
                 "$<TARGET_FILE_DIR:${BALLS_SDL_TARGET}>")
-    else()
+    elseif(NOT ANDROID)
+        # Android packages the library through jniLibs, so the copy only matters on desktop Linux.
         add_custom_command(TARGET ${BALLS_SDL_TARGET} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${wgpu_native_SOURCE_DIR}/lib/libwgpu_native.so"
@@ -204,7 +205,8 @@ if(BALLS_WITH_WEBGPU AND NOT BALLS_RENDERER STREQUAL "webgpu")
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${wgpu_native_SOURCE_DIR}/lib/wgpu_native.dll"
                 "$<TARGET_FILE_DIR:${BALLS_SDL_TARGET}>")
-    else()
+    elseif(NOT ANDROID)
+        # Android packages the library through jniLibs, so the copy only matters on desktop Linux.
         add_custom_command(TARGET ${BALLS_SDL_TARGET} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${wgpu_native_SOURCE_DIR}/lib/libwgpu_native.so"

@@ -114,7 +114,15 @@ bool App::openWindowAndRenderer(const LaunchOptions& options, std::string_view a
         SDL_DestroyWindow(window);
     }
     const std::string wantedRenderer =
-        options.renderer.empty() ? (activeRenderer.empty() ? "nvrhi" : activeRenderer) : options.renderer;
+        options.renderer.empty() ? (activeRenderer.empty() ?
+#if defined(BALLS_RENDERER_WEBGPU) || defined(BALLS_WITH_WEBGPU)
+            "webgpu"
+#elif defined(BALLS_RENDERER_NVRHI) || defined(BALLS_WITH_NVRHI)
+            "nvrhi"
+#else
+            "sdlgpu"
+#endif
+            : activeRenderer) : options.renderer;
     SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | rendererWindowFlags(wantedRenderer, api);
     if (options.hidden) {
         flags |= SDL_WINDOW_HIDDEN;
@@ -129,16 +137,6 @@ bool App::openWindowAndRenderer(const LaunchOptions& options, std::string_view a
     }
 
     SDL_SetWindowMinimumSize(window, minimumWindowWidth, minimumWindowHeight);
-    const std::string wantedRenderer =
-        options.renderer.empty() ? (activeRenderer.empty() ?
-#if defined(BALLS_RENDERER_WEBGPU) || defined(BALLS_WITH_WEBGPU)
-            "webgpu"
-#elif defined(BALLS_RENDERER_NVRHI) || defined(BALLS_WITH_NVRHI)
-            "nvrhi"
-#else
-            "sdlgpu"
-#endif
-            : activeRenderer) : options.renderer;
     SDL_Log("App: wantedRenderer=%s api=%s", wantedRenderer.c_str(), std::string(api).c_str());
     renderer = createRenderer(window, wantedRenderer, api, options.gpu, error);
     if (!renderer) {

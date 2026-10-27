@@ -60,7 +60,9 @@ if(BALLS_FRONTEND STREQUAL "sdl")
     add_subdirectory(source/frontends/sdl)
 endif()
 
-if(TARGET nvrhi AND TARGET nvrhi_vk)
+# The Vulkan physics plugin is desktop-only: its link group needs CMake 3.24+, and Android runs
+# physics through the statically linked CPU backend instead.
+if(TARGET nvrhi AND TARGET nvrhi_vk AND NOT ANDROID AND NOT EMSCRIPTEN)
     add_subdirectory(source/backends/vulkan)
 endif()
 
