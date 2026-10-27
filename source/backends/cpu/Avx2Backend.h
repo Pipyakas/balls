@@ -15,18 +15,30 @@ public:
     void setVisibilityGrid(int width, int height) override;
     void shareCoresWithGpu() override;
     bool takeCompactTail(size_t count, CompactBalls& balls) override {
+        materializeFreeFlight();
         store.takeCompactTail(count, balls);
         return true;
     }
     bool addCompact(const CompactBalls& balls) override {
+        materializeFreeFlight();
         store.addCompact(balls);
         return true;
     }
+    std::vector<BallSpawn> exportBalls() override {
+        materializeFreeFlight();
+        return store.exportBalls();
+    }
+    std::vector<BallSpawn> takeTail(size_t count) override {
+        materializeFreeFlight();
+        return store.takeTail(count);
+    }
+    size_t ballCapacityLimit() const override;
 
     static bool isSupportedByCpu();
 
 private:
     void stepRange(const StepParams& params, size_t begin, size_t end, std::vector<BallHit>& hits);
+    void materializeFreeFlight();
 
     std::unique_ptr<WorkerPool> pool;
     std::vector<std::vector<BallHit>> chunkHits;

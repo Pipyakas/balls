@@ -51,13 +51,31 @@ void CompactBallStore::add(std::span<const BallSpawn> spawns) {
     speed = std::max(std::hypot(spawns.front().vx, spawns.front().vy), 1e-6f);
     const float inverseSpeed = 1.0f / speed;
     const size_t first = count;
+    const unsigned int ticksSinceEpoch = clockTick - freeFlightEpoch;
     resize(count + spawns.size());
     for (size_t i = 0; i < spawns.size(); ++i) {
         const BallSpawn& spawn = spawns[i];
         const uint32_t color = static_cast<uint32_t>(spawn.color);
-        position[first + i] = encodeAxis(spawn.x, fieldWidth) | (encodeAxis(spawn.y, fieldHeight) << 16);
-        state[first + i] = encodeComponent(spawn.vx * inverseSpeed) |
-                           (encodeComponent(spawn.vy * inverseSpeed) << compact::directionBits) |
+        int directionX = signedComponent(encodeComponent(spawn.vx * inverseSpeed));
+        int directionY = signedComponent(encodeComponent(spawn.vy * inverseSpeed));
+        float x = spawn.x;
+        float y = spawn.y;
+        if (frozen) {
+            // Projected with the quantized direction that decoding gives back, flipping only the signs, so
+            // flying forward from the epoch lands on the spawn point.
+            const float scale = speed / std::max(std::hypot(static_cast<float>(directionX),
+                                                            static_cast<float>(directionY)), 1.0f);
+            const FreeFlightPosition epoch =
+                flyFreelyBackwards(x, y, static_cast<float>(directionX) * scale, static_cast<float>(directionY) * scale,
+                                   ticksSinceEpoch, flightParams);
+            x = epoch.x;
+            y = epoch.y;
+            directionX = (epoch.vx < 0.0f) == (directionX < 0) ? directionX : -directionX;
+            directionY = (epoch.vy < 0.0f) == (directionY < 0) ? directionY : -directionY;
+        }
+        position[first + i] = encodeAxis(x, fieldWidth) | (encodeAxis(y, fieldHeight) << 16);
+        state[first + i] = (static_cast<uint32_t>(directionX) & compact::directionMask) |
+                           ((static_cast<uint32_t>(directionY) & compact::directionMask) << compact::directionBits) |
                            (color << compact::colorShift);
         packed[first + i] = packBallForRender(spawn.x, spawn.y, spawn.color, renderPackScale(fieldWidth),
                                               renderPackScale(fieldHeight));
@@ -147,4 +165,68 @@ BallSnapshot CompactBallStore::snapshot() const {
         return {grid.data(), grid.size(), fieldWidth, fieldHeight, false, true};
     }
     return {packed.data(), count, fieldWidth, fieldHeight};
+}
+
+void CompactBallStore::freeze(unsigned int epoch) {
+    if (!frozen) {
+        frozen = true;
+        freeFlightEpoch = epoch;
+    }
+}
+
+uint32_t CompactBallStore::packedInFlight(size_t index, unsigned int ticks) const {
+    const BallSpawn ball = decode(index);
+    const FreeFlightPosition flown = flyFreely(ball.x, ball.y, ball.vx, ball.vy, ticks, flightParams);
+    return packBallForRender(flown.x, flown.y, ball.color, flightParams.packScaleX, flightParams.packScaleY);
+}
+
+void CompactBallStore::placeInGrid(uint32_t value) {
+    constexpr float coordinateSlots = static_cast<float>(renderCoordinateMax + 1);
+    const int column = std::min(static_cast<int>(static_cast<float>(value & renderCoordinateMax) *
+                                                 static_cast<float>(gridWidth) / coordinateSlots),
+                                gridWidth - 1);
+    const int row = std::min(static_cast<int>(static_cast<float>((value >> renderCoordinateBits) & renderCoordinateMax) *
+                                              static_cast<float>(gridHeight) / coordinateSlots),
+                             gridHeight - 1);
+    grid[static_cast<size_t>(row) * static_cast<size_t>(gridWidth) + static_cast<size_t>(column)] = value;
+}
+
+// Only the bidders are needed to draw a frame, so whole chunks are sampled with the bidder stride: the cost
+// follows the visibility grid, not the ball count.
+void CompactBallStore::renderFreeFlight() {
+    constexpr size_t chunkBalls = 256;
+    const unsigned int ticks = clockTick - freeFlightEpoch;
+    if (!prepareGrid()) {
+        for (size_t i = 0; i < count; ++i) {
+            packed[i] = packedInFlight(i, ticks);
+        }
+        return;
+    }
+    const size_t stride = static_cast<size_t>(bidderMask) + 1;
+    for (size_t chunk = frameSeed % stride; chunk * chunkBalls < count; chunk += stride) {
+        const size_t end = std::min(count, (chunk + 1) * chunkBalls);
+        for (size_t i = chunk * chunkBalls; i < end; ++i) {
+            placeInGrid(packedInFlight(i, ticks));
+        }
+    }
+}
+
+void CompactBallStore::materializeRange(size_t begin, size_t end) {
+    const unsigned int ticks = clockTick - freeFlightEpoch;
+    for (size_t i = begin; i < end; ++i) {
+        const BallSpawn ball = decode(i);
+        const FreeFlightPosition flown = flyFreely(ball.x, ball.y, ball.vx, ball.vy, ticks, flightParams);
+        const uint32_t bits = state[i];
+        int directionX = signedComponent(bits & compact::directionMask);
+        int directionY = signedComponent((bits >> compact::directionBits) & compact::directionMask);
+        directionX = (flown.vx < 0.0f) == (directionX < 0) ? directionX : -directionX;
+        directionY = (flown.vy < 0.0f) == (directionY < 0) ? directionY : -directionY;
+        const uint32_t bounces = std::min<uint32_t>(((bits >> compact::bounceShift) & compact::bounceMask) +
+                                                        std::min(flown.wallCrossings, 3u),
+                                                    compact::savedBounceLimit);
+        position[i] = encodeAxis(flown.x, fieldWidth) | (encodeAxis(flown.y, fieldHeight) << 16);
+        state[i] = (static_cast<uint32_t>(directionX) & compact::directionMask) |
+                   ((static_cast<uint32_t>(directionY) & compact::directionMask) << compact::directionBits) |
+                   (bits & (compact::colorMask << compact::colorShift)) | (bounces << compact::bounceShift);
+    }
 }

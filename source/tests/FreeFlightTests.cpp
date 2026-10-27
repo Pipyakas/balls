@@ -113,17 +113,19 @@ std::vector<BallSpawn> flyOnEmptyBoard(BackendKind kind) {
 
 }
 
-TEST_CASE("CUDA balls flying freely match Scalar stepping, including balls added mid-flight") {
-    if (!isBackendAvailable(BackendKind::Cuda)) {
-        return;
-    }
+TEST_CASE("balls flying freely on CUDA and AVX2 match Scalar stepping, including balls added mid-flight") {
     const std::vector<BallSpawn> stepped = flyOnEmptyBoard(BackendKind::Scalar);
-    const std::vector<BallSpawn> flown = flyOnEmptyBoard(BackendKind::Cuda);
-    EXPECT(stepped.size() == flown.size());
-    constexpr float driftTolerance = 0.05f;
-    float worst = 0.0f;
-    for (size_t i = 0; i < std::min(stepped.size(), flown.size()); ++i) {
-        worst = std::max({worst, std::fabs(stepped[i].x - flown[i].x), std::fabs(stepped[i].y - flown[i].y)});
+    for (const BackendKind kind : {BackendKind::Cuda, BackendKind::Avx2}) {
+        if (!isBackendAvailable(kind)) {
+            continue;
+        }
+        const std::vector<BallSpawn> flown = flyOnEmptyBoard(kind);
+        EXPECT(stepped.size() == flown.size());
+        constexpr float driftTolerance = 0.05f;
+        float worst = 0.0f;
+        for (size_t i = 0; i < std::min(stepped.size(), flown.size()); ++i) {
+            worst = std::max({worst, std::fabs(stepped[i].x - flown[i].x), std::fabs(stepped[i].y - flown[i].y)});
+        }
+        EXPECT(worst < driftTolerance);
     }
-    EXPECT(worst < driftTolerance);
 }

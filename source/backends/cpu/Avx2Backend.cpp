@@ -6,11 +6,47 @@
 #include <atomic>
 #include <bit>
 
+#include <limits>
+#include <optional>
+
 #if defined(_MSC_VER)
 #include <intrin.h>
 #endif
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
 namespace {
+
+struct PhysicalMemory {
+    size_t total = 0;
+    size_t available = 0;
+};
+
+std::optional<PhysicalMemory> physicalMemory() {
+#if defined(_WIN32)
+    MEMORYSTATUSEX memory{};
+    memory.dwLength = sizeof(memory);
+    if (!GlobalMemoryStatusEx(&memory)) {
+        return std::nullopt;
+    }
+    return PhysicalMemory{static_cast<size_t>(memory.ullTotalPhys), static_cast<size_t>(memory.ullAvailPhys)};
+#else
+    const long pageSize = sysconf(_SC_PAGESIZE);
+    const long pages = sysconf(_SC_PHYS_PAGES);
+    const long availablePages = sysconf(_SC_AVPHYS_PAGES);
+    if (pageSize <= 0 || pages <= 0 || availablePages < 0) {
+        return std::nullopt;
+    }
+    return PhysicalMemory{static_cast<size_t>(pages) * static_cast<size_t>(pageSize),
+                          static_cast<size_t>(availablePages) * static_cast<size_t>(pageSize)};
+#endif
+}
 
 constexpr size_t ballsPerChunk = 16384;
 constexpr int paddingRowsAboveFirstRow = 1;
@@ -241,11 +277,44 @@ bool Avx2Backend::isSupportedByCpu() {
 #endif
 }
 
+void Avx2Backend::materializeFreeFlight() {
+    if (!store.frozen) {
+        return;
+    }
+    pool->runChunks(store.count, ballsPerChunk,
+                    [&](size_t, size_t begin, size_t end) { store.materializeRange(begin, end); });
+    store.frozen = false;
+}
+
+// Balls take 12 bytes here (position, state and the render copy); a quarter of physical memory stays free for
+// the rest of the game and the system.
+size_t Avx2Backend::ballCapacityLimit() const {
+    constexpr size_t bytesPerBall = 12;
+    constexpr size_t keptFreeDivisor = 4;
+    const std::optional<PhysicalMemory> memory = physicalMemory();
+    if (!memory) {
+        return std::numeric_limits<size_t>::max();
+    }
+    const size_t usable = memory->total - memory->total / keptFreeDivisor;
+    const size_t inUse = memory->total - memory->available;
+    const size_t held = store.position.capacity() * bytesPerBall;
+    const size_t othersUse = inUse > held ? inUse - held : 0;
+    return usable > othersUse ? (usable - othersUse) / bytesPerBall : store.count;
+}
+
 void Avx2Backend::step(const StepParams& params, std::vector<BallHit>& hits) {
+    store.clockTick = params.tick + static_cast<unsigned int>(params.substeps);
+    store.flightParams = params;
     if (store.count == 0) {
         return;
     }
     store.speed = params.speed;
+    if (params.freeFlight) {
+        store.freeze(params.tick);
+        store.renderFreeFlight();
+        return;
+    }
+    materializeFreeFlight();
     store.prepareGrid();
     if (store.count <= ballsPerChunk) {
         stepRange(params, 0, store.count, hits);

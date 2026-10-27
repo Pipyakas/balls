@@ -65,11 +65,14 @@ BallCount Simulation::ballRoom() const {
 }
 
 void Simulation::scatterBalls(BallColor color, BallCount requested) {
+    // Spawns are 20 bytes against 8 to 12 stored, so a probe step of billions of balls hands them to the backend
+    // in batches instead of holding them all.
+    constexpr size_t scatterFlushBalls = size_t{1} << 22;
     const BallCount count = std::min(requested, ballRoom());
     std::uniform_real_distribution<float> unit(0.0f, 1.0f);
     const float width = static_cast<float>(brickBoard.columns());
     const float height = static_cast<float>(brickBoard.rows());
-    pendingSpawns.reserve(pendingSpawns.size() + static_cast<size_t>(count));
+    pendingSpawns.reserve(pendingSpawns.size() + std::min(static_cast<size_t>(count), scatterFlushBalls));
     for (BallCount i = 0; i < count; ++i) {
         float x = 0.0f;
         float y = 0.0f;
@@ -83,6 +86,10 @@ void Simulation::scatterBalls(BallColor color, BallCount requested) {
         const float angle = unit(random) * 2.0f * std::numbers::pi_v<float>;
         pendingSpawns.push_back({x, y, std::cos(angle) * settings.ballSpeed, std::sin(angle) * settings.ballSpeed,
                                  toIndex(color)});
+        if (pendingSpawns.size() >= scatterFlushBalls) {
+            physics->addBalls(pendingSpawns);
+            pendingSpawns.clear();
+        }
     }
     statistics.ballsByColor[toIndex(color)] += count;
     statistics.totalBallsSpawned += count;
