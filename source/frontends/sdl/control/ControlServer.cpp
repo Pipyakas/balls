@@ -154,7 +154,7 @@ bool ControlServer::start(int port) {
     }
     listenSocket = static_cast<uintptr_t>(socketHandle);
     running = true;
-    listener = std::jthread([this] { acceptLoop(); });
+    listener = std::thread([this] { acceptLoop(); });
     return true;
 }
 

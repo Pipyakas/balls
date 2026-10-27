@@ -10,6 +10,9 @@
 #include <webgpu/wgpu.h>
 
 #include <SDL3/SDL.h>
+#if defined(__ANDROID__)
+#include <android/native_window.h>
+#endif
 
 #if defined(_WIN32)
 #define NOMINMAX
@@ -96,6 +99,25 @@ WGPUSurface createSurfaceFromWindow(WGPUInstance instance, SDL_Window* window) {
     hwndDesc.hwnd = hwnd;
     WGPUSurfaceDescriptor desc{};
     desc.nextInChain = &hwndDesc.chain;
+    return wgpuInstanceCreateSurface(instance, &desc);
+#elif defined(__ANDROID__)
+    void* nativeWindow = SDL_GetPointerProperty(SDL_GetWindowProperties(window),
+                                                SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr);
+    SDL_Log("WebGPU: Android native window ptr=%p", nativeWindow);
+    if (!nativeWindow) {
+        return nullptr;
+    }
+    int w = ANativeWindow_getWidth(static_cast<ANativeWindow*>(nativeWindow));
+    int h = ANativeWindow_getHeight(static_cast<ANativeWindow*>(nativeWindow));
+    SDL_Log("WebGPU: ANativeWindow size=%dx%d", w, h);
+    if (w <= 0 || h <= 0) {
+        return nullptr;
+    }
+    WGPUSurfaceSourceAndroidNativeWindow androidDesc{};
+    androidDesc.chain.sType = WGPUSType_SurfaceSourceAndroidNativeWindow;
+    androidDesc.window = nativeWindow;
+    WGPUSurfaceDescriptor desc{};
+    desc.nextInChain = &androidDesc.chain;
     return wgpuInstanceCreateSurface(instance, &desc);
 #elif defined(__linux__)
     if (auto* display = SDL_GetPointerProperty(SDL_GetWindowProperties(window),

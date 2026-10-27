@@ -87,9 +87,17 @@ bool App::openWindowAndRenderer(const LaunchOptions& options, std::string_view a
         error = std::format("SDL_CreateWindow: {}", SDL_GetError());
         return false;
     }
+
     SDL_SetWindowMinimumSize(window, minimumWindowWidth, minimumWindowHeight);
     const std::string wantedRenderer =
-        options.renderer.empty() ? (activeRenderer.empty() ? "nvrhi" : activeRenderer) : options.renderer;
+        options.renderer.empty() ? (activeRenderer.empty() ?
+#if defined(BALLS_RENDERER_WEBGPU)
+            "webgpu"
+#else
+            "nvrhi"
+#endif
+            : activeRenderer) : options.renderer;
+    SDL_Log("App: wantedRenderer=%s api=%s", wantedRenderer.c_str(), std::string(api).c_str());
     renderer = createRenderer(window, wantedRenderer, api, options.gpu, error);
     if (!renderer) {
         return false;
@@ -207,11 +215,20 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.LogFilename = nullptr;
-    fonts.regular = io.Fonts->AddFontFromFileTTF(fontPath(palette::regularFontFile).string().c_str(), fontLoadPixels);
+    const auto regularPath = fontPath(palette::regularFontFile);
+    if (std::filesystem::exists(regularPath)) {
+        fonts.regular = io.Fonts->AddFontFromFileTTF(regularPath.string().c_str(), fontLoadPixels);
+    }
     if (!fonts.regular) {
         fonts.regular = io.Fonts->AddFontDefault();
     }
-    fonts.strong = io.Fonts->AddFontFromFileTTF(fontPath(palette::strongFontFile).string().c_str(), fontLoadPixels);
+    const auto strongPath = fontPath(palette::strongFontFile);
+    if (std::filesystem::exists(strongPath)) {
+        fonts.strong = io.Fonts->AddFontFromFileTTF(strongPath.string().c_str(), fontLoadPixels);
+    }
+    if (!fonts.strong) {
+        fonts.strong = fonts.regular;
+    }
     fonts.strongMinimumSize = palette::strongTextMinimumPixels;
 
     if (!openWindowAndRenderer(options, options.graphicsApi, error)) {

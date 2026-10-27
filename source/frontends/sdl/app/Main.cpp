@@ -8,14 +8,19 @@
 #include <cstdio>
 #include <string>
 
+#if !defined(__ANDROID__)
 static void SDLCALL logOutput(void* /*userdata*/, int /*category*/, SDL_LogPriority /*priority*/, const char* message) {
     std::fprintf(stderr, "%s\n", message);
     std::fflush(stderr);
 }
+#endif
 
 SDL_AppResult SDL_AppInit(void** appState, int argumentCount, char** arguments) {
+#if !defined(__ANDROID__)
     SDL_SetLogOutputFunction(logOutput, nullptr);
+#endif
     SDL_SetAppMetadata("Balls", "0.1.0", "com.the company.colorblastballs");
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "");
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         return SDL_APP_FAILURE;

@@ -87,7 +87,7 @@ private:
     bool screenshotPending = false;
     std::string screenshotPath;
     float frameSeconds = 0.0f;
-    std::string activeRenderer = "nvrhi";
+    std::string activeRenderer = "";
     std::string activeGraphicsApi;
     std::string renderGpuPreference;
     std::vector<GpuAdapterInfo> renderAdapterList;

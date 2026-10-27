@@ -10,6 +10,16 @@
 #include <mutex>
 #include <string>
 
+#if defined(BALLS_STATIC_CPU_BACKEND)
+extern "C" {
+int ballsPhysicsInterfaceVersion();
+const char* ballsBackendUnavailableReason(const char* kindName);
+const char* ballsBackendDetail(const char* kindName);
+PhysicsBackend* ballsCreateBackend(const char* kindName);
+void ballsDestroyBackend(PhysicsBackend* backend);
+}
+#endif
+
 namespace {
 
 #if defined(_WIN32)
@@ -94,6 +104,19 @@ std::filesystem::path makeShadowCopy(const std::filesystem::path& source) {
 }
 
 std::shared_ptr<PluginModule> loadPlugin(std::string_view fileName, bool freshCopy) {
+    #if defined(BALLS_STATIC_CPU_BACKEND)
+    if (fileName == cpuPluginFile) {
+        auto module = std::make_shared<PluginModule>();
+        module->create = ballsCreateBackend;
+        module->destroy = ballsDestroyBackend;
+        module->unavailableReason = ballsBackendUnavailableReason;
+        module->detail = ballsBackendDetail;
+        if (ballsPhysicsInterfaceVersion() != physicsPluginInterfaceVersion) {
+            module->error = std::format("static CPU backend interface mismatch");
+        }
+        return module;
+    }
+#endif
     auto module = std::make_shared<PluginModule>();
     const std::filesystem::path besideExecutable = DynamicLibrary::executableDirectory() / fileName;
     const bool foundBesideExecutable = std::filesystem::exists(besideExecutable);
