@@ -58,6 +58,18 @@ std::string_view gameVersion() {
     return version ? version : "";
 }
 
+// The command line wins, then the Settings default (the benchmark winner or the player's pick), then the fastest CPU
+// backend, skipping any that cannot load on this machine.
+BackendKind startupBackend(std::optional<BackendKind> commandLine, std::string_view settingsDefault) {
+    if (commandLine && isBackendAvailable(*commandLine)) {
+        return *commandLine;
+    }
+    if (const auto saved = parseBackendKind(settingsDefault); saved && isBackendAvailable(*saved)) {
+        return *saved;
+    }
+    return fastestAvailableCpuBackend();
+}
+
 std::string screenshotFileFor(const std::string& requested) {
     std::filesystem::path path(requested);
     path.replace_extension(screenshotExtension);
@@ -177,17 +189,13 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
     currentSettings = loadSettings(settingsFilePath());
     applyOrientationHint(currentSettings.layout);
     setVsync(options.vsync || currentSettings.vsync);
-    backendChoice = options.backend && isBackendAvailable(*options.backend) ? *options.backend
-                                                                            : fastestAvailableCpuBackend();
+    backendChoice = startupBackend(options.backend, currentSettings.defaultBackend);
     if (options.controlPort > 0) {
         controlServer.start(options.controlPort);
     }
     const auto startLevel = options.playMode ? findLevel(*options.playMode, options.playLevel) : std::nullopt;
     const bool backendChosenOnCommandLine = options.playMode || options.backend;
     const std::optional<BenchmarkRecord>& stored = profile.benchmark();
-    if (stored && stored->winner && !backendChosenOnCommandLine) {
-        adoptBenchmarkWinner(*stored->winner);
-    }
     if (startLevel) {
         startGame(*options.playMode, *startLevel);
     } else if (!options.skipBenchmark && !backendChosenOnCommandLine &&
@@ -348,8 +356,15 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
         if (const auto vsync = request.integer("vsync")) {
             next.vsync = *vsync != 0;
         }
+        std::optional<BackendKind> backend;
+        if (const auto name = request.text("backend")) {
+            backend = parseBackendKind(*name);
+            if (!backend || !isBackendAvailable(*backend)) {
+                return ControlResponse::error(400, std::format("backend {} is not available", *name));
+            }
+        }
         const bool open = request.integer("open").value_or(0) != 0;
-        applySettings(next);
+        applySettings(next, backend);
         if (open && currentScreen) {
             applyPendingScreen();
             if (auto* gameplay = dynamic_cast<GameplayScreen*>(currentScreen.get())) {
@@ -410,9 +425,12 @@ void App::showMachineBenchmark() {
 }
 
 void App::adoptBenchmarkWinner(const BenchmarkCandidate& winner) {
-    if (isBackendAvailable(winner.kind)) {
-        backendChoice = winner.kind;
+    if (!isBackendAvailable(winner.kind)) {
+        return;
     }
+    backendChoice = winner.kind;
+    currentSettings.defaultBackend = std::string(backendKindName(winner.kind));
+    static_cast<void>(saveSettings(settingsFilePath(), currentSettings));
 }
 
 std::string App::benchmarkStateJson() const {
@@ -432,19 +450,20 @@ void App::showSettings() {
 
 void App::applySettings(const Settings& settings, std::optional<BackendKind> backend) {
     currentSettings = settings;
-    static_cast<void>(saveSettings(settingsFilePath(), settings));
-    setVsync(settings.vsync);
     if (backend) {
         backendChoice = *backend;
+        currentSettings.defaultBackend = std::string(backendKindName(*backend));
     }
+    static_cast<void>(saveSettings(settingsFilePath(), currentSettings));
+    setVsync(settings.vsync);
     applyOrientationToWindow();
     notifySettingsConsumers();
 }
 
 std::string App::settingsJson() const {
-    return std::format("{{\"ballCollisions\":{},\"layout\":\"{}\",\"vsync\":{}}}",
+    return std::format("{{\"ballCollisions\":{},\"layout\":\"{}\",\"vsync\":{},\"defaultBackend\":\"{}\"}}",
                        currentSettings.ballCollisions, orientationName(currentSettings.layout),
-                       currentSettings.vsync);
+                       currentSettings.vsync, jsonEscape(currentSettings.defaultBackend));
 }
 
 void App::notifySettingsConsumers() {

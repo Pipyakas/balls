@@ -53,6 +53,10 @@ public:
     BackendKind preferredBackend() const { return backendChoice; }
     void setPreferredBackend(BackendKind kind) { backendChoice = kind; }
     void adoptBenchmarkWinner(const BenchmarkCandidate& winner);
+    std::span<const CandidateResult> benchmarkScores() const {
+        return profile.benchmark() ? std::span<const CandidateResult>(profile.benchmark()->results)
+                                   : std::span<const CandidateResult>{};
+    }
     bool isVsyncEnabled() const { return renderer && renderer->isVsyncEnabled(); }
     MachineProfile& machineProfile() { return profile; }
     void setVsync(bool enabled);

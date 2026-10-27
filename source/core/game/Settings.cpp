@@ -11,6 +11,7 @@ namespace {
 constexpr std::string_view collisionsKey = "ballCollisions";
 constexpr std::string_view layoutKey = "layout";
 constexpr std::string_view vsyncKey = "vsync";
+constexpr std::string_view defaultBackendKey = "defaultBackend";
 
 constexpr std::array<std::pair<LayoutOrientation, std::string_view>, 3> orientationNames{{
     {LayoutOrientation::Auto, "auto"},
@@ -58,8 +59,9 @@ std::optional<LayoutOrientation> parseOrientation(std::string_view name) {
 }
 
 std::string serializeSettings(const Settings& settings) {
-    return std::format("{}={}\n{}={}\n{}={}\n", collisionsKey, settings.ballCollisions ? "on" : "off",
-                       layoutKey, orientationName(settings.layout), vsyncKey, settings.vsync ? "on" : "off");
+    return std::format("{}={}\n{}={}\n{}={}\n{}={}\n", collisionsKey, settings.ballCollisions ? "on" : "off",
+                       layoutKey, orientationName(settings.layout), vsyncKey, settings.vsync ? "on" : "off",
+                       defaultBackendKey, settings.defaultBackend);
 }
 
 // Unknown keys and unreadable values keep their defaults, so an old or hand-edited file never blocks startup.
@@ -82,6 +84,8 @@ Settings parseSettings(std::string_view text) {
             settings.layout = parseOrientation(value).value_or(settings.layout);
         } else if (key == vsyncKey) {
             settings.vsync = parseFlag(value).value_or(settings.vsync);
+        } else if (key == defaultBackendKey) {
+            settings.defaultBackend = std::string(value);
         }
     }
     return settings;

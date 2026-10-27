@@ -447,9 +447,12 @@ void GameplayScreen::drawOverlay() {
         const Rect panel{(width - settingsPanelWidth) * 0.5f, (height - settingsPanelHeight) * 0.5f,
                          settingsPanelWidth, settingsPanelHeight};
         ui::drawPanel(panel, palette::panel, 0.08f);
-        const SettingsPanelEdit edit = drawSettingsPanel(panel, app.settings(), app.preferredBackend());
+        const SettingsPanelEdit edit = drawSettingsPanel(panel, app.settings(), app.preferredBackend(), app.benchmarkScores());
         if (edit.changed) {
             app.applySettings(edit.settings, edit.backend);
+        }
+        if (edit.runBenchmark) {
+            app.showMachineBenchmark();
         }
         if (edit.backPressed) {
             settingsOpen = false;

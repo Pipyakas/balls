@@ -1,6 +1,7 @@
 #pragma once
 
 #include "game/Settings.h"
+#include "sim/BackendBenchmark.h"
 #include "sim/BackendFactory.h"
 
 #include "ui/Painter.h"
@@ -17,6 +18,9 @@ struct SettingsPanelEdit {
     bool backPressed = false;
     bool changed = false;
     std::optional<BackendKind> backend;
+    bool runBenchmark = false;
 };
 
-SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind selectedBackend);
+// benchmarkScores: the machine benchmark's last results, shown muted next to each backend.
+SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind selectedBackend,
+                                    std::span<const CandidateResult> benchmarkScores);

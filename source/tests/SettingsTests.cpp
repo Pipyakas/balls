@@ -7,10 +7,12 @@ TEST_CASE("settings default to the game rules and automatic layout") {
     EXPECT(!settings.ballCollisions);
     EXPECT(settings.layout == LayoutOrientation::Auto);
     EXPECT(!settings.vsync);
+    EXPECT(settings.defaultBackend.empty());
 }
 
 TEST_CASE("settings survive a serialize and parse round trip") {
-    const Settings original{.ballCollisions = true, .layout = LayoutOrientation::Portrait, .vsync = true};
+    const Settings original{
+        .ballCollisions = true, .layout = LayoutOrientation::Portrait, .vsync = true, .defaultBackend = "Hybrid"};
     EXPECT(parseSettings(serializeSettings(original)) == original);
 }
 
