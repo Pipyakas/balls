@@ -120,7 +120,6 @@ void FBallsGameplay::ApplySettings() {
     Sim.setBallCollisions(bWanted);
     // Only the Scalar backend implements collisions; asking for them elsewhere moves the game to Scalar.
     if (bWanted && !Sim.ballCollisionsActive() && Session->switchBackend(BackendKind::Scalar)) {
-        App.SetPreferredBackend(BackendKind::Scalar);
         Session->simulation().setBallCollisions(true);
         ShowToast(TEXT("Ball collisions need the Scalar backend - switched to Scalar."), false);
     }
@@ -186,7 +185,6 @@ void FBallsGameplay::SwitchBackend(BackendKind Kind) {
     }
     const FString Name = BallsText::FromUtf8(backendKindName(Kind));
     if (Session->switchBackend(Kind)) {
-        App.SetPreferredBackend(Kind);
         ApplyRememberedMachineLimit();
         ShowToast(TEXT("Backend: ") + Name, false);
     } else {

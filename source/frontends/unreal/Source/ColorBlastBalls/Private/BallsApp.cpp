@@ -341,14 +341,6 @@ void FBallsApp::SetPreferredBackend(BackendKind Kind) {
     }
 }
 
-void FBallsApp::ChooseBackend(BackendKind Kind) {
-    if (Gameplay && Gameplay->GetSession()) {
-        Gameplay->SwitchBackend(Kind);
-    } else if (isBackendAvailable(Kind)) {
-        SetPreferredBackend(Kind);
-    }
-}
-
 void FBallsApp::UpdateSettings(const Settings& Next) {
     CurrentSettings = Next;
     if (const Result<void> Saved = saveSettings(SettingsFile(), CurrentSettings); !Saved) {

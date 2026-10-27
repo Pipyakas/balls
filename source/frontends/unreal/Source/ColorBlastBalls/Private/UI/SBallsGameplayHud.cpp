@@ -21,6 +21,15 @@ namespace {
 
 constexpr float ControlRowHeight = 44.0f;
 constexpr float ControlGap = 10.0f;
+// The Physics group under the launchers in Normal mode: a label and one 36-high row per backend.
+constexpr float PhysicsRowHeight = 36.0f;
+constexpr float PhysicsRowGap = 6.0f;
+constexpr float PhysicsLabelHeight = 28.0f;
+constexpr float PhysicsGroupPadding = 14.0f;
+float PhysicsGroupHeight() {
+    return PhysicsLabelHeight + static_cast<float>(allBackendKinds.size()) * (PhysicsRowHeight + PhysicsRowGap) +
+           PhysicsGroupPadding;
+}
 constexpr float OverlayWidth = 420.0f;
 constexpr float OverlayButtonHeight = 60.0f;
 constexpr float LauncherGapShare = 0.18f;
@@ -405,6 +414,15 @@ public:
     }
 
 private:
+    // Landscape Normal mode keeps the bottom of the gadget for the Physics group.
+    FSlateRect LauncherArea(const FBallsGameplayLayout& Layout) const {
+        FSlateRect Area = Shrink(Layout.InteractionSection, 12.0f);
+        if (!Layout.bPortrait) {
+            Area.Bottom = FMath::Max(Area.Top + 1.0f, Area.Bottom - PhysicsGroupHeight());
+        }
+        return Area;
+    }
+
     FString MapNoticeText() const {
         switch (Gameplay->GetMapNotice()) {
         case FBallsGameplay::EMapNotice::Changed:
@@ -489,7 +507,7 @@ private:
             }
             return false;
         }
-        const FLauncherGrid Grid = ComputeLauncherGrid(Shrink(Layout.InteractionSection, 12.0f), Queue.columnCount(),
+        const FLauncherGrid Grid = ComputeLauncherGrid(LauncherArea(Layout), Queue.columnCount(),
                                                        Queue.visibleRows());
         for (int32 Column = 0; Column < Queue.columnCount(); ++Column) {
             for (int32 Row = 0; Row < Queue.visibleRows(); ++Row) {
@@ -537,7 +555,7 @@ private:
             return;
         }
         const bool bInteractive = !Gameplay->IsPaused() && Session.state() == SessionState::Running;
-        const FLauncherGrid Grid = ComputeLauncherGrid(Shrink(Layout.InteractionSection, 12.0f), Queue.columnCount(),
+        const FLauncherGrid Grid = ComputeLauncherGrid(LauncherArea(Layout), Queue.columnCount(),
                                                        Queue.visibleRows());
         const FSlateBrush* Rounded = BallsStyle::RoundedBox(0.0f);
         for (int32 Column = 0; Column < Queue.columnCount(); ++Column) {
@@ -803,6 +821,18 @@ void SBallsGameplayHud::Construct(const FArguments& InArgs) {
             [
                 Gameplay->GetMode() == GameMode::Performance ? MakePerformanceControls() : SNullWidget::NullWidget
             ]
+            + SCanvas::Slot()
+            .Position_Lambda([this] {
+                const FSlateRect Area = CurrentLayout().InteractionSection;
+                return FVector2D(Area.Left + PhysicsGroupPadding, Area.Bottom - PhysicsGroupHeight());
+            })
+            .Size_Lambda([this] {
+                const FSlateRect Area = CurrentLayout().InteractionSection;
+                return FVector2D(Area.GetSize().X - 2.0f * PhysicsGroupPadding, PhysicsGroupHeight() - PhysicsGroupPadding);
+            })
+            [
+                MakeNormalPhysicsGroup()
+            ]
         ]
         + SOverlay::Slot()
         [
@@ -819,6 +849,38 @@ void SBallsGameplayHud::Construct(const FArguments& InArgs) {
             ]
         ]
     ];
+}
+
+// Normal mode: under the launchers, the same backend list as Performance mode. It starts on the Settings default
+// and switches this game only.
+TSharedRef<SWidget> SBallsGameplayHud::MakeNormalPhysicsGroup() {
+    TSharedPtr<FBallsGameplay> Game = Gameplay;
+    TSharedRef<SVerticalBox> Column = SNew(SVerticalBox);
+    Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 4.0f)
+    [
+        SNew(STextBlock)
+        .Text(LabelText(TEXT("Physics")))
+        .Font(BallsStyle::Font(20.0f))
+        .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
+    ];
+    for (const BackendKind Kind : allBackendKinds) {
+        Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, PhysicsRowGap)
+        [
+            SNew(SBox).HeightOverride(PhysicsRowHeight)
+            [
+                BallsWidgets::Button(LabelText(BallsText::FromUtf8(backendKindName(Kind))),
+                                     [Game, Kind] { Game->SwitchBackend(Kind); }, 18.0f, isBackendAvailable(Kind),
+                                     TAttribute<bool>::CreateLambda([Game, Kind] {
+                                         return Game->GetSession() && Game->GetSession()->backend() == Kind;
+                                     }))
+            ]
+        ];
+    }
+    // Landscape Normal mode only; portrait keeps the compact launcher row and Performance has its own column.
+    return SNew(SBox).Visibility_Lambda([this, Game] {
+        return Game->GetMode() == GameMode::Normal && !CurrentLayout().bPortrait ? EVisibility::SelfHitTestInvisible
+                                                                                  : EVisibility::Collapsed;
+    })[Column];
 }
 
 TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
@@ -923,7 +985,7 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
     AddLabel(TEXT("Physics"));
     for (const BackendKind Kind : allBackendKinds) {
         AddRow(BallsWidgets::Button(LabelText(BallsText::FromUtf8(backendKindName(Kind))),
-                                    [Owner, Kind] { Owner->ChooseBackend(Kind); }, 18.0f, isBackendAvailable(Kind),
+                                    [Game, Kind] { Game->SwitchBackend(Kind); }, 18.0f, isBackendAvailable(Kind),
                                     TAttribute<bool>::CreateLambda([Session, Kind] {
                                         return Session() && Session()->backend() == Kind;
                                     })));

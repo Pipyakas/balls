@@ -21,6 +21,7 @@ public:
 private:
     FBallsGameplayLayout CurrentLayout() const;
     TSharedRef<SWidget> MakePerformanceControls();
+    TSharedRef<SWidget> MakeNormalPhysicsGroup();
     TSharedRef<SWidget> MakeOverlay();
 
     FBallsApp* App = nullptr;

@@ -48,9 +48,9 @@ public:
     void Quit();
 
     BackendKind GetPreferredBackend() const { return PreferredBackend; }
-    // Saved per machine and used by both modes. ChooseBackend switches the running game too.
+    // The default backend every new game starts with, saved per machine. Switching inside a game
+    // (FBallsGameplay::SwitchBackend) lasts for that game only.
     void SetPreferredBackend(BackendKind Kind);
-    void ChooseBackend(BackendKind Kind);
     const Settings& GetSettings() const { return CurrentSettings; }
     // Saves the settings and applies them to the running game.
     void UpdateSettings(const Settings& Next);

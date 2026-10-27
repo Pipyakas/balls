@@ -314,12 +314,12 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
               [Owner] { Owner->SetVSyncEnabled(true); });
 
     AddHeading(TEXT("Physics"));
-    AddLabel(TEXT("Backend"));
+    AddLabel(TEXT("Default backend"));
     for (const BackendKind Kind : allBackendKinds) {
         const bool bAvailable = isBackendAvailable(Kind);
         AddOption(BallsText::FromUtf8(backendKindName(Kind)),
                   TAttribute<bool>::CreateLambda([Owner, Kind] { return Owner->GetPreferredBackend() == Kind; }),
-                  [Owner, Kind] { Owner->ChooseBackend(Kind); }, bAvailable,
+                  [Owner, Kind] { Owner->SetPreferredBackend(Kind); }, bAvailable,
                   bAvailable ? FString() : BallsText::FromUtf8(backendUnavailableReason(Kind)));
     }
 
