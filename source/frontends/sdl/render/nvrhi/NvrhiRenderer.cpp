@@ -456,8 +456,9 @@ void NvrhiRenderer::drawScene(ClearColor clearColor) {
         nvrhi::GraphicsState state;
         state.pipeline = rectPipeline;
         state.framebuffer = framebuffer;
-        // D3D12 always applies the scissor, even for pipelines built without it, and the command list otherwise keeps
-        // the last ImGui clip rectangle from the previous frame, which hides every rectangle outside it.
+        // Every API needs an explicit scissor here: NVRHI's Vulkan backend keeps it dynamic and draws nothing without
+        // one, and D3D12 otherwise keeps the last ImGui clip rectangle, hiding every rectangle outside it. Rect
+        // clipping already happened on the CPU, so the whole viewport is the scissor.
         state.viewport = nvrhi::ViewportState().addViewport(viewport).addScissorRect(nvrhi::Rect(viewport));
         state.bindings = {rectStorageSet, rectConstantsSet};
         commandList->setGraphicsState(state);
@@ -579,8 +580,9 @@ void NvrhiRenderer::endFrame(ClearColor clearColor) {
 
 }
 
-std::unique_ptr<IRenderer> createNvrhiRenderer(SDL_Window* window, GraphicsApi api, std::string& error) {
-    auto graphics = createGraphicsDevice(api, window, error);
+std::unique_ptr<IRenderer> createNvrhiRenderer(SDL_Window* window, GraphicsApi api, std::string_view gpuPreference,
+                                               std::string& error) {
+    auto graphics = createGraphicsDevice(api, window, gpuPreference, error);
     if (!graphics) {
         return nullptr;
     }

@@ -48,8 +48,10 @@ void drawBorder(Rect rect, float roundness, Color color) {
     gfx::strokeRounded(rect, roundness * style::roundnessScale, style::borderWidth, color);
 }
 
+// A widget scrolled out of a clipped gadget must not take clicks meant for whatever is drawn there instead.
 bool isHovered(Rect rect) {
-    return pointInRect(input::mousePosition(), rect);
+    const Vec2 mouse = input::mousePosition();
+    return pointInRect(mouse, rect) && pointInRect(mouse, gfx::currentClip());
 }
 
 bool isClicked(Rect rect) {

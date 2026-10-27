@@ -77,3 +77,26 @@ python scripts/CompileBallStep.py
 cmake --build build/win32 --config Release --target balls_gpucompute
 build/win32/bin/Release/balls_gpucompute --dir data/assets/levels/performance --level DA_1000Bricks --balls 60000000 --ticks 400 --api all
 ```
+
+## Per-profile variants and sweeping
+
+Compute profiles allow tuning kernel launch dimensions and memory parameters (such as `threadsPerGroup`, `ballsPerThread`, `countThreads`, `countItems`, `sortThreads`, and `sortItems`) for different GPU architectures (e.g. wave32 vs wave64). Profiles are defined in `source/core/gpu/BallStepProfiles.def` and compiled by `CompileBallStep.py`.
+
+The compiled shader arrays follow the blob naming scheme:
+`ballStep_<profile>_<Pass><Api>`
+where:
+- `<profile>` is the profile variant identifier (such as `wave32`, `wave64`, or a dynamic sweep profile `sweepNN`),
+- `<Pass>` is one of `BallStep`, `CountCells`, `ScanCells`, or `StepAndSort`,
+- `<Api>` is the target shader API format (`Spirv`, `Dxil`, or `Dxbc`).
+
+The benchmark harness `balls_gpucompute` supports adapter querying and profile selection:
+- `--list-gpus`: queries and prints available graphics adapters with their device information (index, summary, vendor/device hex IDs, `subgroup=<min>-<max>`, shared memory bytes, max workgroup invocations, and device-local MB).
+- `--gpu <auto|integrated|discrete|N|substring>`: selects the target GPU adapter by index, name substring, or auto-selection heuristic (prefers the discrete GPU with the largest device-local memory, falling back to integrated).
+- `--profile <name>`: selects a precompiled profile variant from `BallStepProfiles.def` by name.
+- `--profile-numbers a,b,c,d,e,f`: sets the profile parameters `(threadsPerGroup, ballsPerThread, countThreads, countItems, sortThreads, sortItems)` explicitly at runtime.
+
+`scripts/Sweep.py` automates exploring candidate configurations, compiling individual shader variants with `CompileBallStep.py`, benchmarking each with `balls_gpucompute`, and ranking results by kernel execution time:
+
+```
+python -I scripts/Sweep.py --bench build/win32/bin/Release/balls_gpucompute --api vulkan --gpu auto --balls 1000000 --ticks 100
+```

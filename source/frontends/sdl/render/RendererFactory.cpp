@@ -3,7 +3,8 @@
 #if defined(BALLS_RENDERER_NVRHI)
 #include "render/nvrhi/GraphicsDevice.h"
 
-std::unique_ptr<IRenderer> createNvrhiRenderer(SDL_Window* window, GraphicsApi api, std::string& error);
+std::unique_ptr<IRenderer> createNvrhiRenderer(SDL_Window* window, GraphicsApi api, std::string_view gpuPreference,
+                                               std::string& error);
 
 namespace {
 
@@ -27,15 +28,16 @@ std::string_view fallbackGraphicsApi(std::string_view api) {
 #endif
 }
 
-std::unique_ptr<IRenderer> createRenderer(SDL_Window* window, std::string_view api, std::string& error) {
-    return createNvrhiRenderer(window, graphicsApiFor(api), error);
+std::unique_ptr<IRenderer> createRenderer(SDL_Window* window, std::string_view api, std::string_view gpuPreference,
+                                          std::string& error) {
+    return createNvrhiRenderer(window, graphicsApiFor(api), gpuPreference, error);
 }
 #else
 SDL_WindowFlags rendererWindowFlags(std::string_view) { return 0; }
 
 std::string_view fallbackGraphicsApi(std::string_view) { return {}; }
 
-std::unique_ptr<IRenderer> createRenderer(SDL_Window* window, std::string_view, std::string& error) {
+std::unique_ptr<IRenderer> createRenderer(SDL_Window* window, std::string_view, std::string_view, std::string& error) {
     return createSdlGpuRenderer(window, error);
 }
 #endif

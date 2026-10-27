@@ -123,11 +123,54 @@ bool App::openWindowAndRenderer(const LaunchOptions& options, std::string_view a
         return false;
     }
     SDL_SetWindowMinimumSize(window, minimumWindowWidth, minimumWindowHeight);
-    renderer = createRenderer(window, api, error);
-    if (renderer != nullptr) {
-        applyOrientationToWindow();
+    renderer = createRenderer(window, api, options.gpu, error);
+    if (!renderer) {
+        return false;
     }
-    return renderer != nullptr;
+    activeGraphicsApi = std::string(api);
+    renderGpuPreference = options.gpu;
+#if defined(_WIN32)
+    const GpuApi adapterApi = api == "vulkan" ? GpuApi::Vulkan : GpuApi::D3d12;
+#else
+    const GpuApi adapterApi = GpuApi::Vulkan;
+#endif
+    renderAdapterList = enumerateGpuAdapters(adapterApi);
+    activeRenderAdapter = selectGpuAdapter(renderAdapterList, renderGpuPreference, GpuRole::Render);
+    applyOrientationToWindow();
+    return true;
+}
+
+void App::applyPendingRenderAdapter() {
+    if (!pendingRenderAdapter) {
+        return;
+    }
+    const int wanted = *pendingRenderAdapter;
+    pendingRenderAdapter.reset();
+    if (wanted == activeRenderAdapter || wanted < 0 || wanted >= static_cast<int>(renderAdapterList.size())) {
+        return;
+    }
+    const bool vsync = isVsyncEnabled();
+    const std::string previousPreference = renderGpuPreference;
+    const std::string wantedPreference = std::to_string(wanted);
+    balls.reset();
+    renderer.reset();
+    std::string error;
+    renderer = createRenderer(window, activeGraphicsApi, wantedPreference, error);
+    if (renderer) {
+        renderGpuPreference = wantedPreference;
+        activeRenderAdapter = wanted;
+        SDL_Log("Rendering on %s", renderAdapterList[static_cast<size_t>(wanted)].name.c_str());
+    } else {
+        std::string ignored;
+        renderer = createRenderer(window, activeGraphicsApi, previousPreference, ignored);
+        SDL_Log("Could not render on %s: %s", renderAdapterList[static_cast<size_t>(wanted)].name.c_str(), error.c_str());
+    }
+    if (!renderer) {
+        running = false;
+        return;
+    }
+    balls = std::make_unique<BallView>(*renderer);
+    setVsync(vsync);
 }
 
 void App::applyOrientationToWindow() {
@@ -192,6 +235,8 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
     }
     balls = std::make_unique<BallView>(*renderer);
     profile.load();
+    setComputeGpuPreference(options.computeGpu);
+    computeAdapterList = enumerateGpuAdapters(GpuApi::Vulkan);
     currentSettings = loadSettings(settingsFilePath());
     applyOrientationHint(currentSettings.layout);
     setVsync(options.vsync || currentSettings.vsync);
@@ -368,6 +413,7 @@ bool App::frame() {
                     millisecondsBetween(workStart, presentStart) - synchronizationMs,
                     renderer->lastGpuBusyMs(),
                     millisecondsBetween(presentStart, frameEnd) + synchronizationMs + gpuWaitMs});
+    applyPendingRenderAdapter();
     applyPendingScreen();
     return running;
 }
@@ -393,13 +439,16 @@ void App::applyPendingScreen() {
 
 std::string App::stateJson() const {
     const FrameSample& sample = timings.average();
-    return std::format("{{\"ok\":true,\"frontend\":\"sdl\",\"renderer\":\"{}\",\"screen\":\"{}\",\"window\":[{},{}],"
-                       "\"fps\":{:.1f},\"minFps\":{:.1f},\"frameMs\":{:.3f},\"cpuMs\":{:.3f},\"gpuMs\":{:.3f},"
-                       "\"presentMs\":{:.3f},\"preferredBackend\":\"{}\",\"vsync\":{},\"toast\":\"{}\",\"details\":{}}}",
-                       jsonEscape(renderer->deviceDescription()), currentScreen->name(), gfx::screenWidth(),
-                       gfx::screenHeight(), timings.framesPerSecond(), timings.worstFpsLastSecond(), sample.frameMs,
-                       sample.cpuMs, sample.gpuMs, sample.presentMs, backendKindName(backendChoice), isVsyncEnabled(),
-                       jsonEscape(toast.secondsLeft > 0.0f ? toast.text : std::string{}), currentScreen->stateJson());
+    return std::format(
+        "{{\"ok\":true,\"frontend\":\"sdl\",\"renderer\":\"{}\",\"screen\":\"{}\",\"window\":[{},{}],"
+        "\"fps\":{:.1f},\"minFps\":{:.1f},\"frameMs\":{:.3f},\"cpuMs\":{:.3f},\"gpuMs\":{:.3f},"
+        "\"presentMs\":{:.3f},\"preferredBackend\":\"{}\",\"computeGpu\":\"{}\",\"vsync\":{},\"toast\":\"{}\","
+        "\"details\":{}}}",
+        jsonEscape(renderer->deviceDescription()), currentScreen->name(), gfx::screenWidth(),
+        gfx::screenHeight(), timings.framesPerSecond(), timings.worstFpsLastSecond(), sample.frameMs,
+        sample.cpuMs, sample.gpuMs, sample.presentMs, backendKindName(backendChoice),
+        jsonEscape(backendDetail(BackendKind::Vulkan)), isVsyncEnabled(),
+        jsonEscape(toast.secondsLeft > 0.0f ? toast.text : std::string{}), currentScreen->stateJson());
 }
 
 std::optional<ControlResponse> App::handleControl(const ControlRequest& request) {
@@ -432,6 +481,14 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
         }
         deliverImport(std::move(paths));
         return ControlResponse::ok(std::format("{{\"ok\":true,\"toast\":\"{}\"}}", jsonEscape(toast.text)));
+    }
+    if (path == "/render-gpu") {
+        const auto index = request.integer("index");
+        if (!index || *index < 0 || *index >= static_cast<long long>(renderAdapterList.size())) {
+            return ControlResponse::error(400, "index must name an adapter from /state renderAdapters");
+        }
+        requestRenderAdapter(static_cast<int>(*index));
+        return ControlResponse::ok("{\"ok\":true}");
     }
     if (path == "/quit") {
         quit();

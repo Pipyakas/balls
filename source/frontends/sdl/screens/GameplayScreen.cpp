@@ -21,6 +21,8 @@
 
 namespace {
 
+constexpr float controlsScrollStep = 40.0f;
+
 constexpr float toastSeconds = 3.0f;
 constexpr float mainSectionCornerRadius = 0.0f;
 constexpr float overlayWidth = 420.0f;
@@ -29,6 +31,10 @@ constexpr float controlRowHeight = 44.0f;
 constexpr float controlGap = 10.0f;
 constexpr float groupLabelHeight = 26.0f;
 constexpr float groupGap = 14.0f;
+
+float listHeight(size_t rows) {
+    return (controlRowHeight + controlGap) * static_cast<float>(rows) - controlGap;
+}
 
 constexpr double millisecondsPerSecond = 1000.0;
 constexpr int minimumProbeTargetFps = 10;
@@ -305,6 +311,71 @@ void GameplayScreen::drawMainSection(const GameplayLayout& layout) {
     gfx::endClip();
 }
 
+namespace {
+
+// Menu label for an adapter: the vendor prefix adds width, not information.
+std::string shortAdapterName(const GpuAdapterInfo& adapter) {
+    std::string name = adapter.name;
+    for (const std::string_view prefix : {"NVIDIA GeForce ", "NVIDIA ", "AMD Radeon(TM) ", "AMD Radeon ", "AMD ",
+                                          "Intel(R) ", "Microsoft "}) {
+        if (name.starts_with(prefix)) {
+            name.erase(0, prefix.size());
+            break;
+        }
+    }
+    if (adapter.kind == GpuKind::Software) {
+        name += " (CPU)";
+    } else if (adapter.kind == GpuKind::Integrated) {
+        name += " (iGPU)";
+    }
+    return name;
+}
+
+}
+
+void GameplayScreen::selectComputeAdapter(int adapter) {
+    setComputeGpuPreference(std::to_string(adapter));
+    if (session->backend() == BackendKind::Vulkan && session->switchBackend(BackendKind::Vulkan)) {
+        showToast("Vulkan physics on " + app.computeAdapters()[static_cast<size_t>(adapter)].name, false);
+    }
+}
+
+std::vector<int> GameplayScreen::renderAdapterChoices() const {
+    std::vector<int> choices;
+    for (int i = 0; i < static_cast<int>(app.renderAdapters().size()); ++i) {
+        if (app.renderAdapters()[static_cast<size_t>(i)].usableForRender()) {
+            choices.push_back(i);
+        }
+    }
+    return choices;
+}
+
+std::vector<int> GameplayScreen::computeAdapterChoices() const {
+    std::vector<int> choices;
+    for (int i = 0; i < static_cast<int>(app.computeAdapters().size()); ++i) {
+        if (app.computeAdapters()[static_cast<size_t>(i)].usableForCompute()) {
+            choices.push_back(i);
+        }
+    }
+    return choices;
+}
+
+void GameplayScreen::drawAdapterList(Rect area, const std::vector<GpuAdapterInfo>& adapters,
+                                     std::span<const int> choices, int selected, bool forCompute) {
+    float cursor = area.y;
+    for (const int adapter : choices) {
+        if (ui::button({area.x, cursor, area.width, controlRowHeight},
+                       shortAdapterName(adapters[static_cast<size_t>(adapter)]), true, selected == adapter)) {
+            if (forCompute) {
+                selectComputeAdapter(adapter);
+            } else {
+                app.requestRenderAdapter(adapter);
+            }
+        }
+        cursor += controlRowHeight + controlGap;
+    }
+}
+
 void GameplayScreen::drawBackendList(Rect area, BackendKind selected) {
     float cursor = area.y;
     for (BackendKind kind : allBackendKinds) {
@@ -359,6 +430,11 @@ float GameplayScreen::performanceContentHeight() const {
     height += groupLabelHeight + controlRowHeight + groupGap;
     height +=
         groupLabelHeight + (controlRowHeight + controlGap) * allBackendKinds.size() - controlGap + groupGap;
+    for (const size_t choices : {renderAdapterChoices().size(), computeAdapterChoices().size()}) {
+        if (choices > 0) {
+            height += groupLabelHeight + listHeight(choices) + groupGap;
+        }
+    }
     if (spawnDropdownOpen || countDropdownOpen || limitDropdownOpen) {
         height += (controlRowHeight + controlGap) * dropdownOptions;
     }
@@ -456,6 +532,16 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
 
     const float backendHeight = (controlRowHeight + controlGap) * allBackendKinds.size() - controlGap;
     drawBackendList(group("Physics", backendHeight), session->backend());
+
+    if (const std::vector<int> choices = renderAdapterChoices(); !choices.empty()) {
+        drawAdapterList(group("Render GPU", listHeight(choices.size())), app.renderAdapters(), choices,
+                        app.renderAdapterIndex(), false);
+    }
+    if (const std::vector<int> choices = computeAdapterChoices(); !choices.empty()) {
+        drawAdapterList(group("Compute GPU (Vulkan backend)", listHeight(choices.size())), app.computeAdapters(),
+                        choices, selectGpuAdapter(app.computeAdapters(), computeGpuPreference(), GpuRole::Compute),
+                        true);
+    }
     gfx::endClip();
 }
 
@@ -742,6 +828,14 @@ std::optional<ControlResponse> GameplayScreen::handleControl(const ControlReques
     }
     if (path == "/resume") {
         paused = false;
+        return done;
+    }
+    if (path == "/compute-gpu") {
+        const auto index = request.integer("index");
+        if (!index || *index < 0 || *index >= static_cast<long long>(app.computeAdapters().size())) {
+            return ControlResponse::error(400, "index must name a Vulkan adapter");
+        }
+        selectComputeAdapter(static_cast<int>(*index));
         return done;
     }
     if (path == "/restart") {

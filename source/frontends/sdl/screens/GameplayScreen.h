@@ -2,6 +2,7 @@
 
 #include "app/Screen.h"
 #include "game/GameSession.h"
+#include "gpu/GpuAdapters.h"
 #include "level/LevelData.h"
 #include "level/LevelWatcher.h"
 #include "render/ScreenLayout.h"
@@ -10,6 +11,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <vector>
 
 class App;
 
@@ -47,6 +49,11 @@ private:
     void applyRememberedMachineLimit();
     void rememberFinishedProbe();
     void startProbe();
+    void selectComputeAdapter(int adapter);
+    std::vector<int> renderAdapterChoices() const;
+    std::vector<int> computeAdapterChoices() const;
+    void drawAdapterList(Rect area, const std::vector<GpuAdapterInfo>& adapters, std::span<const int> choices,
+                         int selected, bool forCompute);
 
     void drawHeader(const GameplayLayout& layout);
     void drawMainSection(const GameplayLayout& layout);

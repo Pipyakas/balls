@@ -93,7 +93,13 @@ if(BALLS_RENDERER STREQUAL "nvrhi")
         render/nvrhi/ImguiNvrhi.cpp
         render/nvrhi/ShaderBytecode.cpp)
     target_compile_definitions(ColorBlastBalls PRIVATE BALLS_RENDERER_NVRHI)
-    target_link_libraries(ColorBlastBalls PRIVATE nvrhi nvrhi_vk)
+    if(MSVC)
+        target_link_libraries(ColorBlastBalls PRIVATE nvrhi nvrhi_vk)
+    else()
+        # nvrhi and nvrhi_vk are static archives with cyclic references, so the GNU and Clang
+        # linkers need them rescanned rather than linked in file order.
+        target_link_libraries(ColorBlastBalls PRIVATE $<LINK_GROUP:RESCAN,nvrhi,nvrhi_vk>)
+    endif()
     if(TARGET Vulkan::Headers)
         target_link_libraries(ColorBlastBalls PRIVATE Vulkan::Headers)
     else()

@@ -9,6 +9,7 @@ std::vector<TestCase>& testRegistry() {
 }
 
 int main() {
+    std::setvbuf(stdout, nullptr, _IONBF, 0);
     int failures = 0;
     for (const TestCase& test : testRegistry()) {
         try {

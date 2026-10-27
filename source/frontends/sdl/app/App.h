@@ -5,6 +5,8 @@
 #include "app/MachineProfile.h"
 #include "app/Paths.h"
 #include "app/Screen.h"
+#include "gpu/GpuAdapters.h"
+#include "ui/Painter.h"
 #include "control/ControlServer.h"
 #include "game/Settings.h"
 #include "level/LevelData.h"
@@ -66,9 +68,15 @@ public:
     void showToast(std::string text, bool isError);
     void openLevelImportDialog(const std::filesystem::path& startFolder);
     void openFolder(const std::filesystem::path& folder);
+    const std::vector<GpuAdapterInfo>& renderAdapters() const { return renderAdapterList; }
+    const std::vector<GpuAdapterInfo>& computeAdapters() const { return computeAdapterList; }
+    int renderAdapterIndex() const { return activeRenderAdapter; }
+    // Swaps the renderer onto another adapter at the end of the frame; the window and the game stay.
+    void requestRenderAdapter(int adapterIndex) { pendingRenderAdapter = adapterIndex; }
 
 private:
     bool openWindowAndRenderer(const LaunchOptions& options, std::string_view api, std::string& error);
+    void applyPendingRenderAdapter();
     using Clock = std::chrono::steady_clock;
 
     struct Toast {
@@ -110,5 +118,11 @@ private:
     std::mutex dialogMutex;
     std::vector<std::vector<std::filesystem::path>> finishedDialogs;
     std::vector<std::string> dialogErrors;
+    std::string activeGraphicsApi;
+    std::string renderGpuPreference;
+    std::vector<GpuAdapterInfo> renderAdapterList;
+    std::vector<GpuAdapterInfo> computeAdapterList;
+    int activeRenderAdapter = -1;
+    std::optional<int> pendingRenderAdapter;
     Clock::time_point previousUpdateStart = Clock::now();
 };

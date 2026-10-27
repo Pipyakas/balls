@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <cstdlib>
 #include <string>
 
 namespace {
@@ -44,6 +45,12 @@ std::optional<BackendKind> parseBackendKind(std::string_view text) {
 
 LaunchOptions parseLaunchOptions(int argumentCount, char** arguments) {
     LaunchOptions options;
+    if (const char* gpuEnvironment = std::getenv("BALLS_GPU")) {
+        options.gpu = gpuEnvironment;
+    }
+    if (const char* computeGpuEnvironment = std::getenv("BALLS_COMPUTE_GPU")) {
+        options.computeGpu = computeGpuEnvironment;
+    }
     for (int i = 1; i < argumentCount; ++i) {
         const std::string_view argument = arguments[i];
         const bool hasValue = i + 1 < argumentCount;
@@ -61,6 +68,10 @@ LaunchOptions parseLaunchOptions(int argumentCount, char** arguments) {
             i += 2;
         } else if (argument == "--api" && hasValue) {
             options.graphicsApi = lowercase(arguments[++i]);
+        } else if (argument == "--gpu" && hasValue) {
+            options.gpu = lowercase(arguments[++i]);
+        } else if (argument == "--compute-gpu" && hasValue) {
+            options.computeGpu = lowercase(arguments[++i]);
         } else if (argument == "--background") {
             options.background = true;
         } else if (argument == "--vsync") {
