@@ -32,4 +32,4 @@ struct CoreGameplayLayout {
 LayoutOrientation resolveOrientation(LayoutOrientation setting, float width, float height);
 CoreGameplayLayout computeCoreGameplayLayout(float frameWidth, float frameHeight, int boardColumns,
                                              int boardRows, LayoutOrientation orientation,
-                                             bool compactControls);
+                                             int launcherRows);

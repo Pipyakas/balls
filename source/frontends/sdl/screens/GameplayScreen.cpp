@@ -206,8 +206,9 @@ void GameplayScreen::handleLauncherClick(const GameplayLayout& layout) {
     if (input::mouseReleased(input::MouseButton::Left) && portraitPressing && layout.isPortrait) {
         const Vec2 released = input::mousePosition();
         if (!portraitDragged && pointInRect(released, layout.interactionSection)) {
-            const LauncherGridLayout grid = computePortraitLauncherRow(
-                ui::shrink(layout.interactionSection, 12.0f), session->launchers().columnCount());
+            const LauncherGridLayout grid =
+                computePortraitLauncherGrid(ui::shrink(layout.interactionSection, 12.0f),
+                                            session->launchers().columnCount(), session->launchers().visibleRows());
             const LauncherSlotHit hit =
                 findPortraitLauncherAt(session->launchers(), grid, portraitLauncherScroll, released);
             if (hit.column >= 0) {
@@ -260,7 +261,7 @@ void GameplayScreen::update(float deltaTime) {
     const GameplayLayout layout = computeGameplayLayout(
         {static_cast<float>(gfx::screenWidth()), static_cast<float>(gfx::screenHeight())},
         session->simulation().board().columns(), session->simulation().board().rows(), app.settings().layout,
-        mode == GameMode::Normal);
+        mode == GameMode::Normal ? session->launchers().visibleRows() : 0);
     handleLauncherClick(layout);
     const FrameSample& lastFrame = app.frameTimings().latest();
     session->reportFrameSeconds(app.lastFrameSeconds(),
@@ -546,7 +547,8 @@ void GameplayScreen::drawPortraitLauncherRow(Rect area) {
     constexpr float wheelStep = 40.0f;
     constexpr float barHeight = 4.0f;
     const Rect inner = ui::shrink(area, 12.0f);
-    const LauncherGridLayout grid = computePortraitLauncherRow(inner, session->launchers().columnCount());
+    const LauncherGridLayout grid = computePortraitLauncherGrid(inner, session->launchers().columnCount(),
+                                                                session->launchers().visibleRows());
     const float rowWidth = portraitRowWidth(session->launchers(), grid);
     if (pointInRect(input::mousePosition(), inner)) {
         portraitLauncherScroll = clampPortraitScroll(portraitLauncherScroll - input::wheelMove() * wheelStep,
@@ -703,7 +705,7 @@ void GameplayScreen::draw() {
     const GameplayLayout layout = computeGameplayLayout(
         {static_cast<float>(gfx::screenWidth()), static_cast<float>(gfx::screenHeight())},
         session->simulation().board().columns(), session->simulation().board().rows(), app.settings().layout,
-        mode == GameMode::Normal);
+        mode == GameMode::Normal ? session->launchers().visibleRows() : 0);
     drawHeader(layout);
     if (layout.isPortrait) {
         ui::drawPanel(layout.topGadget, palette::panel, 0.25f);

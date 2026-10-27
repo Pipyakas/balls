@@ -32,4 +32,4 @@ struct GameplayLayout {
 
 GameplayLayout computeGameplayLayout(Vec2 screenSize, int boardColumns, int boardRows);
 GameplayLayout computeGameplayLayout(Vec2 screenSize, int boardColumns, int boardRows,
-                                     LayoutOrientation orientation, bool compactControls);
+                                     LayoutOrientation orientation, int launcherRows);

@@ -17,17 +17,21 @@ constexpr float compactLauncherFraction = 0.19f;
 constexpr float compactLauncherMinimum = 120.0f;
 constexpr float compactLauncherMaximum = 240.0f;
 constexpr float compactRowExtra = 48.0f;
+constexpr float launcherGapShare = 0.18f;
 constexpr float bottomFraction = 0.38f;
 constexpr float bottomMinimum = 200.0f;
 constexpr float bottomMaximum = 620.0f;
 
-float panelHeight(float frameHeight, bool compactControls, float frameWidth) {
-    if (compactControls) {
-        const float launcher =
-            std::clamp(frameWidth * compactLauncherFraction, compactLauncherMinimum, compactLauncherMaximum);
-        return launcher + compactRowExtra;
+float panelHeight(float frameHeight, int launcherRows, float frameWidth) {
+    const float controlsHeight = std::clamp(frameHeight * bottomFraction, bottomMinimum, bottomMaximum);
+    if (launcherRows <= 0) {
+        return controlsHeight;
     }
-    return std::clamp(frameHeight * bottomFraction, bottomMinimum, bottomMaximum);
+    const float launcher =
+        std::clamp(frameWidth * compactLauncherFraction, compactLauncherMinimum, compactLauncherMaximum);
+    const float rows = static_cast<float>(launcherRows);
+    const float gridHeight = rows * launcher + (rows - 1.0f) * launcher * launcherGapShare;
+    return std::min(gridHeight, std::max(controlsHeight - compactRowExtra, launcher)) + compactRowExtra;
 }
 
 } // namespace
@@ -41,7 +45,7 @@ LayoutOrientation resolveOrientation(LayoutOrientation setting, float width, flo
 
 CoreGameplayLayout computeCoreGameplayLayout(float frameWidth, float frameHeight, int boardColumns,
                                              int boardRows, LayoutOrientation orientation,
-                                             bool compactControls) {
+                                             int launcherRows) {
     const int columns = std::max(boardColumns, 1);
     const int rows = std::max(boardRows, 1);
     CoreGameplayLayout layout;
@@ -75,7 +79,7 @@ CoreGameplayLayout computeCoreGameplayLayout(float frameWidth, float frameHeight
                               columnHeight};
         layout.debug = layout.rightGadget;
     } else {
-        float bottomHeight = panelHeight(frameHeight, compactControls, frameWidth);
+        float bottomHeight = panelHeight(frameHeight, launcherRows, frameWidth);
         const float boardSpace = frameHeight - outerMargin * 2.0f - portraitTopHeight - bottomHeight -
                                  gadgetGap * 2.0f - boardPadding * 2.0f;
         if (boardSpace < minimumBoardExtent) {
