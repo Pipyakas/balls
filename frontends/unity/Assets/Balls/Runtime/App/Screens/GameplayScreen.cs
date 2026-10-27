@@ -200,8 +200,9 @@ namespace Balls.App.Screens
             Widgets widgets = App.Widgets;
             Rect header = layout.Header;
             string modeName = session.mode == BallsApp.PerformanceMode ? "Performance" : "Normal";
-            widgets.Label(new Rect(header.x, header.y, header.width - 110f, header.height),
-                $"{modeName} · {App.LevelName}", TypeSizes.Header, Palette.Text, TextAnchor.MiddleLeft);
+            GUI.Label(App.Theme.Units(header.x, header.y, header.width - 120f, header.height),
+                $"{modeName} · {App.LevelName}",
+                App.Theme.TextStyle(TypeSizes.Header, Palette.Text, false, TextAnchor.MiddleLeft, true));
 
             Rect pauseButton = new Rect(header.xMax - 104f, header.y + (header.height - 36f) * 0.5f, 104f, 36f);
             if (widgets.AccentButton(pauseButton, paused ? "Resume" : "Pause", paused, TypeSizes.Value))

@@ -88,6 +88,10 @@ void Simulation::launchBalls(BallColor color, BallCount requested) {
     statistics.totalBallsSpawned += count;
 }
 
+void Simulation::spawnBalls(const std::vector<BallSpawn>& spawns) {
+    pendingSpawns.insert(pendingSpawns.end(), spawns.begin(), spawns.end());
+}
+
 BallCount Simulation::ballRoom() const {
     const BallCount limit = static_cast<BallCount>(physics->ballCapacityLimit());
     const BallCount live = liveBallCount();

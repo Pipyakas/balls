@@ -259,6 +259,11 @@ BALLS_API void balls_session_set_ball_collisions(BallsSession* session, int32_t 
 BALLS_API int32_t balls_session_ball_collisions(const BallsSession* session);
 BALLS_API int32_t balls_session_launch_balls(BallsSession* session, int32_t color, uint64_t count);
 
+// Deterministic entry points for the parity harness: one ball with an exact position and velocity, then a fixed
+// number of ticks with no wall-clock coupling.
+BALLS_API int32_t balls_session_spawn_ball(BallsSession* session, float x, float y, float vx, float vy, int32_t color);
+BALLS_API void balls_session_tick(BallsSession* session, int32_t ticks);
+
 BALLS_API int32_t balls_session_last_backend_fault(const BallsSession* session, char* buffer, int32_t size);
 
 BALLS_API void balls_session_board_info(const BallsSession* session, BallsBoardInfo* info);

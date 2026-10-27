@@ -490,6 +490,21 @@ int32_t balls_session_launch_balls(BallsSession* session, int32_t color, uint64_
     return 1;
 }
 
+int32_t balls_session_spawn_ball(BallsSession* session, float x, float y, float vx, float vy, int32_t color) {
+    if (session == nullptr || color < 0 || color >= BALLS_COLOR_COUNT) {
+        return 0;
+    }
+    session->game->simulation().spawnBalls({BallSpawn{x, y, vx, vy, color}});
+    return 1;
+}
+
+void balls_session_tick(BallsSession* session, int32_t ticks) {
+    if (session == nullptr || ticks <= 0) {
+        return;
+    }
+    session->game->simulation().tick(ticks);
+}
+
 int32_t balls_session_last_backend_fault(const BallsSession* session, char* buffer, int32_t size) {
     return session == nullptr ? 0 : writeText(session->game->lastBackendFault(), buffer, size);
 }

@@ -15,7 +15,7 @@ namespace Balls.Ui
         private Font regular;
         private Font semibold;
         private Texture2D white;
-        private readonly System.Collections.Generic.Dictionary<(int size, Color color, bool bold, TextAnchor anchor), GUIStyle> textStyles = new();
+        private readonly System.Collections.Generic.Dictionary<(int size, Color color, bool bold, TextAnchor anchor, bool clip), GUIStyle> textStyles = new();
         private readonly System.Collections.Generic.Dictionary<(Color fill, Color edge), Texture2D> solids = new();
 
         public float Scale { get; private set; } = 1f;
@@ -48,9 +48,10 @@ namespace Balls.Ui
         public Rect Units(float x, float y, float width, float height) =>
             new Rect(x * Scale, y * Scale, width * Scale, height * Scale);
 
-        public GUIStyle TextStyle(int size, Color color, bool bold = false, TextAnchor anchor = TextAnchor.UpperLeft)
+        public GUIStyle TextStyle(int size, Color color, bool bold = false, TextAnchor anchor = TextAnchor.UpperLeft,
+            bool clip = false)
         {
-            var key = (size, color, bold, anchor);
+            var key = (size, color, bold, anchor, clip);
             if (textStyles.TryGetValue(key, out GUIStyle cached) && cached.fontSize > 0)
             {
                 cached.font = bold ? semibold : regular;
@@ -65,7 +66,7 @@ namespace Balls.Ui
                 richText = false,
                 padding = new RectOffset(0, 0, 0, 0),
                 margin = new RectOffset(0, 0, 0, 0),
-                clipping = TextClipping.Overflow,
+                clipping = clip ? TextClipping.Clip : TextClipping.Overflow,
             };
             style.normal.textColor = color;
             style.hover.textColor = color;

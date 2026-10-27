@@ -134,6 +134,10 @@ namespace Balls.Native
 
         [DllImport(Library)] public static extern int balls_session_launch_balls(IntPtr session, int color, ulong count);
 
+        [DllImport(Library)] public static extern int balls_session_spawn_ball(IntPtr session, float x, float y, float vx, float vy, int color);
+
+        [DllImport(Library)] public static extern void balls_session_tick(IntPtr session, int ticks);
+
         [DllImport(Library)] public static extern int balls_session_last_backend_fault(IntPtr session, byte[] buffer, int size);
 
         [DllImport(Library)] public static extern void balls_session_board_info(IntPtr session, out NativeBoardInfo info);

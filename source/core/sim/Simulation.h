@@ -50,6 +50,8 @@ public:
     // Hands the backend over to be destroyed off the frame; the simulation must not be used afterwards.
     BackendHandle releaseBackend() { return std::move(physics); }
     void launchBalls(BallColor color, BallCount count);
+    // Exact spawns, no RNG: how the parity harness feeds the same balls to two implementations.
+    void spawnBalls(const std::vector<BallSpawn>& spawns);
     void scatterBalls(BallColor color, BallCount count);
     void trimBallsTo(BallCount limit);
     void advance(float frameSeconds);

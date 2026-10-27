@@ -77,13 +77,15 @@ namespace Balls.Ui
         private void OptionFace(Rect units, string label, bool selected, bool enabled, string detail)
         {
             Color text = selected ? Palette.Background : enabled ? Palette.Text : Palette.TextDim;
-            GUI.Label(theme.Units(units.x + 10f, units.y, units.width - 20f, units.height), label,
-                theme.TextStyle(TypeSizes.Header, text, false, TextAnchor.MiddleLeft));
-            if (!string.IsNullOrEmpty(detail))
+            float detailWidth = string.IsNullOrEmpty(detail) ? 0f : Mathf.Min(units.width * 0.52f, 260f);
+            float labelWidth = units.width - 20f - detailWidth;
+            GUI.Label(theme.Units(units.x + 10f, units.y, labelWidth, units.height), label,
+                theme.TextStyle(TypeSizes.Header, text, false, TextAnchor.MiddleLeft, true));
+            if (detailWidth > 0f)
             {
-                GUI.Label(theme.Units(units.x + 10f, units.y, units.width - 20f, units.height),
+                GUI.Label(theme.Units(units.xMax - 10f - detailWidth, units.y, detailWidth, units.height),
                     detail, theme.TextStyle(TypeSizes.Small, selected ? Palette.Background : Palette.TextMuted,
-                        false, TextAnchor.MiddleRight));
+                        false, TextAnchor.MiddleRight, true));
             }
         }
 
