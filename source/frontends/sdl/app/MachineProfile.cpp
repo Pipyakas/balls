@@ -1,6 +1,7 @@
 #include "app/MachineProfile.h"
 
 #include "app/LaunchOptions.h"
+#include "app/PreferenceDirectory.h"
 
 #include <SDL3/SDL_filesystem.h>
 #include <SDL3/SDL_stdinc.h>
@@ -13,6 +14,13 @@ namespace {
 constexpr const char* organizationName = "Pipyakas";
 constexpr const char* applicationName = "ColorBlastBalls";
 constexpr const char* profileFileName = "machine.txt";
+constexpr const char* settingsFileName = "settings.txt";
+
+} // namespace
+
+std::filesystem::path settingsFilePath() {
+    return preferenceDirectory() / settingsFileName;
+}
 
 std::filesystem::path preferenceDirectory() {
     char* directory = SDL_GetPrefPath(organizationName, applicationName);
@@ -24,9 +32,9 @@ std::filesystem::path preferenceDirectory() {
     return path;
 }
 
+std::filesystem::path MachineProfile::filePath() const {
+    return preferenceDirectory() / profileFileName;
 }
-
-std::filesystem::path MachineProfile::filePath() const { return preferenceDirectory() / profileFileName; }
 
 void MachineProfile::load() {
     std::ifstream file(filePath());
