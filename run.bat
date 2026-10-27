@@ -2,20 +2,24 @@
 setlocal
 cd /d "%~dp0"
 
-call build.bat
+set "FRONTEND=sdl"
+if not "%~1"=="" if exist "frontends\%~1\run.bat" (
+    set "FRONTEND=%~1"
+    shift
+)
+
+set "GAME_ARGS="
+:CollectArgs
+if "%~1"=="" goto Launch
+set "GAME_ARGS=%GAME_ARGS% %1"
+shift
+goto CollectArgs
+
+:Launch
+call build.bat %FRONTEND%
 if errorlevel 1 (
     pause
     exit /b 1
 )
 
-set "RUN_DIR=%~dp0out\run"
-if not exist "%RUN_DIR%" mkdir "%RUN_DIR%"
-powershell -NoProfile -Command "Get-Process ColorBlastBalls -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq '%RUN_DIR%\ColorBlastBalls.exe' } | Stop-Process -Force; Start-Sleep -Milliseconds 300"
-copy /y "build\bin\Release\ColorBlastBalls.exe" "%RUN_DIR%\ColorBlastBalls.exe" >nul && copy /y "build\bin\Release\*.dll" "%RUN_DIR%\" >nul
-if errorlevel 1 (
-    echo Could not replace out\run\ColorBlastBalls.exe.
-    pause
-    exit /b 1
-)
-
-start "" "%RUN_DIR%\ColorBlastBalls.exe" %*
+call "frontends\%FRONTEND%\run.bat" "%~dp0out\%FRONTEND%" %GAME_ARGS%

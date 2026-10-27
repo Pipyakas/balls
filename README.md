@@ -33,14 +33,26 @@ compiler pieces) and internet access on first configure (SDL 3.2.30, Dear ImGui 
 picks the renderer (default: `nvrhi`, or `sdlgpu` on Android). With NVRHI, Windows runs Direct3D 12 and
 `--api vulkan` switches to Vulkan; Linux and macOS always use Vulkan.
 
+```bat
+build.bat              :: every front end under frontends\ that has a build.bat
+build.bat sdl          :: one front end
+run.bat                :: build and launch the SDL front end
+run.bat sdl --api vulkan
+```
+
+Each front end builds into its own folder under `out\` at the project root (`out\sdl\`, `out\ue\`, ...), which
+holds everything needed to run it. The root scripts dispatch to `frontends\<name>\build.bat <out dir>` and
+`frontends\<name>\run.bat <out dir> [args]`, so a new front end only adds those two scripts. Rebuilding stops a
+game instance running from that `out\` folder first.
+
+The SDL front end's CMake tree stays in `build\`, which the tests, benchmarks and tools below use directly:
+
 ```powershell
 pwsh tools/FetchCudaSdk.ps1
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 cmake --build build --config Release --parallel
 build/bin/Release/ColorBlastBalls.exe
 ```
-
-Or just `build.bat` / `run.bat`.
 
 `FetchCudaSdk.ps1` downloads NVIDIA's NVRTC and runtime header wheels into `.deps/cuda`. The CUDA kernel is
 compiled at build time to SASS for sm_50, 60, 70, 75, 80, 86 and 89 plus `compute_75` and `compute_50` PTX, and
@@ -140,6 +152,7 @@ core/                 engine-agnostic library (no SDL, C++20, no exceptions)
   editor/             LevelEditor model used by any front end
 physics/cpu/          balls_physics_cpu.dll plugin: Scalar and AVX2 backends
 physics/cuda/         balls_physics_cuda.dll plugin: CUDA backend and kernels
+frontends/<name>/     a front end with build.bat and run.bat; SDL is the only one in this repo
 frontends/sdl/        SDL3 + SDL_GPU + Dear ImGui front end: screens, map editor UI, control API
   render/             IRenderer, the SDL_GPU renderer (compute ball culling, impostor balls, instanced rects)
   render/nvrhi/       NVRHI renderer: D3D12 and Vulkan devices and swapchains, ImGui backend, GPU timer queries
@@ -147,11 +160,13 @@ frontends/sdl/        SDL3 + SDL_GPU + Dear ImGui front end: screens, map editor
 tools/                bench, NVRTC PTX generator, CUDA SDK fetch script, shader compiler script
 tests/                unit tests (balls_tests)
 assets/levels/        level files
+build.bat, run.bat    build / launch any front end; each one outputs to out/<frontend>/
 ```
 
 ## Git workflow
 
-- `main` holds tagged releases.
-- `develop` is the integration branch.
-- Work happens on `feature/*` branches, which are merged into `develop` with `--no-ff`.
-- Commits use `feat:` / `fix:` / `perf:` / `refactor:` / `build:` / `chore:` prefixes.
+- `main` is the working branch: finished, building changes land on it directly or by a `--no-ff` merge of a
+  `feature/*` branch.
+- `feature/*` branches hold side work that is not ready for `main`.
+- `submission` is the branch copied to the game's scoring repository.
+- Commits use `feat:` / `fix:` / `perf:` / `refactor:` / `build:` / `docs:` / `chore:` prefixes.
