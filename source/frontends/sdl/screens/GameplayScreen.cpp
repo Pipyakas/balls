@@ -20,7 +20,7 @@
 namespace {
 
 constexpr float toastSeconds = 3.0f;
-constexpr float mainSectionCornerRadius = 8.0f;
+constexpr float mainSectionCornerRadius = 0.0f;
 constexpr float overlayWidth = 420.0f;
 constexpr float overlayButtonHeight = 60.0f;
 constexpr float controlRowHeight = 44.0f;

@@ -328,9 +328,9 @@ void MapEditorScreen::drawToolPanel(Rect area) {
         const Rect row = i < 4 ? swatchRow : swatchRow2;
         const Rect swatch = ui::columnSlice(row, i % 4, 4, 8.0f);
         const BallColor color = ballColorFromIndex(i);
-        gfx::fillRounded(swatch, 0.3f, palette::ballColor(color));
+        gfx::fillRect(swatch, palette::ballColor(color));
         if (color == brushColor) {
-            gfx::strokeRounded(ui::shrink(swatch, -3.0f), 0.3f, 3.0f, palette::text);
+            gfx::strokeRect(ui::shrink(swatch, -3.0f), 2.0f, palette::textStrong);
         }
         if (ui::isClicked(swatch)) {
             selectColor(color);
@@ -471,10 +471,10 @@ void MapEditorScreen::drawBrickGrid(Rect area) {
                 const bool firstCellOfBrick = (column == 0 || bricks.cellId(column - 1, row) != id) &&
                                               (row == 0 || bricks.cellId(column, row - 1) != id);
                 if (type->hits > 1 && firstCellOfBrick && cell >= 12.0f) {
-                    ui::drawTextInRect(std::to_string(type->hits), rect, cell * 0.55f, palette::text);
+                    ui::drawTextInRect(std::to_string(type->hits), rect, cell * 0.55f, palette::textStrong);
                 }
             } else {
-                gfx::strokeRect(rect, 1.0f, gfx::fade(palette::frame, 0.35f));
+                gfx::strokeRect(rect, 1.0f, palette::frame);
             }
             if (hovered.column == column && hovered.row == row) {
                 gfx::strokeRect(rect, 2.0f, palette::accent);
@@ -498,17 +498,17 @@ void MapEditorScreen::drawLauncherGrid(Rect area) {
             const bool exists = row < launchers.rowCount();
             const auto& slot = exists ? launchers.slot(column, row) : std::optional<Launcher>{};
             if (slot) {
-                gfx::fillRounded(rect, 0.25f, palette::ballColor(slot->color));
-                ui::drawTextInRect(std::to_string(slot->ballCount), rect, std::max(10.0f, cell * 0.36f), palette::text);
+                gfx::fillRect(rect, palette::ballColor(slot->color));
+                ui::drawTextInRect(std::to_string(slot->ballCount), rect, std::max(10.0f, cell * 0.36f), palette::textStrong);
             } else {
-                gfx::strokeRounded(rect, 0.25f, 1.5f, gfx::fade(palette::frame, exists ? 0.7f : 0.3f));
+                gfx::strokeRect(rect, 1.0f, exists ? palette::textDim : palette::frame);
             }
             if (row == launchers.visibleRows - 1) {
                 gfx::drawLine({grid.x, rect.y + rect.height + 4.0f}, {grid.x + grid.width, rect.y + rect.height + 4.0f}, 2.0f,
                            gfx::fade(palette::accent, 0.6f));
             }
             if (hovered.column == column && hovered.row == row) {
-                gfx::strokeRounded(rect, 0.25f, 2.5f, palette::accent);
+                gfx::strokeRect(rect, 2.0f, palette::accent);
             }
         }
     }
@@ -535,7 +535,7 @@ void MapEditorScreen::drawMessage() {
     const Rect rect{(static_cast<float>(gfx::screenWidth()) - extent.x) * 0.5f - 18.0f, 20.0f, extent.x + 36.0f,
                          44.0f};
     ui::drawPanel(rect, messageIsError ? palette::danger : palette::success, 0.4f);
-    ui::drawTextInRect(message, rect, 22.0f, palette::text);
+    ui::drawTextInRect(message, rect, 22.0f, palette::textStrong);
 }
 
 void MapEditorScreen::draw() {

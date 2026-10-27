@@ -37,7 +37,14 @@ void drawTextInRect(std::string_view text, Rect rect, float size, Color color, A
     drawText(text, {x, y}, size, color, align);
 }
 
-void drawPanel(Rect rect, Color fill, float roundness) { gfx::fillRounded(rect, roundness, fill); }
+void drawPanel(Rect rect, Color fill, float roundness) {
+    gfx::fillRounded(rect, roundness * style::roundnessScale, fill);
+    drawBorder(rect, roundness);
+}
+
+void drawBorder(Rect rect, float roundness, Color color) {
+    gfx::strokeRounded(rect, roundness * style::roundnessScale, style::borderWidth, color);
+}
 
 bool isHovered(Rect rect) { return pointInRect(input::mousePosition(), rect); }
 
@@ -46,23 +53,25 @@ bool isClicked(Rect rect) { return isHovered(rect) && input::mousePressed(input:
 bool button(Rect rect, std::string_view label, bool enabled, bool selected) {
     const bool hovered = enabled && isHovered(rect);
     const bool pressed = hovered && input::mouseDown(input::MouseButton::Left);
-    Color fill = selected ? palette::accent : palette::panelLight;
+    Color fill = palette::panelLight;
     if (!enabled) {
-        fill = palette::shade(palette::panel, 0.8f);
+        fill = palette::panel;
     } else if (pressed) {
-        fill = palette::shade(fill, 0.8f);
+        fill = selected ? palette::shade(palette::accent, 0.85f) : palette::controlPressed;
     } else if (hovered) {
-        fill = palette::shade(fill, 1.2f);
+        fill = selected ? palette::shade(palette::accent, 1.1f) : palette::controlHover;
+    } else if (selected) {
+        fill = palette::accent;
     }
-    const Rect shadow{rect.x, rect.y + 4.0f, rect.width, rect.height};
-    gfx::fillRounded(shadow, 0.3f, palette::shade(fill, 0.55f));
-    gfx::fillRounded(pressed ? shadow : rect, 0.3f, fill);
-    const Color textColor = selected ? palette::backgroundDeep : (enabled ? palette::text : palette::textMuted);
-    const float preferredSize = std::min(rect.height * 0.5f, 30.0f);
+    const float roundness = style::buttonRoundness * style::roundnessScale;
+    gfx::fillRounded(rect, roundness, fill);
+    drawBorder(rect, style::buttonRoundness, selected ? palette::accent : palette::frame);
+    const Color textColor = selected ? palette::background : (enabled ? palette::text : palette::textDim);
+    const float preferredSize = std::min(rect.height * style::buttonLabelShare, style::buttonLabelMaximum);
     const float labelWidth = measureText(label, preferredSize).x;
     const float availableWidth = rect.width - buttonTextPadding;
     const float size = labelWidth > availableWidth ? preferredSize * availableWidth / labelWidth : preferredSize;
-    drawTextInRect(label, pressed ? shadow : rect, size, textColor);
+    drawTextInRect(label, rect, size, textColor);
     return hovered && input::mouseReleased(input::MouseButton::Left);
 }
 
@@ -108,8 +117,9 @@ bool textField(Rect rect, std::string& text, bool& focused, size_t maximumLength
             focused = false;
         }
     }
-    gfx::fillRounded(rect, 0.2f, focused ? palette::panelLight : palette::backgroundDeep);
-    gfx::strokeRounded(rect, 0.2f, 2.0f, focused ? palette::accent : palette::frame);
+    gfx::fillRounded(rect, style::fieldRoundness * style::roundnessScale, focused ? palette::controlHover : palette::panelLight);
+    gfx::strokeRounded(rect, style::fieldRoundness * style::roundnessScale,
+                       focused ? style::focusBorderWidth : style::borderWidth, focused ? palette::accent : palette::frame);
     const bool caretVisible = focused && static_cast<int>(input::seconds() * 2.0) % 2 == 0;
     drawTextInRect(text + (caretVisible ? "|" : ""), shrink(rect, 10.0f), rect.height * 0.5f, palette::text, Align::Left);
     return changed;

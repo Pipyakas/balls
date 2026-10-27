@@ -5,6 +5,7 @@
 #include "app/MachineProfile.h"
 #include "app/Paths.h"
 #include "app/Screen.h"
+#include "ui/Painter.h"
 #include "control/ControlServer.h"
 #include "level/LevelData.h"
 #include "render/BallView.h"
@@ -58,7 +59,7 @@ private:
     SDL_Window* window = nullptr;
     std::unique_ptr<IRenderer> renderer;
     std::unique_ptr<BallView> balls;
-    ImFont* font = nullptr;
+    gfx::FontSet fonts;
     bool imguiCreated = false;
     std::unique_ptr<Screen> currentScreen;
     std::unique_ptr<Screen> pendingScreen;

@@ -10,7 +10,13 @@ struct ImFont;
 
 namespace gfx {
 
-void beginFrame(float viewWidth, float viewHeight, ImFont* font);
+struct FontSet {
+    ImFont* regular = nullptr;
+    ImFont* strong = nullptr;
+    float strongMinimumSize = 0.0f;
+};
+
+void beginFrame(float viewWidth, float viewHeight, FontSet fonts);
 std::span<const RendererRect> sceneRects();
 
 int screenWidth();

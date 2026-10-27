@@ -53,6 +53,10 @@ public:
 
     StepParams stepParams(int substeps = 1) const;
 
+    void setBallCollisions(bool enabled);
+    bool ballCollisionsRequested() const { return ballCollisionsWanted; }
+    bool ballCollisionsActive() const { return ballCollisionsWanted && physics->supportsBallCollisions(); }
+
 private:
     void syncBoardIfChanged();
     void resolveHits();
@@ -73,4 +77,5 @@ private:
     SimulationStats statistics;
     std::mt19937 random{20261026u};
     float accumulator = 0.0f;
+    bool ballCollisionsWanted = false;
 };
