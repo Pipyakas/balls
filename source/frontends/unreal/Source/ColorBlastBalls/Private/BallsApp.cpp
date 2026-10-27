@@ -856,6 +856,25 @@ void FBallsApp::HandleControl(const FString& Path, const TMap<FString, FString>&
         OutBody = TEXT("{\"ok\":true}");
         return;
     }
+    if (Path == TEXT("/cvar")) {
+        // Profiling hook for the ball pass only: r.Balls.DrawPasses and r.Balls.VertexOnly split its vertex and
+        // fragment cost, and nothing else may be set from HTTP.
+        const FString CvarName = Param(TEXT("name"));
+        const FString Value = Param(TEXT("value"));
+        IConsoleVariable* Variable =
+            CvarName.StartsWith(TEXT("r.Balls.")) && !Value.IsEmpty()
+                ? IConsoleManager::Get().FindConsoleVariable(*CvarName)
+                : nullptr;
+        if (!Variable) {
+            OutCode = 400;
+            OutBody = TEXT("{\"ok\":false,\"error\":\"only r.Balls.* can be set, with a value\"}");
+            return;
+        }
+        Variable->Set(*Value, ECVF_SetByCode);
+        OutBody = FString::Printf(TEXT("{\"ok\":true,\"name\":\"%s\",\"value\":%d}"), *EscapeJson(CvarName),
+                                  Variable->GetInt());
+        return;
+    }
     if (Path == TEXT("/graphics")) {
         const FString Requested = Param(TEXT("level"));
         if (!Requested.IsEmpty()) {

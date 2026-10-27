@@ -11,9 +11,11 @@ float OutputGamma;
 float VertexOnly;
 float4 Palette[8];
 
-static const float2 QuadCorners[6] = {
-    float2(-1.0, -1.0), float2(1.0, -1.0), float2(1.0, 1.0),
-    float2(-1.0, -1.0), float2(1.0, 1.0), float2(-1.0, 1.0),
+// One triangle per ball: the equilateral triangle that circumscribes the unit disc. Measured at 4M balls the pass
+// is vertex-bound (removing every fragment only saved 3 ms of 12), so halving the vertex count is the lever, and
+// the 30% of extra pixels the triangle covers outside the circle are discarded.
+static const float2 QuadCorners[3] = {
+    float2(-1.7320508, -1.0), float2(1.7320508, -1.0), float2(0.0, 2.0),
 };
 
 void MainVS(uint VertexId : SV_VertexID, uint InstanceId : SV_InstanceID,

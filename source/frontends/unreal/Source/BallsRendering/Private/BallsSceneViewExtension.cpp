@@ -144,9 +144,10 @@ FScreenPassTexture FBallsSceneViewExtension::DrawBalls_RenderThread(FRDGBuilder&
 
             SetShaderParameters(RHICmdList, VertexShader, VertexShader.GetVertexShader(), *Parameters);
             SetShaderParameters(RHICmdList, PixelShader, PixelShader.GetPixelShader(), *Parameters);
+            // One triangle per ball; see the corner table in BallsDraw.usf.
             const int32 Passes = FMath::Clamp(CVarBallsDrawPasses.GetValueOnRenderThread(), 1, 8);
             for (int32 Pass = 0; Pass < Passes; ++Pass) {
-                RHICmdList.DrawPrimitive(0, 2, BallCount);
+                RHICmdList.DrawPrimitive(0, 1, BallCount);
             }
         });
 

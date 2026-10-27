@@ -17,7 +17,7 @@ const TCHAR* const ControlPaths[] = {
     TEXT("/state"), TEXT("/screenshot"), TEXT("/play"),  TEXT("/start"),    TEXT("/rate"),     TEXT("/backend"),
     TEXT("/settings"), TEXT("/fill"),   TEXT("/limit"), TEXT("/probe"),    TEXT("/pause"),    TEXT("/resume"),
     TEXT("/menu"),  TEXT("/quit"),      TEXT("/benchmark"), TEXT("/benchmark/skip"), TEXT("/benchmark/continue"),
-    TEXT("/graphics"),
+    TEXT("/graphics"), TEXT("/cvar"),
 };
 
 FString EnsureStartSlash(const FString& Path) {
