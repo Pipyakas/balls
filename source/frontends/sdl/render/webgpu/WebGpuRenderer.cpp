@@ -389,6 +389,7 @@ public:
     }
 
     bool beginFrame() override {
+        const auto waitStart = Clock::now();
         const int previousPixelWidth = pixelWidth;
         const int previousPixelHeight = pixelHeight;
         updateWindowDimensions();
@@ -408,6 +409,9 @@ public:
             reconfigureSurface();
             wgpuSurfaceGetCurrentTexture(surface, &surfaceTexture);
         }
+
+        const auto waitEnd = Clock::now();
+        lastWaitMs = std::chrono::duration<double, std::milli>(waitEnd - waitStart).count();
 
         const bool statusOk = (surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal ||
                                surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal);
@@ -525,7 +529,11 @@ public:
             wgpuRenderPassEncoderSetPipeline(pass, ballPipeline);
             wgpuRenderPassEncoderSetBindGroup(pass, 0, ballStorageBindGroup, 0, nullptr);
             wgpuRenderPassEncoderSetBindGroup(pass, 1, ballUniformBindGroup, 0, nullptr);
-            wgpuRenderPassEncoderDrawIndirect(pass, argumentBuffer, 0);
+            if (argumentBuffer && compactPipeline) {
+                wgpuRenderPassEncoderDrawIndirect(pass, argumentBuffer, 0);
+            } else {
+                wgpuRenderPassEncoderDraw(pass, 6, static_cast<uint32_t>(request.count), 0, 0);
+            }
         }
 
         // 3. ImGui
@@ -535,6 +543,40 @@ public:
 
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);
+
+        const bool capturing = !pendingScreenshotPath.empty();
+        WGPUBuffer stagingBuffer = nullptr;
+        uint32_t alignedBytesPerRow = 0;
+        size_t totalBytes = 0;
+
+        if (capturing) {
+            alignedBytesPerRow = (static_cast<uint32_t>(pixelWidth) * 4 + 255u) & ~255u;
+            totalBytes = static_cast<size_t>(alignedBytesPerRow) * pixelHeight;
+
+            WGPUBufferDescriptor bufDesc{};
+            bufDesc.usage = WGPUBufferUsage_CopyDst | WGPUBufferUsage_MapRead;
+            bufDesc.size = totalBytes;
+            stagingBuffer = wgpuDeviceCreateBuffer(device, &bufDesc);
+
+            WGPUTexelCopyTextureInfo src{};
+            src.texture = currentSurfaceTexture;
+            src.mipLevel = 0;
+            src.origin = {0, 0, 0};
+            src.aspect = WGPUTextureAspect_All;
+
+            WGPUTexelCopyBufferInfo dst{};
+            dst.buffer = stagingBuffer;
+            dst.layout.offset = 0;
+            dst.layout.bytesPerRow = alignedBytesPerRow;
+            dst.layout.rowsPerImage = static_cast<uint32_t>(pixelHeight);
+
+            WGPUExtent3D extent{};
+            extent.width = static_cast<uint32_t>(pixelWidth);
+            extent.height = static_cast<uint32_t>(pixelHeight);
+            extent.depthOrArrayLayers = 1;
+
+            wgpuCommandEncoderCopyTextureToBuffer(encoder, &src, &dst, &extent);
+        }
 
         WGPUCommandBuffer cmd = wgpuCommandEncoderFinish(encoder, nullptr);
         wgpuCommandEncoderRelease(encoder);
@@ -546,6 +588,49 @@ public:
         const WGPUStatus pres = wgpuSurfacePresent(surface);
         const auto frameEnd = Clock::now();
         lastBusyMs = std::chrono::duration<double, std::milli>(frameEnd - submitStart).count();
+
+        if (capturing && stagingBuffer) {
+            screenshotSuccess = false;
+            struct MapCtx {
+                bool done = false;
+                WGPUMapAsyncStatus status = WGPUMapAsyncStatus_Unknown;
+            } mapCtx;
+
+            WGPUBufferMapCallbackInfo cbInfo{};
+            cbInfo.mode = WGPUCallbackMode_AllowProcessEvents;
+            cbInfo.callback = [](WGPUMapAsyncStatus status, WGPUStringView, void* ud1, void*) {
+                auto* c = static_cast<MapCtx*>(ud1);
+                c->done = true;
+                c->status = status;
+            };
+            cbInfo.userdata1 = &mapCtx;
+
+            wgpuBufferMapAsync(stagingBuffer, WGPUMapMode_Read, 0, totalBytes, cbInfo);
+            while (!mapCtx.done) {
+                wgpuDevicePoll(device, true, nullptr);
+                wgpuInstanceProcessEvents(instance);
+            }
+
+            if (mapCtx.status == WGPUMapAsyncStatus_Success) {
+                const void* mapped = wgpuBufferGetMappedRange(stagingBuffer, 0, totalBytes);
+                if (mapped) {
+                    const SDL_PixelFormat format =
+                        (surfaceFormat == WGPUTextureFormat_BGRA8Unorm || surfaceFormat == WGPUTextureFormat_BGRA8UnormSrgb)
+                            ? SDL_PIXELFORMAT_ARGB8888
+                            : SDL_PIXELFORMAT_ABGR8888;
+                    SDL_Surface* shotSurface = SDL_CreateSurfaceFrom(pixelWidth, pixelHeight, format,
+                                                                    const_cast<void*>(mapped), alignedBytesPerRow);
+                    if (shotSurface) {
+                        screenshotSuccess = SDL_SaveBMP(shotSurface, pendingScreenshotPath.c_str());
+                        SDL_DestroySurface(shotSurface);
+                    }
+                }
+                wgpuBufferUnmap(stagingBuffer);
+            }
+            wgpuBufferDestroy(stagingBuffer);
+            wgpuBufferRelease(stagingBuffer);
+            pendingScreenshotPath.clear();
+        }
 
         wgpuTextureViewRelease(currentSurfaceView);
         currentSurfaceView = nullptr;
@@ -632,6 +717,9 @@ private:
             config.device = device;
             config.format = surfaceFormat;
             config.usage = WGPUTextureUsage_RenderAttachment;
+            if ((caps.usages & WGPUTextureUsage_CopySrc) != 0 || caps.usages == 0) {
+                config.usage |= WGPUTextureUsage_CopySrc;
+            }
             config.width = static_cast<uint32_t>(pixelWidth);
             config.height = static_cast<uint32_t>(pixelHeight);
             config.alphaMode = caps.alphaModeCount > 0 ? caps.alphaModes[0] : WGPUCompositeAlphaMode_Opaque;
@@ -1046,8 +1134,8 @@ private:
 
             WGPUBindGroupEntry drawEntry{};
             drawEntry.binding = 0;
-            drawEntry.buffer = visibleBuffer;
-            drawEntry.size = visibleCapacity;
+            drawEntry.buffer = (compactPipeline && argumentBuffer) ? visibleBuffer : ballBuffer;
+            drawEntry.size = (compactPipeline && argumentBuffer) ? visibleCapacity : ballCapacity;
 
             WGPUBindGroupDescriptor drawBgDesc{};
             drawBgDesc.layout = ballDrawStorageLayout;
