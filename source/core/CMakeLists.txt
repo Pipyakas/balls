@@ -6,6 +6,7 @@ add_library(balls_core STATIC
     level/LevelWriter.cpp
     level/LevelRepository.cpp
     level/LevelWatcher.cpp
+    level/LevelImporter.cpp
     sim/BrickBoard.cpp
     sim/TargetField.cpp
     sim/Simulation.cpp
