@@ -5,9 +5,16 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
+#include <cstdio>
 #include <string>
 
+static void SDLCALL logOutput(void* /*userdata*/, int /*category*/, SDL_LogPriority /*priority*/, const char* message) {
+    std::fprintf(stderr, "%s\n", message);
+    std::fflush(stderr);
+}
+
 SDL_AppResult SDL_AppInit(void** appState, int argumentCount, char** arguments) {
+    SDL_SetLogOutputFunction(logOutput, nullptr);
     SDL_SetAppMetadata("Balls", "0.1.0", "com.the company.colorblastballs");
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());

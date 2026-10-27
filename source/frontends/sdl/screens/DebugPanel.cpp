@@ -48,21 +48,23 @@ private:
 };
 
 std::string withThousands(BallCount value) {
-    std::string digits = std::to_string(value);
-    for (int insertAt = static_cast<int>(digits.size()) - 3; insertAt > 0; insertAt -= 3) {
-        digits.insert(static_cast<size_t>(insertAt), ",");
+    std::string text = std::to_string(value);
+    for (int insert = static_cast<int>(text.size()) - 3; insert > 0; insert -= 3) {
+        text.insert(static_cast<size_t>(insert), ",");
     }
-    return digits;
+    return text;
 }
 
-std::string ballLimitText(BallCount limit) { return limit == unlimitedBalls ? std::string("Max (2^64-1)") : withThousands(limit); }
+std::string ballLimitText(BallCount limit) {
+    return limit == 0 ? "Unlimited" : withThousands(limit);
+}
 
 Color fpsColor(float fps) {
     constexpr float targetFps = 60.0f;
     return fps >= targetFps ? palette::success : palette::danger;
 }
 
-}
+} // namespace
 
 void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& frames, std::string_view deviceDescription) {
     ui::drawPanel(area, palette::panel, 0.03f);
@@ -95,7 +97,9 @@ void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& f
                                         probe.targetFps()));
     }
     writer.row("Backend", backendKindName(session.backend()));
-    if (const std::string detail = backendDetail(session.backend()); !detail.empty()) {
+    if (!deviceDescription.empty()) {
+        writer.row("Device", deviceDescription);
+    } else if (const std::string detail = backendDetail(session.backend()); !detail.empty()) {
         writer.row("Device", detail);
     }
 

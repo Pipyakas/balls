@@ -177,7 +177,11 @@ public:
             wgpuSurfaceGetCurrentTexture(surface, &surfaceTexture);
         }
 
-        if (surfaceTexture.status != WGPUSurfaceGetCurrentTextureStatus_Success || !surfaceTexture.texture) {
+        const bool statusOk = (surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal ||
+                               surfaceTexture.status == WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal);
+        if (!statusOk || !surfaceTexture.texture) {
+            SDL_Log("beginFrame: failed get current texture status=%d texture=%p",
+                    static_cast<int>(surfaceTexture.status), surfaceTexture.texture);
             return false;
         }
 
@@ -232,7 +236,10 @@ public:
         wgpuQueueSubmit(queue, 1, &cmd);
         wgpuCommandBufferRelease(cmd);
 
-        wgpuSurfacePresent(surface);
+        const WGPUStatus pres = wgpuSurfacePresent(surface);
+        if (pres != WGPUStatus_Success) {
+            SDL_Log("endFrame: wgpuSurfacePresent failed with status %d", static_cast<int>(pres));
+        }
         const auto frameEnd = Clock::now();
         lastBusyMs = std::chrono::duration<double, std::milli>(frameEnd - submitStart).count();
 
@@ -514,12 +521,19 @@ std::unique_ptr<IRenderer> createWebGpuRenderer(SDL_Window* window, std::string_
         }
     }
 
-    // Create device with validation error callback
+    // Create device with validation error and device lost callbacks
     WGPUDeviceDescriptor deviceDesc{};
     deviceDesc.uncapturedErrorCallbackInfo.callback = [](WGPUDevice const*, WGPUErrorType type,
                                                         WGPUStringView message, void*, void*) {
         const std::string_view msg = fromStringView(message);
         SDL_Log("WebGPU validation error [%d]: %.*s", static_cast<int>(type),
+                static_cast<int>(msg.size()), msg.data());
+    };
+    deviceDesc.deviceLostCallbackInfo.mode = WGPUCallbackMode_AllowProcessEvents;
+    deviceDesc.deviceLostCallbackInfo.callback = [](WGPUDevice const*, WGPUDeviceLostReason reason,
+                                                    WGPUStringView message, void*, void*) {
+        const std::string_view msg = fromStringView(message);
+        SDL_Log("WebGPU DEVICE LOST [%d]: %.*s", static_cast<int>(reason),
                 static_cast<int>(msg.size()), msg.data());
     };
 
@@ -538,10 +552,14 @@ std::unique_ptr<IRenderer> createWebGpuRenderer(SDL_Window* window, std::string_
     };
     callbackInfo.userdata1 = &payload;
 
-    wgpuAdapterRequestDevice(chosenAdapter, &deviceDesc, callbackInfo);
+    SDL_Log("WebGPU: requesting device on adapter '%s'...", chosenName.c_str());
+    WGPUFuture future = wgpuAdapterRequestDevice(chosenAdapter, &deviceDesc, callbackInfo);
+    WGPUFutureWaitInfo waitInfo{future, false};
     while (!payload.complete) {
+        wgpuInstanceWaitAny(instance, 1, &waitInfo, 0);
         wgpuInstanceProcessEvents(instance);
     }
+    SDL_Log("WebGPU: device request returned, device=%p, error='%s'", payload.device, payload.error.c_str());
 
     if (!payload.device) {
         error = std::format("wgpuAdapterRequestDevice failed: {}", payload.error);
@@ -562,6 +580,8 @@ std::unique_ptr<IRenderer> createWebGpuRenderer(SDL_Window* window, std::string_
         }
         wgpuSurfaceCapabilitiesFreeMembers(caps);
     }
+
+    SDL_Log("WebGPU: initialized successfully with backend %s, adapter '%s'", normalized.c_str(), chosenName.c_str());
 
     return std::make_unique<WebGpuRenderer>(window, instance, chosenAdapter, device, queue, surface,
                                             normalized, chosenName, surfaceFormat);

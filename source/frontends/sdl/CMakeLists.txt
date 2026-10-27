@@ -22,6 +22,8 @@ endif()
 set(BALLS_RENDERER "${BALLS_DEFAULT_RENDERER}" CACHE STRING "Renderer behind IRenderer: nvrhi (D3D12/Vulkan), sdlgpu, or webgpu (native Dawn spike)")
 set_property(CACHE BALLS_RENDERER PROPERTY STRINGS nvrhi sdlgpu webgpu)
 
+option(BALLS_WITH_WEBGPU "Build WebGPU desktop renderer alongside NVRHI" OFF)
+
 if(BALLS_RENDERER STREQUAL "nvrhi")
     set(NVRHI_INSTALL OFF CACHE BOOL "" FORCE)
     set(NVRHI_WITH_DX11 ${WIN32} CACHE BOOL "" FORCE)
@@ -32,6 +34,30 @@ if(BALLS_RENDERER STREQUAL "nvrhi")
         GIT_TAG 6b96fb03e07539f08327aea76c56d55f1de9d906
         GIT_SHALLOW FALSE)
     FetchContent_MakeAvailable(nvrhi)
+endif()
+
+if(BALLS_WITH_WEBGPU OR BALLS_RENDERER STREQUAL "webgpu")
+    set(WGPU_NATIVE_VERSION "v24.0.3.1")
+    if(WIN32)
+        set(WGPU_ARCHIVE_URL "https://github.com/gfx-rs/wgpu-native/releases/download/${WGPU_NATIVE_VERSION}/wgpu-windows-x86_64-msvc-release.zip")
+    elseif(APPLE)
+        set(WGPU_ARCHIVE_URL "https://github.com/gfx-rs/wgpu-native/releases/download/${WGPU_NATIVE_VERSION}/wgpu-macos-aarch64-release.zip")
+    else()
+        set(WGPU_ARCHIVE_URL "https://github.com/gfx-rs/wgpu-native/releases/download/${WGPU_NATIVE_VERSION}/wgpu-linux-x86_64-release.zip")
+    endif()
+    FetchContent_Declare(wgpu_native
+        URL ${WGPU_ARCHIVE_URL}
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(wgpu_native)
+
+    add_library(wgpu_native_lib INTERFACE)
+    target_include_directories(wgpu_native_lib INTERFACE ${wgpu_native_SOURCE_DIR}/include)
+    if(WIN32)
+        target_link_libraries(wgpu_native_lib INTERFACE ${wgpu_native_SOURCE_DIR}/lib/wgpu_native.dll.lib)
+    else()
+        target_link_libraries(wgpu_native_lib INTERFACE ${wgpu_native_SOURCE_DIR}/lib/libwgpu_native.so)
+    endif()
 endif()
 
 FetchContent_Declare(imgui
@@ -105,10 +131,29 @@ if(BALLS_RENDERER STREQUAL "nvrhi")
 elseif(BALLS_RENDERER STREQUAL "webgpu")
     target_sources(ColorBlastBalls PRIVATE render/webgpu/WebGpuRenderer.cpp)
     target_compile_definitions(ColorBlastBalls PRIVATE BALLS_RENDERER_WEBGPU)
-    # TODO(webgpu): FetchContent/add_subdirectory for Dawn (or wgpu-native import) goes here.
+    target_link_libraries(ColorBlastBalls PRIVATE wgpu_native_lib)
+    if(WIN32)
+        add_custom_command(TARGET ColorBlastBalls POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${wgpu_native_SOURCE_DIR}/lib/wgpu_native.dll"
+                "$<TARGET_FILE_DIR:ColorBlastBalls>")
+    endif()
 else()
     target_sources(ColorBlastBalls PRIVATE render/SdlGpuRenderer.cpp)
 endif()
+
+if(BALLS_WITH_WEBGPU AND NOT BALLS_RENDERER STREQUAL "webgpu")
+    target_sources(ColorBlastBalls PRIVATE render/webgpu/WebGpuRenderer.cpp)
+    target_compile_definitions(ColorBlastBalls PRIVATE BALLS_WITH_WEBGPU)
+    target_link_libraries(ColorBlastBalls PRIVATE wgpu_native_lib)
+    if(WIN32)
+        add_custom_command(TARGET ColorBlastBalls POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${wgpu_native_SOURCE_DIR}/lib/wgpu_native.dll"
+                "$<TARGET_FILE_DIR:ColorBlastBalls>")
+    endif()
+endif()
+
 target_link_libraries(ColorBlastBalls PRIVATE balls_core balls_imgui SDL3::SDL3-static)
 if(WIN32)
     target_link_libraries(ColorBlastBalls PRIVATE ws2_32)
