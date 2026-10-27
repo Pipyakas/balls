@@ -5,10 +5,25 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
+#include <cstdio>
 #include <string>
 
+#if !defined(__ANDROID__)
+static void SDLCALL logOutput(void* /*userdata*/, int /*category*/, SDL_LogPriority /*priority*/, const char* message) {
+    std::fprintf(stderr, "%s\n", message);
+    std::fflush(stderr);
+}
+#endif
+
 SDL_AppResult SDL_AppInit(void** appState, int argumentCount, char** arguments) {
-    SDL_SetAppMetadata("Balls", "0.1.0", "io.github.pipyakas.colorblastballs");
+#if !defined(__ANDROID__)
+    SDL_SetLogOutputFunction(logOutput, nullptr);
+#endif
+    // The identifier matches the Android applicationId, so a log or a crash report names the same app everywhere.
+    SDL_SetAppMetadata("Balls", "0.1.0", "com.the company.colorblastballs.sdl");
+    // An empty orientation list leaves the device free to rotate: the manifest asks for landscape, and the
+    // portrait layout only appears once the activity itself follows the sensor.
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "");
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         SDL_Log("SDL_Init failed: %s", SDL_GetError());
         return SDL_APP_FAILURE;

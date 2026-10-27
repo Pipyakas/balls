@@ -1,6 +1,8 @@
 #include "game/Settings.h"
 
+#include <algorithm>
 #include <array>
+#include <cctype>
 #include <format>
 #include <fstream>
 #include <sstream>
@@ -12,12 +14,21 @@ constexpr std::string_view collisionsKey = "ballCollisions";
 constexpr std::string_view layoutKey = "layout";
 constexpr std::string_view vsyncKey = "vsync";
 constexpr std::string_view defaultBackendKey = "defaultBackend";
+constexpr std::string_view rendererKey = "renderer";
+constexpr std::string_view graphicsApiKey = "graphicsApi";
 
 constexpr std::array<std::pair<LayoutOrientation, std::string_view>, 3> orientationNames{{
     {LayoutOrientation::Auto, "auto"},
     {LayoutOrientation::Landscape, "landscape"},
     {LayoutOrientation::Portrait, "portrait"},
 }};
+
+std::string lowercase(std::string_view text) {
+    std::string result(text);
+    std::ranges::transform(result, result.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return result;
+}
 
 std::string_view trim(std::string_view text) {
     const size_t first = text.find_first_not_of(" \t\r");
@@ -58,10 +69,36 @@ std::optional<LayoutOrientation> parseOrientation(std::string_view name) {
     return std::nullopt;
 }
 
+std::string normalizeRendererName(std::string_view renderer) {
+    const std::string lower = lowercase(trim(renderer));
+    if (lower == "nvrhi") {
+        return "nvrhi";
+    }
+    if (lower == "sdlgpu") {
+        return "sdlgpu";
+    }
+    return "webgpu";
+}
+
+std::string normalizeGraphicsApiName(std::string_view api) {
+    const std::string lower = lowercase(trim(api));
+    if (lower == "d3d12" || lower == "direct3d 12" || lower == "dx12") {
+        return "d3d12";
+    }
+    if (lower == "vulkan" || lower == "vk") {
+        return "vulkan";
+    }
+    return "auto";
+}
+
 std::string serializeSettings(const Settings& settings) {
-    return std::format("{}={}\n{}={}\n{}={}\n{}={}\n", collisionsKey, settings.ballCollisions ? "on" : "off",
-                       layoutKey, orientationName(settings.layout), vsyncKey, settings.vsync ? "on" : "off",
-                       defaultBackendKey, settings.defaultBackend);
+    return std::format("{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n",
+                       collisionsKey, settings.ballCollisions ? "on" : "off",
+                       layoutKey, orientationName(settings.layout),
+                       vsyncKey, settings.vsync ? "on" : "off",
+                       defaultBackendKey, settings.defaultBackend,
+                       rendererKey, normalizeRendererName(settings.renderer),
+                       graphicsApiKey, normalizeGraphicsApiName(settings.graphicsApi));
 }
 
 // Unknown keys and unreadable values keep their defaults, so an old or hand-edited file never blocks startup.
@@ -86,6 +123,10 @@ Settings parseSettings(std::string_view text) {
             settings.vsync = parseFlag(value).value_or(settings.vsync);
         } else if (key == defaultBackendKey) {
             settings.defaultBackend = std::string(value);
+        } else if (key == rendererKey) {
+            settings.renderer = normalizeRendererName(value);
+        } else if (key == graphicsApiKey || key == "api") {
+            settings.graphicsApi = normalizeGraphicsApiName(value);
         }
     }
     return settings;
@@ -106,8 +147,11 @@ Result<void> saveSettings(const std::filesystem::path& file, const Settings& set
     std::filesystem::create_directories(file.parent_path(), error);
     std::ofstream stream(file, std::ios::binary | std::ios::trunc);
     if (!stream) {
-        return Error{std::format("cannot write {}", file.string())};
+        return Error{std::format("could not open settings file for write: {}", file.string())};
     }
     stream << serializeSettings(settings);
+    if (!stream) {
+        return Error{std::format("failed writing settings to {}", file.string())};
+    }
     return {};
 }

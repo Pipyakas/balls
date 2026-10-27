@@ -27,7 +27,7 @@ private:
     void workerLoop(WorkerPriority priority);
     void drainChunks();
 
-    std::vector<std::jthread> workers;
+    std::vector<std::thread> workers;
     std::mutex mutex;
     std::condition_variable wakeCondition;
     std::condition_variable doneCondition;

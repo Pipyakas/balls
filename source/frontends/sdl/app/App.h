@@ -21,6 +21,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 struct SDL_Window;
@@ -48,6 +49,8 @@ public:
     const Settings& settings() const { return currentSettings; }
     void applySettings(const Settings& settings, std::optional<BackendKind> backend = std::nullopt);
     std::string settingsJson() const;
+    // Whether this build links a WebGPU renderer, so the Settings page can offer it.
+    bool isWebGpuSupported() const;
     void notifySettingsConsumers();
     void applyOrientationToWindow();
     void applyOrientationHint(LayoutOrientation orientation);
@@ -68,15 +71,23 @@ public:
     void showToast(std::string text, bool isError);
     void openLevelImportDialog(const std::filesystem::path& startFolder);
     void openFolder(const std::filesystem::path& folder);
+
     const std::vector<GpuAdapterInfo>& renderAdapters() const { return renderAdapterList; }
     const std::vector<GpuAdapterInfo>& computeAdapters() const { return computeAdapterList; }
     int renderAdapterIndex() const { return activeRenderAdapter; }
     // Swaps the renderer onto another adapter at the end of the frame; the window and the game stay.
     void requestRenderAdapter(int adapterIndex) { pendingRenderAdapter = adapterIndex; }
+    const std::string& rendererName() const { return activeRenderer; }
+    const std::string& graphicsApiName() const { return activeGraphicsApi; }
+    std::string rendererDescription() const { return renderer ? renderer->deviceDescription() : ""; }
+    void requestRenderer(std::string rendererChoice, std::string apiChoice) {
+        pendingRendererSwitch = std::make_pair(std::move(rendererChoice), std::move(apiChoice));
+    }
 
 private:
     bool openWindowAndRenderer(const LaunchOptions& options, std::string_view api, std::string& error);
     void applyPendingRenderAdapter();
+    void applyPendingRendererSwitch();
     using Clock = std::chrono::steady_clock;
 
     struct Toast {
@@ -118,11 +129,14 @@ private:
     std::mutex dialogMutex;
     std::vector<std::vector<std::filesystem::path>> finishedDialogs;
     std::vector<std::string> dialogErrors;
+    // Empty until the first renderer opens, so the build's own default renderer fills it in.
+    std::string activeRenderer;
     std::string activeGraphicsApi;
     std::string renderGpuPreference;
     std::vector<GpuAdapterInfo> renderAdapterList;
     std::vector<GpuAdapterInfo> computeAdapterList;
     int activeRenderAdapter = -1;
     std::optional<int> pendingRenderAdapter;
+    std::optional<std::pair<std::string, std::string>> pendingRendererSwitch;
     Clock::time_point previousUpdateStart = Clock::now();
 };
