@@ -5,12 +5,13 @@
 #include "app/MachineProfile.h"
 #include "app/Paths.h"
 #include "app/Screen.h"
-#include "ui/Painter.h"
 #include "control/ControlServer.h"
+#include "game/Settings.h"
 #include "level/LevelData.h"
 #include "render/BallView.h"
 #include "render/IRenderer.h"
 #include "sim/BackendFactory.h"
+#include "ui/Painter.h"
 
 #include <chrono>
 #include <filesystem>
@@ -38,7 +39,15 @@ public:
     void showLevelSelect(GameMode mode);
     void startGame(GameMode mode, const LevelFiles& files);
     void openEditor(GameMode mode, std::optional<LevelFiles> files);
+    void showSettings();
     void quit() { running = false; }
+
+    const Settings& settings() const { return currentSettings; }
+    void applySettings(const Settings& settings, std::optional<BackendKind> backend = std::nullopt);
+    std::string settingsJson() const;
+    void notifySettingsConsumers();
+    void applyOrientationToWindow();
+    void applyOrientationHint(LayoutOrientation orientation);
 
     BallView& ballRenderer() { return *balls; }
     const FrameTimings& frameTimings() const { return timings; }
@@ -82,6 +91,7 @@ private:
     FrameTimings timings;
     ControlServer controlServer;
     MachineProfile profile;
+    Settings currentSettings;
     BackendKind backendChoice = BackendKind::Avx2;
     bool running = true;
     bool textInputActive = false;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "app/Input.h"
+#include "ui/GameplayLayout.h"
 #include "ui/Painter.h"
 
 struct BoardTransform {
@@ -20,8 +21,15 @@ struct GameplayLayout {
     Rect mainSection{};
     Rect interactionSection{};
     Rect debugSection{};
+    Rect leftGadget{};
+    Rect rightGadget{};
+    Rect topGadget{};
+    Rect bottomGadget{};
     BoardTransform board{};
     Rect boardRect{};
+    bool isPortrait = false;
 };
 
 GameplayLayout computeGameplayLayout(Vec2 screenSize, int boardColumns, int boardRows);
+GameplayLayout computeGameplayLayout(Vec2 screenSize, int boardColumns, int boardRows,
+                                     LayoutOrientation orientation, bool compactControls);

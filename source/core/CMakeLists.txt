@@ -17,6 +17,7 @@ add_library(balls_core STATIC
     game/SpawnController.cpp
     game/GameSession.cpp
     game/Settings.cpp
+    ui/GameplayLayout.cpp
     editor/LevelEditor.cpp
 )
 target_include_directories(balls_core PUBLIC
