@@ -51,3 +51,6 @@ crashlytics-build.properties
 # Editor and build logs, and performance-test drops.
 *.log
 /Assets/Resources/PerformanceTestRun*.json*
+
+# Linux native plugins, built on the client machine.
+/NativeLibraries/

@@ -25,6 +25,10 @@ namespace Balls.Editor
             Directory.CreateDirectory(Path.Combine(Application.dataPath, "Balls/Scenes"));
             Directory.CreateDirectory(MaterialDirectory);
 
+            // The game's input model is mouse and keyboard, and the bootstrap reads it through UnityEngine.Input;
+            // that needs the old backend enabled alongside the new Input System package.
+            UseBothInputBackends();
+
             Material ballMaterial = CreateMaterial("BallsProcedural", "Balls/Procedural");
             Material quadMaterial = CreateMaterial("BallsQuads", "Balls/Quads");
             IncludeShader("Balls/Procedural");
@@ -74,61 +78,74 @@ namespace Balls.Editor
             {
                 string target = Path.Combine(destination, Path.GetFileName(file));
                 File.Copy(file, target, true);
-                WritePluginMeta(Path.GetFileNameWithoutExtension(file));
+                WritePluginMeta(Path.GetFileName(file), false);
+            }
+            // Linux libraries come from the client machine, not from this build tree: they are ELF files and are
+            // built where Linux runs them.
+            string linuxSource = Path.Combine(Application.dataPath, "..", "NativeLibraries", "linux-x86_64");
+            if (Directory.Exists(linuxSource))
+            {
+                foreach (string file in Directory.GetFiles(linuxSource, "*.so"))
+                {
+                    File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), true);
+                    WritePluginMeta(Path.GetFileName(file), true);
+                }
             }
             AssetDatabase.Refresh();
             Debug.Log($"copied native plugins from {built}");
         }
 
         /// <summary>
-        /// A native plugin copied in with File.Copy arrives without import settings, and a plugin with no platform
-        /// entry is left out of builds. Writing the importer block makes the rules explicit: editor on Windows and
-        /// the Win64 player both load it.
+        /// A native plugin copied in with File.Copy arrives without import settings, and a plugin with no
+        /// platform entry is left out of builds. Writing the importer block makes the rules explicit: a
+        /// Windows DLL loads in the editor and the Win64 player, a Linux ELF only on Linux.
         /// </summary>
-        private static void WritePluginMeta(string pluginName)
+        private static void WritePluginMeta(string fileName, bool linux)
         {
-            string assetPath = $"Assets/Plugins/x86_64/{pluginName}.dll";
+            string assetPath = "Assets/Plugins/x86_64/" + fileName;
             string metaPath = assetPath + ".meta";
-            string guid = StableGuid(pluginName);
-            string meta =
-                "fileFormatVersion: 2\n" +
-                $"guid: {guid}\n" +
-                "PluginImporter:\n" +
-                "  externalObjects: {}\n" +
-                "  serializedVersion: 2\n" +
-                "  iconMap: {}\n" +
-                "  executionOrder: {}\n" +
-                "  defineConstraints: []\n" +
-                "  isPreloaded: 0\n" +
-                "  isOverridable: 0\n" +
-                "  isExplicitlyReferenced: 0\n" +
-                "  validateReferences: 1\n" +
-                "  platformData:\n" +
-                "  - first:\n" +
-                "      Any: \n" +
-                "    second:\n" +
-                "      enabled: 0\n" +
-                "      settings: {}\n" +
-                "  - first:\n" +
-                "      Editor: Editor\n" +
-                "    second:\n" +
-                "      enabled: 1\n" +
-                "      settings:\n" +
-                "        CPU: x86_64\n" +
-                "        DefaultValueInitialized: true\n" +
-                "        OS: Windows\n" +
-                "  - first:\n" +
-                "      Standalone: Win64\n" +
-                "    second:\n" +
-                "      enabled: 1\n" +
-                "      settings:\n" +
-                "        CPU: x86_64\n" +
-                "  userData: \n" +
-                "  assetBundleName: \n" +
-                "  assetBundleVariant: \n";
-            if (!File.Exists(metaPath) || !File.ReadAllText(metaPath).Contains("PluginImporter"))
+            string editorOs = linux ? "Linux" : "Windows";
+            string playerPlatform = linux ? "Linux64" : "Win64";
+            var meta = new System.Text.StringBuilder();
+            meta.Append("fileFormatVersion: 2\n");
+            meta.Append("guid: ").Append(StableGuid(fileName)).Append("\n");
+            meta.Append("PluginImporter:\n");
+            meta.Append("  externalObjects: {}\n");
+            meta.Append("  serializedVersion: 2\n");
+            meta.Append("  iconMap: {}\n");
+            meta.Append("  executionOrder: {}\n");
+            meta.Append("  defineConstraints: []\n");
+            meta.Append("  isPreloaded: 0\n");
+            meta.Append("  isOverridable: 0\n");
+            meta.Append("  isExplicitlyReferenced: 0\n");
+            meta.Append("  validateReferences: 1\n");
+            meta.Append("  platformData:\n");
+            meta.Append("  - first:\n");
+            meta.Append("      Any: \n");
+            meta.Append("    second:\n");
+            meta.Append("      enabled: 0\n");
+            meta.Append("      settings: {}\n");
+            meta.Append("  - first:\n");
+            meta.Append("      Editor: Editor\n");
+            meta.Append("    second:\n");
+            meta.Append("      enabled: 1\n");
+            meta.Append("      settings:\n");
+            meta.Append("        CPU: x86_64\n");
+            meta.Append("        DefaultValueInitialized: true\n");
+            meta.Append("        OS: ").Append(editorOs).Append("\n");
+            meta.Append("  - first:\n");
+            meta.Append("      Standalone: ").Append(playerPlatform).Append("\n");
+            meta.Append("    second:\n");
+            meta.Append("      enabled: 1\n");
+            meta.Append("      settings:\n");
+            meta.Append("        CPU: x86_64\n");
+            meta.Append("  userData: \n");
+            meta.Append("  assetBundleName: \n");
+            meta.Append("  assetBundleVariant: \n");
+            if (!File.Exists(metaPath) || !File.ReadAllText(metaPath).Contains("PluginImporter") ||
+                !File.ReadAllText(metaPath).Contains(playerPlatform))
             {
-                File.WriteAllText(metaPath, meta);
+                File.WriteAllText(metaPath, meta.ToString());
             }
             AssetDatabase.ImportAsset(assetPath, ImportAssetOptions.ForceUpdate);
         }
@@ -168,6 +185,28 @@ namespace Balls.Editor
                 }
             }
             Debug.Log($"copied levels into {destination}");
+        }
+
+        /// <summary>
+        /// Player Settings has three input modes and only "Both" keeps UnityEngine.Input alive next to the Input
+        /// System package the URP template installs; the setting has no public API, so it goes through the asset.
+        /// </summary>
+        private static void UseBothInputBackends()
+        {
+            UnityEngine.Object[] settings = AssetDatabase.LoadAllAssetsAtPath("ProjectSettings/ProjectSettings.asset");
+            if (settings.Length == 0)
+            {
+                Debug.LogWarning("could not open ProjectSettings.asset to set the input handler");
+                return;
+            }
+            var serialized = new SerializedObject(settings[0]);
+            SerializedProperty handler = serialized.FindProperty("activeInputHandler");
+            if (handler != null && handler.intValue != 2)
+            {
+                handler.intValue = 2;
+                serialized.ApplyModifiedProperties();
+                Debug.Log("set Active Input Handling to Both");
+            }
         }
 
         private static Material CreateMaterial(string name, string shaderName)

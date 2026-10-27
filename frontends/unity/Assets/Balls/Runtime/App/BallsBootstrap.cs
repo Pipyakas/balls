@@ -40,6 +40,7 @@ namespace Balls.App
         private float quitAt = -1f;
         private bool captured;
         private bool autoPlayPending;
+        private int logTicks;
 
         public string LevelDirectory => string.IsNullOrEmpty(levelDirectoryOverride) ? DefaultLevelDirectory() : levelDirectoryOverride;
 
@@ -58,7 +59,9 @@ namespace Balls.App
                     startupError = $"balls_unity.dll speaks ABI {version}, the front end expects {BallsNative.AbiVersion}";
                     return;
                 }
-                BallsNative.balls_set_plugin_directory(PluginDirectory());
+                string pluginDirectory = PluginDirectory();
+                BallsNative.balls_set_plugin_directory(pluginDirectory);
+                Debug.Log($"balls: plugin directory {pluginDirectory}, ABI {version}");
                 BallsInput.RequestStart(new BallsInput.StartRequest
                 {
                     mode = performanceMode ? BallsNative.ModePerformance : BallsNative.ModeNormal,
@@ -77,14 +80,20 @@ namespace Balls.App
 
         private void Update()
         {
+            // The capture agent runs even when the session failed to start: a screenshot of the error is more use
+            // than a build that hangs until it is killed.
+            RunCaptureAgent();
+            logTicks++;
+            if (logTicks == 1)
+            {
+                Debug.Log($"balls: update entered, started={started}, error='{startupError}', t={Time.realtimeSinceStartup:F2}");
+            }
             if (!started)
             {
                 return;
             }
             fpsSmoothed = Mathf.Lerp(fpsSmoothed <= 0f ? 1f / Mathf.Max(Time.unscaledDeltaTime, 1e-4f) : fpsSmoothed,
                 1f / Mathf.Max(Time.unscaledDeltaTime, 1e-4f), 0.1f);
-
-            RunCaptureAgent();
 
             // Keys follow the other front ends: R restarts, Space starts the performance release, F1/F2 pick a backend.
             if (Input.GetKeyDown(KeyCode.R))
@@ -254,6 +263,7 @@ namespace Balls.App
             if (!captured && now >= captureAt)
             {
                 captured = true;
+                Debug.Log($"balls: capturing to {screenshotPath} at {now:F2}s, started={started}, error='{startupError}'");
                 ScreenCapture.CaptureScreenshot(screenshotPath);
                 Debug.Log($"captured {screenshotPath}");
             }
