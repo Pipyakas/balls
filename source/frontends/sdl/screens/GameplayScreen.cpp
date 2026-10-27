@@ -224,7 +224,8 @@ void GameplayScreen::update(float deltaTime) {
     }
     const GameplayLayout layout = computeGameplayLayout(
         {static_cast<float>(gfx::screenWidth()), static_cast<float>(gfx::screenHeight())},
-        session->simulation().board().columns(), session->simulation().board().rows());
+        session->simulation().board().columns(), session->simulation().board().rows(), app.settings().layout,
+        mode == GameMode::Normal);
     handleLauncherClick(layout);
     const FrameSample& lastFrame = app.frameTimings().latest();
     session->reportFrameSeconds(app.lastFrameSeconds(),
@@ -457,7 +458,8 @@ void GameplayScreen::draw() {
     }
     const GameplayLayout layout = computeGameplayLayout(
         {static_cast<float>(gfx::screenWidth()), static_cast<float>(gfx::screenHeight())},
-        session->simulation().board().columns(), session->simulation().board().rows());
+        session->simulation().board().columns(), session->simulation().board().rows(), app.settings().layout,
+        mode == GameMode::Normal);
     drawHeader(layout);
     drawMainSection(layout);
     drawInteractionSection(layout);
