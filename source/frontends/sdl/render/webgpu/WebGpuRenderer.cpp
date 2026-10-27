@@ -1,8 +1,10 @@
 // Native WebGPU renderer (wgpu-native / Google Dawn, webgpu.h).
 //
 // Step 1: instance, adapter, device, surface, present mode, clear pass, resize.
+// Step 2: rects pipeline, storage buffer upload, instanced quad draw.
 
 #include "render/webgpu/WebGpuRenderer.h"
+#include "shaders/generated/web/WgslShaders.h"
 
 #include <webgpu/webgpu.h>
 #include <webgpu/wgpu.h>
@@ -60,6 +62,18 @@ std::string normalizeBackend(std::string_view backend) {
         return "vulkan";
     }
     return name;
+}
+
+WGPUShaderModule createShaderModule(WGPUDevice device, const char* source, const char* label) {
+    WGPUShaderSourceWGSL wgslDesc{};
+    wgslDesc.chain.sType = WGPUSType_ShaderSourceWGSL;
+    wgslDesc.code = WGPUStringView{source, std::strlen(source)};
+    WGPUShaderModuleDescriptor desc{};
+    desc.nextInChain = &wgslDesc.chain;
+    if (label) {
+        desc.label = WGPUStringView{label, std::strlen(label)};
+    }
+    return wgpuDeviceCreateShaderModule(device, &desc);
 }
 
 WGPUSurface createSurfaceFromWindow(WGPUInstance instance, SDL_Window* window) {
@@ -128,9 +142,43 @@ public:
           surfaceFormat(surfaceFormat) {
         updateWindowDimensions();
         reconfigureSurface();
+        initRectsPipeline();
     }
 
     ~WebGpuRenderer() override {
+        if (rectsStorageBindGroup) {
+            wgpuBindGroupRelease(rectsStorageBindGroup);
+        }
+        if (rectsUniformBindGroup) {
+            wgpuBindGroupRelease(rectsUniformBindGroup);
+        }
+        if (rectsBuffer) {
+            wgpuBufferDestroy(rectsBuffer);
+            wgpuBufferRelease(rectsBuffer);
+        }
+        if (rectsUniformBuffer) {
+            wgpuBufferDestroy(rectsUniformBuffer);
+            wgpuBufferRelease(rectsUniformBuffer);
+        }
+        if (rectsPipeline) {
+            wgpuRenderPipelineRelease(rectsPipeline);
+        }
+        if (rectsPipelineLayout) {
+            wgpuPipelineLayoutRelease(rectsPipelineLayout);
+        }
+        if (rectsStorageLayout) {
+            wgpuBindGroupLayoutRelease(rectsStorageLayout);
+        }
+        if (rectsUniformLayout) {
+            wgpuBindGroupLayoutRelease(rectsUniformLayout);
+        }
+        if (rectsVertexModule) {
+            wgpuShaderModuleRelease(rectsVertexModule);
+        }
+        if (rectsFragmentModule) {
+            wgpuShaderModuleRelease(rectsFragmentModule);
+        }
+
         if (currentSurfaceView) {
             wgpuTextureViewRelease(currentSurfaceView);
         }
@@ -186,12 +234,12 @@ public:
         currentSurfaceTexture = surfaceTexture.texture;
         currentSurfaceView = wgpuTextureCreateView(currentSurfaceTexture, nullptr);
         frameStartTime = Clock::now();
+        pendingRects.clear();
         return true;
     }
 
     void drawRects(std::span<const RendererRect> rects) override {
-        // Will be populated in Step 2
-        (void)rects;
+        pendingRects.assign(rects.begin(), rects.end());
     }
 
     void drawBalls(const BallDrawRequest& request) override {
@@ -224,6 +272,21 @@ public:
         passDesc.colorAttachments = &colorAttachment;
 
         WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(encoder, &passDesc);
+
+        if (!pendingRects.empty() && rectsPipeline) {
+            ensureRectBuffers(pendingRects.size());
+            wgpuQueueWriteBuffer(queue, rectsBuffer, 0, pendingRects.data(),
+                                 pendingRects.size() * sizeof(RendererRect));
+            const float uniforms[4] = { logicalWidth, logicalHeight, 0.0f, 0.0f };
+            wgpuQueueWriteBuffer(queue, rectsUniformBuffer, 0, uniforms, sizeof(uniforms));
+
+            wgpuRenderPassEncoderSetPipeline(pass, rectsPipeline);
+            wgpuRenderPassEncoderSetBindGroup(pass, 0, rectsStorageBindGroup, 0, nullptr);
+            wgpuRenderPassEncoderSetBindGroup(pass, 1, rectsUniformBindGroup, 0, nullptr);
+            wgpuRenderPassEncoderDraw(pass, 6, static_cast<uint32_t>(pendingRects.size()), 0, 0);
+        }
+        pendingRects.clear();
+
         wgpuRenderPassEncoderEnd(pass);
         wgpuRenderPassEncoderRelease(pass);
 
@@ -332,6 +395,125 @@ private:
         }
     }
 
+    bool initRectsPipeline() {
+        rectsVertexModule = createShaderModule(device, rectsVertexWgsl, "rectsVertex");
+        rectsFragmentModule = createShaderModule(device, rectsFragmentWgsl, "rectsFragment");
+        if (!rectsVertexModule || !rectsFragmentModule) {
+            SDL_Log("WebGPU: failed to create rects shader modules");
+            return false;
+        }
+
+        WGPUBindGroupLayoutEntry storageEntry{};
+        storageEntry.binding = 0;
+        storageEntry.visibility = WGPUShaderStage_Vertex;
+        storageEntry.buffer.type = WGPUBufferBindingType_ReadOnlyStorage;
+
+        WGPUBindGroupLayoutDescriptor storageLayoutDesc{};
+        storageLayoutDesc.entryCount = 1;
+        storageLayoutDesc.entries = &storageEntry;
+        rectsStorageLayout = wgpuDeviceCreateBindGroupLayout(device, &storageLayoutDesc);
+
+        WGPUBindGroupLayoutEntry uniformEntry{};
+        uniformEntry.binding = 0;
+        uniformEntry.visibility = WGPUShaderStage_Vertex;
+        uniformEntry.buffer.type = WGPUBufferBindingType_Uniform;
+
+        WGPUBindGroupLayoutDescriptor uniformLayoutDesc{};
+        uniformLayoutDesc.entryCount = 1;
+        uniformLayoutDesc.entries = &uniformEntry;
+        rectsUniformLayout = wgpuDeviceCreateBindGroupLayout(device, &uniformLayoutDesc);
+
+        WGPUBindGroupLayout bgLayouts[2] = { rectsStorageLayout, rectsUniformLayout };
+        WGPUPipelineLayoutDescriptor pipelineLayoutDesc{};
+        pipelineLayoutDesc.bindGroupLayoutCount = 2;
+        pipelineLayoutDesc.bindGroupLayouts = bgLayouts;
+        rectsPipelineLayout = wgpuDeviceCreatePipelineLayout(device, &pipelineLayoutDesc);
+
+        WGPUBlendState blend{};
+        blend.color.operation = WGPUBlendOperation_Add;
+        blend.color.srcFactor = WGPUBlendFactor_SrcAlpha;
+        blend.color.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+        blend.alpha.operation = WGPUBlendOperation_Add;
+        blend.alpha.srcFactor = WGPUBlendFactor_One;
+        blend.alpha.dstFactor = WGPUBlendFactor_OneMinusSrcAlpha;
+
+        WGPUColorTargetState colorTarget{};
+        colorTarget.format = surfaceFormat;
+        colorTarget.blend = &blend;
+        colorTarget.writeMask = WGPUColorWriteMask_All;
+
+        WGPUFragmentState fragmentState{};
+        fragmentState.module = rectsFragmentModule;
+        fragmentState.entryPoint = WGPUStringView{"fragmentMain", 12};
+        fragmentState.targetCount = 1;
+        fragmentState.targets = &colorTarget;
+
+        WGPUVertexState vertexState{};
+        vertexState.module = rectsVertexModule;
+        vertexState.entryPoint = WGPUStringView{"vertexMain", 10};
+
+        WGPURenderPipelineDescriptor desc{};
+        desc.layout = rectsPipelineLayout;
+        desc.vertex = vertexState;
+        desc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+        desc.primitive.cullMode = WGPUCullMode_None;
+        desc.primitive.frontFace = WGPUFrontFace_CCW;
+        desc.multisample.count = 1;
+        desc.multisample.mask = ~0u;
+        desc.fragment = &fragmentState;
+
+        rectsPipeline = wgpuDeviceCreateRenderPipeline(device, &desc);
+        return rectsPipeline != nullptr;
+    }
+
+    void ensureRectBuffers(size_t rectCount) {
+        const size_t neededBytes = rectCount * sizeof(RendererRect);
+        if (!rectsBuffer || rectsBufferCapacity < neededBytes) {
+            if (rectsStorageBindGroup) {
+                wgpuBindGroupRelease(rectsStorageBindGroup);
+                rectsStorageBindGroup = nullptr;
+            }
+            if (rectsBuffer) {
+                wgpuBufferDestroy(rectsBuffer);
+                wgpuBufferRelease(rectsBuffer);
+            }
+            rectsBufferCapacity = std::max(neededBytes, static_cast<size_t>(65536));
+            WGPUBufferDescriptor bufferDesc{};
+            bufferDesc.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
+            bufferDesc.size = rectsBufferCapacity;
+            rectsBuffer = wgpuDeviceCreateBuffer(device, &bufferDesc);
+
+            WGPUBindGroupEntry entry{};
+            entry.binding = 0;
+            entry.buffer = rectsBuffer;
+            entry.size = rectsBufferCapacity;
+
+            WGPUBindGroupDescriptor bgDesc{};
+            bgDesc.layout = rectsStorageLayout;
+            bgDesc.entryCount = 1;
+            bgDesc.entries = &entry;
+            rectsStorageBindGroup = wgpuDeviceCreateBindGroup(device, &bgDesc);
+        }
+
+        if (!rectsUniformBuffer) {
+            WGPUBufferDescriptor uDesc{};
+            uDesc.usage = WGPUBufferUsage_Uniform | WGPUBufferUsage_CopyDst;
+            uDesc.size = 16;
+            rectsUniformBuffer = wgpuDeviceCreateBuffer(device, &uDesc);
+
+            WGPUBindGroupEntry entry{};
+            entry.binding = 0;
+            entry.buffer = rectsUniformBuffer;
+            entry.size = 16;
+
+            WGPUBindGroupDescriptor bgDesc{};
+            bgDesc.layout = rectsUniformLayout;
+            bgDesc.entryCount = 1;
+            bgDesc.entries = &entry;
+            rectsUniformBindGroup = wgpuDeviceCreateBindGroup(device, &bgDesc);
+        }
+    }
+
     SDL_Window* window = nullptr;
     WGPUInstance instance = nullptr;
     WGPUAdapter adapter = nullptr;
@@ -358,6 +540,19 @@ private:
 
     std::string pendingScreenshotPath;
     bool screenshotSuccess = false;
+
+    std::vector<RendererRect> pendingRects;
+    WGPUShaderModule rectsVertexModule = nullptr;
+    WGPUShaderModule rectsFragmentModule = nullptr;
+    WGPUBindGroupLayout rectsStorageLayout = nullptr;
+    WGPUBindGroupLayout rectsUniformLayout = nullptr;
+    WGPUPipelineLayout rectsPipelineLayout = nullptr;
+    WGPURenderPipeline rectsPipeline = nullptr;
+    WGPUBuffer rectsBuffer = nullptr;
+    size_t rectsBufferCapacity = 0;
+    WGPUBuffer rectsUniformBuffer = nullptr;
+    WGPUBindGroup rectsStorageBindGroup = nullptr;
+    WGPUBindGroup rectsUniformBindGroup = nullptr;
 };
 
 struct DeviceRequestPayload {
