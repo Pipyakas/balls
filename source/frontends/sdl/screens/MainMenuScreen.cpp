@@ -24,13 +24,16 @@ void drawDecorativeBalls(float time) {
         const float phase = static_cast<float>(i) * 1.618f;
         const float x = width * (0.5f + 0.45f * std::sin(time * 0.3f + phase * 2.0f));
         const float y = height * (0.5f + 0.45f * std::cos(time * 0.23f + phase * 3.0f));
-        gfx::fillCircle({x, y}, 10.0f + static_cast<float>(i % 4) * 4.0f, gfx::fade(palette::ballColor(i % ballColorCount), 0.35f));
+        gfx::fillCircle({x, y}, 10.0f + static_cast<float>(i % 4) * 4.0f,
+                        gfx::fade(palette::ballColor(i % ballColorCount), 0.35f));
     }
 }
 
-}
+} // namespace
 
-void MainMenuScreen::update(float deltaTime) { time += deltaTime; }
+void MainMenuScreen::update(float deltaTime) {
+    time += deltaTime;
+}
 
 void MainMenuScreen::draw() {
     drawDecorativeBalls(time);
@@ -41,8 +44,9 @@ void MainMenuScreen::draw() {
 
     const float firstButtonY = top + titleSize * 2.2f;
     auto buttonRect = [&](int index) {
-        return Rect{centerX - buttonWidth * 0.5f, firstButtonY + static_cast<float>(index) * (buttonHeight + buttonGap),
-                         buttonWidth, buttonHeight};
+        return Rect{centerX - buttonWidth * 0.5f,
+                    firstButtonY + static_cast<float>(index) * (buttonHeight + buttonGap), buttonWidth,
+                    buttonHeight};
     };
     if (ui::button(buttonRect(0), "Normal Mode")) {
         app.showLevelSelect(GameMode::Normal);
@@ -53,7 +57,10 @@ void MainMenuScreen::draw() {
     if (ui::button(buttonRect(2), "Map Editor")) {
         app.openEditor(GameMode::Normal, std::nullopt);
     }
-    if (ui::button(buttonRect(3), "Quit")) {
+    if (ui::button(buttonRect(3), "Settings")) {
+        app.showSettings();
+    }
+    if (ui::button(buttonRect(4), "Quit")) {
         app.quit();
     }
 }

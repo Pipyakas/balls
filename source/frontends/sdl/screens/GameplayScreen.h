@@ -8,6 +8,7 @@
 #include "screens/DebugPanel.h"
 
 #include <memory>
+#include <span>
 #include <string>
 
 class App;
@@ -22,6 +23,8 @@ public:
     bool drawsFrameTimings() const override { return true; }
     std::string stateJson() const override;
     std::optional<ControlResponse> handleControl(const ControlRequest& request) override;
+    void refreshSettings();
+    void openSettingsOverlay();
 
 private:
     struct Toast {
@@ -32,7 +35,6 @@ private:
 
     void loadSession();
     void hotReload();
-    void handleShortcuts();
     void handleLauncherClick(const GameplayLayout& layout);
     void showToast(std::string text, bool isError);
     void openNextLevel();
@@ -44,6 +46,12 @@ private:
     void drawMainSection(const GameplayLayout& layout);
     void drawInteractionSection(const GameplayLayout& layout);
     void drawPerformanceControls(Rect area);
+    float performanceContentHeight() const;
+    void drawNormalControls(Rect area);
+    float normalContentHeight() const;
+    void drawBackendList(Rect area, BackendKind selected);
+    int drawOptionDropdown(Rect area, std::string_view current, std::span<const std::string> options,
+                           int selected, bool& open);
     void drawOverlay();
     void drawToast();
 
@@ -55,6 +63,13 @@ private:
     LevelWatcher watcher;
     Toast toast;
     bool paused = false;
+    bool settingsOpen = false;
     bool probeResultSaved = true;
     int probeTargetFps = 60;
+    float controlsScroll = 0.0f;
+    float normalScroll = 0.0f;
+    bool spawnDropdownOpen = false;
+    bool countDropdownOpen = false;
+    bool limitDropdownOpen = false;
+    DebugPanelState debugState;
 };
