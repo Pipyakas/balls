@@ -1,0 +1,115 @@
+using System;
+using System.Collections.Generic;
+using Balls.Ecs;
+
+namespace Balls.Game
+{
+    public struct BoardFrame
+    {
+        public int columns;
+        public int rows;
+        public int playableHeight;
+        public int paddedWidth;
+        public int paddedCellCount;
+        public int brickCount;
+        public int aliveBrickCount;
+        public uint revision;
+        public int launcherColumns;
+        public int launcherVisibleRows;
+        public int launcherRemainingBalls;
+    }
+
+    public struct BackendStats
+    {
+        public ulong ballCount;
+        public ulong liveBallCount;
+        public ulong spawned;
+        public ulong hits;
+        public double physicsMs;
+        public int ticks;
+        public ulong red, orange, yellow, green, blue, indigo, violet;
+
+        public ulong ByColor(int color) => color switch
+        {
+            0 => red,
+            1 => orange,
+            2 => yellow,
+            3 => green,
+            4 => blue,
+            5 => indigo,
+            6 => violet,
+            _ => 0,
+        };
+    }
+
+    /// <summary>
+    /// What the front end needs from a game session, whichever side runs it. The native implementation forwards to
+    /// balls_unity.dll and the C++ core; a Burst implementation runs the same rules and the same ball step in jobs.
+    /// Systems only ever see this surface, so the two can be swapped from the settings page or compared side by side.
+    /// </summary>
+    public abstract class GameBackend : IDisposable
+    {
+        public abstract bool IsNative { get; }
+
+        public abstract int Mode { get; }
+
+        public abstract int State { get; }
+
+        public abstract int BackendKind { get; }
+
+        public abstract double Elapsed { get; }
+
+        public abstract BoardFrame Frame { get; }
+
+        public abstract BackendStats Stats { get; }
+
+        public abstract void Update(float deltaSeconds);
+
+        public abstract void Restart();
+
+        public abstract bool ChooseLauncher(int column, int row);
+
+        public abstract void StartAutoRelease();
+
+        public abstract void SelectSpawnRate(int index);
+
+        public abstract void SelectBallMultiplier(int index);
+
+        public abstract void SelectBallLimit(int index);
+
+        public abstract bool SwitchBackend(int kind);
+
+        public abstract void StartProbe(double targetFps);
+
+        public abstract void ReportFrame(double frameSeconds, double workSeconds);
+
+        /// <summary>
+        /// Fills <paramref name="destination"/> with every padded board cell, row-major; resizes it to
+        /// paddedCellCount. The border ring holds brick -1.
+        /// </summary>
+        public abstract void ReadCells(List<CellElement> destination);
+
+        /// <summary>Fills <paramref name="destination"/> with every launcher slot, present or not.</summary>
+        public abstract void ReadLaunchers(List<LauncherElement> destination);
+
+        /// <summary>
+        /// Points at the packed ball array for this frame. The memory belongs to the backend and is invalidated by
+        /// the next <see cref="Update"/>.
+        /// </summary>
+        public abstract int ReadBalls(out IntPtr packed, out float scaleX, out float scaleY);
+
+        public abstract string LastFault { get; }
+
+        /// <summary>
+        /// How finely the GPU backends sample the board when drawing millions of balls. Native backends use it;
+        /// a Burst backend renders from its own arrays and ignores it.
+        /// </summary>
+        public virtual void SetVisibilityGrid(int width, int height)
+        {
+        }
+
+        public virtual void Dispose()
+        {
+        }
+    }
+}

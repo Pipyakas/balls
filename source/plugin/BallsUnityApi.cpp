@@ -9,6 +9,7 @@
 #include "level/LevelWriter.h"
 #include "sim/BackendFactory.h"
 #include "sim/Simulation.h"
+#include "ui/GameplayLayout.h"
 
 #include <algorithm>
 #include <cstring>
@@ -145,6 +146,42 @@ int32_t balls_last_error(char* buffer, int32_t size) {
 
 float balls_render_pack_scale(float fieldExtent) {
     return renderPackScale(fieldExtent);
+}
+
+void balls_compute_layout(float frameWidth, float frameHeight, int32_t boardColumns, int32_t boardRows,
+                          int32_t orientation, int32_t launcherRows, BallsLayout* layout) {
+    if (layout == nullptr) {
+        return;
+    }
+    const LayoutOrientation direction = orientation == BALLS_ORIENTATION_LANDSCAPE  ? LayoutOrientation::Landscape
+                                        : orientation == BALLS_ORIENTATION_PORTRAIT ? LayoutOrientation::Portrait
+                                                                                   : LayoutOrientation::Auto;
+    const CoreGameplayLayout computed =
+        computeCoreGameplayLayout(frameWidth, frameHeight, boardColumns, boardRows, direction, launcherRows);
+    layout->header[0] = computed.header.x;
+    layout->header[1] = computed.header.y;
+    layout->header[2] = computed.header.width;
+    layout->header[3] = computed.header.height;
+    layout->main[0] = computed.main.x;
+    layout->main[1] = computed.main.y;
+    layout->main[2] = computed.main.width;
+    layout->main[3] = computed.main.height;
+    layout->interaction[0] = computed.interaction.x;
+    layout->interaction[1] = computed.interaction.y;
+    layout->interaction[2] = computed.interaction.width;
+    layout->interaction[3] = computed.interaction.height;
+    layout->debug[0] = computed.debug.x;
+    layout->debug[1] = computed.debug.y;
+    layout->debug[2] = computed.debug.width;
+    layout->debug[3] = computed.debug.height;
+    layout->boardOrigin[0] = computed.boardOrigin.x;
+    layout->boardOrigin[1] = computed.boardOrigin.y;
+    layout->boardRect[0] = computed.boardRect.x;
+    layout->boardRect[1] = computed.boardRect.y;
+    layout->boardRect[2] = computed.boardRect.width;
+    layout->boardRect[3] = computed.boardRect.height;
+    layout->cellSize = computed.cellSize;
+    layout->portrait = computed.isPortrait ? 1 : 0;
 }
 
 int32_t balls_backend_available(int32_t kind) {
@@ -421,6 +458,20 @@ void balls_session_fill_with_balls(BallsSession* session, uint64_t count) {
     }
 }
 
+void balls_session_set_visibility_grid(BallsSession* session, int32_t width, int32_t height) {
+    if (session != nullptr) {
+        session->game->simulation().backend().setVisibilityGrid(width, height);
+    }
+}
+
+void balls_set_compute_gpu_preference(const char* preference) {
+    setComputeGpuPreference(preference != nullptr ? std::string_view(preference) : std::string_view{});
+}
+
+int32_t balls_compute_gpu_preference(char* buffer, int32_t size) {
+    return writeText(computeGpuPreference(), buffer, size);
+}
+
 void balls_session_set_ball_collisions(BallsSession* session, int32_t enabled) {
     if (session != nullptr) {
         session->game->simulation().setBallCollisions(enabled != 0);
@@ -514,7 +565,7 @@ int32_t balls_session_snapshot(BallsSession* session, BallsSnapshot* snapshot) {
     }
     const BallSnapshot source = session->game->simulation().backend().snapshot();
     snapshot->packed = source.packed;
-    snapshot->count = static_cast<int32_t>(std::min<size_t>(source.count, 0x7FFFFFFF));
+    snapshot->count = source.count;
     snapshot->fieldWidth = source.fieldWidth;
     snapshot->fieldHeight = source.fieldHeight;
     snapshot->residentInRenderBuffer = source.residentInRenderBuffer ? 1 : 0;
@@ -611,6 +662,42 @@ void balls_editor_info(const BallsEditor* editor, BallsEditorInfo* info) {
     info->canUndo = editor->editor.canUndo() ? 1 : 0;
     info->canRedo = editor->editor.canRedo() ? 1 : 0;
     info->brickCount = static_cast<int32_t>(level.bricks.types.size());
+}
+
+int32_t balls_editor_brick_at(const BallsEditor* editor, int32_t column, int32_t row) {
+    return editor == nullptr ? -1 : editor->editor.brickIdAt(column, row);
+}
+
+int32_t balls_editor_brick_color(const BallsEditor* editor, int32_t column, int32_t row) {
+    if (editor == nullptr) {
+        return -1;
+    }
+    const int brick = editor->editor.brickIdAt(column, row);
+    if (brick < 0) {
+        return -1;
+    }
+    for (const BrickType& type : editor->editor.level().bricks.types) {
+        if (type.id == brick) {
+            return toIndex(type.color);
+        }
+    }
+    return -1;
+}
+
+int32_t balls_editor_brick_hits(const BallsEditor* editor, int32_t column, int32_t row) {
+    if (editor == nullptr) {
+        return 0;
+    }
+    const int brick = editor->editor.brickIdAt(column, row);
+    if (brick < 0) {
+        return 0;
+    }
+    for (const BrickType& type : editor->editor.level().bricks.types) {
+        if (type.id == brick) {
+            return type.hits;
+        }
+    }
+    return 0;
 }
 
 void balls_editor_resize_board(BallsEditor* editor, int32_t width, int32_t height, int32_t playableHeight) {

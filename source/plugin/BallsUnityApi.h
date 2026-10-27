@@ -71,7 +71,7 @@ enum {
 // balls_render_pack_scale().
 typedef struct BallsSnapshot {
     const uint32_t* packed;
-    int32_t count;
+    uint64_t count;
     float fieldWidth;
     float fieldHeight;
     int32_t residentInRenderBuffer;
@@ -98,7 +98,7 @@ typedef struct BallsBoardView {
     const int32_t* brickColors;      // per brick: BALLS_COLOR_*
     const int32_t* brickHitsLeft;    // per brick: remaining hits, 0 once broken
     const float* brickRiseOffset;    // per brick: settle-in animation offset, in cells
-    const float* brickHitFlash;      // per brick: hit flash 0..1
+    const float* brickHitFlash;      // per brick: seconds of hit flash left (0.15 when just hit)
     const int32_t* aliveBricks;      // brick indices still on the board
     const int32_t* changedCells;     // padded cell indices dirtied since balls_session_clear_changed_cells()
     int32_t changedCellCount;
@@ -151,6 +151,19 @@ typedef struct BallsValidation {
     int32_t playable;
 } BallsValidation;
 
+// The game's gameplay layout for one frame size, in layout units (1 unit = 1 px at 1440x900). Computed by the core
+// so every front end lays out the same way: header, main board frame, interaction gadget and debug gadget.
+typedef struct BallsLayout {
+    float header[4];
+    float main[4];
+    float interaction[4];
+    float debug[4];
+    float boardOrigin[2];
+    float boardRect[4];
+    float cellSize;
+    int32_t portrait;
+} BallsLayout;
+
 typedef struct BallsEditorInfo {
     int32_t width;
     int32_t height;
@@ -178,6 +191,9 @@ BALLS_API void balls_set_plugin_directory(const char* directory);
 BALLS_API int32_t balls_last_error(char* buffer, int32_t size);
 
 BALLS_API float balls_render_pack_scale(float fieldExtent);
+
+BALLS_API void balls_compute_layout(float frameWidth, float frameHeight, int32_t boardColumns, int32_t boardRows,
+                                    int32_t orientation, int32_t launcherRows, BallsLayout* layout);
 
 BALLS_API int32_t balls_backend_available(int32_t kind);
 BALLS_API int32_t balls_backend_name(int32_t kind, char* buffer, int32_t size);
@@ -232,6 +248,13 @@ BALLS_API uint64_t balls_session_machine_ball_limit(const BallsSession* session)
 BALLS_API void balls_session_use_machine_ball_limit(BallsSession* session, uint64_t limit);
 BALLS_API void balls_session_fill_with_balls(BallsSession* session, uint64_t count);
 
+// Grid resolution the GPU backends sample when drawing millions of balls; without one they fall back to copying
+// every ball. Set it once after creating a session, to the render target's ball-area size in cells.
+BALLS_API void balls_session_set_visibility_grid(BallsSession* session, int32_t width, int32_t height);
+
+BALLS_API void balls_set_compute_gpu_preference(const char* preference);
+BALLS_API int32_t balls_compute_gpu_preference(char* buffer, int32_t size);
+
 BALLS_API void balls_session_set_ball_collisions(BallsSession* session, int32_t enabled);
 BALLS_API int32_t balls_session_ball_collisions(const BallsSession* session);
 BALLS_API int32_t balls_session_launch_balls(BallsSession* session, int32_t color, uint64_t count);
@@ -258,6 +281,11 @@ BALLS_API int32_t balls_editor_load_level(BallsEditor* editor, const char* level
 // Writes both files of a level back into its directory. Returns 0 on success.
 BALLS_API int32_t balls_editor_save_level(BallsEditor* editor, const char* levelDirectory);
 BALLS_API void balls_editor_info(const BallsEditor* editor, BallsEditorInfo* info);
+
+// Brick id under a cell, or -1; gives the editor a way to pick what the cursor is over.
+BALLS_API int32_t balls_editor_brick_at(const BallsEditor* editor, int32_t column, int32_t row);
+BALLS_API int32_t balls_editor_brick_color(const BallsEditor* editor, int32_t column, int32_t row);
+BALLS_API int32_t balls_editor_brick_hits(const BallsEditor* editor, int32_t column, int32_t row);
 
 BALLS_API void balls_editor_resize_board(BallsEditor* editor, int32_t width, int32_t height, int32_t playableHeight);
 BALLS_API void balls_editor_paint_cell(BallsEditor* editor, int32_t column, int32_t row, int32_t color, int32_t hits);
