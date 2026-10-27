@@ -25,6 +25,8 @@ constexpr double BrickDepthCells = 0.6;
 constexpr double BrickFlashPopCells = 0.25;
 constexpr double CellInset = 0.06;
 constexpr float MinimumBallPixels = 1.2f;
+// A visibility slot this many ball radii wide keeps one drawn ball per slot; matches the SDL frontend.
+constexpr float VisibilitySlotPerRadius = 1.6f;
 const TCHAR* CubePath = TEXT("/Engine/BasicShapes/Cube.Cube");
 const TCHAR* ShapeMaterialPath = TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial");
 
@@ -352,6 +354,16 @@ void FBallsBoardView::FrameCamera(const BrickBoard& Board, const FBallsGameplayL
 }
 
 void FBallsBoardView::SubmitBalls(Simulation& Sim, const FBallsGameplayLayout& Layout, float DpiScale) {
+    // Ask the backend for a screen-space visibility grid first: slots about 1.6 ball radii wide, so at most one
+    // ball is drawn per slot. At millions of balls the eye cannot see more than that, and the instance count
+    // collapses from the ball count to the number of slots (the same trick the SDL frontend uses).
+    const float CellPixels = Layout.CellSize * DpiScale;
+    const float SlotCells =
+        FMath::Max(Sim.tuning().ballRadius * VisibilitySlotPerRadius, 1.0f / FMath::Max(CellPixels, 1.0f));
+    const BrickBoard& Board = Sim.board();
+    Sim.backend().setVisibilityGrid(
+        FMath::CeilToInt(static_cast<float>(Board.columns()) / SlotCells),
+        FMath::CeilToInt(static_cast<float>(Board.rows()) / SlotCells));
     const BallSnapshot Snapshot = Sim.backend().snapshot();
     static bool bLoggedBalls = false;
     if (!bLoggedBalls) {
@@ -366,7 +378,6 @@ void FBallsBoardView::SubmitBalls(Simulation& Sim, const FBallsGameplayLayout& L
     Data.Packed.SetNumUninitialized(static_cast<int32>(Snapshot.count));
     FMemory::Memcpy(Data.Packed.GetData(), Snapshot.packed, Snapshot.count * sizeof(uint32));
     Data.UnpackScale = FVector2f(1.0f / renderPackScale(Snapshot.fieldWidth), 1.0f / renderPackScale(Snapshot.fieldHeight));
-    const float CellPixels = Layout.CellSize * DpiScale;
     Data.Radius = FMath::Max(Sim.tuning().ballRadius, MinimumBallPixels / FMath::Max(CellPixels, 1e-3f));
     Data.Brightness = BallBrightness;
     static float LastRadius = -1.0f;
