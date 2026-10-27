@@ -87,15 +87,17 @@ void GameSession::pumpCapacityProbe() {
         useMachineBallLimit(probe.bestPassingCount());
         return;
     }
-    scatterAcrossColors(addition);
+    launchAcrossColors(addition);
 }
 
-void GameSession::scatterAcrossColors(BallCount count) {
+// Probe and fill balls come out of the launch point like any released ball. Scattering them over the board put
+// about one in six inside a brick, where they showed until the next steps pushed them out.
+void GameSession::launchAcrossColors(BallCount count) {
     for (BallCount remaining = count; remaining > 0;) {
         const BallColor color = ballColorFromIndex(probeColorIndex % ballColorCount);
         probeColorIndex = (probeColorIndex + 1) % ballColorCount;
         const BallCount batch = std::min(remaining, static_cast<BallCount>(1 << 20));
-        physicsSimulation.scatterBalls(color, batch);
+        physicsSimulation.launchBalls(color, batch);
         remaining -= batch;
     }
 }
@@ -104,7 +106,7 @@ void GameSession::fillWithBalls(BallCount count) {
     probe.cancel();
     useMachineBallLimit(count);
     const BallCount live = physicsSimulation.liveBallCount();
-    scatterAcrossColors(count > live ? count - live : 0);
+    launchAcrossColors(count > live ? count - live : 0);
 }
 
 void GameSession::selectSpawnRate(int optionIndex) {
