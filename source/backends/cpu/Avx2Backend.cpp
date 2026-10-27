@@ -322,13 +322,15 @@ void Avx2Backend::step(const StepParams& params, std::vector<BallHit>& hits) {
         return;
     }
     store.speed = params.speed;
-    if (params.freeFlight) {
+    // Free flight only pays off when the visibility grid limits a frame to the sampled balls: placing every ball
+    // from the closed form costs more than the SIMD step, so without a grid the balls keep being stepped.
+    const bool gridded = store.prepareGrid();
+    if (params.freeFlight && gridded) {
         store.freeze(params.tick);
-        store.renderFreeFlight();
+        store.renderFreeFlightSample();
         return;
     }
     materializeFreeFlight();
-    store.prepareGrid();
     if (store.count <= ballsPerChunk) {
         stepRange(params, 0, store.count, hits);
         return;

@@ -100,6 +100,9 @@ std::vector<BallSpawn> flyOnEmptyBoard(BackendKind kind) {
     layout.cellIds.assign(static_cast<size_t>(fieldColumns), emptyBrickId);
     Simulation simulation(createBackend(kind));
     simulation.load(layout);
+    // Fewer slots than balls, as in a Performance game: backends only freeze while the grid samples a frame.
+    constexpr int visibilitySlotsPerSide = 16;
+    simulation.backend().setVisibilityGrid(visibilitySlotsPerSide, visibilitySlotsPerSide);
     simulation.scatterBalls(BallColor::Red, 3000);
     for (int frame = 0; frame < 90; ++frame) {
         simulation.tick(2);

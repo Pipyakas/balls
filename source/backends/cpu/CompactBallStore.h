@@ -57,7 +57,7 @@ struct CompactBallStore {
     size_t gridCellCount() const { return static_cast<size_t>(gridWidth) * static_cast<size_t>(gridHeight); }
     bool prepareGrid();
     void freeze(unsigned int epoch);
-    void renderFreeFlight();
+    void renderFreeFlightSample();
     void materializeRange(size_t begin, size_t end);
 
 private:

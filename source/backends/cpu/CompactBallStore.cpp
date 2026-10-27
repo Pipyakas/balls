@@ -217,15 +217,9 @@ void CompactBallStore::placeInGrid(uint32_t value) {
 
 // Only the bidders are needed to draw a frame, so whole chunks are sampled with the bidder stride: the cost
 // follows the visibility grid, not the ball count.
-void CompactBallStore::renderFreeFlight() {
+void CompactBallStore::renderFreeFlightSample() {
     constexpr size_t chunkBalls = 256;
     const unsigned int ticks = clockTick - freeFlightEpoch;
-    if (!prepareGrid()) {
-        for (size_t i = 0; i < count; ++i) {
-            packed[i] = packedInFlight(i, ticks);
-        }
-        return;
-    }
     const size_t stride = static_cast<size_t>(bidderMask) + 1;
     for (size_t chunk = frameSeed % stride; chunk * chunkBalls < count; chunk += stride) {
         const size_t end = std::min(count, (chunk + 1) * chunkBalls);
