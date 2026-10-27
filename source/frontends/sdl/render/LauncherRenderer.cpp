@@ -11,6 +11,20 @@ namespace {
 constexpr float gapShare = 0.18f;
 constexpr float maximumSlotSize = 110.0f;
 constexpr float backRowFade = 0.55f;
+constexpr float portraitLauncherFraction = 0.19f;
+constexpr float portraitLauncherMinimum = 120.0f;
+constexpr float portraitLauncherMaximum = 240.0f;
+
+void drawLauncherSlot(Rect rect, float slotSize, Color fill, const std::string& label, float labelSize) {
+    const float depth = slotSize * 0.1f;
+    gfx::fillRounded({rect.x, rect.y + depth, rect.width, rect.height - depth}, 0.22f,
+                     palette::shade(fill, 0.6f));
+    gfx::fillRounded({rect.x, rect.y, rect.width, rect.height - depth}, 0.22f, fill);
+    const Rect labelRect{rect.x, rect.y, rect.width, rect.height - depth};
+    ui::drawTextInRect(label, {labelRect.x + 2.0f, labelRect.y + 2.0f, labelRect.width, labelRect.height},
+                       labelSize, palette::shade(fill, 0.45f));
+    ui::drawTextInRect(label, labelRect, labelSize, palette::textStrong);
+}
 
 std::string compactCount(int count) {
     if (count >= 1000000) {
@@ -22,11 +36,11 @@ std::string compactCount(int count) {
     return std::to_string(count);
 }
 
-}
+} // namespace
 
 Rect LauncherGridLayout::slotRect(int column, float row) const {
-    return {origin.x + static_cast<float>(column) * (slotSize + gap), origin.y + row * (slotSize + gap), slotSize,
-            slotSize};
+    return {origin.x + static_cast<float>(column) * (slotSize + gap), origin.y + row * (slotSize + gap),
+            slotSize, slotSize};
 }
 
 LauncherGridLayout computeLauncherGrid(Rect area, int columns, int visibleRows) {
@@ -42,6 +56,27 @@ LauncherGridLayout computeLauncherGrid(Rect area, int columns, int visibleRows) 
     const float gridHeight = safeRows * grid.slotSize + (safeRows - 1.0f) * grid.gap;
     grid.origin = {area.x + (area.width - gridWidth) * 0.5f, area.y + (area.height - gridHeight) * 0.5f};
     return grid;
+}
+
+LauncherGridLayout computePortraitLauncherRow(Rect area, int columns) {
+    LauncherGridLayout grid;
+    grid.area = area;
+    grid.slotSize =
+        std::clamp(area.width * portraitLauncherFraction, portraitLauncherMinimum, portraitLauncherMaximum);
+    grid.slotSize = std::min(grid.slotSize, std::max(area.height, 1.0f));
+    grid.gap = grid.slotSize * gapShare;
+    grid.origin = {area.x, area.y + (area.height - grid.slotSize) * 0.5f};
+    (void)columns;
+    return grid;
+}
+
+bool portraitSlotVisible(Rect rect, Rect area) {
+    return rect.x + rect.width > area.x && rect.x < area.x + area.width;
+}
+
+Rect portraitSlotRect(const LauncherGridLayout& grid, int column, float scroll) {
+    return {grid.origin.x + static_cast<float>(column) * (grid.slotSize + grid.gap) - scroll, grid.origin.y,
+            grid.slotSize, grid.slotSize};
 }
 
 void drawLaunchers(const LauncherQueue& queue, const LauncherGridLayout& grid, bool interactive) {
@@ -61,26 +96,60 @@ void drawLaunchers(const LauncherQueue& queue, const LauncherGridLayout& grid, b
             if (hovered) {
                 fill = palette::shade(fill, 1.2f);
             }
-            const float depth = grid.slotSize * 0.1f;
-            gfx::fillRounded({rect.x, rect.y + depth, rect.width, rect.height - depth}, 0.22f, palette::shade(fill, 0.6f));
-            gfx::fillRounded({rect.x, rect.y, rect.width, rect.height - depth}, 0.22f, fill);
-            const Rect labelRect{rect.x, rect.y, rect.width, rect.height - depth};
-            const float labelSize = grid.slotSize * 0.36f;
-            const std::string label = compactCount(queued->launcher.ballCount);
-            ui::drawTextInRect(label, {labelRect.x + 2.0f, labelRect.y + 2.0f, labelRect.width, labelRect.height},
-                               labelSize, palette::shade(fill, 0.45f));
-            ui::drawTextInRect(label, labelRect, labelSize, palette::textStrong);
+            drawLauncherSlot(rect, grid.slotSize, fill, compactCount(queued->launcher.ballCount),
+                             grid.slotSize * 0.36f);
         }
     }
+}
+
+void drawPortraitLaunchers(const LauncherQueue& queue, const LauncherGridLayout& grid, float scroll,
+                           bool interactive) {
+    const Vec2 mouse = input::mousePosition();
+    for (int column = 0; column < queue.columnCount(); ++column) {
+        const QueuedLauncher* queued = queue.visible(column, 0);
+        if (!queued) {
+            continue;
+        }
+        const Rect rect = portraitSlotRect(grid, column, scroll);
+        if (!portraitSlotVisible(rect, grid.area)) {
+            continue;
+        }
+        Color fill = palette::ballColor(queued->launcher.color);
+        const bool hovered = interactive && pointInRect(mouse, rect);
+        if (hovered) {
+            fill = palette::shade(fill, 1.2f);
+        }
+        drawLauncherSlot(rect, grid.slotSize, fill, compactCount(queued->launcher.ballCount),
+                         grid.slotSize * 0.36f);
+    }
+}
+
+float portraitRowWidth(const LauncherQueue& queue, const LauncherGridLayout& grid) {
+    if (queue.columnCount() == 0) {
+        return 0.0f;
+    }
+    return static_cast<float>(queue.columnCount()) * (grid.slotSize + grid.gap) - grid.gap;
 }
 
 LauncherSlotHit findLauncherAt(const LauncherQueue& queue, const LauncherGridLayout& grid, Vec2 point) {
     for (int column = 0; column < queue.columnCount(); ++column) {
         for (int row = 0; row < queue.visibleRows(); ++row) {
             const QueuedLauncher* queued = queue.visible(column, row);
-            if (queued && pointInRect(point, grid.slotRect(column, static_cast<float>(row) + queued->riseOffset))) {
+            if (queued &&
+                pointInRect(point, grid.slotRect(column, static_cast<float>(row) + queued->riseOffset))) {
                 return {column, row};
             }
+        }
+    }
+    return {};
+}
+
+LauncherSlotHit findPortraitLauncherAt(const LauncherQueue& queue, const LauncherGridLayout& grid,
+                                       float scroll, Vec2 point) {
+    for (int column = 0; column < queue.columnCount(); ++column) {
+        const QueuedLauncher* queued = queue.visible(column, 0);
+        if (queued && pointInRect(point, portraitSlotRect(grid, column, scroll))) {
+            return {column, 0};
         }
     }
     return {};
