@@ -16,9 +16,12 @@
 
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <format>
 
 namespace {
+
+constexpr float controlsScrollStep = 40.0f;
 
 constexpr float toastSeconds = 3.0f;
 constexpr float mainSectionCornerRadius = 0.0f;
@@ -28,6 +31,13 @@ constexpr float controlRowHeight = 44.0f;
 constexpr float controlGap = 10.0f;
 constexpr float groupLabelHeight = 26.0f;
 constexpr float groupGap = 14.0f;
+constexpr float minimumControlColumnWidth = 220.0f;
+constexpr float controlColumnGap = 16.0f;
+constexpr float scrollbarGutter = 10.0f;
+
+float listHeight(size_t rows) {
+    return (controlRowHeight + controlGap) * static_cast<float>(rows) - controlGap;
+}
 
 constexpr double millisecondsPerSecond = 1000.0;
 constexpr int minimumProbeTargetFps = 10;
@@ -101,8 +111,10 @@ void GameplayScreen::refreshSettings() {
 }
 
 void GameplayScreen::loadSession() {
+    diskState = DiskState::Unchanged;
     auto level = loadLevel(files);
     if (!level) {
+        session.reset();
         loadError = level.error();
         return;
     }
@@ -141,32 +153,81 @@ void GameplayScreen::rememberFinishedProbe() {
     }
 }
 
-void GameplayScreen::hotReload() {
-    auto level = loadLevel(files);
-    if (!level) {
-        showToast("Reload failed: " + level.error(), true);
-        return;
-    }
-    if (session) {
-        session->reload(std::move(*level));
-    } else {
-        loadError.clear();
-        session = std::make_unique<GameSession>(mode, std::move(*level), app.preferredBackend());
-    }
+void GameplayScreen::noticeDiskChange() {
+    const bool present = std::filesystem::exists(files.bricksPath) && std::filesystem::exists(files.launchersPath);
+    diskState = present ? DiskState::Changed : DiskState::Removed;
+}
+
+void GameplayScreen::restartLevel() {
     paused = false;
-    showToast("Reloaded " + files.name, false);
+    if (diskState == DiskState::Removed) {
+        app.showLevelSelect(mode);
+    } else if (diskState == DiskState::Changed) {
+        loadSession();
+    } else {
+        session->restart();
+    }
+}
+
+std::string_view GameplayScreen::diskNotice() const {
+    switch (diskState) {
+    case DiskState::Changed:
+        return "Map changed on disk - Restart to load it";
+    case DiskState::Removed:
+        return "Map removed from disk - Restart unavailable";
+    case DiskState::Unchanged:
+        break;
+    }
+    return {};
 }
 
 void GameplayScreen::showToast(std::string text, bool isError) {
     toast = {std::move(text), toastSeconds, isError};
 }
 
+float portraitLauncherPressSlop() {
+    return 8.0f;
+}
+
+float clampPortraitScroll(float scroll, float rowWidth, float areaWidth) {
+    const float overflow = rowWidth - areaWidth;
+    if (overflow <= 0.0f) {
+        return 0.0f;
+    }
+    return std::clamp(scroll, 0.0f, overflow);
+}
+
 void GameplayScreen::handleLauncherClick(const GameplayLayout& layout) {
-    if (mode != GameMode::Normal || !input::mousePressed(input::MouseButton::Left)) {
+    if (mode != GameMode::Normal) {
+        portraitPressing = false;
+        portraitDragged = false;
+        return;
+    }
+    if (input::mouseReleased(input::MouseButton::Left) && portraitPressing && layout.isPortrait) {
+        const Vec2 released = input::mousePosition();
+        if (!portraitDragged && pointInRect(released, layout.interactionSection)) {
+            const LauncherGridLayout grid = computePortraitLauncherRow(
+                ui::shrink(layout.interactionSection, 12.0f), session->launchers().columnCount());
+            const LauncherSlotHit hit =
+                findPortraitLauncherAt(session->launchers(), grid, portraitLauncherScroll, released);
+            if (hit.column >= 0) {
+                session->chooseLauncher(hit.column, hit.row);
+            }
+        }
+        portraitPressing = false;
+        portraitDragged = false;
+    }
+    if (!input::mousePressed(input::MouseButton::Left)) {
         return;
     }
     const Vec2 mouse = input::mousePosition();
     if (!pointInRect(mouse, layout.interactionSection)) {
+        return;
+    }
+    if (layout.isPortrait) {
+        portraitPressing = true;
+        portraitDragged = false;
+        portraitPressStart = mouse;
         return;
     }
     const LauncherGridLayout grid =
@@ -181,7 +242,11 @@ void GameplayScreen::handleLauncherClick(const GameplayLayout& layout) {
 void GameplayScreen::update(float deltaTime) {
     toast.secondsLeft = std::max(0.0f, toast.secondsLeft - deltaTime);
     if (watcher.pollChanged(std::chrono::steady_clock::now())) {
-        hotReload();
+        if (session) {
+            noticeDiskChange();
+        } else {
+            loadSession();
+        }
     }
     if (!session) {
         if (input::keyPressed(SDL_SCANCODE_ESCAPE)) {
@@ -220,9 +285,19 @@ void GameplayScreen::drawHeader(const GameplayLayout& layout) {
     const Rect pauseRect{layout.header.x + layout.header.width - 110.0f, layout.header.y + 8.0f, 100.0f,
                          layout.header.height - 16.0f};
     const Rect titleRect{layout.header.x + 14.0f, layout.header.y, pauseRect.x - layout.header.x - 24.0f,
-                         layout.header.height};
-    ui::drawTextInRect(std::format("{} - {}", modeName, files.name), titleRect, 22.0f, palette::text,
-                       ui::Align::Left);
+                              layout.header.height};
+    const std::string title = std::format("{} - {}", modeName, files.name);
+    const std::string_view notice = diskNotice();
+    if (notice.empty()) {
+        ui::drawTextInRect(title, titleRect, 22.0f, palette::text, ui::Align::Left);
+    } else {
+        const float halfHeight = titleRect.height * 0.5f;
+        ui::drawTextInRect(title, {titleRect.x, titleRect.y + 4.0f, titleRect.width, halfHeight - 4.0f}, 18.0f,
+                           palette::text, ui::Align::Left);
+        const float noticeSize = std::min(15.0f, 15.0f * titleRect.width / std::max(ui::measureText(notice, 15.0f).x, 1.0f));
+        ui::drawTextInRect(notice, {titleRect.x, titleRect.y + halfHeight, titleRect.width, halfHeight - 4.0f},
+                           noticeSize, palette::accent, ui::Align::Left);
+    }
     if (ui::button(pauseRect, paused ? "Resume" : "Pause")) {
         paused = !paused;
     }
@@ -237,6 +312,71 @@ void GameplayScreen::drawMainSection(const GameplayLayout& layout) {
     drawLaunchPoint({simulation.launchX(), simulation.launchY()}, layout.board);
     app.ballRenderer().draw(session->simulation().backend(), layout.board, simulation.tuning().ballRadius);
     gfx::endClip();
+}
+
+namespace {
+
+// Menu label for an adapter: the vendor prefix adds width, not information.
+std::string shortAdapterName(const GpuAdapterInfo& adapter) {
+    std::string name = adapter.name;
+    for (const std::string_view prefix : {"NVIDIA GeForce ", "NVIDIA ", "AMD Radeon(TM) ", "AMD Radeon ", "AMD ",
+                                          "Intel(R) ", "Microsoft "}) {
+        if (name.starts_with(prefix)) {
+            name.erase(0, prefix.size());
+            break;
+        }
+    }
+    if (adapter.kind == GpuKind::Software) {
+        name += " (CPU)";
+    } else if (adapter.kind == GpuKind::Integrated) {
+        name += " (iGPU)";
+    }
+    return name;
+}
+
+}
+
+void GameplayScreen::selectComputeAdapter(int adapter) {
+    setComputeGpuPreference(std::to_string(adapter));
+    if (session->backend() == BackendKind::Vulkan && session->switchBackend(BackendKind::Vulkan)) {
+        showToast("Vulkan physics on " + app.computeAdapters()[static_cast<size_t>(adapter)].name, false);
+    }
+}
+
+std::vector<int> GameplayScreen::renderAdapterChoices() const {
+    std::vector<int> choices;
+    for (int i = 0; i < static_cast<int>(app.renderAdapters().size()); ++i) {
+        if (app.renderAdapters()[static_cast<size_t>(i)].usableForRender()) {
+            choices.push_back(i);
+        }
+    }
+    return choices;
+}
+
+std::vector<int> GameplayScreen::computeAdapterChoices() const {
+    std::vector<int> choices;
+    for (int i = 0; i < static_cast<int>(app.computeAdapters().size()); ++i) {
+        if (app.computeAdapters()[static_cast<size_t>(i)].usableForCompute()) {
+            choices.push_back(i);
+        }
+    }
+    return choices;
+}
+
+void GameplayScreen::drawAdapterList(Rect area, const std::vector<GpuAdapterInfo>& adapters,
+                                     std::span<const int> choices, int selected, bool forCompute) {
+    float cursor = area.y;
+    for (const int adapter : choices) {
+        if (ui::button({area.x, cursor, area.width, controlRowHeight},
+                       shortAdapterName(adapters[static_cast<size_t>(adapter)]), true, selected == adapter)) {
+            if (forCompute) {
+                selectComputeAdapter(adapter);
+            } else {
+                app.requestRenderAdapter(adapter);
+            }
+        }
+        cursor += controlRowHeight + controlGap;
+    }
 }
 
 void GameplayScreen::drawBackendList(Rect area, BackendKind selected) {
@@ -260,9 +400,7 @@ int GameplayScreen::drawOptionDropdown(Rect area, std::string_view current,
                                        std::span<const std::string> options, int selected, bool& open) {
     const Rect row{area.x, area.y, area.width, controlRowHeight};
     int picked = -1;
-    if (ui::dropdown(row, current, open)) {
-        open = !open;
-    }
+    ui::dropdown(row, current, open);
     float cursor = area.y + controlRowHeight + controlGap;
     if (open) {
         const Rect list{area.x, area.y, area.width, cursor - area.y};
@@ -283,33 +421,24 @@ int GameplayScreen::drawOptionDropdown(Rect area, std::string_view current,
     return picked;
 }
 
-float GameplayScreen::performanceContentHeight() const {
-    constexpr size_t dropdownOptions = 6;
-    float height = 0.0f;
-    height += groupLabelHeight + controlRowHeight + groupGap;
-    height += groupLabelHeight + controlRowHeight * 2.0f + controlGap + groupGap;
-    height += groupLabelHeight + controlRowHeight + groupGap;
-    height += groupLabelHeight + controlRowHeight + groupGap;
-    height += groupLabelHeight + controlRowHeight + groupGap;
-    height +=
-        groupLabelHeight + (controlRowHeight + controlGap) * allBackendKinds.size() - controlGap + groupGap;
-    if (spawnDropdownOpen || countDropdownOpen || limitDropdownOpen) {
-        height += (controlRowHeight + controlGap) * dropdownOptions;
-    }
-    return height;
-}
-
 void GameplayScreen::drawPerformanceControls(Rect area) {
     const Rect inner = ui::shrink(area, 14.0f);
     float visibleHeight = 0.0f;
-    ui::scrollFrame(inner, controlsScroll, performanceContentHeight(), visibleHeight);
+    ui::scrollFrame(inner, controlsScroll, performanceControlsHeight, visibleHeight);
     gfx::beginClip(inner);
-    const Rect scrolled{inner.x, inner.y - controlsScroll, inner.width, performanceContentHeight()};
-    float cursor = scrolled.y;
+    const float top = inner.y - controlsScroll;
+    const float contentWidth = inner.width - scrollbarGutter;
+    const int columnCount = contentWidth >= minimumControlColumnWidth * 2.0f + controlColumnGap ? 2 : 1;
+    const float columnWidth = (contentWidth - controlColumnGap * static_cast<float>(columnCount - 1)) /
+                              static_cast<float>(columnCount);
+    std::array<float, 2> columnCursors{top, top};
     auto group = [&](const char* label, float contentHeight) {
-        ui::drawText(label, {scrolled.x, cursor}, 20.0f, palette::textMuted);
+        const size_t column = columnCount == 1 || columnCursors[0] <= columnCursors[1] ? 0 : 1;
+        float& cursor = columnCursors[column];
+        const float x = inner.x + static_cast<float>(column) * (columnWidth + controlColumnGap);
+        ui::drawText(label, {x, cursor}, 20.0f, palette::textMuted);
         cursor += groupLabelHeight;
-        const Rect rows{scrolled.x, cursor, scrolled.width, contentHeight};
+        const Rect rows{x, cursor, columnWidth, contentHeight};
         cursor += contentHeight + groupGap;
         return rows;
     };
@@ -390,6 +519,17 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
 
     const float backendHeight = (controlRowHeight + controlGap) * allBackendKinds.size() - controlGap;
     drawBackendList(group("Physics", backendHeight), session->backend());
+
+    if (const std::vector<int> choices = renderAdapterChoices(); !choices.empty()) {
+        drawAdapterList(group("Render GPU", listHeight(choices.size())), app.renderAdapters(), choices,
+                        app.renderAdapterIndex(), false);
+    }
+    if (const std::vector<int> choices = computeAdapterChoices(); !choices.empty()) {
+        drawAdapterList(group("Compute GPU (Vulkan backend)", listHeight(choices.size())), app.computeAdapters(),
+                        choices, selectGpuAdapter(app.computeAdapters(), computeGpuPreference(), GpuRole::Compute),
+                        true);
+    }
+    performanceControlsHeight = std::max(columnCursors[0], columnCursors[1]) - top - groupGap;
     gfx::endClip();
 }
 
@@ -399,10 +539,53 @@ float GameplayScreen::normalContentHeight() const {
            (controlRowHeight + controlGap) * allBackendKinds.size() - controlGap;
 }
 
+void GameplayScreen::drawPortraitLauncherRow(Rect area) {
+    constexpr float wheelStep = 40.0f;
+    constexpr float barHeight = 4.0f;
+    const Rect inner = ui::shrink(area, 12.0f);
+    const LauncherGridLayout grid = computePortraitLauncherRow(inner, session->launchers().columnCount());
+    const float rowWidth = portraitRowWidth(session->launchers(), grid);
+    if (pointInRect(input::mousePosition(), inner)) {
+        portraitLauncherScroll = clampPortraitScroll(portraitLauncherScroll - input::wheelMove() * wheelStep,
+                                                     rowWidth, inner.width);
+    }
+    if (portraitPressing && input::mouseDown(input::MouseButton::Left) &&
+        pointInRect(input::mousePosition(), inner)) {
+        const Vec2 mouse = input::mousePosition();
+        const float dragged =
+            std::abs(mouse.x - portraitPressStart.x) + std::abs(mouse.y - portraitPressStart.y);
+        if (dragged > portraitLauncherPressSlop()) {
+            portraitDragged = true;
+        }
+        if (portraitDragged) {
+            portraitLauncherScroll = clampPortraitScroll(
+                portraitLauncherScroll - (mouse.x - portraitPressStart.x), rowWidth, inner.width);
+            portraitPressStart = mouse;
+        }
+    }
+    gfx::beginClip(inner);
+    drawPortraitLaunchers(session->launchers(), grid, portraitLauncherScroll,
+                          !paused && session->state() == SessionState::Running);
+    if (session->launchers().isEmpty()) {
+        ui::drawTextInRect("All launchers released", inner, 26.0f, palette::textMuted);
+    }
+    gfx::endClip();
+    const float overflow = rowWidth - inner.width;
+    if (overflow > 0.0f) {
+        const float barWidth = std::max(24.0f, inner.width * inner.width / rowWidth);
+        const float barX = inner.x + portraitLauncherScroll / overflow * (inner.width - barWidth);
+        gfx::fillRect({barX, inner.y + inner.height - barHeight, barWidth, barHeight}, palette::frame);
+    }
+}
+
 void GameplayScreen::drawInteractionSection(const GameplayLayout& layout) {
     ui::drawPanel(layout.interactionSection, palette::panel, 0.05f);
     if (mode == GameMode::Performance) {
         drawPerformanceControls(layout.interactionSection);
+        return;
+    }
+    if (layout.isPortrait) {
+        drawPortraitLauncherRow(layout.interactionSection);
         return;
     }
     drawNormalControls(layout.interactionSection);
@@ -413,7 +596,7 @@ void GameplayScreen::drawNormalControls(Rect area) {
     float visibleHeight = 0.0f;
     ui::scrollFrame(inner, normalScroll, normalContentHeight(), visibleHeight);
     gfx::beginClip(inner);
-    const float width = inner.width;
+    const float width = inner.width - scrollbarGutter;
     float cursor = inner.y - normalScroll;
     const Rect launcherArea{inner.x, cursor, width, 320.0f};
     const LauncherGridLayout grid =
@@ -447,9 +630,13 @@ void GameplayScreen::drawOverlay() {
         const Rect panel{(width - settingsPanelWidth) * 0.5f, (height - settingsPanelHeight) * 0.5f,
                          settingsPanelWidth, settingsPanelHeight};
         ui::drawPanel(panel, palette::panel, 0.08f);
-        const SettingsPanelEdit edit = drawSettingsPanel(panel, app.settings(), app.preferredBackend());
+        const SettingsPanelEdit edit = drawSettingsPanel(panel, app.settings(), app.preferredBackend(),
+                                                         app.benchmarkScores(), pauseSettingsScroll);
         if (edit.changed) {
             app.applySettings(edit.settings, edit.backend);
+        }
+        if (edit.runBenchmark) {
+            app.showMachineBenchmark();
         }
         if (edit.backPressed) {
             settingsOpen = false;
@@ -475,8 +662,7 @@ void GameplayScreen::drawOverlay() {
         }
     }
     if (ui::button(overlayButton(1), "Restart")) {
-        session->restart();
-        paused = false;
+        restartLevel();
     }
     if (ui::button(overlayButton(2), "Settings")) {
         settingsOpen = true;
@@ -516,9 +702,16 @@ void GameplayScreen::draw() {
         session->simulation().board().columns(), session->simulation().board().rows(), app.settings().layout,
         mode == GameMode::Normal);
     drawHeader(layout);
+    if (layout.isPortrait) {
+        ui::drawPanel(layout.topGadget, palette::panel, 0.25f);
+        drawHeader(layout);
+        drawPortraitDebugStrip(layout.debugSection, *session, app.frameTimings());
+    }
     drawMainSection(layout);
     drawInteractionSection(layout);
-    drawDebugPanel(layout.debugSection, *session, app.frameTimings(), debugState);
+    if (!layout.isPortrait) {
+        drawDebugPanel(layout.debugSection, *session, app.frameTimings(), debugState);
+    }
     drawOverlay();
     drawToast();
 }
@@ -551,14 +744,13 @@ std::string GameplayScreen::stateJson() const {
     constexpr std::array<const char*, 3> stateNames{"ready", "running", "won"};
     const CapacityProbe& probe = session->capacityProbe();
     return std::format(
-        "{{\"mode\":\"{}\",\"level\":\"{}\",\"state\":\"{}\",\"paused\":{},\"backend\":\"{}\","
-        "\"backendFault\":\"{}\","
+        "{{\"mode\":\"{}\",\"level\":\"{}\",\"diskNotice\":\"{}\",\"state\":\"{}\",\"paused\":{},\"backend\":\"{}\",\"backendFault\":\"{}\","
         "\"balls\":{},\"bricks\":{},\"launchersLeft\":{},\"pendingSpawn\":{},\"spawned\":{},\"hits\":{},"
         "\"physicsMs\":{:.3f},\"kernelMs\":{:.3f},\"ticks\":{},\"spawnRate\":{},\"multiplier\":{},"
         "\"ballLimit\":{},\"elapsed\":{:.2f},"
         "\"probe\":{{\"phase\":\"{}\",\"target\":{:.0f},\"fps\":{:.1f},\"best\":{}}},"
         "\"ballsByColor\":{{{}}},\"launchers\":[{}]}}",
-        mode == GameMode::Normal ? "normal" : "performance", jsonEscape(files.name),
+        mode == GameMode::Normal ? "normal" : "performance", jsonEscape(files.name), diskNotice(),
         stateNames[static_cast<int>(session->state())], paused, backendKindName(session->backend()),
         jsonEscape(session->lastBackendFault()), stats.ballCount, simulation.board().aliveBrickCount(),
         launchers.launcherCount(), session->spawner().pendingBalls(), stats.totalBallsSpawned,
@@ -626,9 +818,16 @@ std::optional<ControlResponse> GameplayScreen::handleControl(const ControlReques
         paused = false;
         return done;
     }
+    if (path == "/compute-gpu") {
+        const auto index = request.integer("index");
+        if (!index || *index < 0 || *index >= static_cast<long long>(app.computeAdapters().size())) {
+            return ControlResponse::error(400, "index must name a Vulkan adapter");
+        }
+        selectComputeAdapter(static_cast<int>(*index));
+        return done;
+    }
     if (path == "/restart") {
-        session->restart();
-        paused = false;
+        restartLevel();
         return done;
     }
     return std::nullopt;

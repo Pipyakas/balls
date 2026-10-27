@@ -8,6 +8,7 @@
 #include "render/Palette.h"
 #include "screens/GameplayScreen.h"
 #include "screens/LevelSelectScreen.h"
+#include "screens/MachineBenchmarkScreen.h"
 #include "screens/MainMenuScreen.h"
 #include "screens/SettingsScreen.h"
 #include "ui/Painter.h"
@@ -37,6 +38,12 @@ constexpr float fontLoadPixels = 32.0f;
 constexpr float channelScale = 1.0f / 255.0f;
 constexpr const char* windowTitle = "Balls";
 constexpr const char* screenshotExtension = ".bmp";
+constexpr float toastSeconds = 3.0f;
+constexpr char importPathSeparator = '|';
+constexpr float toastTextSize = 24.0f;
+constexpr float toastHeight = 48.0f;
+constexpr float toastPadding = 20.0f;
+constexpr float toastMargin = 24.0f;
 
 double millisecondsBetween(std::chrono::steady_clock::time_point start,
                            std::chrono::steady_clock::time_point end) {
@@ -50,6 +57,23 @@ std::optional<LevelFiles> findLevel(GameMode mode, std::string_view name) {
         }
     }
     return std::nullopt;
+}
+
+std::string_view gameVersion() {
+    const char* version = SDL_GetAppMetadataProperty(SDL_PROP_APP_METADATA_VERSION_STRING);
+    return version ? version : "";
+}
+
+// The command line wins, then the Settings default (the benchmark winner or the player's pick), then the fastest CPU
+// backend, skipping any that cannot load on this machine.
+BackendKind startupBackend(std::optional<BackendKind> commandLine, std::string_view settingsDefault) {
+    if (commandLine && isBackendAvailable(*commandLine)) {
+        return *commandLine;
+    }
+    if (const auto saved = parseBackendKind(settingsDefault); saved && isBackendAvailable(*saved)) {
+        return *saved;
+    }
+    return fastestAvailableCpuBackend();
 }
 
 std::string screenshotFileFor(const std::string& requested) {
@@ -99,11 +123,54 @@ bool App::openWindowAndRenderer(const LaunchOptions& options, std::string_view a
         return false;
     }
     SDL_SetWindowMinimumSize(window, minimumWindowWidth, minimumWindowHeight);
-    renderer = createRenderer(window, api, error);
-    if (renderer != nullptr) {
-        applyOrientationToWindow();
+    renderer = createRenderer(window, api, options.gpu, error);
+    if (!renderer) {
+        return false;
     }
-    return renderer != nullptr;
+    activeGraphicsApi = std::string(api);
+    renderGpuPreference = options.gpu;
+#if defined(_WIN32)
+    const GpuApi adapterApi = api == "vulkan" ? GpuApi::Vulkan : GpuApi::D3d12;
+#else
+    const GpuApi adapterApi = GpuApi::Vulkan;
+#endif
+    renderAdapterList = enumerateGpuAdapters(adapterApi);
+    activeRenderAdapter = selectGpuAdapter(renderAdapterList, renderGpuPreference, GpuRole::Render);
+    applyOrientationToWindow();
+    return true;
+}
+
+void App::applyPendingRenderAdapter() {
+    if (!pendingRenderAdapter) {
+        return;
+    }
+    const int wanted = *pendingRenderAdapter;
+    pendingRenderAdapter.reset();
+    if (wanted == activeRenderAdapter || wanted < 0 || wanted >= static_cast<int>(renderAdapterList.size())) {
+        return;
+    }
+    const bool vsync = isVsyncEnabled();
+    const std::string previousPreference = renderGpuPreference;
+    const std::string wantedPreference = std::to_string(wanted);
+    balls.reset();
+    renderer.reset();
+    std::string error;
+    renderer = createRenderer(window, activeGraphicsApi, wantedPreference, error);
+    if (renderer) {
+        renderGpuPreference = wantedPreference;
+        activeRenderAdapter = wanted;
+        SDL_Log("Rendering on %s", renderAdapterList[static_cast<size_t>(wanted)].name.c_str());
+    } else {
+        std::string ignored;
+        renderer = createRenderer(window, activeGraphicsApi, previousPreference, ignored);
+        SDL_Log("Could not render on %s: %s", renderAdapterList[static_cast<size_t>(wanted)].name.c_str(), error.c_str());
+    }
+    if (!renderer) {
+        running = false;
+        return;
+    }
+    balls = std::make_unique<BallView>(*renderer);
+    setVsync(vsync);
 }
 
 void App::applyOrientationToWindow() {
@@ -168,17 +235,23 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
     }
     balls = std::make_unique<BallView>(*renderer);
     profile.load();
+    setComputeGpuPreference(options.computeGpu);
+    computeAdapterList = enumerateGpuAdapters(GpuApi::Vulkan);
     currentSettings = loadSettings(settingsFilePath());
     applyOrientationHint(currentSettings.layout);
     setVsync(options.vsync || currentSettings.vsync);
-    backendChoice = options.backend && isBackendAvailable(*options.backend) ? *options.backend
-                                                                            : fastestAvailableCpuBackend();
+    backendChoice = startupBackend(options.backend, currentSettings.defaultBackend);
     if (options.controlPort > 0) {
         controlServer.start(options.controlPort);
     }
     const auto startLevel = options.playMode ? findLevel(*options.playMode, options.playLevel) : std::nullopt;
+    const bool backendChosenOnCommandLine = options.playMode || options.backend;
+    const std::optional<BenchmarkRecord>& stored = profile.benchmark();
     if (startLevel) {
         startGame(*options.playMode, *startLevel);
+    } else if (!options.skipBenchmark && !backendChosenOnCommandLine &&
+               benchmarkNeeded(stored, currentHardwareFingerprint(gameVersion()))) {
+        showMachineBenchmark();
     } else {
         showMainMenu();
     }
@@ -192,7 +265,91 @@ void App::handleEvent(const SDL_Event& event) {
     input::handleEvent(event);
     if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
         running = false;
+    } else if (event.type == SDL_EVENT_DROP_BEGIN) {
+        droppedPaths.clear();
+    } else if (event.type == SDL_EVENT_DROP_FILE && event.drop.data) {
+        droppedPaths.push_back(pathFromUtf8(event.drop.data));
+    } else if (event.type == SDL_EVENT_DROP_COMPLETE && !droppedPaths.empty()) {
+        deliverImport(std::move(droppedPaths));
+        droppedPaths.clear();
     }
+}
+
+void App::showToast(std::string text, bool isError) { toast = {std::move(text), toastSeconds, isError}; }
+
+void App::deliverImport(std::vector<std::filesystem::path> paths) {
+    if (!currentScreen || !currentScreen->importLevels(paths)) {
+        showToast("Open Level select to import levels", false);
+    }
+}
+
+// SDL may call this from its own dialog thread, so the result is only queued here and handed to the screen on
+// the next frame.
+void App::receiveImportDialogResult(void* userdata, const char* const* fileList, int) {
+    App& app = *static_cast<App*>(userdata);
+    std::lock_guard lock(app.dialogMutex);
+    if (!fileList) {
+        app.dialogErrors.push_back(SDL_GetError());
+        return;
+    }
+    std::vector<std::filesystem::path> picked;
+    for (const char* const* file = fileList; *file; ++file) {
+        picked.push_back(pathFromUtf8(*file));
+    }
+    if (!picked.empty()) {
+        app.finishedDialogs.push_back(std::move(picked));
+    }
+}
+
+void App::openLevelImportDialog(const std::filesystem::path& startFolder) {
+    static const SDL_DialogFileFilter levelFilter{"Level files (*_Bricks.txt, *_SpawnBall.txt)", "txt"};
+    const std::string location = utf8Of(startFolder);
+    SDL_ShowOpenFileDialog(&App::receiveImportDialogResult, this, window, &levelFilter, 1, location.c_str(), true);
+}
+
+void App::deliverFinishedDialogs() {
+    std::vector<std::vector<std::filesystem::path>> picked;
+    std::vector<std::string> errors;
+    {
+        std::lock_guard lock(dialogMutex);
+        picked.swap(finishedDialogs);
+        errors.swap(dialogErrors);
+    }
+    for (const std::string& error : errors) {
+        showToast("Import failed: " + error, true);
+    }
+    for (auto& paths : picked) {
+        deliverImport(std::move(paths));
+    }
+}
+
+void App::openFolder(const std::filesystem::path& folder) {
+    std::error_code error;
+    std::filesystem::create_directories(folder, error);
+    std::string url = "file:///";
+    const std::u8string genericPath = folder.lexically_normal().generic_u8string();
+    for (const char8_t unit : genericPath) {
+        const char character = static_cast<char>(unit);
+        url += character == ' ' ? std::string("%20") : std::string(1, character);
+    }
+    if (!SDL_OpenURL(url.c_str())) {
+        showToast(std::format("Could not open {}: {}", utf8Of(folder), SDL_GetError()), true);
+    }
+}
+
+void App::drawToast() {
+    toast.secondsLeft = std::max(0.0f, toast.secondsLeft - frameSeconds);
+    if (toast.secondsLeft <= 0.0f) {
+        return;
+    }
+    const float alpha = std::min(1.0f, toast.secondsLeft);
+    const float maximumWidth = static_cast<float>(gfx::screenWidth()) - 2.0f * toastMargin;
+    const float size = std::min(toastTextSize, toastTextSize * maximumWidth / std::max(ui::measureText(toast.text, toastTextSize).x, 1.0f));
+    const Vec2 extent = ui::measureText(toast.text, size);
+    const Rect rect{(static_cast<float>(gfx::screenWidth()) - extent.x) * 0.5f - toastPadding, currentScreen->toastTop(),
+                    extent.x + 2.0f * toastPadding, toastHeight};
+    ui::drawPanel(rect, gfx::fade(toast.isError ? palette::danger : palette::panelLight, alpha), 0.4f);
+    ui::drawTextInRect(toast.text, rect, size, gfx::fade(palette::text, alpha));
 }
 
 void App::setVsync(bool enabled) {
@@ -225,11 +382,13 @@ bool App::frame() {
     renderer->beginFrame();
     const Clock::time_point workStart = Clock::now();
     gfx::beginFrame(renderer->viewWidth(), renderer->viewHeight(), fonts);
+    deliverFinishedDialogs();
     currentScreen->update(deltaTime);
     currentScreen->draw();
     if (!currentScreen->drawsFrameTimings()) {
         drawFrameTimingsOverlay();
     }
+    drawToast();
     controlServer.pump([this](const ControlRequest& request) { return handleControl(request); });
     renderer->drawRects(gfx::sceneRects());
     updateTextInput();
@@ -254,6 +413,7 @@ bool App::frame() {
                     millisecondsBetween(workStart, presentStart) - synchronizationMs,
                     renderer->lastGpuBusyMs(),
                     millisecondsBetween(presentStart, frameEnd) + synchronizationMs + gpuWaitMs});
+    applyPendingRenderAdapter();
     applyPendingScreen();
     return running;
 }
@@ -282,11 +442,13 @@ std::string App::stateJson() const {
     return std::format(
         "{{\"ok\":true,\"frontend\":\"sdl\",\"renderer\":\"{}\",\"screen\":\"{}\",\"window\":[{},{}],"
         "\"fps\":{:.1f},\"minFps\":{:.1f},\"frameMs\":{:.3f},\"cpuMs\":{:.3f},\"gpuMs\":{:.3f},"
-        "\"presentMs\":{:.3f},\"preferredBackend\":\"{}\",\"vsync\":{},\"details\":{}}}",
+        "\"presentMs\":{:.3f},\"preferredBackend\":\"{}\",\"computeGpu\":\"{}\",\"vsync\":{},\"toast\":\"{}\","
+        "\"details\":{}}}",
         jsonEscape(renderer->deviceDescription()), currentScreen->name(), gfx::screenWidth(),
         gfx::screenHeight(), timings.framesPerSecond(), timings.worstFpsLastSecond(), sample.frameMs,
-        sample.cpuMs, sample.gpuMs, sample.presentMs, backendKindName(backendChoice), isVsyncEnabled(),
-        currentScreen->stateJson());
+        sample.cpuMs, sample.gpuMs, sample.presentMs, backendKindName(backendChoice),
+        jsonEscape(backendDetail(BackendKind::Vulkan)), isVsyncEnabled(),
+        jsonEscape(toast.secondsLeft > 0.0f ? toast.text : std::string{}), currentScreen->stateJson());
 }
 
 std::optional<ControlResponse> App::handleControl(const ControlRequest& request) {
@@ -304,9 +466,40 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
         screenshotPending = true;
         return std::nullopt;
     }
+    if (path == "/import") {
+        std::vector<std::filesystem::path> paths;
+        const std::string list = request.text("path").value_or("");
+        for (size_t start = 0; start < list.size();) {
+            const size_t end = std::min(list.find(importPathSeparator, start), list.size());
+            if (end > start) {
+                paths.push_back(pathFromUtf8(list.substr(start, end - start).c_str()));
+            }
+            start = end + 1;
+        }
+        if (paths.empty()) {
+            return ControlResponse::error(400, "missing path");
+        }
+        deliverImport(std::move(paths));
+        return ControlResponse::ok(std::format("{{\"ok\":true,\"toast\":\"{}\"}}", jsonEscape(toast.text)));
+    }
+    if (path == "/render-gpu") {
+        const auto index = request.integer("index");
+        if (!index || *index < 0 || *index >= static_cast<long long>(renderAdapterList.size())) {
+            return ControlResponse::error(400, "index must name an adapter from /state renderAdapters");
+        }
+        requestRenderAdapter(static_cast<int>(*index));
+        return ControlResponse::ok("{\"ok\":true}");
+    }
     if (path == "/quit") {
         quit();
         return ControlResponse::ok("{\"ok\":true}");
+    }
+    if (path == "/benchmark") {
+        if (request.integer("run").value_or(0) != 0) {
+            showMachineBenchmark();
+            return ControlResponse::ok("{\"ok\":true}");
+        }
+        return ControlResponse::ok(benchmarkStateJson());
     }
     if (path == "/menu") {
         showMainMenu();
@@ -327,8 +520,15 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
         if (const auto vsync = request.integer("vsync")) {
             next.vsync = *vsync != 0;
         }
+        std::optional<BackendKind> backend;
+        if (const auto name = request.text("backend")) {
+            backend = parseBackendKind(*name);
+            if (!backend || !isBackendAvailable(*backend)) {
+                return ControlResponse::error(400, std::format("backend {} is not available", *name));
+            }
+        }
         const bool open = request.integer("open").value_or(0) != 0;
-        applySettings(next);
+        applySettings(next, backend);
         if (open && currentScreen) {
             applyPendingScreen();
             if (auto* gameplay = dynamic_cast<GameplayScreen*>(currentScreen.get())) {
@@ -384,25 +584,50 @@ void App::showMainMenu() {
     pendingScreen = std::make_unique<MainMenuScreen>(*this);
 }
 
+void App::showMachineBenchmark() {
+    pendingScreen = std::make_unique<MachineBenchmarkScreen>(*this, currentHardwareFingerprint(gameVersion()));
+}
+
+void App::adoptBenchmarkWinner(const BenchmarkCandidate& winner) {
+    if (!isBackendAvailable(winner.kind)) {
+        return;
+    }
+    backendChoice = winner.kind;
+    currentSettings.defaultBackend = std::string(backendKindName(winner.kind));
+    static_cast<void>(saveSettings(settingsFilePath(), currentSettings));
+}
+
+std::string App::benchmarkStateJson() const {
+    if (currentScreen && currentScreen->name() == "benchmark") {
+        return currentScreen->stateJson();
+    }
+    const std::optional<BenchmarkRecord>& stored = profile.benchmark();
+    if (!stored) {
+        return benchmarkJson("none", {}, std::nullopt);
+    }
+    return benchmarkJson(stored->complete ? "done" : "skipped", stored->results, stored->winner);
+}
+
 void App::showSettings() {
     pendingScreen = std::make_unique<SettingsScreen>(*this);
 }
 
 void App::applySettings(const Settings& settings, std::optional<BackendKind> backend) {
     currentSettings = settings;
-    static_cast<void>(saveSettings(settingsFilePath(), settings));
-    setVsync(settings.vsync);
     if (backend) {
         backendChoice = *backend;
+        currentSettings.defaultBackend = std::string(backendKindName(*backend));
     }
+    static_cast<void>(saveSettings(settingsFilePath(), currentSettings));
+    setVsync(settings.vsync);
     applyOrientationToWindow();
     notifySettingsConsumers();
 }
 
 std::string App::settingsJson() const {
-    return std::format("{{\"ballCollisions\":{},\"layout\":\"{}\",\"vsync\":{}}}",
+    return std::format("{{\"ballCollisions\":{},\"layout\":\"{}\",\"vsync\":{},\"defaultBackend\":\"{}\"}}",
                        currentSettings.ballCollisions, orientationName(currentSettings.layout),
-                       currentSettings.vsync);
+                       currentSettings.vsync, jsonEscape(currentSettings.defaultBackend));
 }
 
 void App::notifySettingsConsumers() {

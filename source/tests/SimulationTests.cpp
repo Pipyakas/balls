@@ -228,5 +228,25 @@ TEST_CASE("every available backend matches the scalar reference") {
             std::abs(static_cast<long long>(referenceBalls) - static_cast<long long>(candidateBalls));
         EXPECT(bricksDifference <= reference.board().bricks().size() / 20);
         EXPECT(ballsDifference <= static_cast<long long>(referenceBalls / 20 + 10));
+        for (size_t color = 0; color < ballColorCount; ++color) {
+            const BallCount referenceColor = reference.stats().ballsByColor[color];
+            const BallCount candidateColor = candidate.stats().ballsByColor[color];
+            const BallCount colorDifference = referenceColor > candidateColor ? referenceColor - candidateColor
+                                                                              : candidateColor - referenceColor;
+            EXPECT(colorDifference <= referenceColor / 20 + 10);
+        }
     }
+}
+
+TEST_CASE("Vulkan rejects an unknown compute adapter preference") {
+    const std::string originalPreference = computeGpuPreference();
+    if (!isBackendAvailable(BackendKind::Vulkan)) {
+        return;
+    }
+    setComputeGpuPreference("999");
+    const std::string reason = backendUnavailableReason(BackendKind::Vulkan);
+    const BackendHandle backend = createBackend(BackendKind::Vulkan);
+    setComputeGpuPreference(originalPreference);
+    EXPECT(!backend);
+    EXPECT(reason.find("adapter") != std::string::npos);
 }

@@ -48,8 +48,10 @@ void drawBorder(Rect rect, float roundness, Color color) {
     gfx::strokeRounded(rect, roundness * style::roundnessScale, style::borderWidth, color);
 }
 
+// A widget scrolled out of a clipped gadget must not take clicks meant for whatever is drawn there instead.
 bool isHovered(Rect rect) {
-    return pointInRect(input::mousePosition(), rect);
+    const Vec2 mouse = input::mousePosition();
+    return pointInRect(mouse, rect) && pointInRect(mouse, gfx::currentClip());
 }
 
 bool isClicked(Rect rect) {
@@ -103,8 +105,33 @@ bool stepper(Rect rect, std::string_view label, int& value, int minimum, int max
 }
 
 bool dropdown(Rect rect, std::string_view current, bool& open) {
-    const std::string label = std::string(current) + " v";
-    if (button(rect, label)) {
+    constexpr float valueInset = 12.0f;
+    constexpr float chevronHalfWidth = 6.0f;
+    constexpr float chevronHalfHeight = 3.5f;
+    const bool hovered = isHovered(rect);
+    const Color fill = hovered && input::mouseDown(input::MouseButton::Left) ? palette::controlPressed
+                       : hovered                                            ? palette::controlHover
+                                                                            : palette::backgroundDeep;
+    gfx::fillRounded(rect, style::buttonRoundness * style::roundnessScale, fill);
+    drawBorder(rect, style::buttonRoundness, open || hovered ? palette::accent : palette::frame);
+
+    const Rect handle{rect.x + rect.width - rect.height, rect.y, rect.height, rect.height};
+    gfx::drawLine({handle.x, rect.y + 6.0f}, {handle.x, rect.y + rect.height - 6.0f}, 1.0f, palette::frame);
+    const Vec2 center{handle.x + handle.width * 0.5f, handle.y + handle.height * 0.5f};
+    const Color chevron = open || hovered ? palette::accent : palette::textMuted;
+    const Vec2 left{center.x - chevronHalfWidth, center.y + (open ? chevronHalfHeight : -chevronHalfHeight)};
+    const Vec2 right{center.x + chevronHalfWidth, left.y};
+    const Vec2 tip{center.x, center.y + (open ? -chevronHalfHeight : chevronHalfHeight)};
+    if (open) {
+        gfx::fillTriangle(right, left, tip, chevron);
+    } else {
+        gfx::fillTriangle(left, right, tip, chevron);
+    }
+
+    const float size = std::min(rect.height * style::buttonLabelShare, style::buttonLabelMaximum);
+    drawTextInRect(current, {rect.x + valueInset, rect.y, handle.x - rect.x - valueInset * 2.0f, rect.height}, size,
+                   palette::text, Align::Left);
+    if (hovered && input::mouseReleased(input::MouseButton::Left)) {
         open = !open;
     }
     return open;

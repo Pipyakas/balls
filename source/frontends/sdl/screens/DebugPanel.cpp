@@ -158,6 +158,70 @@ void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& f
     gfx::endClip();
 }
 
+void drawPortraitDebugStrip(Rect area, const GameSession& session, const FrameTimings& frames) {
+    constexpr float labelSize = 15.0f;
+    constexpr float valueSize = 18.0f;
+    constexpr float horizontalPadding = 12.0f;
+    constexpr float itemGap = 16.0f;
+    const Simulation& simulation = session.simulation();
+    const FrameSample& sample = frames.average();
+    const float fps = static_cast<float>(frames.framesPerSecond());
+    const float minimumFps = static_cast<float>(frames.worstFpsLastSecond());
+    constexpr int itemCount = 8;
+    const std::string values[itemCount] = {
+        std::format("{:.0f}", fps),
+        std::format("{:.0f}", minimumFps),
+        std::format("{:.2f}", sample.frameMs),
+        std::format("{:.2f}", sample.gpuMs),
+        withThousands(simulation.stats().ballCount),
+        withThousands(static_cast<BallCount>(simulation.board().aliveBrickCount())),
+        withThousands(session.launchers().launcherCount()),
+        std::string(backendKindName(session.backend())),
+    };
+    constexpr const char* labels[itemCount] = {"FPS",   "Min",    "Frame",  "GPU",
+                                               "Balls", "Bricks", "Launch", "Backend"};
+    float widths[itemCount] = {};
+    for (int index = 0; index < itemCount; ++index) {
+        widths[index] = std::max(ui::measureText(labels[index], labelSize).x,
+                                 ui::measureText(values[index], valueSize).x);
+    }
+    int visibleCount = itemCount;
+    while (visibleCount > 0) {
+        float needed = 0.0f;
+        for (int index = 0; index < visibleCount; ++index) {
+            needed += widths[index];
+        }
+        needed += itemGap * static_cast<float>(visibleCount - 1);
+        if (needed <= area.width - horizontalPadding * 2.0f) {
+            break;
+        }
+        --visibleCount;
+    }
+    if (visibleCount == 0) {
+        return;
+    }
+    float used = 0.0f;
+    for (int index = 0; index < visibleCount; ++index) {
+        used += widths[index];
+    }
+    used += itemGap * static_cast<float>(visibleCount - 1);
+    float gap = itemGap;
+    if (visibleCount > 1) {
+        gap += (area.width - horizontalPadding * 2.0f - used) / static_cast<float>(visibleCount - 1);
+    }
+    float itemX = visibleCount > 1 ? area.x + horizontalPadding : area.x + (area.width - widths[0]) * 0.5f;
+    const float centerY = area.y + area.height * 0.5f;
+    gfx::beginClip(area);
+    for (int index = 0; index < visibleCount; ++index) {
+        ui::drawText(labels[index], {itemX, centerY - labelSize - 2.0f}, labelSize, palette::textMuted);
+        const Color color = index == 0 ? fpsColor(fps) : (index == 1 ? fpsColor(minimumFps) : palette::text);
+        ui::drawText(values[index], {itemX, centerY + 2.0f}, valueSize, color);
+        ui::drawText(values[index], {itemX + 1.0f, centerY + 2.0f}, valueSize, color);
+        itemX += widths[index] + gap;
+    }
+    gfx::endClip();
+}
+
 float debugContentHeight(const Simulation& simulation) {
     constexpr float twoLineHeight = 22.0f + 26.0f;
     constexpr float headingHeight = 6.0f + 30.0f;

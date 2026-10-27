@@ -47,6 +47,18 @@ if(BALLS_FRONTEND STREQUAL "sdl")
     add_subdirectory(source/frontends/sdl)
 endif()
 
+if(TARGET nvrhi AND TARGET nvrhi_vk)
+    add_subdirectory(source/backends/vulkan)
+endif()
+
+# Vulkan-Headers is already fetched by the NVRHI renderer. This interface-only target
+# supplies declarations to balls_core without linking Vulkan loader libraries.
+if(TARGET Vulkan-Headers)
+    target_link_libraries(balls_core PRIVATE Vulkan-Headers)
+elseif(TARGET Vulkan::Headers)
+    target_link_libraries(balls_core PRIVATE Vulkan::Headers)
+endif()
+
 if(NOT BALLS_BUILD_TOOLS)
     return()
 endif()
@@ -67,10 +79,20 @@ if(WIN32 AND EXISTS "${BALLS_CUPTI_DIR}/include/cupti.h" AND EXISTS "${BALLS_CUD
     target_link_options(balls_insncount PRIVATE ${BALLS_LINK_OPTIMIZE})
 endif()
 
-if(WIN32 AND TARGET nvrhi_d3d11 AND TARGET nvrhi_d3d12 AND TARGET nvrhi_vk)
-    add_executable(balls_gpucompute source/tools/gpucompute/GpuComputeBench.cpp)
+if(TARGET nvrhi AND TARGET nvrhi_vk)
+    add_executable(balls_gpucompute source/tools/gpucompute/GpuComputeBench.cpp source/tools/gpucompute/BallStepVariants.cpp)
     target_include_directories(balls_gpucompute PRIVATE source/tools/gpucompute)
-    target_link_libraries(balls_gpucompute PRIVATE balls_core nvrhi nvrhi_d3d11 nvrhi_d3d12 nvrhi_vk dxgi d3d11 d3d12)
+    target_link_libraries(balls_gpucompute PRIVATE balls_core)
+    if(MSVC)
+        target_link_libraries(balls_gpucompute PRIVATE nvrhi nvrhi_vk)
+    else()
+        # nvrhi and nvrhi_vk are static archives with cyclic references, so the GNU and Clang
+        # linkers need them rescanned rather than linked in file order.
+        target_link_libraries(balls_gpucompute PRIVATE $<LINK_GROUP:RESCAN,nvrhi,nvrhi_vk>)
+    endif()
+    if(WIN32)
+        target_link_libraries(balls_gpucompute PRIVATE nvrhi_d3d11 nvrhi_d3d12 dxgi d3d11 d3d12)
+    endif()
     if(TARGET Vulkan::Headers)
         target_link_libraries(balls_gpucompute PRIVATE Vulkan::Headers)
     else()
@@ -86,7 +108,10 @@ add_executable(balls_tests source/tests/TestMain.cpp source/tests/LevelTests.cpp
     source/tests/GameTests.cpp source/tests/ProbeTests.cpp source/tests/EditorTests.cpp source/tests/SettingsTests.cpp
     source/tests/BrickBoardTests.cpp
     source/tests/LayoutTests.cpp
-    source/tests/FreeFlightTests.cpp)
+    source/tests/FreeFlightTests.cpp
+    source/tests/LevelImportTests.cpp
+    source/tests/BenchmarkTests.cpp
+    source/tests/GpuAdapterTests.cpp)
 target_link_libraries(balls_tests PRIVATE balls_core)
 add_dependencies(balls_tests balls_physics_plugins)
 target_compile_options(balls_tests PRIVATE ${BALLS_WARNINGS})

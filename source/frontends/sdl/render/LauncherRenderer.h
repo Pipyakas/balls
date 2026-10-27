@@ -20,5 +20,11 @@ struct LauncherGridLayout {
 };
 
 LauncherGridLayout computeLauncherGrid(Rect area, int columns, int visibleRows);
+LauncherGridLayout computePortraitLauncherRow(Rect area, int columns);
+float portraitRowWidth(const LauncherQueue& queue, const LauncherGridLayout& grid);
 void drawLaunchers(const LauncherQueue& queue, const LauncherGridLayout& grid, bool interactive);
+void drawPortraitLaunchers(const LauncherQueue& queue, const LauncherGridLayout& grid, float scroll,
+                           bool interactive);
 LauncherSlotHit findLauncherAt(const LauncherQueue& queue, const LauncherGridLayout& grid, Vec2 point);
+LauncherSlotHit findPortraitLauncherAt(const LauncherQueue& queue, const LauncherGridLayout& grid,
+                                       float scroll, Vec2 point);

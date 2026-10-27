@@ -4,29 +4,34 @@
 #include "sim/Simulation.h"
 #include "sim/SortSchedule.h"
 #include "sim/TargetField.h"
+#include "common/DynamicLibrary.h"
+#include "gpu/GpuAdapters.h"
 
+#include "BallStepVariants.h"
 #include "generated/BallStepBlobs.h"
 
+#if defined(_WIN32)
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-
 #include <d3d11.h>
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <wrl/client.h>
+#include <nvrhi/d3d11.h>
+#include <nvrhi/d3d12.h>
+#endif
 
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 #include <vulkan/vulkan.hpp>
-
-#include <nvrhi/d3d11.h>
-#include <nvrhi/d3d12.h>
 #include <nvrhi/vulkan.h>
 
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <charconv>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -34,17 +39,21 @@
 #include <fstream>
 #include <iterator>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <numbers>
 #include <random>
 #include <string>
+#include <string_view>
 #include <vector>
 
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
 
 namespace {
 
+#if defined(_WIN32)
 using Microsoft::WRL::ComPtr;
+#endif
 using Clock = std::chrono::steady_clock;
 
 constexpr uint32_t maximumGroupsPerRow = 32768;
@@ -78,14 +87,26 @@ struct StepConstants {
 struct Options {
     std::string levelDirectory = "data/assets/levels/performance";
     std::string levelName = "DA_1000Bricks";
+#if defined(_WIN32)
     std::vector<std::string> apis{"d3d11", "d3d12", "vulkan"};
+#else
+    std::vector<std::string> apis{"vulkan"};
+#endif
     size_t balls = 16'000'000;
     int ticks = 200;
     int substeps = 2;
     int sortInterval = automaticSortInterval;
-    uint32_t ballsPerStepGroup = 1024;
-    uint32_t ballsPerCountGroup = 4096;
-    uint32_t ballsPerSortGroup = 4096;
+    uint32_t ballsPerStepGroup = 0;
+    uint32_t ballsPerCountGroup = 0;
+    uint32_t ballsPerSortGroup = 0;
+    bool hasStepGroupOverride = false;
+    bool hasCountGroupOverride = false;
+    bool hasSortGroupOverride = false;
+    std::string gpuPreference = "auto";
+    std::string profile;
+    std::array<uint32_t, 6> profileNumbers{};
+    bool hasProfileNumbers = false;
+    bool listGpus = false;
     std::string blobDirectory;
 };
 
@@ -128,37 +149,75 @@ ShaderSet shaderSet(const unsigned char (&step)[StepSize], const unsigned char (
 
 struct Device {
     std::string name;
+    GpuAdapterInfo adapter;
+    BallStepTuning tuning;
     nvrhi::DeviceHandle device;
     ShaderSet shaders;
     std::function<void()> release;
 };
 
-ComPtr<IDXGIAdapter1> highPerformanceAdapter(std::string& name) {
-    ComPtr<IDXGIFactory6> factory;
-    if (FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)))) {
-        return nullptr;
-    }
-    ComPtr<IDXGIAdapter1> adapter;
-    for (UINT index = 0;
-         factory->EnumAdapterByGpuPreference(index, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE, IID_PPV_ARGS(&adapter)) !=
-         DXGI_ERROR_NOT_FOUND;
-         ++index) {
-        DXGI_ADAPTER_DESC1 description{};
-        adapter->GetDesc1(&description);
-        if ((description.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) == 0) {
-            char narrow[256]{};
-            WideCharToMultiByte(CP_UTF8, 0, description.Description, -1, narrow, sizeof(narrow), nullptr, nullptr);
-            name = narrow;
-            return adapter;
-        }
-    }
-    return nullptr;
+ShaderSet shaderSet(const BallStepBlobSet& blobs) {
+    return {{blobs.ballStep.begin(), blobs.ballStep.end()},
+            {blobs.countCells.begin(), blobs.countCells.end()},
+            {blobs.scanCells.begin(), blobs.scanCells.end()},
+            {blobs.stepAndSort.begin(), blobs.stepAndSort.end()}};
 }
 
-std::unique_ptr<Device> createD3d12() {
+BallStepTuning tuningForAdapter(const GpuAdapterInfo& adapter, const Options& options) {
+    BallStepTuning tuning;
+    const std::span<const BallStepTuning> profiles = ballStepProfiles();
+    if (options.profile.empty()) {
+        tuning = ballStepTuningFor(adapter);
+    } else {
+        const auto profile = std::find_if(profiles.begin(), profiles.end(), [&](const BallStepTuning& candidate) {
+            return candidate.variant == std::string_view(options.profile);
+        });
+        if (profile == profiles.end()) {
+            const BallStepTuning& fallback = profiles.front();
+            std::fprintf(stderr, "warning: unknown profile '%s'; using %.*s\n", options.profile.c_str(),
+                         static_cast<int>(fallback.variant.size()), fallback.variant.data());
+            tuning = fallback;
+        } else {
+            tuning = *profile;
+        }
+    }
+    if (options.hasProfileNumbers) {
+        tuning.threadsPerGroup = options.profileNumbers[0];
+        tuning.ballsPerThread = options.profileNumbers[1];
+        tuning.countThreads = options.profileNumbers[2];
+        tuning.countItems = options.profileNumbers[3];
+        tuning.sortThreads = options.profileNumbers[4];
+        tuning.sortItems = options.profileNumbers[5];
+    }
+    return tuning;
+}
+
+#if defined(_WIN32)
+bool selectD3dAdapter(const Options& options, GpuAdapterInfo& selected, ComPtr<IDXGIAdapter1>& adapter) {
+    const std::vector<GpuAdapterInfo> adapters = enumerateGpuAdapters(GpuApi::D3d12);
+    const int selectedPosition = selectGpuAdapter(adapters, options.gpuPreference, GpuRole::Compute);
+    if (selectedPosition < 0) {
+        return false;
+    }
+    selected = adapters[static_cast<size_t>(selectedPosition)];
+    ComPtr<IDXGIFactory1> factory;
+    if (FAILED(CreateDXGIFactory1(IID_PPV_ARGS(&factory)))) {
+        return false;
+    }
+    // GpuAdapters.cpp enumerates DXGI adapters in EnumAdapters1 order, so the selected index maps directly.
+    if (FAILED(factory->EnumAdapters1(static_cast<UINT>(selected.index), &adapter))) {
+        return false;
+    }
+    return true;
+}
+
+std::unique_ptr<Device> createD3d12(const Options& options) {
     auto result = std::make_unique<Device>();
-    std::string adapterName;
-    ComPtr<IDXGIAdapter1> adapter = highPerformanceAdapter(adapterName);
+    GpuAdapterInfo adapterInfo;
+    ComPtr<IDXGIAdapter1> adapter;
+    if (!selectD3dAdapter(options, adapterInfo, adapter)) {
+        return nullptr;
+    }
     ComPtr<ID3D12Device> device;
     if (!adapter || FAILED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_12_0, IID_PPV_ARGS(&device)))) {
         return nullptr;
@@ -174,16 +233,21 @@ std::unique_ptr<Device> createD3d12() {
     description.pDevice = device.Get();
     description.pGraphicsCommandQueue = queue.Get();
     result->device = nvrhi::d3d12::createDevice(description);
-    result->name = "D3D12 " + adapterName;
-    result->shaders = shaderSet(ballStepDxil, countCellsDxil, scanCellsDxil, stepAndSortDxil);
+    result->adapter = adapterInfo;
+    result->tuning = tuningForAdapter(adapterInfo, options);
+    result->name = "D3D12 " + adapterInfo.name;
+    result->shaders = shaderSet(ballStepDxilSet(result->tuning.variant));
     result->release = [device, queue] {};
     return result->device ? std::move(result) : nullptr;
 }
 
-std::unique_ptr<Device> createD3d11() {
+std::unique_ptr<Device> createD3d11(const Options& options) {
     auto result = std::make_unique<Device>();
-    std::string adapterName;
-    ComPtr<IDXGIAdapter1> adapter = highPerformanceAdapter(adapterName);
+    GpuAdapterInfo adapterInfo;
+    ComPtr<IDXGIAdapter1> adapter;
+    if (!selectD3dAdapter(options, adapterInfo, adapter)) {
+        return nullptr;
+    }
     ComPtr<ID3D11Device> device;
     ComPtr<ID3D11DeviceContext> context;
     const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1, D3D_FEATURE_LEVEL_11_0};
@@ -196,19 +260,29 @@ std::unique_ptr<Device> createD3d11() {
     description.messageCallback = &messages;
     description.context = context.Get();
     result->device = nvrhi::d3d11::createDevice(description);
-    result->name = "D3D11 " + adapterName;
+    result->adapter = adapterInfo;
+    result->tuning = tuningForAdapter(adapterInfo, options);
+    result->name = "D3D11 " + adapterInfo.name;
     result->shaders = shaderSet(ballStepDxbc, countCellsDxbc, scanCellsDxbc, stepAndSortDxbc);
     result->release = [device, context] {};
     return result->device ? std::move(result) : nullptr;
 }
+#endif
 
 auto& vk() { return VULKAN_HPP_DEFAULT_DISPATCHER; }
 
-std::unique_ptr<Device> createVulkan() {
-    HMODULE loader = LoadLibraryA("vulkan-1.dll");
-    const auto getInstanceProcAddr =
-        loader ? reinterpret_cast<PFN_vkGetInstanceProcAddr>(GetProcAddress(loader, "vkGetInstanceProcAddr")) : nullptr;
-    if (!getInstanceProcAddr) {
+#if defined(_WIN32)
+constexpr const char* vulkanLibraryName = "vulkan-1.dll";
+#elif defined(__APPLE__)
+constexpr const char* vulkanLibraryName = "libvulkan.1.dylib";
+#else
+constexpr const char* vulkanLibraryName = "libvulkan.so.1";
+#endif
+
+std::unique_ptr<Device> createVulkan(const Options& options) {
+    auto loader = std::make_shared<DynamicLibrary>(vulkanLibraryName);
+    PFN_vkGetInstanceProcAddr getInstanceProcAddr = nullptr;
+    if (!loader->resolve("vkGetInstanceProcAddr", getInstanceProcAddr) || !getInstanceProcAddr) {
         return nullptr;
     }
     vk().init(getInstanceProcAddr);
@@ -222,37 +296,65 @@ std::unique_ptr<Device> createVulkan() {
         return nullptr;
     }
     vk().init(vk::Instance(instance));
+
+    const std::vector<GpuAdapterInfo> adapters = enumerateGpuAdapters(GpuApi::Vulkan);
+    const int selectedIndex = selectGpuAdapter(adapters, options.gpuPreference, GpuRole::Compute);
+    if (selectedIndex < 0) {
+        vk().vkDestroyInstance(instance, nullptr);
+        return nullptr;
+    }
+    const GpuAdapterInfo adapterInfo = adapters[static_cast<size_t>(selectedIndex)];
+
     uint32_t count = 0;
-    vk().vkEnumeratePhysicalDevices(instance, &count, nullptr);
+    if (vk().vkEnumeratePhysicalDevices(instance, &count, nullptr) != VK_SUCCESS) {
+        vk().vkDestroyInstance(instance, nullptr);
+        return nullptr;
+    }
     std::vector<VkPhysicalDevice> candidates(count);
-    vk().vkEnumeratePhysicalDevices(instance, &count, candidates.data());
+    if (vk().vkEnumeratePhysicalDevices(instance, &count, candidates.data()) != VK_SUCCESS) {
+        vk().vkDestroyInstance(instance, nullptr);
+        return nullptr;
+    }
+    candidates.resize(count);
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
     uint32_t queueFamily = 0;
-    std::string adapterName;
+    VkPhysicalDeviceProperties selectedProperties{};
     for (VkPhysicalDevice candidate : candidates) {
         VkPhysicalDeviceProperties properties{};
         vk().vkGetPhysicalDeviceProperties(candidate, &properties);
-        if (properties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU || properties.apiVersion < VK_API_VERSION_1_3) {
-            continue;
-        }
-        uint32_t familyCount = 0;
-        vk().vkGetPhysicalDeviceQueueFamilyProperties(candidate, &familyCount, nullptr);
-        std::vector<VkQueueFamilyProperties> families(familyCount);
-        vk().vkGetPhysicalDeviceQueueFamilyProperties(candidate, &familyCount, families.data());
-        for (uint32_t family = 0; family < familyCount; ++family) {
-            const VkQueueFlags needed = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT;
-            if ((families[family].queueFlags & needed) == needed) {
-                physicalDevice = candidate;
-                queueFamily = family;
-                adapterName = properties.deviceName;
-                break;
-            }
-        }
-        if (physicalDevice) {
+        if (properties.vendorID == adapterInfo.vendorId && properties.deviceID == adapterInfo.deviceId) {
+            physicalDevice = candidate;
+            selectedProperties = properties;
             break;
         }
     }
+    if (!physicalDevice && candidates.size() == adapters.size() && static_cast<size_t>(selectedIndex) < candidates.size()) {
+        // If PCI IDs cannot identify the adapter, rely on both enumerators preserving Vulkan device order.
+        physicalDevice = candidates[static_cast<size_t>(selectedIndex)];
+        vk().vkGetPhysicalDeviceProperties(physicalDevice, &selectedProperties);
+    }
+    if (physicalDevice && selectedProperties.apiVersion >= VK_API_VERSION_1_3) {
+        uint32_t familyCount = 0;
+        vk().vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &familyCount, nullptr);
+        std::vector<VkQueueFamilyProperties> families(familyCount);
+        vk().vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &familyCount, families.data());
+        bool foundQueueFamily = false;
+        for (uint32_t family = 0; family < familyCount; ++family) {
+            const VkQueueFlags needed = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT;
+            if ((families[family].queueFlags & needed) == needed) {
+                queueFamily = family;
+                foundQueueFamily = true;
+                break;
+            }
+        }
+        if (!foundQueueFamily) {
+            physicalDevice = VK_NULL_HANDLE;
+        }
+    } else {
+        physicalDevice = VK_NULL_HANDLE;
+    }
     if (!physicalDevice) {
+        vk().vkDestroyInstance(instance, nullptr);
         return nullptr;
     }
     VkPhysicalDeviceVulkan13Features vulkan13{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
@@ -272,6 +374,7 @@ std::unique_ptr<Device> createVulkan() {
     deviceInfo.pQueueCreateInfos = &queueInfo;
     VkDevice logicalDevice = VK_NULL_HANDLE;
     if (vk().vkCreateDevice(physicalDevice, &deviceInfo, nullptr, &logicalDevice) != VK_SUCCESS) {
+        vk().vkDestroyInstance(instance, nullptr);
         return nullptr;
     }
     vk().init(vk::Device(logicalDevice));
@@ -286,14 +389,23 @@ std::unique_ptr<Device> createVulkan() {
     description.graphicsQueueIndex = static_cast<int>(queueFamily);
     auto result = std::make_unique<Device>();
     result->device = nvrhi::vulkan::createDevice(description);
-    result->name = "Vulkan " + adapterName;
-    result->shaders = shaderSet(ballStepSpirv, countCellsSpirv, scanCellsSpirv, stepAndSortSpirv);
-    result->release = [instance, logicalDevice] {
+    result->adapter = adapterInfo;
+    result->tuning = tuningForAdapter(adapterInfo, options);
+    result->name = "Vulkan " + adapterInfo.name;
+    result->shaders = shaderSet(ballStepSpirvSet(result->tuning.variant));
+    if (!result->device) {
+        vk().vkDeviceWaitIdle(logicalDevice);
+        vk().vkDestroyDevice(logicalDevice, nullptr);
+        vk().vkDestroyInstance(instance, nullptr);
+        return nullptr;
+    }
+    result->release = [loader, instance, logicalDevice] {
+        static_cast<void>(loader);
         vk().vkDeviceWaitIdle(logicalDevice);
         vk().vkDestroyDevice(logicalDevice, nullptr);
         vk().vkDestroyInstance(instance, nullptr);
     };
-    return result->device ? std::move(result) : nullptr;
+    return result;
 }
 
 std::vector<uint8_t> readFile(const std::filesystem::path& path) {
@@ -311,15 +423,17 @@ void loadBlobOverrides(Device& target, const std::string& api, const std::string
                       readFile(root / ("scanCells" + suffix)), readFile(root / ("stepAndSort" + suffix))};
 }
 
-std::unique_ptr<Device> createDevice(const std::string& api) {
+std::unique_ptr<Device> createDevice(const std::string& api, const Options& options) {
+#if defined(_WIN32)
     if (api == "d3d11") {
-        return createD3d11();
+        return createD3d11(options);
     }
     if (api == "d3d12") {
-        return createD3d12();
+        return createD3d12(options);
     }
+#endif
     if (api == "vulkan") {
-        return createVulkan();
+        return createVulkan(options);
     }
     return nullptr;
 }
@@ -501,9 +615,18 @@ void runBench(Device& target, const Workload& work, const Options& options) {
     nvrhi::BufferHandle sortConstantBuffer = constantBuffer(device, "sortConstants");
     nvrhi::BufferHandle countConstantBuffer = constantBuffer(device, "countConstants");
 
-    const DispatchShape stepShape = shapeFor(count, options.ballsPerStepGroup);
-    const DispatchShape countShape = shapeFor(count, options.ballsPerCountGroup);
-    const DispatchShape sortShape = shapeFor(count, options.ballsPerSortGroup);
+    const uint32_t stepItemsPerGroup = options.hasStepGroupOverride
+                                           ? options.ballsPerStepGroup
+                                           : target.tuning.threadsPerGroup * target.tuning.ballsPerThread;
+    const uint32_t countItemsPerGroup = options.hasCountGroupOverride
+                                            ? options.ballsPerCountGroup
+                                            : target.tuning.countThreads * target.tuning.countItems;
+    const uint32_t sortItemsPerGroup = options.hasSortGroupOverride
+                                           ? options.ballsPerSortGroup
+                                           : target.tuning.sortThreads * target.tuning.sortItems;
+    const DispatchShape stepShape = shapeFor(count, stepItemsPerGroup);
+    const DispatchShape countShape = shapeFor(count, countItemsPerGroup);
+    const DispatchShape sortShape = shapeFor(count, sortItemsPerGroup);
     const int sortColumns = static_cast<int>(work.params.fieldWidth);
     const int sortRows = static_cast<int>(work.params.fieldHeight);
     const StepConstants stepConstants{work.params,   static_cast<uint32_t>(count), work.killedCapacity,
@@ -649,18 +772,85 @@ void runBench(Device& target, const Workload& work, const Options& options) {
     static_cast<void>(finalCounters);
 }
 
+bool parsePositiveInteger(std::string_view text, uint32_t& value) {
+    const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+    return error == std::errc{} && end == text.data() + text.size() && value > 0;
+}
+
+bool parseProfileNumbers(std::string_view text, std::array<uint32_t, 6>& numbers) {
+    std::array<uint32_t, 6> parsed{};
+    size_t start = 0;
+    for (size_t index = 0; index < parsed.size(); ++index) {
+        const size_t comma = text.find(',', start);
+        if ((index + 1 < parsed.size() && comma == std::string_view::npos) ||
+            (index + 1 == parsed.size() && comma != std::string_view::npos)) {
+            return false;
+        }
+        const size_t end = comma == std::string_view::npos ? text.size() : comma;
+        if (!parsePositiveInteger(text.substr(start, end - start), parsed[index])) {
+            return false;
+        }
+        start = comma == std::string_view::npos ? text.size() : comma + 1;
+    }
+    const uint64_t maximum = std::numeric_limits<uint32_t>::max();
+    if (static_cast<uint64_t>(parsed[0]) * parsed[1] > maximum ||
+        static_cast<uint64_t>(parsed[2]) * parsed[3] > maximum ||
+        static_cast<uint64_t>(parsed[4]) * parsed[5] > maximum) {
+        return false;
+    }
+    numbers = parsed;
+    return true;
+}
+
+const char* apiName(GpuApi api) {
+    return api == GpuApi::Vulkan ? "vulkan" : "d3d12";
+}
+
+void printGpuAdapters(GpuApi api) {
+    for (const GpuAdapterInfo& adapter : enumerateGpuAdapters(api)) {
+        std::printf("index=%d api=%s %s vendor=0x%04X:0x%04X subgroup=%u-%u shared=%u workgroup=%u deviceLocalMB=%llu\n",
+                    adapter.index, apiName(api), adapter.summary().c_str(), adapter.vendorId, adapter.deviceId,
+                    adapter.subgroupMin, adapter.subgroupMax, adapter.maxSharedMemoryBytes,
+                    adapter.maxWorkgroupInvocations,
+                    static_cast<unsigned long long>(adapter.deviceLocalBytes / (1024 * 1024)));
+    }
+}
+
+void printRunProfile(const Device& target, const std::string& api) {
+    const std::string summary = target.adapter.summary();
+    const std::string_view variant = target.tuning.variant;
+    std::printf("adapter %s api %s profile %.*s (%u,%u,%u,%u,%u,%u)\n", summary.c_str(), api.c_str(),
+                static_cast<int>(variant.size()), variant.data(), target.tuning.threadsPerGroup,
+                target.tuning.ballsPerThread, target.tuning.countThreads, target.tuning.countItems,
+                target.tuning.sortThreads, target.tuning.sortItems);
+}
+
 Options parseOptions(int argumentCount, char** arguments) {
     Options options;
-    for (int i = 1; i + 1 < argumentCount; i += 2) {
+    for (int i = 1; i < argumentCount; ++i) {
         const std::string key = arguments[i];
-        const std::string value = arguments[i + 1];
+        if (key == "--list-gpus") {
+            options.listGpus = true;
+            continue;
+        }
+        if (i + 1 >= argumentCount || std::string_view(arguments[i + 1]).starts_with("--")) {
+            continue;
+        }
+        const std::string value = arguments[++i];
         if (key == "--dir") {
             options.levelDirectory = value;
         } else if (key == "--level") {
             options.levelName = value;
         } else if (key == "--api") {
-            options.apis = value == "all" ? std::vector<std::string>{"d3d11", "d3d12", "vulkan"}
-                                          : std::vector<std::string>{value};
+            if (value == "all") {
+#if defined(_WIN32)
+                options.apis = {"d3d11", "d3d12", "vulkan"};
+#else
+                options.apis = {"vulkan"};
+#endif
+            } else {
+                options.apis = {value};
+            }
         } else if (key == "--balls") {
             options.balls = std::strtoull(value.c_str(), nullptr, 10);
         } else if (key == "--ticks") {
@@ -670,11 +860,27 @@ Options parseOptions(int argumentCount, char** arguments) {
         } else if (key == "--sort-interval") {
             options.sortInterval = value == "auto" ? automaticSortInterval : std::atoi(value.c_str());
         } else if (key == "--step-group-balls") {
-            options.ballsPerStepGroup = static_cast<uint32_t>(std::atoi(value.c_str()));
+            if (parsePositiveInteger(value, options.ballsPerStepGroup)) {
+                options.hasStepGroupOverride = true;
+            }
         } else if (key == "--count-group-balls") {
-            options.ballsPerCountGroup = static_cast<uint32_t>(std::atoi(value.c_str()));
+            if (parsePositiveInteger(value, options.ballsPerCountGroup)) {
+                options.hasCountGroupOverride = true;
+            }
         } else if (key == "--sort-group-balls") {
-            options.ballsPerSortGroup = static_cast<uint32_t>(std::atoi(value.c_str()));
+            if (parsePositiveInteger(value, options.ballsPerSortGroup)) {
+                options.hasSortGroupOverride = true;
+            }
+        } else if (key == "--gpu") {
+            options.gpuPreference = value;
+        } else if (key == "--profile") {
+            options.profile = value;
+        } else if (key == "--profile-numbers") {
+            if (parseProfileNumbers(value, options.profileNumbers)) {
+                options.hasProfileNumbers = true;
+            } else {
+                std::fprintf(stderr, "warning: invalid --profile-numbers; expected six positive integers\n");
+            }
         } else if (key == "--blob-dir") {
             options.blobDirectory = value;
         }
@@ -686,6 +892,16 @@ Options parseOptions(int argumentCount, char** arguments) {
 
 int main(int argumentCount, char** arguments) {
     const Options options = parseOptions(argumentCount, arguments);
+    if (options.listGpus) {
+        printGpuAdapters(GpuApi::Vulkan);
+#if defined(_WIN32)
+        printGpuAdapters(GpuApi::D3d12);
+#endif
+        return 0;
+    }
+    if (!options.blobDirectory.empty() && !options.hasProfileNumbers) {
+        std::fprintf(stderr, "warning: --blob-dir used without --profile-numbers; dispatch sizes may not match override blobs\n");
+    }
     bool layoutOk = false;
     const BrickLayout layout = layoutFor(options, layoutOk);
     if (!layoutOk) {
@@ -693,12 +909,13 @@ int main(int argumentCount, char** arguments) {
     }
     const Workload work = buildWorkload(layout, options);
     for (const std::string& api : options.apis) {
-        std::unique_ptr<Device> target = createDevice(api);
+        std::unique_ptr<Device> target = createDevice(api, options);
         if (!target) {
             std::printf("%-34s unavailable\n", api.c_str());
             continue;
         }
         loadBlobOverrides(*target, api, options.blobDirectory);
+        printRunProfile(*target, api);
         runBench(*target, work, options);
         target->device = nullptr;
         target->release();

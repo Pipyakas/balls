@@ -4,7 +4,9 @@
 #include "sim/BackendFactory.h"
 #include "ui/Widgets.h"
 
+#include <algorithm>
 #include <array>
+#include <format>
 
 namespace {
 
@@ -20,6 +22,26 @@ constexpr float hintHeight = 24.0f;
 constexpr float hintGap = 8.0f;
 constexpr float blockGap = 16.0f;
 constexpr float backHeight = 56.0f;
+constexpr float scoreInset = 16.0f;
+constexpr float runBenchmarkWidth = 240.0f;
+constexpr double ballStepsPerMillion = 1e6;
+
+std::string benchmarkScore(std::span<const CandidateResult> scores, BackendKind kind) {
+    const auto found = std::ranges::find_if(scores, [&](const CandidateResult& result) {
+        return result.candidate.kind == kind;
+    });
+    if (found == scores.end()) {
+        return {};
+    }
+    switch (found->status) {
+    case CandidateStatus::Done:
+        return std::format("{:.0f} M/s", found->ballStepsPerSecond / ballStepsPerMillion);
+    case CandidateStatus::Failed:
+        return "failed";
+    default:
+        return {};
+    }
+}
 
 constexpr std::array<std::pair<LayoutOrientation, const char*>, 3> layoutOptions{{
     {LayoutOrientation::Auto, "Auto"},
@@ -29,11 +51,28 @@ constexpr std::array<std::pair<LayoutOrientation, const char*>, 3> layoutOptions
 
 } // namespace
 
-SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind selectedBackend) {
+float settingsContentHeight() {
+    float height = panelPadding * 2.0f;
+    height += titleHeight + blockGap;
+    height += sectionHeight + sectionHeight + optionHeight + hintGap + hintHeight + hintHeight + blockGap;
+    height += sectionHeight + optionHeight + hintGap + hintHeight + blockGap;
+    height += sectionHeight + sectionHeight + optionHeight + hintGap + hintHeight + blockGap;
+    height += sectionHeight + sectionHeight + (optionHeight + optionGap) * allBackendKinds.size() -
+              optionGap + blockGap - optionGap;
+    height += backHeight;
+    return height;
+}
+
+SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind selectedBackend,
+                                    std::span<const CandidateResult> benchmarkScores, float& scroll) {
     SettingsPanelEdit edit{current, false, false, std::nullopt};
+    const Rect inner{area.x, area.y, area.width, area.height};
+    float visibleHeight = 0.0f;
+    ui::scrollFrame(inner, scroll, settingsContentHeight(), visibleHeight);
+    gfx::beginClip(inner);
     const float innerX = area.x + panelPadding;
     const float innerWidth = area.width - panelPadding * 2.0f;
-    float cursor = area.y + panelPadding;
+    float cursor = area.y + panelPadding - scroll;
 
     ui::drawTextInRect("Settings", {innerX, cursor, innerWidth, titleHeight}, titleSize, palette::text);
     cursor += titleHeight + blockGap;
@@ -100,6 +139,11 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
     ui::drawText("Physics", {innerX, cursor}, sectionSize, palette::textMuted);
     cursor += sectionHeight;
     ui::drawText("Default backend", {innerX, cursor}, sectionSize, palette::text);
+    const Rect runBenchmark{innerX + innerWidth - runBenchmarkWidth, cursor - optionGap, runBenchmarkWidth,
+                            sectionHeight + optionGap * 0.5f};
+    if (ui::button(runBenchmark, "Run machine benchmark")) {
+        edit.runBenchmark = true;
+    }
     cursor += sectionHeight;
     for (const BackendKind kind : allBackendKinds) {
         const bool available = isBackendAvailable(kind);
@@ -112,6 +156,11 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
             edit.backend = kind;
             edit.changed = true;
         }
+        if (const std::string score = benchmarkScore(benchmarkScores, kind); !score.empty()) {
+            const bool selected = selectedBackend == kind;
+            ui::drawTextInRect(score, {row.x, row.y, row.width - scoreInset, row.height}, hintSize,
+                               selected ? palette::panel : palette::textMuted, ui::Align::Right);
+        }
         cursor += optionHeight + optionGap;
     }
     cursor += blockGap - optionGap;
@@ -119,5 +168,6 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
     if (ui::button({innerX, cursor, innerWidth, backHeight}, "Back")) {
         edit.backPressed = true;
     }
+    gfx::endClip();
     return edit;
 }

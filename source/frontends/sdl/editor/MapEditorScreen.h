@@ -24,11 +24,15 @@ public:
     std::string_view name() const override { return "editor"; }
 
 private:
+    enum class PortraitPanel { Tools, Level };
+
     struct Regions {
         Rect tools;
         Rect properties;
         Rect brickArea;
         Rect launcherArea;
+        Rect panelTabs;
+        bool isPortrait = false;
     };
 
     struct GridCell {
@@ -56,6 +60,7 @@ private:
 
     void drawToolPanel(Rect area);
     void drawPropertyPanel(Rect area);
+    void drawPanelTabs(Rect area);
     void drawBrickGrid(Rect area);
     void drawLauncherGrid(Rect area);
     void drawMessage();
@@ -77,4 +82,9 @@ private:
     std::string message;
     float messageSeconds = 0.0f;
     bool messageIsError = false;
+    PortraitPanel portraitPanel = PortraitPanel::Tools;
+    float toolsScroll = 0.0f;
+    float propertiesScroll = 0.0f;
+    float toolsContentHeight = 0.0f;
+    float propertiesContentHeight = 0.0f;
 };

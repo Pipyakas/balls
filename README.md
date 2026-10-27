@@ -56,6 +56,26 @@ cmake --build build/win32 --config Release --parallel
 build/win32/bin/Release/ColorBlastBalls.exe
 ```
 
+### Linux and macOS
+
+Requirements: a C++20 compiler (GCC 12+ or Clang 15+), CMake 3.25+, Ninja or Make, and internet access on first
+configure (SDL 3.2.30, Dear ImGui 1.93.0 and NVRHI with the Vulkan headers are downloaded). Vulkan drivers are
+needed at runtime on Linux; macOS uses MoltenVK. There is no CUDA backend off Windows.
+
+```sh
+./build.sh                     # Release, NVRHI renderer, no CUDA
+./build.sh --debug -j 8        # Debug build with all CPUs
+./build.sh --renderer sdlgpu   # SDL_GPU instead of NVRHI
+./run.sh                       # run from build/bin
+./run.sh --play normal DA_49Bricks --backend avx2
+```
+
+`./build.sh --clean` reconfigures from scratch, and anything after `--` is passed to CMake. Tests and the
+benchmark build next to the game: `build/bin/balls_tests`, `build/bin/balls_bench`.
+
+To start it from the application menu or the desktop, run `tools/install-desktop-shortcut.sh` once; it writes a
+`.desktop` entry with this checkout's absolute paths.
+
 `FetchCudaSdk.ps1` downloads NVIDIA's NVRTC and runtime header wheels into `.deps/cuda`. The CUDA kernel is
 compiled at build time to SASS for sm_50, 60, 70, 75, 80, 86 and 89 plus `compute_75` and `compute_50` PTX, and
 all of it is embedded in the CUDA plugin, so the CUDA toolkit is not required. Without the SDK, or with
@@ -172,9 +192,10 @@ CMakeLists.txt        builds everything under source/
 
 ## Git workflow
 
-- `main` is the working branch: finished, building changes land on it directly or by a `--no-ff` merge of a
+- `main` is the only trunk: finished, building changes land on it directly or by a `--no-ff` merge of a
   `feature/*` branch.
-- `feature/*` branches hold side work that is not ready for `main`.
+- `feature/*` branches hold side work that is not ready for `main`, and they merge straight into `main`. There is
+  no `develop` or any other integration branch: one trunk, short-lived feature branches.
 - `submission` is generated from `main` for the game's scoring repository.
 - Commits use `feat:` / `fix:` / `perf:` / `refactor:` / `build:` / `docs:` / `chore:` prefixes.
 - Commit small, working steps and push after every commit, so other machines and agents never wait on unpushed work.

@@ -6,6 +6,7 @@
 #include "level/LevelRepository.h"
 #include "level/LevelWriter.h"
 #include "render/Palette.h"
+#include "ui/GameplayLayout.h"
 #include "ui/Widgets.h"
 
 #include <algorithm>
@@ -18,6 +19,9 @@ constexpr float margin = 16.0f;
 constexpr float sidePanelWidth = 270.0f;
 constexpr float propertyPanelWidth = 330.0f;
 constexpr float brickAreaShare = 0.66f;
+constexpr float minimumGridWidth = 320.0f;
+constexpr float portraitGridShare = 0.55f;
+constexpr float panelTabsHeight = 40.0f;
 constexpr float controlHeight = 38.0f;
 constexpr float controlGap = 8.0f;
 constexpr float messageSeconds = 3.0f;
@@ -81,6 +85,21 @@ MapEditorScreen::Regions MapEditorScreen::computeRegions() const {
     const float width = static_cast<float>(gfx::screenWidth());
     const float height = static_cast<float>(gfx::screenHeight());
     Regions regions;
+    const float landscapeGridWidth = width - sidePanelWidth - propertyPanelWidth - margin * 4.0f;
+    regions.isPortrait = resolveOrientation(app.settings().layout, width, height) == LayoutOrientation::Portrait ||
+                         landscapeGridWidth < minimumGridWidth;
+    if (regions.isPortrait) {
+        const float contentWidth = width - margin * 2.0f;
+        const float gridsHeight = (height - margin * 4.0f - panelTabsHeight) * portraitGridShare;
+        const float brickHeight = (gridsHeight - margin) * brickAreaShare;
+        regions.brickArea = {margin, margin, contentWidth, brickHeight};
+        regions.launcherArea = {margin, margin * 2.0f + brickHeight, contentWidth, gridsHeight - margin - brickHeight};
+        regions.panelTabs = {margin, margin * 2.0f + gridsHeight, contentWidth, panelTabsHeight};
+        const float panelTop = regions.panelTabs.y + panelTabsHeight + controlGap;
+        regions.tools = {margin, panelTop, contentWidth, height - margin - panelTop};
+        regions.properties = regions.tools;
+        return regions;
+    }
     regions.tools = {margin, margin, sidePanelWidth, height - margin * 2.0f};
     regions.properties = {width - propertyPanelWidth - margin, margin, propertyPanelWidth, height - margin * 2.0f};
     const float centerX = regions.tools.x + regions.tools.width + margin;
@@ -313,7 +332,11 @@ void MapEditorScreen::update(float deltaTime) {
 
 void MapEditorScreen::drawToolPanel(Rect area) {
     ui::drawPanel(area, palette::panel, 0.03f);
-    float cursor = area.y + 8.0f;
+    float visibleHeight = 0.0f;
+    ui::scrollFrame(area, toolsScroll, toolsContentHeight, visibleHeight);
+    gfx::beginClip(area);
+    const float contentTop = area.y - toolsScroll;
+    float cursor = contentTop + 8.0f;
     sectionTitle(area, cursor, "Tool");
     for (const auto& [kind, name] : toolNames) {
         if (ui::button(nextControl(area, cursor), name, true, tool == kind)) {
@@ -351,11 +374,17 @@ void MapEditorScreen::drawToolPanel(Rect area) {
                        ui::Align::Left);
     ui::drawTextInRect("Shift+R-click delete row", nextControl(area, cursor, 22.0f), 16.0f, palette::textMuted,
                        ui::Align::Left);
+    toolsContentHeight = cursor - contentTop;
+    gfx::endClip();
 }
 
 void MapEditorScreen::drawPropertyPanel(Rect area) {
     ui::drawPanel(area, palette::panel, 0.03f);
-    float cursor = area.y + 8.0f;
+    float visibleHeight = 0.0f;
+    ui::scrollFrame(area, propertiesScroll, propertiesContentHeight, visibleHeight);
+    gfx::beginClip(area);
+    const float contentTop = area.y - propertiesScroll;
+    float cursor = contentTop + 8.0f;
     sectionTitle(area, cursor, "Level");
     ui::textField(nextControl(area, cursor), levelName, nameFocused, maximumNameLength);
     const Rect modeRow = nextControl(area, cursor);
@@ -403,14 +432,11 @@ void MapEditorScreen::drawPropertyPanel(Rect area) {
         cursor += 26.0f;
     }
     for (const std::string& problem : validation.problems) {
-        if (cursor > area.y + area.height - 200.0f) {
-            break;
-        }
         ui::drawText(problem, {area.x + 12.0f, cursor}, 17.0f, palette::danger);
         cursor += 22.0f;
     }
 
-    const float buttonsTop = area.y + area.height - (controlHeight + controlGap) * 4.0f - 8.0f;
+    const float buttonsTop = contentTop + area.height - (controlHeight + controlGap) * 4.0f - 8.0f;
     cursor = std::max(cursor + 8.0f, buttonsTop);
     const Rect undoRow = nextControl(area, cursor);
     if (ui::button(ui::columnSlice(undoRow, 0, 2, 8.0f), "Undo", editor.canUndo())) {
@@ -431,6 +457,17 @@ void MapEditorScreen::drawPropertyPanel(Rect area) {
         } else {
             app.showMainMenu();
         }
+    }
+    propertiesContentHeight = cursor - contentTop;
+    gfx::endClip();
+}
+
+void MapEditorScreen::drawPanelTabs(Rect area) {
+    if (ui::button(ui::columnSlice(area, 0, 2, controlGap), "Tools", true, portraitPanel == PortraitPanel::Tools)) {
+        portraitPanel = PortraitPanel::Tools;
+    }
+    if (ui::button(ui::columnSlice(area, 1, 2, controlGap), "Level", true, portraitPanel == PortraitPanel::Level)) {
+        portraitPanel = PortraitPanel::Level;
     }
 }
 
@@ -481,8 +518,11 @@ void MapEditorScreen::drawBrickGrid(Rect area) {
             }
         }
     }
-    ui::drawText(std::format("{} x {}  |  L-drag: tool  R-drag: erase  Ctrl+Z/Y", bricks.width, bricks.height),
-                 {area.x + 10.0f, area.y + area.height - 26.0f}, 18.0f, palette::textMuted);
+    const std::string size = std::format("{} x {}", bricks.width, bricks.height);
+    const std::string footer = size + "  |  L-drag: tool  R-drag: erase  Ctrl+Z/Y";
+    const bool footerFits = ui::measureText(footer, 18.0f).x <= area.width - 20.0f;
+    ui::drawText(footerFits ? footer : size, {area.x + 10.0f, area.y + area.height - 26.0f}, 18.0f,
+                 palette::textMuted);
 }
 
 void MapEditorScreen::drawLauncherGrid(Rect area) {
@@ -542,7 +582,16 @@ void MapEditorScreen::draw() {
     const Regions regions = computeRegions();
     drawBrickGrid(regions.brickArea);
     drawLauncherGrid(regions.launcherArea);
-    drawToolPanel(regions.tools);
-    drawPropertyPanel(regions.properties);
+    if (!regions.isPortrait) {
+        drawToolPanel(regions.tools);
+        drawPropertyPanel(regions.properties);
+    } else {
+        drawPanelTabs(regions.panelTabs);
+        if (portraitPanel == PortraitPanel::Tools) {
+            drawToolPanel(regions.tools);
+        } else {
+            drawPropertyPanel(regions.properties);
+        }
+    }
     drawMessage();
 }

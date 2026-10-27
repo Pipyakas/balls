@@ -16,6 +16,9 @@ struct Settings {
     bool ballCollisions = false;
     LayoutOrientation layout = LayoutOrientation::Auto;
     bool vsync = false;
+    // A physics backend name (see backendKindName); empty lets the front end pick. The machine benchmark writes its
+    // winner here, and the player can override it from the Settings page.
+    std::string defaultBackend;
 
     bool operator==(const Settings&) const = default;
 };

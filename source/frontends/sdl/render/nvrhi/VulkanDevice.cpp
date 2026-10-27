@@ -10,8 +10,12 @@
 #include <SDL3/SDL_vulkan.h>
 
 #include <algorithm>
+#include <cctype>
+#include <charconv>
 #include <cstring>
 #include <format>
+#include <string>
+#include <system_error>
 #include <vector>
 
 VULKAN_HPP_DEFAULT_DISPATCH_LOADER_DYNAMIC_STORAGE
@@ -31,9 +35,30 @@ bool hasExtension(const std::vector<VkExtensionProperties>& available, const cha
     });
 }
 
+const char* deviceTypeName(VkPhysicalDeviceType type) {
+    switch (type) {
+    case VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU:
+        return "discrete";
+    case VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU:
+        return "integrated";
+    case VK_PHYSICAL_DEVICE_TYPE_VIRTUAL_GPU:
+        return "virtual";
+    case VK_PHYSICAL_DEVICE_TYPE_CPU:
+        return "software";
+    default:
+        return "other";
+    }
+}
+
+std::string lowercase(std::string text) {
+    std::ranges::transform(text, text.begin(), [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
+    return text;
+}
+
 class VulkanDevice final : public GraphicsDevice {
 public:
-    explicit VulkanDevice(SDL_Window* window) : window(window) {}
+    VulkanDevice(SDL_Window* window, std::string gpuPreference)
+        : window(window), gpuPreference(std::move(gpuPreference)) {}
     ~VulkanDevice() override;
 
     bool initialize(std::string& error);
@@ -55,6 +80,7 @@ private:
     VkPresentModeKHR choosePresentMode() const;
 
     SDL_Window* window;
+    std::string gpuPreference;
     VkInstance instance = VK_NULL_HANDLE;
     VkSurfaceKHR surface = VK_NULL_HANDLE;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
@@ -138,11 +164,19 @@ bool VulkanDevice::createInstance(std::string& error) {
 }
 
 bool VulkanDevice::pickPhysicalDevice(std::string& error) {
+    struct UsableDevice {
+        VkPhysicalDevice device = VK_NULL_HANDLE;
+        uint32_t family = 0;
+        std::string name;
+        VkPhysicalDeviceType type = VK_PHYSICAL_DEVICE_TYPE_OTHER;
+    };
+    std::vector<UsableDevice> usable;
+    std::string listing;
+
     uint32_t count = 0;
     vk().vkEnumeratePhysicalDevices(instance, &count, nullptr);
     std::vector<VkPhysicalDevice> candidates(count);
     vk().vkEnumeratePhysicalDevices(instance, &count, candidates.data());
-    int bestScore = -1;
     for (VkPhysicalDevice candidate : candidates) {
         VkPhysicalDeviceProperties properties{};
         vk().vkGetPhysicalDeviceProperties(candidate, &properties);
@@ -160,20 +194,63 @@ bool VulkanDevice::pickPhysicalDevice(std::string& error) {
             if (!presentable || (families[family].queueFlags & needed) != needed) {
                 continue;
             }
-            const int score = properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? 2 : 1;
-            if (score > bestScore) {
-                bestScore = score;
-                physicalDevice = candidate;
-                queueFamily = family;
-                adapterName = properties.deviceName;
+            usable.push_back({candidate, family, properties.deviceName, properties.deviceType});
+            if (!listing.empty()) {
+                listing += ", ";
             }
+            listing += std::format("{} {} ({})", usable.size() - 1, properties.deviceName,
+                                   deviceTypeName(properties.deviceType));
             break;
         }
     }
-    if (!physicalDevice) {
+    if (usable.empty()) {
         error = "no Vulkan 1.3 GPU with a graphics+compute queue that can present to the window";
         return false;
     }
+    SDL_Log("Vulkan devices: %s", listing.c_str());
+
+    // An index or a name substring pins one adapter; otherwise the requested class wins, and "auto"
+    // keeps the historical preference for a discrete GPU.
+    const std::string preference = gpuPreference.empty() ? std::string("auto") : gpuPreference;
+    size_t selected = usable.size();
+    int wantedIndex = -1;
+    const auto [scanEnd, scanError] =
+        std::from_chars(preference.data(), preference.data() + preference.size(), wantedIndex);
+    const bool isIndex = scanError == std::errc{} && scanEnd == preference.data() + preference.size() && wantedIndex >= 0;
+    if (isIndex && static_cast<size_t>(wantedIndex) < usable.size()) {
+        selected = static_cast<size_t>(wantedIndex);
+    }
+    if (selected == usable.size() && !isIndex && preference != "auto" && preference != "integrated" &&
+        preference != "discrete") {
+        for (size_t index = 0; index < usable.size(); ++index) {
+            if (lowercase(usable[index].name).find(preference) != std::string::npos) {
+                selected = index;
+                break;
+            }
+        }
+    }
+    if (selected == usable.size()) {
+        const VkPhysicalDeviceType wanted = preference == "integrated" ? VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU
+                                                                      : VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+        for (size_t index = 0; index < usable.size(); ++index) {
+            if (usable[index].type == wanted) {
+                selected = index;
+                break;
+            }
+        }
+    }
+    if (selected == usable.size()) {
+        if (preference != "auto") {
+            SDL_Log("No Vulkan adapter matches '%s'; using device 0", preference.c_str());
+        }
+        selected = 0;
+    }
+
+    const UsableDevice& chosen = usable[selected];
+    physicalDevice = chosen.device;
+    queueFamily = chosen.family;
+    adapterName = chosen.name;
+    SDL_Log("Vulkan rendering on device %zu: %s (%s)", selected, adapterName.c_str(), deviceTypeName(chosen.type));
     return true;
 }
 
@@ -418,8 +495,9 @@ bool VulkanDevice::setVsync(bool enabled) {
 
 }
 
-std::unique_ptr<GraphicsDevice> createVulkanGraphicsDevice(SDL_Window* window, std::string& error) {
-    auto device = std::make_unique<VulkanDevice>(window);
+std::unique_ptr<GraphicsDevice> createVulkanGraphicsDevice(SDL_Window* window, std::string_view gpuPreference,
+                                                           std::string& error) {
+    auto device = std::make_unique<VulkanDevice>(window, std::string(gpuPreference));
     if (!device->initialize(error)) {
         return nullptr;
     }

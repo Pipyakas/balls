@@ -2,6 +2,7 @@
 
 #include "app/Screen.h"
 #include "game/GameSession.h"
+#include "gpu/GpuAdapters.h"
 #include "level/LevelData.h"
 #include "level/LevelWatcher.h"
 #include "render/ScreenLayout.h"
@@ -10,6 +11,7 @@
 #include <memory>
 #include <span>
 #include <string>
+#include <vector>
 
 class App;
 
@@ -33,20 +35,31 @@ private:
         bool isError = false;
     };
 
+    // What happened to the level's files since this session loaded them. The level in play is never swapped
+    // mid-game; the header says so and Restart picks the new files up.
+    enum class DiskState { Unchanged, Changed, Removed };
+
     void loadSession();
-    void hotReload();
+    void noticeDiskChange();
+    void restartLevel();
+    std::string_view diskNotice() const;
     void handleLauncherClick(const GameplayLayout& layout);
     void showToast(std::string text, bool isError);
     void openNextLevel();
     void applyRememberedMachineLimit();
     void rememberFinishedProbe();
     void startProbe();
+    void selectComputeAdapter(int adapter);
+    std::vector<int> renderAdapterChoices() const;
+    std::vector<int> computeAdapterChoices() const;
+    void drawAdapterList(Rect area, const std::vector<GpuAdapterInfo>& adapters, std::span<const int> choices,
+                         int selected, bool forCompute);
 
     void drawHeader(const GameplayLayout& layout);
     void drawMainSection(const GameplayLayout& layout);
     void drawInteractionSection(const GameplayLayout& layout);
+    void drawPortraitLauncherRow(Rect area);
     void drawPerformanceControls(Rect area);
-    float performanceContentHeight() const;
     void drawNormalControls(Rect area);
     float normalContentHeight() const;
     void drawBackendList(Rect area, BackendKind selected);
@@ -61,15 +74,22 @@ private:
     std::unique_ptr<GameSession> session;
     std::string loadError;
     LevelWatcher watcher;
+    DiskState diskState = DiskState::Unchanged;
     Toast toast;
     bool paused = false;
     bool settingsOpen = false;
     bool probeResultSaved = true;
     int probeTargetFps = 60;
     float controlsScroll = 0.0f;
+    float performanceControlsHeight = 0.0f;
     float normalScroll = 0.0f;
+    float portraitLauncherScroll = 0.0f;
+    Vec2 portraitPressStart{};
+    bool portraitPressing = false;
+    bool portraitDragged = false;
     bool spawnDropdownOpen = false;
     bool countDropdownOpen = false;
     bool limitDropdownOpen = false;
+    float pauseSettingsScroll = 0.0f;
     DebugPanelState debugState;
 };

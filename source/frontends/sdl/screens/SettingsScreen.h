@@ -14,4 +14,5 @@ public:
 
 private:
     App& app;
+    float scroll = 0.0f;
 };
