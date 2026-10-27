@@ -8,6 +8,7 @@
 #include <optional>
 
 class FBallsBoardView;
+class FBallsControlServer;
 class FBallsGameplay;
 class FBallsMapEditor;
 class SBallsLevelSelect;
@@ -68,16 +69,24 @@ public:
     void SetVSyncEnabled(bool bEnabled);
     FBallsGameplay* GetGameplay() const { return Gameplay.Get(); }
     const FBallsFrameTimings& GetFrameTimings() const { return FrameTimings; }
+    const FBallsFrameSample& GetLatestSample() const { return LatestSample; }
     std::filesystem::path LevelDirectory(GameMode Mode) const;
+
+    // "Launch options and automation": one handler for every control API path, called on the game thread.
+    // OutBody is JSON; OutCode is the HTTP status (200 on success).
+    void HandleControl(const FString& Path, const TMap<FString, FString>& Query, FString& OutBody, int32& OutCode);
+    FString GetScreenName() const;
 
 private:
     enum class EScreen { MainMenu, LevelSelect, Gameplay, MapEditor, Settings };
 
     void SetScreen(EScreen Screen, TSharedRef<SWidget> Content);
     void RecordFrame(float DeltaSeconds);
+    FString BuildControlStateJson() const;
 
     UWorld* World = nullptr;
     TSharedPtr<SBallsRoot> Root;
+    TSharedPtr<FBallsControlServer> Control;
     TUniquePtr<FBallsBoardView> BoardView;
     TSharedPtr<FBallsGameplay> Gameplay;
     TSharedPtr<FBallsMapEditor> MapEditorState;

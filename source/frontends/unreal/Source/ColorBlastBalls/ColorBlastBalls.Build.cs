@@ -17,5 +17,11 @@ public class ColorBlastBalls : ModuleRules
         {
             PrivateDependencyModuleNames.Add("DesktopPlatform");
         }
+        // The game's HTTP control API (state, screenshot, play, start, rate, backend, settings).
+        if (Target.Platform == UnrealTargetPlatform.Win64 || Target.Platform == UnrealTargetPlatform.Mac ||
+            Target.Platform == UnrealTargetPlatform.Linux)
+        {
+            PrivateDependencyModuleNames.AddRange(new[] { "HTTPServer", "Sockets" });
+        }
     }
 }
