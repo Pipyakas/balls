@@ -70,9 +70,9 @@ const FButtonStyle* SwatchStyle(BallColor Color) {
         for (int Index = 0; Index < ballColorCount; ++Index) {
             const FLinearColor Base = BallsPalette::Linear(BallsPalette::Ball(ballColorFromIndex(Index)));
             FButtonStyle Style;
-            Style.SetNormal(FSlateRoundedBoxBrush(Base, 6.0f));
-            Style.SetHovered(FSlateRoundedBoxBrush(Base * 1.25f, 6.0f));
-            Style.SetPressed(FSlateRoundedBoxBrush(Base * 0.8f, 6.0f));
+            Style.SetNormal(FSlateRoundedBoxBrush(Base, 0.0f));
+            Style.SetHovered(FSlateRoundedBoxBrush(Base * 1.25f, 0.0f));
+            Style.SetPressed(FSlateRoundedBoxBrush(Base * 0.8f, 0.0f));
             Style.SetNormalPadding(FMargin(0.0f));
             Style.SetPressedPadding(FMargin(0.0f));
             Result.Add(Style);
@@ -203,7 +203,7 @@ public:
         const BrickLayout& Bricks = Editor->Editable().level().bricks;
         const FVector2D Size = AllottedGeometry.GetLocalSize();
         DrawBox(OutDrawElements, LayerId, AllottedGeometry, FSlateRect(FVector2D::ZeroVector, Size),
-                BallsStyle::RoundedBox(4.0f), BallsPalette::Linear(BallsPalette::BackgroundDeep));
+                BallsStyle::RoundedBox(0.0f), BallsPalette::Linear(BallsPalette::BackgroundDeep));
 
         float Cell = 0.0f;
         const FSlateRect Grid = GridRect(AllottedGeometry, Cell);
@@ -225,7 +225,7 @@ public:
                     if (Id == Editor->SelectedBrick()) {
                         Fill = BallsPalette::Shade(Fill, 1.35f);
                     }
-                    DrawBox(OutDrawElements, LayerId + 2, AllottedGeometry, Rect, BallsStyle::RoundedBox(1.0f),
+                    DrawBox(OutDrawElements, LayerId + 2, AllottedGeometry, Rect, BallsStyle::RoundedBox(0.0f),
                             BallsPalette::Linear(Fill));
                     const float Border = FMath::Max(1.0f, Cell * 0.08f);
                     const FLinearColor Edge = BallsPalette::Linear(BallsPalette::Shade(Fill, 0.45f));
@@ -254,7 +254,7 @@ public:
                     }
                 } else {
                     DrawBox(OutDrawElements, LayerId + 2, AllottedGeometry, Rect, BallsStyle::White(),
-                            BallsPalette::Linear(BallsPalette::Frame, 0.12f));
+                            BallsPalette::Linear(BallsPalette::Frame));
                 }
                 if (Hovered.X == Column && Hovered.Y == Row) {
                     DrawBox(OutDrawElements, LayerId + 5, AllottedGeometry, Rect, BallsStyle::White(),
@@ -359,7 +359,7 @@ public:
         const LauncherLayout& Launchers = Editor->Editable().level().launchers;
         const FVector2D Size = AllottedGeometry.GetLocalSize();
         DrawBox(OutDrawElements, LayerId, AllottedGeometry, FSlateRect(FVector2D::ZeroVector, Size),
-                BallsStyle::RoundedBox(4.0f), BallsPalette::Linear(BallsPalette::Panel));
+                BallsStyle::RoundedBox(0.0f), BallsPalette::Linear(BallsPalette::Panel));
 
         float Cell = 0.0f;
         const FSlateRect Grid = GridRect(AllottedGeometry, Cell);
@@ -371,14 +371,14 @@ public:
                 const bool bExists = Row < Launchers.rowCount();
                 const std::optional<Launcher> Slot = bExists ? Launchers.slot(Column, Row) : std::nullopt;
                 if (Slot) {
-                    DrawBox(OutDrawElements, LayerId + 1, AllottedGeometry, Rect, BallsStyle::RoundedBox(6.0f),
+                    DrawBox(OutDrawElements, LayerId + 1, AllottedGeometry, Rect, BallsStyle::RoundedBox(0.0f),
                             BallsPalette::Linear(BallsPalette::Ball(Slot->color)));
                     DrawTextInRect(OutDrawElements, LayerId + 2, AllottedGeometry,
                                    BallsText::CompactCount(Slot->ballCount), Rect, BallsStyle::Font(FMath::Max(10.0f, Cell * 0.36f), true),
                                    BallsPalette::Linear(BallsPalette::Text));
                 } else {
                     DrawBox(OutDrawElements, LayerId + 1, AllottedGeometry, Rect, BallsStyle::White(),
-                            BallsPalette::Linear(BallsPalette::Frame, bExists ? 0.25f : 0.12f));
+                            BallsPalette::Linear(BallsPalette::Frame));
                 }
                 if (Row == Launchers.visibleRows - 1) {
                     DrawBox(OutDrawElements, LayerId + 2, AllottedGeometry,
@@ -400,7 +400,7 @@ public:
                 continue;
             }
             DrawBox(OutDrawElements, LayerId + 4, AllottedGeometry, FSlateRect(X, Y + 4.0f, X + 13.0f, Y + 17.0f),
-                    BallsStyle::RoundedBox(6.5f), BallsPalette::Linear(BallsPalette::Ball(ballColorFromIndex(Color))));
+                    BallsStyle::RoundedBox(0.0f), BallsPalette::Linear(BallsPalette::Ball(ballColorFromIndex(Color))));
             const FString Text = FString::Printf(TEXT("%d/%d"), Validation.balls[Color], Validation.brickHits[Color]);
             const FLinearColor TextColor = Validation.balls[Color] >= Validation.brickHits[Color]
                                                ? BallsPalette::Linear(BallsPalette::Text)
@@ -766,7 +766,7 @@ int32 SBallsMapEditor::OnPaint(const FPaintArgs& Args, const FGeometry& Allotted
     const float Alpha = FMath::Min(1.0f, Editor->MessageSeconds());
     const FSlateRect Rect((Size.X - Extent.X) * 0.5f - 18.0f, 18.0f,
                           (Size.X + Extent.X) * 0.5f + 18.0f, 62.0f);
-    DrawBox(OutDrawElements, Layer + 1, AllottedGeometry, Rect, BallsStyle::RoundedBox(10.0f),
+    DrawBox(OutDrawElements, Layer + 1, AllottedGeometry, Rect, BallsStyle::RoundedBox(0.0f),
             BallsPalette::Linear(Editor->MessageIsError() ? BallsPalette::Danger : BallsPalette::Success, 0.85f * Alpha));
     DrawTextInRect(OutDrawElements, Layer + 2, AllottedGeometry, Text, Rect, Font,
                    BallsPalette::Linear(BallsPalette::Text, Alpha));

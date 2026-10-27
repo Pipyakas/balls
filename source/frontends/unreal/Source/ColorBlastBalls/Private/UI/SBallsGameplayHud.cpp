@@ -209,7 +209,7 @@ public:
         constexpr float Swatch = 14.0f;
         const float SwatchTop = Cursor + (TextSize - Swatch) * 0.5f + 2.0f;
         DrawBox(Out, Layer, Geometry, FSlateRect(Area.Left + Padding, SwatchTop, Area.Left + Padding + Swatch, SwatchTop + Swatch),
-                BallsStyle::RoundedBox(Swatch * 0.5f), BallsPalette::Linear(BallsPalette::Ball(ColorIndex)));
+                BallsStyle::RoundedBox(0.0f), BallsPalette::Linear(BallsPalette::Ball(ColorIndex)));
         DrawText(Out, Layer, Geometry, BallsText::FromUtf8(ballColorName(ballColorFromIndex(ColorIndex))),
                  FVector2D(Area.Left + Padding + Swatch + 8.0f, Cursor), BallsStyle::Font(TextSize),
                  BallsPalette::Linear(BallsPalette::TextMuted));
@@ -341,7 +341,7 @@ public:
         const FLinearColor PanelTint = BallsPalette::Linear(BallsPalette::Panel, 0.97f);
 
         if (Layout.bPortrait) {
-            DrawBox(Out, LayerId, Geometry, Layout.Header, BallsStyle::RoundedBox(4.0f), PanelTint);
+            DrawBox(Out, LayerId, Geometry, Layout.Header, BallsStyle::RoundedBox(0.0f), PanelTint);
             DrawText(Out, LayerId + 1, Geometry,
                      Gameplay->GetMode() == GameMode::Normal ? TEXT("Normal Mode") : TEXT("Performance Mode"),
                      FVector2D(Layout.Header.Left + 20.0f, Layout.Header.Top + 7.0f), BallsStyle::Font(15.0f),
@@ -350,7 +350,7 @@ public:
                      FVector2D(Layout.Header.Left + 20.0f, Layout.Header.Top + 25.0f), BallsStyle::Font(24.0f, true),
                      BallsPalette::Linear(BallsPalette::Text));
             PaintStatsStrip(Out, LayerId + 1, Geometry, *Session, Layout.Header);
-            DrawBox(Out, LayerId, Geometry, Layout.InteractionSection, BallsStyle::RoundedBox(4.0f), PanelTint);
+            DrawBox(Out, LayerId, Geometry, Layout.InteractionSection, BallsStyle::RoundedBox(0.0f), PanelTint);
             if (Gameplay->GetMode() == GameMode::Normal) {
                 PaintLaunchers(Out, LayerId + 1, Geometry, *Session, Layout);
             }
@@ -362,7 +362,7 @@ public:
         const FSlateRect LeftColumn(Layout.Header.Left, Layout.Header.Top, Layout.Header.Right,
                                     Layout.InteractionSection.Bottom);
 
-        DrawBox(Out, LayerId, Geometry, LeftColumn, BallsStyle::RoundedBox(4.0f), PanelTint);
+        DrawBox(Out, LayerId, Geometry, LeftColumn, BallsStyle::RoundedBox(0.0f), PanelTint);
         DrawText(Out, LayerId + 1, Geometry,
                  Gameplay->GetMode() == GameMode::Normal ? TEXT("Normal Mode") : TEXT("Performance Mode"),
                  FVector2D(Layout.Header.Left + 20.0f, Layout.Header.Top + 12.0f), BallsStyle::Font(20.0f),
@@ -373,7 +373,7 @@ public:
         DrawBox(Out, LayerId + 1, Geometry,
                 FSlateRect(Layout.Header.Left + 20.0f, Layout.Header.Bottom - 1.0f, Layout.Header.Right - 20.0f,
                            Layout.Header.Bottom + 1.0f),
-                BallsStyle::RoundedBox(1.0f), BallsPalette::Linear(BallsPalette::Frame, 0.45f));
+                BallsStyle::RoundedBox(0.0f), BallsPalette::Linear(BallsPalette::Frame));
 
         PaintBrickLabels(Out, LayerId + 1, Geometry, Sim.board(), Layout);
 
@@ -384,7 +384,7 @@ public:
             PaintLaunchers(Out, LayerId + 1, Geometry, *Session, Layout);
         }
 
-        DrawBox(Out, LayerId, Geometry, Layout.DebugSection, BallsStyle::RoundedBox(4.0f), PanelTint);
+        DrawBox(Out, LayerId, Geometry, Layout.DebugSection, BallsStyle::RoundedBox(0.0f), PanelTint);
         PaintDebugPanel(Out, LayerId + 1, Geometry, *Session, Layout.DebugSection, Layout.bPortrait);
 
         PaintToast(Out, LayerId + 3, Geometry);
@@ -475,7 +475,7 @@ private:
         const bool bInteractive = !Gameplay->IsPaused() && Session.state() == SessionState::Running;
         const FLauncherGrid Grid = ComputeLauncherGrid(Shrink(Layout.InteractionSection, 12.0f), Queue.columnCount(),
                                                        Queue.visibleRows());
-        const FSlateBrush* Rounded = BallsStyle::RoundedBox(Grid.SlotSize * 0.22f);
+        const FSlateBrush* Rounded = BallsStyle::RoundedBox(0.0f);
         for (int32 Column = 0; Column < Queue.columnCount(); ++Column) {
             for (int32 Row = 0; Row < Queue.visibleRows(); ++Row) {
                 const QueuedLauncher* Queued = Queue.visible(Column, Row);
@@ -510,7 +510,7 @@ private:
         const bool bInteractive = !Gameplay->IsPaused() && Session.state() == SessionState::Running;
         const FSlateRect Area = Shrink(Layout.InteractionSection, 12.0f);
         const FPortraitLauncherGrid Grid = ComputePortraitLauncherGrid(Queue, Area, Scroll);
-        const FSlateBrush* Rounded = BallsStyle::RoundedBox(Grid.SlotSize * 0.22f);
+        const FSlateBrush* Rounded = BallsStyle::RoundedBox(0.0f);
         // The row scrolls sideways under the panel edges, so cut off what falls outside it.
         Out.PushClip(FSlateClippingZone(RectGeometry(Geometry, Layout.InteractionSection)));
         for (const FPortraitLauncherSlot& Slot : Grid.Slots) {
@@ -669,7 +669,7 @@ private:
                                                     Geometry.GetAccumulatedLayoutTransform().GetScale(), true)
                                   .Header.Top;
         const FSlateRect Rect(Left, SafeTop + 24.0f, Left + static_cast<float>(Extent.X) + 40.0f, SafeTop + 72.0f);
-        DrawBox(Out, Layer, Geometry, Rect, BallsStyle::RoundedBox(18.0f),
+        DrawBox(Out, Layer, Geometry, Rect, BallsStyle::RoundedBox(0.0f),
                 BallsPalette::Linear(Toast.bIsError ? BallsPalette::Danger : BallsPalette::PanelLight, Alpha));
         DrawTextInRect(Out, Layer + 1, Geometry, Toast.Text, Rect, Font, BallsPalette::Linear(BallsPalette::Text, Alpha));
     }

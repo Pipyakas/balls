@@ -6,12 +6,15 @@
 
 struct FSlateBrush;
 
-// Code-only Slate styling in the raylib front end's palette, so the project needs no style assets.
+// Code-only Slate styling in the game's palette, so the project needs no style assets.
 namespace BallsStyle {
+
+// Text from this size up uses SemiBold when bold is requested; smaller text stays Regular.
+inline constexpr float StrongTextMinimumSize = 24.0f;
 
 FSlateFontInfo Font(float Size, bool bBold = false);
 const FButtonStyle& Button();
-// Rounded white box meant to be tinted, with corner radii in Slate units.
+// White box meant to be tinted; Radius is nonzero only for decorative balls (UI is square).
 const FSlateBrush* RoundedBox(float Radius);
 const FSlateBrush* Panel();
 const FSlateBrush* White();

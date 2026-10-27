@@ -4,19 +4,25 @@
 #include "CoreMinimal.h"
 #include "Math/Color.h"
 
-// Same colors as the raylib front end (frontends/raylib/render/Palette.*), as sRGB FColors.
+// Same colors as the SDL front end (frontends/sdl/render/Palette.h), as sRGB FColors.
 namespace BallsPalette {
 
-inline const FColor Background(38, 30, 66);
-inline const FColor BackgroundDeep(26, 20, 48);
-inline const FColor Panel(56, 44, 96);
-inline const FColor PanelLight(78, 62, 130);
-inline const FColor Frame(120, 96, 200);
-inline const FColor Text(245, 240, 255);
-inline const FColor TextMuted(180, 170, 210);
-inline const FColor Accent(255, 196, 64);
-inline const FColor Danger(235, 80, 90);
-inline const FColor Success(90, 210, 120);
+// The UI scheme from the design ("Look and feel"): dark neutrals with one accent.
+inline const FColor Background(0x16, 0x16, 0x16);
+inline const FColor BackgroundDeep(0x10, 0x10, 0x10);
+inline const FColor Panel(0x1d, 0x1d, 0x1d);
+inline const FColor PanelLight(0x24, 0x24, 0x24);
+inline const FColor ControlHover(0x30, 0x30, 0x30);
+inline const FColor ControlPressed(0x3a, 0x3a, 0x3a);
+// White at 10%: borders and dividers.
+inline const FColor Frame(255, 255, 255, 26);
+inline const FColor Text(0xd4, 0xd4, 0xd4);
+inline const FColor TextStrong(0xff, 0xff, 0xff);
+inline const FColor TextMuted(0xa3, 0xa3, 0xa3);
+inline const FColor TextDim(0x70, 0x70, 0x70);
+inline const FColor Accent(0x81, 0x90, 0xff);
+inline const FColor Danger(0xeb, 0x50, 0x5a);
+inline const FColor Success(0x5a, 0xd2, 0x78);
 
 inline FColor Ball(int32 ColorIndex) {
     static const FColor Colors[ballColorCount] = {
@@ -35,9 +41,12 @@ inline FColor Shade(FColor Color, float Factor) {
 
 inline FColor Brick(BallColor Color) { return Shade(Ball(Color), 0.92f); }
 
-inline FLinearColor Linear(FColor Color, float Alpha = 1.0f) {
+// Alpha defaults to the color's own alpha.
+inline FLinearColor Linear(FColor Color, float Alpha = -1.0f) {
     FLinearColor Result(Color);
-    Result.A = Alpha;
+    if (Alpha >= 0.0f) {
+        Result.A = Alpha;
+    }
     return Result;
 }
 

@@ -106,7 +106,7 @@ void FBallsBoardView::SpawnScene() {
         FVector::ZeroVector, FRotator(-35.0, -60.0, 0.0), Parameters);
     // Runtime-spawned lights default to Stationary, which does not light dynamic meshes without baked data.
     KeyLight->GetLightComponent()->SetMobility(EComponentMobility::Movable);
-    KeyLight->GetLightComponent()->SetIntensity(4.0f);
+    KeyLight->GetLightComponent()->SetIntensity(1.2f);
     // The board is a flat 2.5D scene; the backdrop sits right behind the bricks, so shadows only add streaks.
     KeyLight->GetLightComponent()->SetCastShadows(false);
     SceneActors.Emplace(KeyLight);
@@ -115,7 +115,7 @@ void FBallsBoardView::SpawnScene() {
     ADirectionalLight* FillLight = World->SpawnActor<ADirectionalLight>(
         FVector::ZeroVector, FRotator(-10.0, -100.0, 0.0), Parameters);
     FillLight->GetLightComponent()->SetMobility(EComponentMobility::Movable);
-    FillLight->GetLightComponent()->SetIntensity(1.5f);
+    FillLight->GetLightComponent()->SetIntensity(0.45f);
     FillLight->GetLightComponent()->SetCastShadows(false);
     FillLight->GetLightComponent()->SetLightColor(BallsPalette::Linear(BallsPalette::TextMuted));
     SceneActors.Emplace(FillLight);
@@ -148,7 +148,7 @@ void FBallsBoardView::SpawnScene() {
         Wall->SetStaticMesh(Cube);
         Wall->SetMobility(EComponentMobility::Movable);
         Wall->SetCollisionEnabled(ECollisionEnabled::NoCollision);
-        Wall->SetMaterial(0, MakeColoredMaterial(Wall, BallsPalette::Shade(BallsPalette::Frame, 0.55f), 0.6f));
+        Wall->SetMaterial(0, MakeColoredMaterial(Wall, BallsPalette::ControlPressed, 0.6f));
         Wall->SetupAttachment(Root);
         Wall->RegisterComponent();
         Walls.Emplace(Wall);
