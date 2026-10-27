@@ -78,7 +78,8 @@ void GameSession::pumpCapacityProbe() {
     if (!probe.isActive() || gameMode != GameMode::Performance || latestFrameSeconds <= 0.0) {
         return;
     }
-    const BallCount addition = probe.update(latestFrameSeconds, latestWorkSeconds, physicsSimulation.liveBallCount());
+    const BallCount addition = probe.update(latestFrameSeconds, latestWorkSeconds, physicsSimulation.liveBallCount(),
+                                            physicsSimulation.ballRoom());
     if (const auto trim = probe.takeTrimRequest()) {
         physicsSimulation.trimBallsTo(*trim);
     }

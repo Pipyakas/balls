@@ -47,6 +47,7 @@ public:
     const SimulationStats& stats() const { return statistics; }
     const SimulationTuning& tuning() const { return settings; }
     BallCount liveBallCount() const { return physics->ballCount() + pendingSpawns.size(); }
+    BallCount ballRoom() const;
     bool isCleared() const { return brickBoard.aliveBrickCount() == 0; }
     float launchX() const { return static_cast<float>(brickBoard.columns()) * 0.5f; }
     float launchY() const { return static_cast<float>(brickBoard.rows()) - settings.ballRadius * 2.0f; }

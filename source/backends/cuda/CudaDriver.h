@@ -18,6 +18,7 @@ struct CudaDriverApi {
     decltype(&::cuModuleGetFunction) moduleGetFunction = nullptr;
     decltype(&::cuMemAlloc_v2) memAlloc = nullptr;
     decltype(&::cuMemFree_v2) memFree = nullptr;
+    decltype(&::cuMemGetInfo_v2) memGetInfo = nullptr;
     decltype(&::cuMemAllocHost_v2) memAllocHost = nullptr;
     decltype(&::cuMemFreeHost) memFreeHost = nullptr;
     decltype(&::cuMemcpyHtoD_v2) memcpyHostToDevice = nullptr;

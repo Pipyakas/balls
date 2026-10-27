@@ -58,7 +58,14 @@ void Simulation::launchBalls(BallColor color, BallCount count) {
     statistics.totalBallsSpawned += count;
 }
 
-void Simulation::scatterBalls(BallColor color, BallCount count) {
+BallCount Simulation::ballRoom() const {
+    const BallCount limit = static_cast<BallCount>(physics->ballCapacityLimit());
+    const BallCount live = liveBallCount();
+    return limit > live ? limit - live : 0;
+}
+
+void Simulation::scatterBalls(BallColor color, BallCount requested) {
+    const BallCount count = std::min(requested, ballRoom());
     std::uniform_real_distribution<float> unit(0.0f, 1.0f);
     const float width = static_cast<float>(brickBoard.columns());
     const float height = static_cast<float>(brickBoard.rows());

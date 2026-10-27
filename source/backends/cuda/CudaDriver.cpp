@@ -94,6 +94,7 @@ bool CudaDriver::loadEntryPoints() {
                         driver.resolve("cuModuleGetFunction", functions.moduleGetFunction) &&
                         driver.resolve("cuMemAlloc_v2", functions.memAlloc) &&
                         driver.resolve("cuMemFree_v2", functions.memFree) &&
+                        driver.resolve("cuMemGetInfo_v2", functions.memGetInfo) &&
                         driver.resolve("cuMemAllocHost_v2", functions.memAllocHost) &&
                         driver.resolve("cuMemFreeHost", functions.memFreeHost) &&
                         driver.resolve("cuMemcpyHtoD_v2", functions.memcpyHostToDevice) &&

@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -97,6 +98,8 @@ public:
     virtual void step(const StepParams& params, std::vector<BallHit>& hits) = 0;
     virtual void removeBalls(std::span<const uint32_t> descendingIndices) = 0;
     virtual size_t ballCount() const = 0;
+    // How many balls fit in this backend's memory; without free flight the frame rate runs out long before.
+    virtual size_t ballCapacityLimit() const { return std::numeric_limits<size_t>::max(); }
     virtual BallSnapshot snapshot() = 0;
     virtual std::vector<BallSpawn> exportBalls() = 0;
     virtual std::vector<BallSpawn> takeTail(size_t count) = 0;

@@ -25,6 +25,7 @@ public:
     void step(const StepParams& params, std::vector<BallHit>& hits) override;
     void removeBalls(std::span<const uint32_t> descendingIndices) override;
     size_t ballCount() const override { return count; }
+    size_t ballCapacityLimit() const override;
     BallSnapshot snapshot() override;
     std::vector<BallSpawn> exportBalls() override;
     std::vector<BallSpawn> takeTail(size_t count) override;
@@ -75,7 +76,7 @@ private:
     bool succeeded(CUresult result, const char* what);
     bool isFaulted() const { return !fault.empty(); }
     bool launch(CUfunction function, size_t threads, void** arguments, const char* what);
-    void ensureBallCapacity(size_t required);
+    bool ensureBallCapacity(size_t required);
     void ensurePackedCapacity(size_t required);
     void ensureArray(DeviceArray& array, size_t bytes);
     void upload(DeviceArray& array, const void* data, size_t bytes);

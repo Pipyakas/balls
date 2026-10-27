@@ -116,7 +116,7 @@ void CapacityProbe::beginConfirmation(BallCount candidate) {
     settled = false;
 }
 
-BallCount CapacityProbe::updateRamp(BallCount liveBalls) {
+BallCount CapacityProbe::updateRamp(BallCount liveBalls, BallCount room) {
     if (!measuredFpsPasses()) {
         consecutiveSlowWindows += 1;
         if (consecutiveSlowWindows >= probeSlowWindowsToStop) {
@@ -130,7 +130,7 @@ BallCount CapacityProbe::updateRamp(BallCount liveBalls) {
     }
     consecutiveSlowWindows = 0;
     bestPassing = liveBalls;
-    const BallCount addition = grownAddition(liveBalls);
+    const BallCount addition = std::min(grownAddition(liveBalls), room);
     if (addition == 0) {
         beginConfirmation(bestPassing);
     }
@@ -145,7 +145,7 @@ void CapacityProbe::updateConfirmation() {
     beginConfirmation(static_cast<BallCount>(static_cast<double>(bestPassing) * probeBackoffFactor));
 }
 
-BallCount CapacityProbe::update(double frameSeconds, double workSeconds, BallCount liveBalls) {
+BallCount CapacityProbe::update(double frameSeconds, double workSeconds, BallCount liveBalls, BallCount room) {
     if (!isActive() || frameSeconds <= 0.0) {
         return 0;
     }
@@ -165,5 +165,5 @@ BallCount CapacityProbe::update(double frameSeconds, double workSeconds, BallCou
         measureWindow(frameSeconds, workSeconds, recheckingSlowWindow ? probeConfirmSettleSeconds : probeSettleSeconds,
                       recheckingSlowWindow ? probeConfirmMeasureSeconds : probeMeasureSeconds);
     probePhase = settled ? ProbePhase::Measuring : ProbePhase::Settling;
-    return windowFinished ? updateRamp(liveBalls) : 0;
+    return windowFinished ? updateRamp(liveBalls, room) : 0;
 }

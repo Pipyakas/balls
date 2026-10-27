@@ -12,6 +12,9 @@ constexpr unsigned int writeDiscardFlag = 0x02;
 constexpr size_t stateArrayCount = 2;
 constexpr size_t capacityGranule = size_t{1} << 20;
 constexpr size_t growthDivisor = 4;
+constexpr size_t heldBytesPerBall = 8;
+// Kept free for the visibility grid, the render interop buffer and the driver.
+constexpr size_t deviceMemoryReserve = size_t{256} << 20;
 constexpr unsigned int minimumKilledCapacity = 1024;
 constexpr float positionScale = 65535.0f;
 constexpr unsigned int positionMask = 0xFFFFu;
@@ -247,29 +250,60 @@ void CudaBackend::upload(DeviceArray& array, const void* data, size_t bytes) {
     succeeded(driver.api().memcpyHostToDevice(array.pointer, data, bytes), "cuMemcpyHtoD");
 }
 
-void CudaBackend::ensureBallCapacity(size_t required) {
-    if (isFaulted() || required <= capacity) {
-        return;
+size_t CudaBackend::ballCapacityLimit() const {
+    if (isFaulted()) {
+        return count;
+    }
+    driver.makeCurrent();
+    size_t freeBytes = 0;
+    size_t totalBytes = 0;
+    if (driver.api().memGetInfo(&freeBytes, &totalBytes) != CUDA_SUCCESS) {
+        return std::numeric_limits<size_t>::max();
+    }
+    // Growing allocates the new arrays while the old ones still hold every ball, so the next size has to fit in
+    // what is free now; capacity already held stays usable either way.
+    const size_t spare = freeBytes > deviceMemoryReserve ? freeBytes - deviceMemoryReserve : 0;
+    return std::max(capacity, spare / heldBytesPerBall);
+}
+
+// Running out of device memory is the expected ceiling once balls fly freely, so it leaves the backend usable
+// with the capacity it already has instead of faulting.
+bool CudaBackend::ensureBallCapacity(size_t required) {
+    if (isFaulted()) {
+        return false;
+    }
+    if (required <= capacity) {
+        return true;
     }
     releaseSortBuffers();
     const auto& api = driver.api();
-    const size_t grown = std::max(required, capacity + capacity / growthDivisor);
-    const size_t newCapacity = (grown + capacityGranule - 1) / capacityGranule * capacityGranule;
-    const std::array<CUdeviceptr*, stateArrayCount> fields{&balls.position, &balls.state};
-    for (CUdeviceptr* field : fields) {
-        CUdeviceptr grownArray = 0;
-        if (!succeeded(api.memAlloc(&grownArray, newCapacity * 4), "cuMemAlloc")) {
-            return;
+    const auto roundUp = [](size_t balls) { return (balls + capacityGranule - 1) / capacityGranule * capacityGranule; };
+    for (const size_t wanted : {roundUp(std::max(required, capacity + capacity / growthDivisor)), roundUp(required)}) {
+        CUdeviceptr grownPosition = 0;
+        CUdeviceptr grownState = 0;
+        if (api.memAlloc(&grownPosition, wanted * 4) != CUDA_SUCCESS) {
+            continue;
         }
-        if (*field) {
-            if (count > 0) {
-                succeeded(api.memcpyDeviceToDevice(grownArray, *field, count * 4), "cuMemcpyDtoD");
-            }
-            api.memFree(*field);
+        if (api.memAlloc(&grownState, wanted * 4) != CUDA_SUCCESS) {
+            api.memFree(grownPosition);
+            continue;
         }
-        *field = grownArray;
+        if (count > 0) {
+            succeeded(api.memcpyDeviceToDevice(grownPosition, balls.position, count * 4), "cuMemcpyDtoD") &&
+                succeeded(api.memcpyDeviceToDevice(grownState, balls.state, count * 4), "cuMemcpyDtoD");
+        }
+        if (balls.position) {
+            api.memFree(balls.position);
+        }
+        if (balls.state) {
+            api.memFree(balls.state);
+        }
+        balls.position = grownPosition;
+        balls.state = grownState;
+        capacity = wanted;
+        return true;
     }
-    capacity = newCapacity;
+    return false;
 }
 
 void CudaBackend::ensurePackedCapacity(size_t required) {
@@ -352,11 +386,10 @@ void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {
         return;
     }
     driver.makeCurrent();
-    ensureBallCapacity(count + spawns.size());
-    if (isFaulted()) {
+    if (!ensureBallCapacity(count + spawns.size()) && isFaulted()) {
         return;
     }
-    const size_t added = spawns.size();
+    const size_t added = std::min(spawns.size(), capacity - count);
     std::vector<uint32_t> position(added), state(added), packed(added);
     ballSpeed = std::max(std::hypot(spawns.front().vx, spawns.front().vy), 1e-6f);
     const float inverseSpeedScale = 1.0f / ballSpeed;
@@ -420,6 +453,7 @@ void CudaBackend::renderFreeFlight(const StepParams& params) {
     if (!frozen) {
         frozen = true;
         freeFlightEpoch = params.tick;
+        releaseSortBuffers();
     }
     const auto& api = driver.api();
     if (stepStarted) {
@@ -848,8 +882,7 @@ bool CudaBackend::addCompact(const CompactBalls& added) {
         return true;
     }
     driver.makeCurrent();
-    ensureBallCapacity(count + addedCount);
-    if (isFaulted()) {
+    if (!ensureBallCapacity(count + addedCount)) {
         return false;
     }
     const auto& api = driver.api();

@@ -2,6 +2,7 @@
 
 #include "common/BallCount.h"
 
+#include <limits>
 #include <optional>
 
 enum class ProbePhase { Idle, Settling, Measuring, Confirming, Done };
@@ -29,7 +30,9 @@ class CapacityProbe {
 public:
     void start(double targetFramesPerSecond = defaultProbeTargetFps);
     void cancel();
-    BallCount update(double frameSeconds, double workSeconds, BallCount liveBalls);
+    // room: how many more balls the backend can hold; reaching it ends the ramp like a slow frame would.
+    BallCount update(double frameSeconds, double workSeconds, BallCount liveBalls,
+                     BallCount room = std::numeric_limits<BallCount>::max());
     std::optional<BallCount> takeTrimRequest();
 
     bool isActive() const;
@@ -44,7 +47,7 @@ private:
     bool measureWindow(double frameSeconds, double workSeconds, double settleSeconds, double measureSeconds);
     void handleSlowCount(BallCount liveBalls);
     void beginConfirmation(BallCount candidate);
-    BallCount updateRamp(BallCount liveBalls);
+    BallCount updateRamp(BallCount liveBalls, BallCount room);
     void updateConfirmation();
 
     ProbePhase probePhase = ProbePhase::Idle;
