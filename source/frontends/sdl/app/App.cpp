@@ -89,7 +89,52 @@ bool App::openWindowAndRenderer(const LaunchOptions& options, std::string_view a
     }
     SDL_SetWindowMinimumSize(window, minimumWindowWidth, minimumWindowHeight);
     renderer = createRenderer(window, api, options.gpu, error);
-    return renderer != nullptr;
+    if (!renderer) {
+        return false;
+    }
+    activeGraphicsApi = std::string(api);
+    renderGpuPreference = options.gpu;
+#if defined(_WIN32)
+    const GpuApi adapterApi = api == "vulkan" ? GpuApi::Vulkan : GpuApi::D3d12;
+#else
+    const GpuApi adapterApi = GpuApi::Vulkan;
+#endif
+    renderAdapterList = enumerateGpuAdapters(adapterApi);
+    activeRenderAdapter = selectGpuAdapter(renderAdapterList, renderGpuPreference, GpuRole::Render);
+    return true;
+}
+
+void App::applyPendingRenderAdapter() {
+    if (!pendingRenderAdapter) {
+        return;
+    }
+    const int wanted = *pendingRenderAdapter;
+    pendingRenderAdapter.reset();
+    if (wanted == activeRenderAdapter || wanted < 0 || wanted >= static_cast<int>(renderAdapterList.size())) {
+        return;
+    }
+    const bool vsync = isVsyncEnabled();
+    const std::string previousPreference = renderGpuPreference;
+    const std::string wantedPreference = std::to_string(wanted);
+    balls.reset();
+    renderer.reset();
+    std::string error;
+    renderer = createRenderer(window, activeGraphicsApi, wantedPreference, error);
+    if (renderer) {
+        renderGpuPreference = wantedPreference;
+        activeRenderAdapter = wanted;
+        SDL_Log("Rendering on %s", renderAdapterList[static_cast<size_t>(wanted)].name.c_str());
+    } else {
+        std::string ignored;
+        renderer = createRenderer(window, activeGraphicsApi, previousPreference, ignored);
+        SDL_Log("Could not render on %s: %s", renderAdapterList[static_cast<size_t>(wanted)].name.c_str(), error.c_str());
+    }
+    if (!renderer) {
+        running = false;
+        return;
+    }
+    balls = std::make_unique<BallView>(*renderer);
+    setVsync(vsync);
 }
 
 bool App::initialize(const LaunchOptions& options, std::string& error) {
@@ -117,6 +162,7 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
     balls = std::make_unique<BallView>(*renderer);
     profile.load();
     setComputeGpuPreference(options.computeGpu);
+    computeAdapterList = enumerateGpuAdapters(GpuApi::Vulkan);
     setVsync(options.vsync);
     backendChoice = options.backend && isBackendAvailable(*options.backend) ? *options.backend
                                                                             : fastestAvailableCpuBackend();
@@ -198,6 +244,7 @@ bool App::frame() {
     timings.record({millisecondsBetween(updateStart, frameEnd),
                     millisecondsBetween(workStart, presentStart) - synchronizationMs, renderer->lastGpuBusyMs(),
                     millisecondsBetween(presentStart, frameEnd) + synchronizationMs + gpuWaitMs});
+    applyPendingRenderAdapter();
     applyPendingScreen();
     return running;
 }
@@ -244,6 +291,14 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
         renderer->requestScreenshot(screenshotPath);
         screenshotPending = true;
         return std::nullopt;
+    }
+    if (path == "/render-gpu") {
+        const auto index = request.integer("index");
+        if (!index || *index < 0 || *index >= static_cast<long long>(renderAdapterList.size())) {
+            return ControlResponse::error(400, "index must name an adapter from /state renderAdapters");
+        }
+        requestRenderAdapter(static_cast<int>(*index));
+        return ControlResponse::ok("{\"ok\":true}");
     }
     if (path == "/quit") {
         quit();

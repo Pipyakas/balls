@@ -97,6 +97,23 @@ TEST_CASE("GPU selection skips software adapters and respects compute-only devic
     EXPECT(selectGpuAdapter(adapters, "auto", GpuRole::Compute) == 5);
     EXPECT(selectGpuAdapter(adapters, "5", GpuRole::Compute) == 5);
     EXPECT(selectGpuAdapter(adapters, "Software Rasterizer", GpuRole::Compute) == -1);
+    EXPECT(selectGpuAdapter(adapters, "software rasterizer", GpuRole::Render) == 4);
+    EXPECT(selectGpuAdapter(adapters, "4", GpuRole::Render) == 4);
+}
+
+TEST_CASE("auto rendering falls back to a software rasterizer only when nothing else can render") {
+    GpuAdapterInfo software;
+    software.name = "Microsoft Basic Render Driver";
+    software.kind = GpuKind::Software;
+    software.hasGraphicsQueue = true;
+    std::vector<GpuAdapterInfo> adapters{software};
+    EXPECT(selectGpuAdapter(adapters, "auto", GpuRole::Render) == 0);
+    GpuAdapterInfo virtualAdapter;
+    virtualAdapter.name = "Virtual GPU";
+    virtualAdapter.kind = GpuKind::Virtual;
+    virtualAdapter.hasGraphicsQueue = true;
+    adapters.push_back(virtualAdapter);
+    EXPECT(selectGpuAdapter(adapters, "auto", GpuRole::Render) == 1);
 }
 
 TEST_CASE("GPU PCI vendor mapping covers known vendors and unknown IDs") {
