@@ -7,8 +7,7 @@ namespace {
 constexpr float outerMargin = 16.0f;
 constexpr float gadgetGap = 8.0f;
 constexpr float boardPadding = 10.0f;
-constexpr float landscapeLeftWidth = 420.0f;
-constexpr float landscapeRightWidth = 200.0f;
+constexpr float landscapeGadgetWidth = 310.0f;
 constexpr float landscapeHeaderHeight = 56.0f;
 constexpr float widestLandscapeAspect = 16.0f / 9.0f;
 constexpr float portraitTopHeight = 92.0f;
@@ -50,31 +49,29 @@ CoreGameplayLayout computeCoreGameplayLayout(float frameWidth, float frameHeight
         resolveOrientation(orientation, frameWidth, frameHeight) == LayoutOrientation::Portrait;
     if (!layout.isPortrait) {
         const float columnHeight = std::max(frameHeight - outerMargin * 2.0f, 1.0f);
-        const float boardWidth = frameWidth - outerMargin * 2.0f - landscapeLeftWidth - landscapeRightWidth -
+        const float boardWidth = frameWidth - outerMargin * 2.0f - landscapeGadgetWidth * 2.0f -
                                  gadgetGap * 2.0f - boardPadding * 2.0f;
         const float boardHeight = frameHeight - outerMargin * 2.0f - boardPadding * 2.0f;
         layout.cellSize = std::max(
             1.0f, std::min(boardWidth / static_cast<float>(columns), boardHeight / static_cast<float>(rows)));
         const float frameBoardWidth = layout.cellSize * static_cast<float>(columns) + boardPadding * 2.0f;
         const float frameBoardHeight = layout.cellSize * static_cast<float>(rows) + boardPadding * 2.0f;
-        const float minimumGroupWidth =
-            landscapeLeftWidth + gadgetGap + frameBoardWidth + gadgetGap + landscapeRightWidth;
+        const float minimumGroupWidth = landscapeGadgetWidth * 2.0f + gadgetGap * 2.0f + frameBoardWidth;
         // The board keeps its size; the room it leaves goes to the gadgets, until the whole group reaches 16:9,
         // so wide windows don't show empty bands beside them and ultrawide ones don't stretch them across.
         const float widestGroup = std::min(frameWidth, frameHeight * widestLandscapeAspect) - outerMargin * 2.0f;
         const float gadgetGrowth = std::max(0.0f, widestGroup - minimumGroupWidth) * 0.5f;
-        const float leftWidth = landscapeLeftWidth + gadgetGrowth;
-        const float rightWidth = landscapeRightWidth + gadgetGrowth;
+        const float gadgetWidth = landscapeGadgetWidth + gadgetGrowth;
         const float groupWidth = minimumGroupWidth + gadgetGrowth * 2.0f;
         const float groupX = (frameWidth - groupWidth) * 0.5f;
-        layout.leftGadget = {groupX, outerMargin, leftWidth, columnHeight};
-        layout.header = {groupX, outerMargin, leftWidth, landscapeHeaderHeight};
-        layout.interaction = {groupX, outerMargin + landscapeHeaderHeight + gadgetGap, leftWidth,
+        layout.leftGadget = {groupX, outerMargin, gadgetWidth, columnHeight};
+        layout.header = {groupX, outerMargin, gadgetWidth, landscapeHeaderHeight};
+        layout.interaction = {groupX, outerMargin + landscapeHeaderHeight + gadgetGap, gadgetWidth,
                               columnHeight - landscapeHeaderHeight - gadgetGap};
-        layout.main = {groupX + leftWidth + gadgetGap,
+        layout.main = {groupX + gadgetWidth + gadgetGap,
                        outerMargin + (columnHeight - frameBoardHeight) * 0.5f, frameBoardWidth,
                        frameBoardHeight};
-        layout.rightGadget = {layout.main.x + frameBoardWidth + gadgetGap, outerMargin, rightWidth,
+        layout.rightGadget = {layout.main.x + frameBoardWidth + gadgetGap, outerMargin, gadgetWidth,
                               columnHeight};
         layout.debug = layout.rightGadget;
     } else {
