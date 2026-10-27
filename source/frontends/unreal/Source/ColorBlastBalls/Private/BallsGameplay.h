@@ -42,6 +42,11 @@ public:
     void SetSettingsOpen(bool bOpen) { bSettingsOpen = bOpen; }
     void OpenNextLevel();
 
+    // The level files changed under a running game. The game is never swapped mid-play: the header says so and
+    // Restart loads the new version ("Changes to the level being played").
+    enum class EMapNotice { None, Changed, Removed };
+    EMapNotice GetMapNotice() const { return MapNotice; }
+
     GameMode GetMode() const { return Mode; }
     const LevelFiles& GetFiles() const { return Files; }
     GameSession* GetSession() const { return Session.get(); }
@@ -54,7 +59,8 @@ public:
 private:
     void LoadSession();
     void ApplyRememberedMachineLimit();
-    void HotReload();
+    void OnFilesChanged();
+    void ReloadFromDisk();
     void ShowToast(FString Text, bool bIsError);
 
     FBallsApp& App;
@@ -64,6 +70,7 @@ private:
     FString LoadError;
     LevelWatcher Watcher;
     bool bPaused = false;
+    EMapNotice MapNotice = EMapNotice::None;
     bool bSettingsOpen = false;
     bool bProbeResultShown = true;
     bool bAutoLimitPending = false;

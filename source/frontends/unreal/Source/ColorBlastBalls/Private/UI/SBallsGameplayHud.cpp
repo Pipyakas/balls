@@ -348,10 +348,12 @@ public:
 
         if (Layout.bPortrait) {
             DrawBox(Out, LayerId, Geometry, Layout.Header, BallsStyle::RoundedBox(0.0f), PanelTint);
+            const FString PortraitNotice = MapNoticeText();
             DrawText(Out, LayerId + 1, Geometry,
-                     Gameplay->GetMode() == GameMode::Normal ? TEXT("Normal Mode") : TEXT("Performance Mode"),
+                     PortraitNotice.IsEmpty() ? FString(Gameplay->GetMode() == GameMode::Normal ? TEXT("Normal Mode") : TEXT("Performance Mode"))
+                                              : PortraitNotice,
                      FVector2D(Layout.Header.Left + 20.0f, Layout.Header.Top + 7.0f), BallsStyle::Font(15.0f),
-                     BallsPalette::Linear(BallsPalette::TextMuted));
+                     BallsPalette::Linear(PortraitNotice.IsEmpty() ? BallsPalette::TextMuted : BallsPalette::Accent));
             DrawText(Out, LayerId + 1, Geometry, BallsText::FromUtf8(Gameplay->GetFiles().name),
                      FVector2D(Layout.Header.Left + 20.0f, Layout.Header.Top + 25.0f), BallsStyle::Font(24.0f, true),
                      BallsPalette::Linear(BallsPalette::Text));
@@ -377,8 +379,14 @@ public:
         while (Title.Len() > 4 && BallsStyle::Measure(Title, TitleFont).X > TitleRoom) {
             Title = Title.Left(Title.Len() - 2) + TEXT("~");
         }
-        DrawText(Out, LayerId + 1, Geometry, Title, FVector2D(Layout.Header.Left + 16.0f, Layout.Header.GetCenter().Y - 13.0f),
+        const FString Notice = MapNoticeText();
+        DrawText(Out, LayerId + 1, Geometry, Title,
+                 FVector2D(Layout.Header.Left + 16.0f, Notice.IsEmpty() ? Layout.Header.GetCenter().Y - 13.0f : Layout.Header.Top + 4.0f),
                  TitleFont, BallsPalette::Linear(BallsPalette::Text));
+        if (!Notice.IsEmpty()) {
+            DrawText(Out, LayerId + 1, Geometry, Notice, FVector2D(Layout.Header.Left + 16.0f, Layout.Header.Top + 31.0f),
+                     BallsStyle::Font(15.0f), BallsPalette::Linear(BallsPalette::Accent));
+        }
         DrawBox(Out, LayerId + 1, Geometry,
                 FSlateRect(Layout.Header.Left, Layout.Header.Bottom - 1.0f, Layout.Header.Right, Layout.Header.Bottom),
                 BallsStyle::RoundedBox(0.0f), BallsPalette::Linear(BallsPalette::Frame));
@@ -397,6 +405,17 @@ public:
     }
 
 private:
+    FString MapNoticeText() const {
+        switch (Gameplay->GetMapNotice()) {
+        case FBallsGameplay::EMapNotice::Changed:
+            return TEXT("Map changed on disk - Restart to load it.");
+        case FBallsGameplay::EMapNotice::Removed:
+            return TEXT("Map removed from disk - Restart unavailable");
+        default:
+            return FString();
+        }
+    }
+
     // The board frame is the gadget color around the 3D board: four strips, so the board stays visible.
     void PaintBoardFrame(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,
                          const FBallsGameplayLayout& Layout) const {

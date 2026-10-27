@@ -39,22 +39,35 @@ void FBallsGameplay::ApplyRememberedMachineLimit() {
     }
 }
 
-void FBallsGameplay::HotReload() {
-    Result<LevelData> Level = loadLevel(Files);
-    if (!Level) {
-        ShowToast(TEXT("Reload failed: ") + BallsText::FromUtf8(Level.error()), true);
+void FBallsGameplay::OnFilesChanged() {
+    if (!Session) {
+        // The load-error screen retries by itself whenever the files change again.
+        ReloadFromDisk();
         return;
     }
+    std::error_code Error;
+    const bool bGone = !std::filesystem::exists(Files.bricksPath, Error) || !std::filesystem::exists(Files.launchersPath, Error);
+    MapNotice = bGone ? EMapNotice::Removed : EMapNotice::Changed;
+}
+
+// Loads the files as they are now: a parse failure drops to the load-error screen instead of keeping the old game.
+void FBallsGameplay::ReloadFromDisk() {
+    MapNotice = EMapNotice::None;
+    Result<LevelData> Level = loadLevel(Files);
+    if (!Level) {
+        Session.reset();
+        LoadError = BallsText::FromUtf8(Level.error());
+        return;
+    }
+    LoadError.Reset();
     if (Session) {
         Session->reload(std::move(*Level));
     } else {
-        LoadError.Reset();
         Session = std::make_unique<GameSession>(Mode, std::move(*Level), App.GetPreferredBackend());
         ApplySettings();
         ApplyRememberedMachineLimit();
     }
     bPaused = false;
-    ShowToast(TEXT("Reloaded ") + BallsText::FromUtf8(Files.name), false);
 }
 
 void FBallsGameplay::ShowToast(FString Text, bool bIsError) { App.ShowToast(MoveTemp(Text), bIsError); }
@@ -67,7 +80,7 @@ bool FBallsGameplay::IsWon() const {
 
 void FBallsGameplay::Tick(float DeltaSeconds, double FrameSeconds, double WorkSeconds) {
     if (Watcher.pollChanged(std::chrono::steady_clock::now())) {
-        HotReload();
+        OnFilesChanged();
     }
     if (!Session || bPaused) {
         return;
@@ -184,6 +197,14 @@ void FBallsGameplay::SwitchBackend(BackendKind Kind) {
 }
 
 void FBallsGameplay::Restart() {
+    if (MapNotice == EMapNotice::Removed) {
+        App.ShowLevelSelect(Mode);
+        return;
+    }
+    if (MapNotice == EMapNotice::Changed) {
+        ReloadFromDisk();
+        return;
+    }
     if (Session) {
         Session->restart();
         bPaused = false;
