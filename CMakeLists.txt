@@ -11,7 +11,7 @@ option(BALLS_BUILD_TOOLS "Build tests and benchmarks" ON)
 option(BALLS_ENABLE_CUDA "Build the CUDA physics backend (needs NVRTC at build time)" ON)
 option(BALLS_STATIC_CRT "Link the static MSVC runtime (physics plugins need the shared runtime)" OFF)
 option(BALLS_LTO "Enable whole-program optimization (turn OFF when building balls_core for Unreal)" ON)
-set(BALLS_CUDA_SDK_DIR "${CMAKE_SOURCE_DIR}/.deps/cuda/sdk" CACHE PATH "Directory with CUDA include/ and bin/ (tools/FetchCudaSdk.ps1)")
+set(BALLS_CUDA_SDK_DIR "${CMAKE_SOURCE_DIR}/.deps/cuda/sdk" CACHE PATH "Directory with CUDA include/ and bin/ (scripts/FetchCudaSdk.ps1)")
 
 if(BALLS_STATIC_CRT)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -37,15 +37,18 @@ endif()
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
-add_subdirectory(core)
-add_subdirectory(physics)
+set(BALLS_SOURCE_DIR ${CMAKE_SOURCE_DIR}/source)
+set(BALLS_ASSET_DIR ${CMAKE_SOURCE_DIR}/data/assets)
+
+add_subdirectory(source/core)
+add_subdirectory(source/backends)
 
 if(BALLS_FRONTEND STREQUAL "sdl")
-    add_subdirectory(frontends/sdl)
+    add_subdirectory(source/frontends/sdl)
 endif()
 
 if(TARGET nvrhi AND TARGET nvrhi_vk)
-    add_subdirectory(physics/vulkan)
+    add_subdirectory(source/backends/vulkan)
 endif()
 
 # Vulkan-Headers is already fetched by the NVRHI renderer. This interface-only target
@@ -60,15 +63,15 @@ if(NOT BALLS_BUILD_TOOLS)
     return()
 endif()
 
-add_executable(balls_bench tools/bench/Bench.cpp)
+add_executable(balls_bench source/tools/bench/Bench.cpp)
 target_link_libraries(balls_bench PRIVATE balls_core)
 add_dependencies(balls_bench balls_physics_plugins)
 target_compile_options(balls_bench PRIVATE ${BALLS_WARNINGS} ${BALLS_OPTIMIZE})
 target_link_options(balls_bench PRIVATE ${BALLS_LINK_OPTIMIZE})
 
-set(BALLS_CUPTI_DIR "${CMAKE_SOURCE_DIR}/.deps/cupti" CACHE PATH "CUPTI headers for the instruction counter (tools/FetchCudaSdk.ps1 -ProfilerTools)")
+set(BALLS_CUPTI_DIR "${CMAKE_SOURCE_DIR}/.deps/cupti" CACHE PATH "CUPTI headers for the instruction counter (scripts/FetchCudaSdk.ps1 -ProfilerTools)")
 if(WIN32 AND EXISTS "${BALLS_CUPTI_DIR}/include/cupti.h" AND EXISTS "${BALLS_CUDA_SDK_DIR}/include/cuda.h")
-    add_executable(balls_insncount tools/bench/InstructionCount.cpp)
+    add_executable(balls_insncount source/tools/bench/InstructionCount.cpp)
     target_include_directories(balls_insncount PRIVATE "${BALLS_CUPTI_DIR}/include" "${BALLS_CUDA_SDK_DIR}/include")
     target_link_libraries(balls_insncount PRIVATE balls_core)
     add_dependencies(balls_insncount balls_physics_plugins)
@@ -77,8 +80,8 @@ if(WIN32 AND EXISTS "${BALLS_CUPTI_DIR}/include/cupti.h" AND EXISTS "${BALLS_CUD
 endif()
 
 if(TARGET nvrhi AND TARGET nvrhi_vk)
-    add_executable(balls_gpucompute tools/gpucompute/GpuComputeBench.cpp tools/gpucompute/BallStepVariants.cpp)
-    target_include_directories(balls_gpucompute PRIVATE tools/gpucompute)
+    add_executable(balls_gpucompute source/tools/gpucompute/GpuComputeBench.cpp source/tools/gpucompute/BallStepVariants.cpp)
+    target_include_directories(balls_gpucompute PRIVATE source/tools/gpucompute)
     target_link_libraries(balls_gpucompute PRIVATE balls_core)
     if(MSVC)
         target_link_libraries(balls_gpucompute PRIVATE nvrhi nvrhi_vk)
@@ -101,11 +104,12 @@ if(TARGET nvrhi AND TARGET nvrhi_vk)
 endif()
 
 enable_testing()
-add_executable(balls_tests tests/TestMain.cpp tests/LevelTests.cpp tests/SimulationTests.cpp tests/GameTests.cpp
-    tests/ProbeTests.cpp tests/EditorTests.cpp tests/GpuAdapterTests.cpp)
+add_executable(balls_tests source/tests/TestMain.cpp source/tests/LevelTests.cpp source/tests/SimulationTests.cpp
+    source/tests/GameTests.cpp source/tests/ProbeTests.cpp source/tests/EditorTests.cpp source/tests/SettingsTests.cpp
+    source/tests/GpuAdapterTests.cpp)
 target_link_libraries(balls_tests PRIVATE balls_core)
 add_dependencies(balls_tests balls_physics_plugins)
 target_compile_options(balls_tests PRIVATE ${BALLS_WARNINGS})
 target_link_options(balls_tests PRIVATE ${BALLS_LINK_OPTIMIZE})
-target_compile_definitions(balls_tests PRIVATE BALLS_ASSET_DIR="${CMAKE_SOURCE_DIR}/assets")
+target_compile_definitions(balls_tests PRIVATE BALLS_ASSET_DIR="${BALLS_ASSET_DIR}")
 add_test(NAME balls_tests COMMAND balls_tests)
