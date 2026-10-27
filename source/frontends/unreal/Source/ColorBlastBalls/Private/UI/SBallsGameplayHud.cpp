@@ -211,8 +211,15 @@ public:
     void Row(const FString& Label, const FString& Value, FLinearColor ValueColor = BallsPalette::Linear(BallsPalette::Text)) {
         DrawText(Out, Layer, Geometry, Label, FVector2D(Area.Left + Padding, Cursor), BallsStyle::Font(LabelSize),
                  BallsPalette::Linear(BallsPalette::TextMuted));
-        DrawText(Out, Layer, Geometry, Value, FVector2D(Area.Left + Padding, Cursor + LabelSize + 1.0f),
-                 BallsStyle::Font(ValueSize), ValueColor);
+        // Long values (the GPU name) are cut to fit the gadget, with a "~" like the header title.
+        FString Shown = Value;
+        const FSlateFontInfo ValueFont = BallsStyle::Font(ValueSize);
+        const float Room = static_cast<float>(Area.GetSize().X) - 2.0f * Padding;
+        while (Shown.Len() > 4 && BallsStyle::Measure(Shown, ValueFont).X > Room) {
+            Shown = Shown.Left(Shown.Len() - 2) + TEXT("~");
+        }
+        DrawText(Out, Layer, Geometry, Shown, FVector2D(Area.Left + Padding, Cursor + LabelSize + 1.0f), ValueFont,
+                 ValueColor);
         Cursor += LabelSize + ValueSize + 8.0f;
     }
 
