@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Balls.Ecs;
 using Balls.Game;
+using Balls.Native;
 using UnityEngine;
 using Unity.Entities;
 
@@ -17,7 +18,15 @@ namespace Balls.App
         private Entity boardEntity;
         private BoardFrame frame;
         private readonly List<CellElement> cells = new();
+        private System.IntPtr sessionHandle;
+        private float m_fps;
+        private float m_fpsWindow = float.MaxValue;
+        private double m_minFpsTimer;
+        private float m_minFps;
         private readonly List<LauncherElement> launchers = new();
+
+        /// <summary>The live system, so screens can reach the session without a managed component.</summary>
+        public static SessionSystem Current { get; private set; }
 
         public bool IsRunning => backend != null;
 
@@ -25,12 +34,24 @@ namespace Balls.App
 
         protected override void OnCreate()
         {
+            Current = this;
             boardEntity = EntityManager.CreateEntity();
             EntityManager.AddComponentData(boardEntity, new BoardInfoData());
             EntityManager.AddComponentData(boardEntity, new BallBatch());
             EntityManager.AddComponentData(boardEntity, new SessionInfo());
+            EntityManager.AddComponentData(boardEntity, new SessionStatsData());
             EntityManager.AddBuffer<CellElement>(boardEntity);
             EntityManager.AddBuffer<LauncherElement>(boardEntity);
+        }
+
+        protected override void OnDestroy()
+        {
+            if (Current == this)
+            {
+                Current = null;
+            }
+            backend?.Dispose();
+            backend = null;
         }
 
         protected override void OnUpdate()
@@ -78,7 +99,9 @@ namespace Balls.App
         private void StartSession(in BallsInput.StartRequest request)
         {
             backend?.Dispose();
-            backend = new NativeGameBackend(request.mode, request.levelDirectory, request.levelName, request.backend);
+            var created = new NativeGameBackend(request.mode, request.levelDirectory, request.levelName, request.backend);
+            backend = created;
+            sessionHandle = created.SessionHandle;
             // The GPU backends sample one grid cell per ball-sized block of the render target; a 1920-wide frame at
             // the 0.4-cell ball diameter is the default the other front ends use.
             backend.SetVisibilityGrid(160, 90);
@@ -117,6 +140,10 @@ namespace Balls.App
                 scaleY = Mathf.Max(1, frame.rows),
                 revision = frame.revision,
                 valid = true,
+                launcherColumns = frame.launcherColumns,
+                launcherVisibleRows = frame.launcherVisibleRows,
+                aliveBricks = frame.aliveBrickCount,
+                brickCount = frame.brickCount,
             });
         }
 
@@ -148,6 +175,39 @@ namespace Balls.App
                 nativeBackend = backend.IsNative,
                 elapsed = backend.Elapsed,
                 launcherRemaining = frame.launcherRemainingBalls,
+            });
+
+            m_fps = m_fps <= 0f ? 1f / Mathf.Max(deltaSeconds, 1e-4f) : Mathf.Lerp(m_fps, 1f / Mathf.Max(deltaSeconds, 1e-4f), 0.1f);
+            m_minFpsTimer += deltaSeconds;
+            if (m_minFpsTimer >= 1.0)
+            {
+                m_minFps = m_fpsWindow;
+                m_fpsWindow = float.MaxValue;
+                m_minFpsTimer = 0f;
+            }
+            m_fpsWindow = Mathf.Min(m_fpsWindow, 1f / Mathf.Max(deltaSeconds, 1e-4f));
+
+            var stats = backend.Stats;
+            EntityManager.SetComponentData(boardEntity, new SessionStatsData
+            {
+                ballCount = stats.ballCount,
+                liveBalls = stats.liveBallCount,
+                spawned = stats.spawned,
+                hits = stats.hits,
+                physicsMs = stats.physicsMs,
+                ticks = stats.ticks,
+                color0 = stats.red,
+                color1 = stats.orange,
+                color2 = stats.yellow,
+                color3 = stats.green,
+                color4 = stats.blue,
+                color5 = stats.indigo,
+                color6 = stats.violet,
+                waitingToSpawn = stats.liveBallCount > stats.ballCount ? stats.liveBallCount - stats.ballCount : 0,
+                collisions = BallsNative.balls_session_ball_collisions(sessionHandle) != 0,
+                frameMs = deltaSeconds * 1000.0,
+                frameMinFps = m_minFps,
+                fps = m_fps,
             });
         }
     }

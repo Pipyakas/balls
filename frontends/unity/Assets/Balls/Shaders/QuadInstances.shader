@@ -29,7 +29,7 @@ Shader "Balls/Quads"
             {
                 float2 center;   // world units
                 float2 size;     // half extents, world units
-                float4 color;
+                float4 color;    // alpha is the shape flag: 1 circle, 0 square
             };
 
             StructuredBuffer<QuadInstance> _Quads;

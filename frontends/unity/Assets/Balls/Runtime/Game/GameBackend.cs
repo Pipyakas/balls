@@ -108,6 +108,23 @@ namespace Balls.Game
         {
         }
 
+        // Performance-mode readouts and controls the HUD needs but the session state does not carry.
+        public virtual int SpawnRateIndex => 0;
+        public virtual int BallMultiplierIndex => 0;
+        public virtual int BallLimitIndex => 0;
+        public virtual ulong BallLimit => 0;
+        public virtual bool ProbeActive => false;
+        public virtual int ProbePhase => 0;
+        public virtual double ProbeFps => 0.0;
+        public virtual double ProbeTargetFps => 60.0;
+        public virtual ulong ProbeBest => 0;
+        public virtual bool HasMachineLimit => false;
+        public virtual ulong MachineLimit => 0;
+        public virtual bool BallCollisions => false;
+        public virtual void SetBallCollisions(bool enabled) { }
+        public virtual void CancelProbe() { }
+        public virtual void UseMachineLimit(ulong limit) { }
+
         public virtual void Dispose()
         {
         }

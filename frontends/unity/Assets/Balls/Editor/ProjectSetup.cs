@@ -28,6 +28,9 @@ namespace Balls.Editor
             // The game's input model is mouse and keyboard, and the bootstrap reads it through UnityEngine.Input;
             // that needs the old backend enabled alongside the new Input System package.
             UseBothInputBackends();
+            // The design gives literal RGB values for a flat interface; gamma keeps them identical on every graphics
+            // API, where a linear project would redraw every one of them lighter.
+            PlayerSettings.colorSpace = ColorSpace.Gamma;
 
             Material ballMaterial = CreateMaterial("BallsProcedural", "Balls/Procedural");
             Material quadMaterial = CreateMaterial("BallsQuads", "Balls/Quads");
@@ -57,6 +60,7 @@ namespace Balls.Editor
             EditorBuildSettings.scenes = new[] { new EditorBuildSettingsScene(ScenePath, true) };
             CopyNativePlugins();
             CopyLevels();
+            CopyFonts();
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             Debug.Log($"Balls project set up: {ScenePath}");
@@ -161,6 +165,26 @@ namespace Balls.Editor
                 text.Append(hash[index].ToString("x2"));
             }
             return text.ToString();
+        }
+
+        /// <summary>IBM Plex Mono, the game's font, under Resources so the runtime can load it by name.</summary>
+        [MenuItem("Balls/Copy Fonts")]
+        public static void CopyFonts()
+        {
+            string repositoryRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", ".."));
+            string source = Path.Combine(repositoryRoot, "data", "assets", "fonts");
+            string destination = Path.Combine(Application.dataPath, "Balls", "Resources", "Fonts");
+            if (!Directory.Exists(source))
+            {
+                Debug.LogWarning($"no fonts at {source}");
+                return;
+            }
+            Directory.CreateDirectory(destination);
+            foreach (string file in Directory.GetFiles(source, "*.ttf"))
+            {
+                File.Copy(file, Path.Combine(destination, Path.GetFileName(file)), true);
+            }
+            AssetDatabase.Refresh();
         }
 
         [MenuItem("Balls/Copy Levels")]

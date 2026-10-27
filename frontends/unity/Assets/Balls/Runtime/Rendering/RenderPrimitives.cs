@@ -12,6 +12,8 @@ namespace Balls.Rendering
     {
         public float2 center;
         public float2 size;
+        // Alpha is the shape flag, not an opacity: 1 draws a circle (a ball), 0 a square (a brick). Keeping it in
+        // the colour leaves the struct at 32 bytes, which is what the shader's structured buffer expects.
         public Vector4 color;
     }
 
@@ -19,6 +21,37 @@ namespace Balls.Rendering
     public static class RenderPrimitives
     {
         private static Mesh unitQuad;
+
+        private static Mesh unitDisc;
+
+        /// <summary>A 32-segment disc of radius 1, for balls; the mesh carries the shape, not the material.</summary>
+        public static Mesh UnitDisc
+        {
+            get
+            {
+                if (unitDisc == null)
+                {
+                    const int segments = 32;
+                    var mesh = new Mesh { name = "BallsUnitDisc" };
+                    var vertices = new Vector3[segments + 1];
+                    var triangles = new int[segments * 3];
+                    vertices[0] = Vector3.zero;
+                    for (int index = 0; index < segments; ++index)
+                    {
+                        float angle = (60f + 360f * index / segments) * Mathf.Deg2Rad;
+                        vertices[index + 1] = new Vector3(Mathf.Cos(angle), Mathf.Sin(angle), 0f);
+                        triangles[index * 3] = 0;
+                        triangles[index * 3 + 1] = index + 1;
+                        triangles[index * 3 + 2] = (index + 1) % segments + 1;
+                    }
+                    mesh.vertices = vertices;
+                    mesh.triangles = triangles;
+                    mesh.RecalculateBounds();
+                    unitDisc = mesh;
+                }
+                return unitDisc;
+            }
+        }
 
         /// <summary>A quad spanning -1..1 on both axes, so an instance size is a half extent.</summary>
         public static Mesh UnitQuad
@@ -55,6 +88,17 @@ namespace Balls.Rendering
             var buffer = new GraphicsBuffer(GraphicsBuffer.Target.IndirectArguments, 1, 5 * sizeof(uint));
             SetIndirectArgs(buffer, instanceCount, mesh);
             return buffer;
+        }
+
+        public static void SetIndirectArgsWithStart(GraphicsBuffer buffer, int instanceCount, Mesh mesh, int startInstance)
+        {
+            var args = new uint[5];
+            args[0] = mesh != null ? (uint)mesh.GetIndexCount(0) : 0u;
+            args[1] = (uint)System.Math.Max(0, instanceCount);
+            args[2] = mesh != null ? (uint)mesh.GetIndexStart(0) : 0u;
+            args[3] = 0u;
+            args[4] = (uint)System.Math.Max(0, startInstance);
+            buffer.SetData(args);
         }
 
         public static void SetIndirectArgs(GraphicsBuffer buffer, int instanceCount, Mesh mesh)

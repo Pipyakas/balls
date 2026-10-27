@@ -1,6 +1,7 @@
 using Balls.Ecs;
 using Balls.Game;
 using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
 using UnityEngine.Rendering;
 using Unity.Entities;
@@ -11,6 +12,7 @@ namespace Balls.Rendering
     /// Draws the board's cells and the launcher queue. Both are small (a level is at most a few thousand cells), so
     /// they share one instanced draw with per-instance colour rather than a draw per colour.
     /// </summary>
+    [Unity.Entities.UpdateAfter(typeof(Balls.App.SessionSystem))]
     public partial class BoardRenderSystem : SystemBase
     {
         private const float CellHalfSize = 0.46f;
@@ -23,6 +25,8 @@ namespace Balls.Rendering
         private NativeArray<QuadInstance> scratch;
         private Material material;
         private int capacity;
+
+        // One ball radius in cells, matching SimulationTuning::ballRadius in the core.
 
         protected override void OnCreate()
         {
@@ -103,15 +107,14 @@ namespace Balls.Rendering
                 };
             }
 
+
             if (count == 0)
             {
                 return;
             }
-
             quads.SetData(scratch, 0, 0, count);
             RenderPrimitives.SetIndirectArgs(args, count, RenderPrimitives.UnitQuad);
             material.SetBuffer("_Quads", quads);
-            material.SetFloat("_CornerRadius", 0f);
             var bounds = new Bounds(new Vector3(500f, 500f, 0f), new Vector3(4000f, 4000f, 10f));
             var parameters = new RenderParams(material)
             {

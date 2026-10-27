@@ -28,6 +28,9 @@ namespace Balls.Game
 
         public override bool IsNative => true;
 
+        /// <summary>The ABI handle, for the few calls the interface does not model yet.</summary>
+        public System.IntPtr SessionHandle => session;
+
         public override int Mode => BallsNative.balls_session_mode(session);
 
         public override int State => BallsNative.balls_session_state(session);
@@ -94,6 +97,71 @@ namespace Balls.Game
         public override void StartProbe(double targetFps) => BallsNative.balls_session_start_capacity_probe(session, targetFps);
 
         public override void ReportFrame(double frameSeconds, double workSeconds) => BallsNative.balls_session_report_frame(session, frameSeconds, workSeconds);
+
+        public override int SpawnRateIndex => BallsNative.balls_session_spawn_rate_index(session);
+
+        public override int BallMultiplierIndex => BallsNative.balls_session_ball_multiplier_index(session);
+
+        public override int BallLimitIndex => BallsNative.balls_session_ball_limit_index(session);
+
+        public override ulong BallLimit => BallsNative.balls_session_ball_limit(session);
+
+        public override bool ProbeActive
+        {
+            get
+            {
+                BallsNative.balls_session_probe(session, out var probe);
+                return probe.active != 0;
+            }
+        }
+
+        public override int ProbePhase
+        {
+            get
+            {
+                BallsNative.balls_session_probe(session, out var probe);
+                return probe.phase;
+            }
+        }
+
+        public override double ProbeFps
+        {
+            get
+            {
+                BallsNative.balls_session_probe(session, out var probe);
+                return probe.lastFps;
+            }
+        }
+
+        public override double ProbeTargetFps
+        {
+            get
+            {
+                BallsNative.balls_session_probe(session, out var probe);
+                return probe.targetFps;
+            }
+        }
+
+        public override ulong ProbeBest
+        {
+            get
+            {
+                BallsNative.balls_session_probe(session, out var probe);
+                return probe.bestPassingCount;
+            }
+        }
+
+        public override bool HasMachineLimit => BallsNative.balls_session_has_machine_ball_limit(session) != 0;
+
+        public override ulong MachineLimit => BallsNative.balls_session_machine_ball_limit(session);
+
+        public override bool BallCollisions => BallsNative.balls_session_ball_collisions(session) != 0;
+
+        public override void SetBallCollisions(bool enabled) => BallsNative.balls_session_set_ball_collisions(session, enabled ? 1 : 0);
+
+        public override void CancelProbe() => BallsNative.balls_session_cancel_capacity_probe(session);
+
+        public override void UseMachineLimit(ulong limit) => BallsNative.balls_session_use_machine_ball_limit(session, limit);
 
         public override void SetVisibilityGrid(int width, int height)
         {

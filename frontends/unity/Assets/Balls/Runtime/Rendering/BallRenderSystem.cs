@@ -1,24 +1,30 @@
 using Balls.Ecs;
+using Balls.Game;
 using Unity.Collections;
 using Unity.Collections.LowLevel.Unsafe;
+using Unity.Entities;
 using UnityEngine;
 using UnityEngine.Rendering;
-using Unity.Entities;
 
 namespace Balls.Rendering
 {
     /// <summary>
-    /// Draws every live ball in one indirect, procedurally instanced draw call: the packed words go to the GPU as
-    /// they are and the vertex shader turns each into a quad.
+    /// Draws every live ball as one disc instance, decoded from the packed words the physics backend hands over.
+    /// Balls get their own draw and their own mesh so the board can stay square quads without either draw having to
+    /// change material state — a material property set between two draws in one frame applies to both.
     /// </summary>
+    [UpdateAfter(typeof(Balls.App.SessionSystem))]
     public partial class BallRenderSystem : SystemBase
     {
-        private const int PackedCoordinateMax = 16383;
+        // One ball radius in cells, matching SimulationTuning::ballRadius in the core.
+        private const float BallRadius = 0.2f;
 
-        private GraphicsBuffer balls;
+        private GraphicsBuffer instances;
         private GraphicsBuffer args;
-        private int capacity;
+        private NativeArray<QuadInstance> scratch;
+        private NativeArray<uint> packed;
         private Material material;
+        private int capacity;
 
         protected override void OnCreate()
         {
@@ -27,29 +33,78 @@ namespace Balls.Rendering
 
         protected override void OnStartRunning()
         {
-            material = RenderAssets.BallMaterial();
+            material = RenderAssets.QuadMaterial();
         }
 
         protected override void OnDestroy()
         {
-            balls?.Release();
+            instances?.Release();
             args?.Release();
+            if (scratch.IsCreated)
+            {
+                scratch.Dispose();
+            }
+            if (packed.IsCreated)
+            {
+                packed.Dispose();
+            }
         }
 
         protected override void OnUpdate()
         {
+            if (material == null || !SystemAPI.HasSingleton<BoardInfoData>())
+            {
+                return;
+            }
+            var board = SystemAPI.GetSingleton<BoardInfoData>();
             var batch = SystemAPI.GetSingleton<BallBatch>();
+            if (!board.valid || batch.count <= 0 || batch.packed == System.IntPtr.Zero)
+            {
+                return;
+            }
             EnsureCapacity(batch.count);
-            if (batch.count <= 0 || batch.packed == System.IntPtr.Zero || material == null)
+            if (!packed.IsCreated || packed.Length < batch.count)
+            {
+                if (packed.IsCreated)
+                {
+                    packed.Dispose();
+                }
+                packed = new NativeArray<uint>(RenderPrimitives.NextPowerOfTwo(batch.count), Allocator.Persistent);
+            }
+            unsafe
+            {
+                UnsafeUtility.MemCpy(packed.GetUnsafePtr(), (void*)batch.packed, (long)batch.count * sizeof(uint));
+            }
+
+            float scaleX = batch.scaleX <= 0f ? 1f : 1f / batch.scaleX;
+            float scaleY = batch.scaleY <= 0f ? 1f : 1f / batch.scaleY;
+            int count = 0;
+            for (int index = 0; index < batch.count && count < capacity; ++index)
+            {
+                uint word = packed[index];
+                float x = (word & 0x3FFFu) * scaleX;
+                float y = ((word >> 14) & 0x3FFFu) * scaleY;
+                if (!float.IsFinite(x) || !float.IsFinite(y) || x < -1f || y < -1f ||
+                    x > board.columns + 1f || y > board.rows + 1f)
+                {
+                    continue;
+                }
+                Color tint = BallPalette.For((int)(word >> 28));
+                scratch[count++] = new QuadInstance
+                {
+                    center = new Unity.Mathematics.float2(x, y),
+                    size = new Unity.Mathematics.float2(BallRadius, BallRadius),
+                    color = new Vector4(tint.r, tint.g, tint.b, 1f),
+                };
+            }
+            if (count == 0)
             {
                 return;
             }
 
-            Upload(batch);
-            RenderPrimitives.SetIndirectArgs(args, batch.count, RenderPrimitives.UnitQuad);
-            material.SetVector("_FieldToWorld", new Vector4(1f / batch.scaleX, 1f / batch.scaleY, 0f, 0f));
-            material.SetBuffer("_Balls", balls);
-
+            instances.SetData(scratch, 0, 0, count);
+            RenderPrimitives.SetIndirectArgs(args, count, RenderPrimitives.UnitDisc);
+            material.SetBuffer("_Quads", instances);
             var bounds = new Bounds(new Vector3(500f, 500f, 0f), new Vector3(4000f, 4000f, 10f));
             var parameters = new RenderParams(material)
             {
@@ -57,34 +112,26 @@ namespace Balls.Rendering
                 shadowCastingMode = ShadowCastingMode.Off,
                 receiveShadows = false,
             };
-            Graphics.RenderMeshIndirect(parameters, RenderPrimitives.UnitQuad, args, 1);
+            Graphics.RenderMeshIndirect(parameters, RenderPrimitives.UnitDisc, args, 1);
         }
 
-        private void EnsureCapacity(int count)
+        private void EnsureCapacity(int needed)
         {
-            if (count <= capacity && balls != null)
+            if (needed <= capacity && instances != null)
             {
                 return;
             }
-            balls?.Release();
+            instances?.Release();
             args?.Release();
-            capacity = RenderPrimitives.NextPowerOfTwo(Mathf.Max(count, 1));
-            balls = new GraphicsBuffer(GraphicsBuffer.Target.Structured, capacity, sizeof(uint));
-            args = RenderPrimitives.CreateIndirectArgs(0, RenderPrimitives.UnitQuad);
-        }
-
-        private unsafe void Upload(in BallBatch batch)
-        {
-            var view = NativeArrayUnsafeUtility.ConvertExistingDataToNativeArray<uint>(
-                (void*)batch.packed, batch.count, Allocator.None);
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-            var handle = AtomicSafetyHandle.Create();
-            NativeArrayUnsafeUtility.SetAtomicSafetyHandle(ref view, handle);
-#endif
-            balls.SetData(view, 0, 0, batch.count);
-#if ENABLE_UNITY_COLLECTIONS_CHECKS
-            AtomicSafetyHandle.Release(handle);
-#endif
+            if (scratch.IsCreated)
+            {
+                scratch.Dispose();
+            }
+            capacity = RenderPrimitives.NextPowerOfTwo(Mathf.Max(needed, 64));
+            scratch = new NativeArray<QuadInstance>(capacity, Allocator.Persistent);
+            instances = new GraphicsBuffer(GraphicsBuffer.Target.Structured, capacity,
+                System.Runtime.InteropServices.Marshal.SizeOf<QuadInstance>());
+            args = RenderPrimitives.CreateIndirectArgs(0, RenderPrimitives.UnitDisc);
         }
     }
 }
