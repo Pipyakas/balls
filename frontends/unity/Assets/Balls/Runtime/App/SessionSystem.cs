@@ -69,6 +69,13 @@ namespace Balls.App
 
         protected override void OnUpdate()
         {
+            // Every frame, on every screen, so the control API's /state reports the menus' frame rate too.
+            float frameSeconds = SystemAPI.Time.DeltaTime;
+            if (frameSeconds > 0f)
+            {
+                double frameMs = frameSeconds * 1000.0;
+                BallsNative.balls_frame_timings_record(frameTimings, frameMs, frameMs, 0.0);
+            }
             // A start request replaces a running session too: Next Level, Restart after the map changed on disk and
             // the control API's /play all start a game from inside another one.
             if (BallsInput.TryTakeStartRequest(out var request))
@@ -229,11 +236,6 @@ namespace Balls.App
                 launcherRemaining = frame.launcherRemainingBalls,
             });
 
-            if (deltaSeconds > 0f)
-            {
-                double frameMs = deltaSeconds * 1000.0;
-                BallsNative.balls_frame_timings_record(frameTimings, frameMs, frameMs, 0.0);
-            }
             BallsNative.balls_frame_timings_stats(frameTimings, out NativeFrameStats frames);
 
             var stats = backend.Stats;
