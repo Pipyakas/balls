@@ -1,12 +1,7 @@
 [Board]
-Width 1
-Height 3
+Width 4
+Height 2
 
 [Layout]
-Red(5)
-Orange(5)
-Yellow(5)
-Green(5)
-Blue(5)
-Indigo(5)
-Violet(5)
+Red(5) Orange(5) Yellow(5) Green(5)
+Blue(5) Indigo(5) Violet(5) Empty

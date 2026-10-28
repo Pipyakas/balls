@@ -41,7 +41,9 @@ TEST_CASE("normal session releases exactly the launcher's ball count") {
 
 TEST_CASE("normal level can be cleared by releasing every launcher") {
     GameSession session(GameMode::Normal, loadSample("normal", "DA_FirstLevel"), BackendKind::Scalar);
-    while (session.chooseLauncher(0, 0)) {
+    for (int column = 0; column < session.launchers().columnCount(); ++column) {
+        while (session.chooseLauncher(column, 0)) {
+        }
     }
     for (int frame = 0; frame < 60 * 120 && session.state() != SessionState::Won; ++frame) {
         session.update(1.0f / 60.0f);
