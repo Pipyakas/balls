@@ -143,6 +143,8 @@ namespace Balls.App
                           $"worstDelta={result.worstDelta} first={result.firstMismatch} " +
                           $"sorted={result.sortedMismatches} firstDivergentTick={result.firstDivergentTick} " +
                           $"countMismatches={result.countMismatches} colorMismatches={result.colorMismatches} " +
+                          $"firstBehavioralTick={result.firstBehavioralTick} firstBehavioralBall={result.firstBehavioralBall} " +
+                          $"firstBehavioralDelta={result.firstBehavioralDelta} behavioralReason='{result.firstBehavioralReason}' " +
                           $"divergenceReason='{result.firstDivergentReason}' error='{result.error}'");
                 Application.Quit();
                 return;

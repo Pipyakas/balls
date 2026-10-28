@@ -26,6 +26,11 @@ namespace Balls.App.Screens
             Refresh();
         }
 
+        public override void HandleEscape()
+        {
+            App.Go<MainMenuScreen>();
+        }
+
         public override void Draw()
         {
             UiTheme theme = App.Theme;

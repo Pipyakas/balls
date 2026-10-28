@@ -117,6 +117,19 @@ namespace Balls.App.Screens
             }
         }
 
+        /// <summary>Esc pauses gameplay; an open settings overlay returns to Pause.</summary>
+        public override void HandleEscape()
+        {
+            if (settingsOpen)
+            {
+                App.Get<SettingsScreen>().HandleEscape();
+            }
+            else if (!paused && !wonShown)
+            {
+                paused = true;
+            }
+        }
+
         /// <summary>Launcher clicks and keys that are not the screens' own.</summary>
         public void HandleWorldInput()
         {
@@ -124,7 +137,7 @@ namespace Balls.App.Screens
             {
                 return;
             }
-            if (Input.GetKeyDown(KeyCode.Escape) || Input.GetKeyDown(KeyCode.P))
+            if (Input.GetKeyDown(KeyCode.P))
             {
                 paused = true;
                 return;

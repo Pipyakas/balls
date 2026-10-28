@@ -96,14 +96,13 @@ namespace Balls.App
                 pending = null;
                 current.Enter();
             }
-            // Input the screens do not own: the capture agent's launcher clicks and the front end's global keys.
             if (current is Screens.GameplayScreen gameplay)
             {
                 gameplay.HandleWorldInput();
             }
             else if (Input.GetKeyDown(KeyCode.Escape) && current != null)
             {
-                Go<Screens.MainMenuScreen>();
+                current.HandleEscape();
             }
         }
 
@@ -261,6 +260,26 @@ namespace Balls.App
         /// <summary>Parses the launch options the design requires every port to accept.</summary>
         public void ApplyLaunchOptions(string[] args)
         {
+            string requestedBackend = null;
+            foreach (string arg in args)
+            {
+                if (arg.StartsWith("-BallsBackend=", StringComparison.OrdinalIgnoreCase))
+                {
+                    requestedBackend = arg.Substring("-BallsBackend=".Length);
+                }
+            }
+            if (!string.IsNullOrEmpty(requestedBackend))
+            {
+                for (int kind = 0; kind < BallsNative.BackendCount; ++kind)
+                {
+                    if (BallsNative.BackendName(kind).Equals(requestedBackend, StringComparison.OrdinalIgnoreCase))
+                    {
+                        BackendKind = kind;
+                        break;
+                    }
+                }
+            }
+
             for (int index = 0; index < args.Length; ++index)
             {
                 string arg = args[index];
@@ -280,17 +299,6 @@ namespace Balls.App
                 else if (arg.Equals("-BallsEditor", StringComparison.OrdinalIgnoreCase))
                 {
                     Go<Screens.EditorScreen>();
-                }
-                else if (arg.StartsWith("-BallsBackend=", StringComparison.OrdinalIgnoreCase))
-                {
-                    string name = arg.Substring("-BallsBackend=".Length);
-                    for (int kind = 0; kind < BallsNative.BackendCount; ++kind)
-                    {
-                        if (BallsNative.BackendName(kind).Equals(name, StringComparison.OrdinalIgnoreCase))
-                        {
-                            BackendKind = kind;
-                        }
-                    }
                 }
             }
         }

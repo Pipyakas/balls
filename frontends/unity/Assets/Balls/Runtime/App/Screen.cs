@@ -26,6 +26,12 @@ namespace Balls.App
         /// <summary>Draws and handles input. Runs inside OnGUI.</summary>
         public abstract void Draw();
 
+        /// <summary>Handles Esc as the screen's Back action.</summary>
+        public virtual void HandleEscape()
+        {
+            App.Go<Screens.MainMenuScreen>();
+        }
+
         /// <summary>Draws on top of the screen (pause, win, settings, load error).</summary>
         public virtual void DrawOverlay()
         {

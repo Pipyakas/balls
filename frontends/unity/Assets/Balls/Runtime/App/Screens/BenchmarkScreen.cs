@@ -46,6 +46,11 @@ namespace Balls.App.Screens
             }
         }
 
+        public override void HandleEscape()
+        {
+            Continue();
+        }
+
         public override void Draw()
         {
             UiTheme theme = App.Theme;

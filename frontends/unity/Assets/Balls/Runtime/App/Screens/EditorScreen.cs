@@ -133,6 +133,26 @@ namespace Balls.App.Screens
             lastPaintedCell = new Vector2Int(-1, -1);
         }
 
+        public override void HandleEscape()
+        {
+            if (GUI.GetNameOfFocusedControl() == "level_name")
+            {
+                GUI.FocusControl(null);
+                return;
+            }
+            if (editor != IntPtr.Zero)
+            {
+                BallsNative.balls_editor_info(editor, out NativeEditorInfo info);
+                if (info.dirty != 0 && !confirmLeave)
+                {
+                    confirmLeave = true;
+                    return;
+                }
+            }
+            confirmLeave = false;
+            App.Go<MainMenuScreen>();
+        }
+
         public void StartNewLevel(int forMode)
         {
             targetMode = forMode;
@@ -478,24 +498,6 @@ namespace Balls.App.Screens
         private void HandleShortcuts(NativeEditorInfo info)
         {
             bool nameFocused = GUI.GetNameOfFocusedControl() == "level_name";
-
-            if (Input.GetKeyDown(KeyCode.Escape))
-            {
-                if (nameFocused)
-                {
-                    GUI.FocusControl(null);
-                    App.Go(this);
-                    return;
-                }
-                if (info.dirty != 0 && !confirmLeave)
-                {
-                    confirmLeave = true;
-                    App.Go(this);
-                    return;
-                }
-                confirmLeave = false;
-                return;
-            }
 
             if (nameFocused)
             {

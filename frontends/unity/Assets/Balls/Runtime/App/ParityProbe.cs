@@ -23,6 +23,9 @@ namespace Balls.App
             WallRetarget,   // 1 ball bouncing 3+ times, 200 ticks, triggering retargeting
             BrickBounce,    // 1 ball deflected by non-matching brick, 60 ticks
             BrickHit,       // 1 ball destroying matching brick and dying, 60 ticks
+            CornerExact,    // 1 ball hitting exact corner seam between cells (3.0, 5.0), 60 ticks
+            CornerNear,     // 1 ball hitting near corner (3.002, 5.0), 60 ticks
+            CornerEmbedded, // 1 ball embedded at corner diagonal tie inside cell (3, 4), 60 ticks
         }
 
         public struct Result
@@ -86,6 +89,9 @@ namespace Balls.App
                 ControlledMode.WallRetarget => 200,
                 ControlledMode.BrickBounce => 60,
                 ControlledMode.BrickHit => 60,
+                ControlledMode.CornerExact => 60,
+                ControlledMode.CornerNear => 60,
+                ControlledMode.CornerEmbedded => 60,
                 _ => 300,
             };
             return RunMode(levelDirectory, levelName, mode, ballCount, ticks);
@@ -100,6 +106,9 @@ namespace Balls.App
                 ControlledMode.WallRetarget,
                 ControlledMode.BrickBounce,
                 ControlledMode.BrickHit,
+                ControlledMode.CornerExact,
+                ControlledMode.CornerNear,
+                ControlledMode.CornerEmbedded,
             };
             var results = new Result[modes.Length];
             for (int i = 0; i < modes.Length; ++i)
@@ -164,20 +173,28 @@ namespace Balls.App
 
                     int tickSlotMismatches = 0;
                     int tickWorstDelta = 0;
+                    int tickWorstBall = -1;
                     int tickFirstMismatchBall = -1;
+                    int tickFirstMismatchDelta = 0;
 
                     for (int i = 0; i < compareCount; ++i)
                     {
                         if (curNativeWords[i] != curBurstWords[i])
                         {
                             tickSlotMismatches++;
+                            int dx = Math.Abs((int)(curNativeWords[i] & 0x3FFF) - (int)(curBurstWords[i] & 0x3FFF));
+                            int dy = Math.Abs((int)((curNativeWords[i] >> 14) & 0x3FFF) - (int)((curBurstWords[i] >> 14) & 0x3FFF));
+                            int delta = Math.Max(dx, dy);
                             if (tickFirstMismatchBall < 0)
                             {
                                 tickFirstMismatchBall = i;
+                                tickFirstMismatchDelta = delta;
                             }
-                            int dx = Math.Abs((int)(curNativeWords[i] & 0x3FFF) - (int)(curBurstWords[i] & 0x3FFF));
-                            int dy = Math.Abs((int)((curNativeWords[i] >> 14) & 0x3FFF) - (int)((curBurstWords[i] >> 14) & 0x3FFF));
-                            tickWorstDelta = Math.Max(tickWorstDelta, Math.Max(dx, dy));
+                            if (delta > tickWorstDelta)
+                            {
+                                tickWorstDelta = delta;
+                                tickWorstBall = i;
+                            }
                         }
                     }
 
@@ -198,12 +215,12 @@ namespace Balls.App
                     }
 
                     // Milestone logging for diagnostic bisection
-                    if (tickWorstDelta > lastLoggedMilestone && (tickWorstDelta >= 16 || tickWorstDelta >= 100 || tickWorstDelta >= 1000))
+                    if (tickWorstDelta > lastLoggedMilestone && tickWorstBall >= 0 && tickWorstDelta >= 16)
                     {
                         lastLoggedMilestone = tickWorstDelta;
-                        BallsNative.UnpackBall(curNativeWords[tickFirstMismatchBall], nativeScaleX, nativeScaleY, out float nx, out float ny, out int nc);
-                        BallsNative.UnpackBall(curBurstWords[tickFirstMismatchBall], burstScaleX, burstScaleY, out float bx, out float by, out int bc);
-                        Debug.Log($"balls: parity milestone [{mode}] tick={tick + 1} worstDelta={tickWorstDelta} ball={tickFirstMismatchBall} native=({nx:F3},{ny:F3}) burst=({bx:F3},{by:F3})");
+                        BallsNative.UnpackBall(curNativeWords[tickWorstBall], nativeScaleX, nativeScaleY, out float nx, out float ny, out int nc);
+                        BallsNative.UnpackBall(curBurstWords[tickWorstBall], burstScaleX, burstScaleY, out float bx, out float by, out int bc);
+                        Debug.Log($"balls: parity milestone [{mode}] tick={tick + 1} worstDelta={tickWorstDelta} ball={tickWorstBall} native=({nx:F3},{ny:F3}) burst=({bx:F3},{by:F3})");
                     }
 
                     if (result.firstDivergentTick < 0)
@@ -222,8 +239,8 @@ namespace Balls.App
                         {
                             result.firstDivergentTick = tick + 1;
                             result.firstDivergentBall = tickFirstMismatchBall;
-                            result.firstDivergentDelta = tickWorstDelta;
-                            result.firstDivergentReason = $"tick {tick + 1}: ball {tickFirstMismatchBall} delta={tickWorstDelta} (sortedDiffs={tickSortedMismatches})";
+                            result.firstDivergentDelta = tickFirstMismatchDelta;
+                            result.firstDivergentReason = $"tick {tick + 1}: ball {tickFirstMismatchBall} delta={tickFirstMismatchDelta} (sortedDiffs={tickSortedMismatches})";
                         }
                     }
 
@@ -231,13 +248,13 @@ namespace Balls.App
                     if (result.firstBehavioralTick < 0 && (countMismatch || colorMismatch || tickWorstDelta > 16))
                     {
                         result.firstBehavioralTick = tick + 1;
-                        result.firstBehavioralBall = tickFirstMismatchBall;
+                        result.firstBehavioralBall = countMismatch || colorMismatch ? -1 : tickWorstBall;
                         result.firstBehavioralDelta = tickWorstDelta;
                         result.firstBehavioralReason = countMismatch
                             ? $"tick {tick + 1}: count mismatch native={curNativeCount} burst={curBurstCount}"
                             : (colorMismatch
                                 ? $"tick {tick + 1}: color mismatch {colorDiff}"
-                                : $"tick {tick + 1}: ball {tickFirstMismatchBall} large delta={tickWorstDelta}");
+                                : $"tick {tick + 1}: ball {tickWorstBall} delta={tickWorstDelta}");
                     }
                 }
 
@@ -247,9 +264,8 @@ namespace Balls.App
                 if (finalNativeCount != finalBurstCount)
                 {
                     result.error = $"count differs: native {finalNativeCount}, burst {finalBurstCount}";
-                    result.compared = Math.Min(finalNativeCount, finalBurstCount);
-                    return result;
                 }
+                int finalCompareCount = Math.Min(finalNativeCount, finalBurstCount);
 
                 var nativeWords = ReadWords(nativePacked, finalNativeCount);
                 var burstWords = ReadWords(burstPacked, finalBurstCount);
@@ -258,7 +274,7 @@ namespace Balls.App
                 var burstSorted = (uint[])burstWords.Clone();
                 Array.Sort(nativeSorted);
                 Array.Sort(burstSorted);
-                for (int index = 0; index < finalNativeCount; ++index)
+                for (int index = 0; index < finalCompareCount; ++index)
                 {
                     if (nativeSorted[index] != burstSorted[index])
                     {
@@ -266,7 +282,7 @@ namespace Balls.App
                     }
                 }
 
-                for (int index = 0; index < finalNativeCount; ++index)
+                for (int index = 0; index < finalCompareCount; ++index)
                 {
                     result.compared++;
                     if (nativeWords[index] == burstWords[index])
@@ -278,8 +294,8 @@ namespace Balls.App
                     {
                         result.firstMismatch = index;
                     }
-                    int dx = Math.Abs((int)(nativeWords[index] & 0x3FFF) - (int)(curBurstWords_get(burstWords, index) & 0x3FFF));
-                    int dy = Math.Abs((int)((nativeWords[index] >> 14) & 0x3FFF) - (int)((curBurstWords_get(burstWords, index) >> 14) & 0x3FFF));
+                    int dx = Math.Abs((int)(nativeWords[index] & 0x3FFF) - (int)(burstWords[index] & 0x3FFF));
+                    int dy = Math.Abs((int)((nativeWords[index] >> 14) & 0x3FFF) - (int)((burstWords[index] >> 14) & 0x3FFF));
                     result.worstDelta = Math.Max(result.worstDelta, Math.Max(dx, dy));
                 }
             }
@@ -293,11 +309,6 @@ namespace Balls.App
                 burst?.Dispose();
             }
             return result;
-        }
-
-        private static uint curBurstWords_get(uint[] words, int index)
-        {
-            return index < words.Length ? words[index] : 0u;
         }
 
         private static void SpawnBallsForMode(IntPtr nativeHandle, BurstGameBackend burstBackend, ControlledMode mode, int ballCount)
@@ -334,6 +345,24 @@ namespace Balls.App
                     // Spawn Green (color 3) ball aimed upwards at it.
                     // Matching color destroys the brick and kills the ball.
                     SpawnOne(nativeHandle, burstBackend, 3.5f, 6.0f, 0.0f, -9.0f, 3);
+                    break;
+
+                case ControlledMode.CornerExact:
+                    // Seam between col 2 (Blue) and col 3 (Green) at row 4 bottom boundary (y=5.0).
+                    // Ball aimed straight up at exact x=3.0f, y=5.6f. Hits corner vertex exactly.
+                    SpawnOne(nativeHandle, burstBackend, 3.0f, 5.6f, 0.0f, -9.0f, 0);
+                    break;
+
+                case ControlledMode.CornerNear:
+                    // Ball slightly offset from seam at x=3.002f, y=5.6f aimed straight up.
+                    SpawnOne(nativeHandle, burstBackend, 3.002f, 5.6f, 0.0f, -9.0f, 0);
+                    break;
+
+                case ControlledMode.CornerEmbedded:
+                    // Ball starting embedded inside cell (3, 4) at exact diagonal tie distance (0.05 from left and bottom).
+                    // x=3.05f, y=4.95f -> toLeft = 0.05f, toBottom = 0.05f.
+                    // Tests pushOutOfCell tie resolution parity directly.
+                    SpawnOne(nativeHandle, burstBackend, 3.05f, 4.95f, 0.0f, -9.0f, 0);
                     break;
 
                 case ControlledMode.Random200:
