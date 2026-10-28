@@ -72,6 +72,7 @@ public:
     double partStepMs(size_t part) const { return parts[part].lastMs; }
     double partShare(size_t part) const { return parts[part].share; }
     bool partParked(size_t part) const { return parts[part].parked; }
+    size_t unparkedCount() const { return unparks; }
     // Host time this step spent splitting and merging brick hit budgets (0 with fewer than two device parts).
     double brickBudgetMs() const { return lastBudgetMs; }
     // Mean of brickBudgetMs over the steps that resolved hits on two or more device parts.
@@ -98,6 +99,7 @@ private:
     void rebalance();
     void updateShares();
     void parkLosingParts(double wallMs);
+    void judgeParkTrial(double wallMsPerBall);
     void splitBrickBudgets();
     void mergeDeviceHits();
     void overlay(const BallSnapshot& balls, uint32_t replaceBelow, uint32_t salt);
@@ -112,6 +114,15 @@ private:
     double wallEwma = 0.0;
     double soloEwma = 0.0;
     int losingSteps = 0;
+    // A parked part stays parked only if the step, per ball, got faster without it.
+    static constexpr size_t noTrial = static_cast<size_t>(-1);
+    size_t trialPart = noTrial;
+    double trialShare = 0.0;
+    double wallPerBallEwma = 0.0;
+    double trialBeforeMsPerBall = 0.0;
+    double trialAfterMsPerBall = 0.0;
+    int trialSteps = 0;
+    int parkRetryWait = 0;
     // Brick budgets, used when two or more parts resolve hits on the device.
     std::vector<int32_t> brickHits;
     uint32_t budgetEpoch = 0;
@@ -119,6 +130,7 @@ private:
     DeviceHitResults mergedHits;
     double lastBudgetMs = 0.0;
     double budgetMsTotal = 0.0;
+    size_t unparks = 0;
     size_t ballsMoved = 0;
     size_t movingSteps = 0;
     int stepsSinceMove = 0;
