@@ -1316,11 +1316,13 @@ int32_t balls_control_handle(BallsControl* control, const BallsControlContext* c
         response = handleControlRequest(*control, request);
     }
     control->context = nullptr;
-    if (!known) {
-        return -1;
-    }
-    if (!response) {
-        return 0;
+    if (!known || !response) {
+        // Nothing to send yet: the host answers its own routes and the screenshot it takes.
+        writeText(std::string_view{}, json, size);
+        if (jsonLength != nullptr) {
+            *jsonLength = 0;
+        }
+        return known ? 0 : -1;
     }
     if (jsonLength != nullptr) {
         *jsonLength = static_cast<int32_t>(response->json.size());
