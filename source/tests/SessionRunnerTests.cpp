@@ -61,7 +61,11 @@ TEST_CASE("a paused runner keeps publishing views without advancing the game") {
     SessionRunner runner(GameMode::Normal, loadSample("normal", "DA_FirstLevel"), BackendKind::Scalar);
     tickUntil(runner, [](const SessionView&) { return true; });
     runner.post([](GameSession& session) { session.chooseLauncher(0, 0); });
-    const auto first = tickUntil(runner, [](const SessionView& view) { return view.state == SessionState::Running; }, true);
+    // A frame already under way when the pause was set read the input before it and still advances the game, so the
+    // paused baseline is a frame that started after it: two past the latest one at the time.
+    const uint64_t pausedAt = tickUntil(runner, [](const SessionView&) { return true; }, true)->frameNumber;
+    const auto first = tickUntil(runner, [&](const SessionView& view) { return view.frameNumber > pausedAt + 1; }, true);
+    EXPECT(first->state == SessionState::Running);
     const double elapsed = first->elapsedSeconds;
     const auto later = tickUntil(runner, [&](const SessionView& view) { return view.frameNumber > first->frameNumber + 5; },
                                  true);

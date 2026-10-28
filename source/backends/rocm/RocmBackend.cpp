@@ -705,6 +705,7 @@ void RocmBackend::addBalls(std::span<const BallSpawn> spawns) {
         uploadToDevice(static_cast<char*>(balls.packed) + offset, packed.data(), added * 4);
     }
     count += added;
+    sortSchedule.ballsAdded(added, count);
     snapshotFresh = false;
 }
 
@@ -1123,6 +1124,7 @@ bool RocmBackend::addCompact(const CompactBalls& added) {
         uploadToDevice(static_cast<char*>(balls.packed) + offset, packed.data(), addedCount * 4);
     }
     count += addedCount;
+    sortSchedule.ballsAdded(addedCount, count);
     snapshotFresh = false;
     return !isFaulted();
 }

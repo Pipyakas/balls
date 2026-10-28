@@ -11,6 +11,7 @@ public:
     static constexpr int measuredTicks = 32;
     static constexpr int ticksBetweenTrials = 1200;
     static constexpr size_t minimumBalls = size_t{1} << 20;
+    static constexpr size_t bulkAddDenominator = 32;
 
     bool sortThisTick(size_t balls) {
         if (balls < minimumBalls || intervalTicks <= 0 || ++ticksSinceSort < intervalTicks) {
@@ -18,6 +19,16 @@ public:
         }
         ticksSinceSort = 0;
         return true;
+    }
+
+    // Balls appended in bulk (a composer moving them in from another device) arrive unsorted and change the set, so
+    // a trial measuring meanwhile would charge the arrival to its candidate: that candidate is measured again.
+    // Spawns in play are far below the threshold.
+    void ballsAdded(size_t added, size_t balls) {
+        if (ticksUntilTrial == 0 && added * bulkAddDenominator >= balls) {
+            trialTick = 0;
+            trialMsPerBall = 0.0;
+        }
     }
 
     void record(double kernelMs, size_t balls) {
