@@ -82,7 +82,8 @@ build/win32/bin/Release/balls.exe
 
 Requirements: a C++20 compiler (GCC 12+ or Clang 15+), CMake 3.25+, Ninja or Make, and internet access on first
 configure (SDL 3.2.30, Dear ImGui 1.93.0 and NVRHI with the Vulkan headers are downloaded). Vulkan drivers are
-needed at runtime on Linux; macOS uses MoltenVK. There is no CUDA backend off Windows.
+needed at runtime on Linux; macOS uses MoltenVK. The CUDA backend is available on Windows and Linux (via
+scripts/FetchCudaSdk.sh); macOS has no CUDA backend.
 
 ```sh
 ./build.sh                                        # SDL + NVRHI into dist/linux-sdl
