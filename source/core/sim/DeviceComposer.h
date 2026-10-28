@@ -73,6 +73,9 @@ public:
     // Host time this step spent splitting and merging brick hit budgets (0 with fewer than two device parts).
     double brickBudgetMs() const { return lastBudgetMs; }
     // Mean of brickBudgetMs over the steps that resolved hits on two or more device parts.
+    // Balls moved between parts so far, and the steps that moved any.
+    size_t movedBallCount() const { return ballsMoved; }
+    size_t movingStepCount() const { return movingSteps; }
     double averageBrickBudgetMs() const { return budgetSteps > 0 ? budgetMsTotal / static_cast<double>(budgetSteps) : 0.0; }
 
 private:
@@ -113,6 +116,8 @@ private:
     DeviceHitResults mergedHits;
     double lastBudgetMs = 0.0;
     double budgetMsTotal = 0.0;
+    size_t ballsMoved = 0;
+    size_t movingSteps = 0;
     size_t budgetSteps = 0;
     std::vector<uint32_t> merged;
     CompactBalls movedBalls;

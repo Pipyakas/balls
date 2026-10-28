@@ -162,6 +162,7 @@ void DeviceComposer::addBalls(std::span<const BallSpawn> spawns) {
 }
 
 void DeviceComposer::rebalance() {
+    const size_t movedBefore = ballsMoved;
     for (size_t move = 0; move + 1 < parts.size(); ++move) {
         const std::vector<size_t> targets = targetCounts(ballCount());
         size_t donor = 0;
@@ -183,7 +184,7 @@ void DeviceComposer::rebalance() {
             settings.minimumRebalanceBalls, static_cast<size_t>(static_cast<double>(targets[receiver]) * rebalanceTolerance));
         const bool emptying = targets[donor] == 0 && excess > 0;
         if (donor == receiver || excess == 0 || deficit == 0 || (std::max(excess, deficit) <= tolerance && !emptying)) {
-            return;
+            break;
         }
         PhysicsBackend& source = *parts[donor].backend;
         PhysicsBackend& destination = *parts[receiver].backend;
@@ -191,17 +192,19 @@ void DeviceComposer::rebalance() {
         const size_t room = limit > destination.ballCount() ? limit - destination.ballCount() : 0;
         const size_t moved = std::min({excess, deficit, maximumBallsMovedPerStep, room});
         if (moved == 0) {
-            return;
+            break;
         }
+        ballsMoved += moved;
         if (source.takeCompactTail(moved, movedBalls)) {
             if (!destination.addCompact(movedBalls)) {
                 source.addCompact(movedBalls);
-                return;
+                break;
             }
             continue;
         }
         destination.addBalls(source.takeTail(moved));
     }
+    movingSteps += ballsMoved != movedBefore ? 1 : 0;
 }
 
 // Each measured part's share becomes its throughput over the measured parts' total, smoothed; parts with too few
