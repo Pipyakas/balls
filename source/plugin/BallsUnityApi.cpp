@@ -412,6 +412,7 @@ int32_t balls_settings_load(const char* path, BallsSettings* settings) {
     const Settings loaded = loadSettings(std::filesystem::path(path));
     settings->ballCollisions = loaded.ballCollisions ? 1 : 0;
     settings->vsync = loaded.vsync ? 1 : 0;
+    settings->advancedSettings = loaded.advancedSettings ? 1 : 0;
     settings->orientation = loaded.layout == LayoutOrientation::Landscape  ? BALLS_ORIENTATION_LANDSCAPE
                             : loaded.layout == LayoutOrientation::Portrait ? BALLS_ORIENTATION_PORTRAIT
                                                                            : BALLS_ORIENTATION_AUTO;
@@ -426,6 +427,7 @@ int32_t balls_settings_save(const char* path, const BallsSettings* settings) {
     Settings outgoing;
     outgoing.ballCollisions = settings->ballCollisions != 0;
     outgoing.vsync = settings->vsync != 0;
+    outgoing.advancedSettings = settings->advancedSettings != 0;
     outgoing.layout = settings->orientation == BALLS_ORIENTATION_LANDSCAPE  ? LayoutOrientation::Landscape
                       : settings->orientation == BALLS_ORIENTATION_PORTRAIT ? LayoutOrientation::Portrait
                                                                            : LayoutOrientation::Auto;

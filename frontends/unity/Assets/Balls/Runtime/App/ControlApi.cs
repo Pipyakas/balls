@@ -384,6 +384,11 @@ namespace Balls.App
                 settings.DefaultBackend = BallsNative.BackendName(kind);
                 app.SetBackend(kind);
             }
+            if (Get(query, "advanced") is string advanced)
+            {
+                settings.AdvancedSettings = Integer(query, "advanced", 0) != 0;
+                app.Get<Screens.GameplayScreen>().SetAdvancedOpen(settings.AdvancedSettings);
+            }
             if (query.ContainsKey("collisions"))
             {
                 app.ApplyBallCollisions(settings.BallCollisions);

@@ -141,6 +141,7 @@ typedef struct BallsSettings {
     int32_t ballCollisions;
     int32_t orientation;
     int32_t vsync;
+    int32_t advancedSettings;  // whether the control gadget shows its Advanced Settings section
     char defaultBackend[64];
 } BallsSettings;
 

@@ -114,6 +114,7 @@ namespace Balls.Native
         public int ballCollisions;
         public int orientation;
         public int vsync;
+        public int advancedSettings;
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 64)] public byte[] defaultBackend;
 
         public string DefaultBackend

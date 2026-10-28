@@ -23,6 +23,9 @@ namespace Balls.App
         private float m_fpsWindow = float.MaxValue;
         private double m_minFpsTimer;
         private float m_minFps;
+        private double m_physicsFps;
+        private double m_physicsTimer;
+        private int m_physicsTicks;
         private readonly List<LauncherElement> launchers = new();
 
         /// <summary>The live system, so screens can reach the session without a managed component.</summary>
@@ -215,6 +218,17 @@ namespace Balls.App
             m_fpsWindow = Mathf.Min(m_fpsWindow, 1f / Mathf.Max(deltaSeconds, 1e-4f));
 
             var stats = backend.Stats;
+            // Physics FPS is how many physics frames finished in the last stretch of wall time; the UI rate can differ.
+            // ticksLastFrame counts the ticks of one frame, so they are summed over the window.
+            m_physicsTimer += deltaSeconds;
+            m_physicsTicks += stats.ticks;
+            if (m_physicsTimer >= 0.25)
+            {
+                m_physicsFps = m_physicsTicks / m_physicsTimer;
+                m_physicsTicks = 0;
+                m_physicsTimer = 0.0;
+            }
+
             EntityManager.SetComponentData(boardEntity, new SessionStatsData
             {
                 ballCount = stats.ballCount,
@@ -222,6 +236,7 @@ namespace Balls.App
                 spawned = stats.spawned,
                 hits = stats.hits,
                 physicsMs = stats.physicsMs,
+                physicsFps = m_physicsFps,
                 ticks = stats.ticks,
                 color0 = stats.red,
                 color1 = stats.orange,

@@ -28,6 +28,7 @@ namespace Balls.Ecs
         public ulong spawned;
         public ulong hits;
         public double physicsMs;
+        public double physicsFps;
         public int ticks;
         public ulong color0, color1, color2, color3, color4, color5, color6;
         public ulong waitingToSpawn;

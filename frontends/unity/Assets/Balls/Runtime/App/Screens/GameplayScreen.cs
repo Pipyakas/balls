@@ -62,6 +62,7 @@ namespace Balls.App.Screens
         private int spawnRateIndex;
         private int multiplierIndex;
         private int limitIndex;
+        private bool advancedOpen;
         private bool autoLimit;
         private bool probeRecorded;
         private GameBackend syncedBackend;
@@ -122,6 +123,7 @@ namespace Balls.App.Screens
             multiplierIndex = backend.BallMultiplierIndex;
             limitIndex = backend.BallLimitIndex + 1;
             autoLimit = false;
+            advancedOpen = App.Settings != null && App.Settings.AdvancedSettings;
             probeRecorded = false;
             ReapplySavedLimit(backend);
         }
@@ -250,6 +252,9 @@ namespace Balls.App.Screens
 
         /// <summary>The control API drives the same pause the header button does.</summary>
         public void SetPaused(bool value) => paused = value;
+
+        /// <summary>Opens or closes the control gadget's Advanced Settings section, as its row does.</summary>
+        public void SetAdvancedOpen(bool open) => advancedOpen = open;
 
         /// <summary>Drops the cached layout, so a Settings change (orientation) is applied on the next frame.</summary>
         public void RefreshLayout() => hasLayout = false;
@@ -529,7 +534,8 @@ namespace Balls.App.Screens
             Rect physics = new Rect(inner.x, inner.yMax - LauncherBackendHeight, inner.width, LauncherBackendHeight);
             DrawBackendChoices(widgets, session, physics);
 
-            float launcherRegionHeight = inner.height - LauncherBackendHeight - 8f;
+            float advancedSectionHeight = advancedOpen ? 34f + 24f + AvailableBackendCount() * 38f + 10f : 34f;
+            float launcherRegionHeight = inner.height - LauncherBackendHeight - 8f - advancedSectionHeight;
             widgets.Label(new Rect(inner.x, inner.y, inner.width, LauncherHeaderHeight), "Launchers",
                 TypeSizes.Value, Palette.Accent, TextAnchor.UpperLeft, true);
             Rect grid = new Rect(inner.x, inner.y + LauncherHeaderHeight + 6f, inner.width,
@@ -538,6 +544,7 @@ namespace Balls.App.Screens
             if (session.launcherRemaining <= 0)
             {
                 widgets.Muted(new Rect(grid.x, grid.y + 8f, grid.width, 28f), "All launchers released", TypeSizes.Medium);
+                DrawAdvancedSection(widgets, session, inner);
                 return;
             }
 
@@ -604,8 +611,10 @@ namespace Balls.App.Screens
             bool compactLayout = inner.width < TwoColumnWidth;
             float physicsHeight = 24f + AvailableBackendCount() * 38f;
             float gpuHeight = GpuChoicesHeight();
-            float contentHeight = 52f + ProbeContentHeight + SpawnContentHeight +
-                                  (compactLayout ? physicsHeight + gpuHeight : Mathf.Max(physicsHeight, gpuHeight)) + 48f;
+            float advancedHeight = advancedOpen
+                ? 38f + (compactLayout ? physicsHeight + 12f + gpuHeight : Mathf.Max(physicsHeight, gpuHeight))
+                : 38f;
+            float contentHeight = 52f + ProbeContentHeight + SpawnContentHeight + advancedHeight + 48f;
             float y = 0f;
             widgets.ScrollColumn(inner, contentHeight, ref interactionScroll, content =>
             {
@@ -615,6 +624,11 @@ namespace Balls.App.Screens
                 float gpuHeight = GpuChoicesHeight();
                 y += DrawReleaseAndProbe(widgets, backend, session, content, y);
                 y += DrawSpawnControls(widgets, backend, content, y);
+                y += DrawAdvancedToggle(widgets, content, y);
+                if (!advancedOpen)
+                {
+                    return;
+                }
                 if (compact)
                 {
                     Rect physicsGroup = new Rect(content.x, y, content.width, physicsHeight);
@@ -693,6 +707,37 @@ namespace Balls.App.Screens
                 SelectBallLimit(backend);
             }
             return SpawnContentHeight;
+        }
+
+        /// <summary>The game's collapsible Advanced Settings header: a row with a chevron, remembered in the settings.</summary>
+        private float DrawAdvancedToggle(Widgets widgets, Rect content, float y)
+        {
+            string label = advancedOpen ? "Advanced Settings  ^" : "Advanced Settings  v";
+            if (widgets.Button(new Rect(content.x, y, content.width, 34f), label, TypeSizes.Small))
+            {
+                advancedOpen = !advancedOpen;
+                if (App.Settings != null)
+                {
+                    App.Settings.AdvancedSettings = advancedOpen;
+                    App.SaveSettings();
+                }
+            }
+            return 38f;
+        }
+
+        /// <summary>Draws the toggle at the bottom of the launcher gadget, and the Physics group under it when open.</summary>
+        private void DrawAdvancedSection(Widgets widgets, SessionInfo session, Rect inner)
+        {
+            float height = advancedOpen ? 58f + AvailableBackendCount() * 38f : 34f;
+            Rect area = new Rect(inner.x, inner.yMax - height, inner.width, height);
+            float y = area.y;
+            y += DrawAdvancedToggle(widgets, area, y);
+            if (!advancedOpen)
+            {
+                return;
+            }
+            Rect physicsGroup = new Rect(area.x, y + 6f, area.width, 24f + AvailableBackendCount() * 38f);
+            DrawBackendChoices(widgets, session, physicsGroup);
         }
 
         private void DrawBackendChoices(Widgets widgets, SessionInfo session, Rect area)
@@ -806,13 +851,21 @@ namespace Balls.App.Screens
             Rect area = layout.Debug;
             // One row of eight, label above value, inside the core's 48-high strip: two rows cannot fit at the
             // narrowest portrait width without the labels running into the values.
-            string[] labels = { "FPS", "Min", "Frame", "GPU", "Balls", "Bricks", "Launch", "Backend" };
-            string[] values =
-            {
-                $"{stats.fps:F0}", $"{stats.frameMinFps:F0}", $"{stats.frameMs:F1}", GpuText(),
-                $"{stats.liveBalls:N0}", $"{board.aliveBricks:N0}", $"{session.launcherRemaining:N0}",
-                BallsNative.BackendName(session.backend),
-            };
+            string[] labels = advancedOpen
+                ? new[] { "FPS", "Min", "Frame", "GPU", "Balls", "Bricks", "Launch", "Backend" }
+                : new[] { "FPS", "Min", "Frame", "GPU", "Balls", "Bricks", "Launch" };
+            string[] values = advancedOpen
+                ? new[]
+                {
+                    $"{stats.fps:F0}", $"{stats.frameMinFps:F0}", $"{stats.frameMs:F1}", GpuText(),
+                    $"{stats.liveBalls:N0}", $"{board.aliveBricks:N0}", $"{session.launcherRemaining:N0}",
+                    BallsNative.BackendName(session.backend),
+                }
+                : new[]
+                {
+                    $"{stats.fps:F0}", $"{stats.frameMinFps:F0}", $"{stats.frameMs:F1}", GpuText(),
+                    $"{stats.liveBalls:N0}", $"{board.aliveBricks:N0}", $"{session.launcherRemaining:N0}",
+                };
             float cellWidth = area.width / labels.Length;
             for (int index = 0; index < labels.Length; ++index)
             {
@@ -850,25 +903,35 @@ namespace Balls.App.Screens
                 widgets.Readout(new Rect(content.x, y, half, 40f), "Frame ms", $"{stats.frameMs:F2}");
                 widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "Physics ms", $"{stats.physicsMs:F2}");
                 y += 46f;
-                widgets.Readout(new Rect(content.x, y, half, 40f), "GPU ms", GpuText());
-                widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "Backend",
-                    BallsNative.BackendName(session.backend));
+                widgets.Readout(new Rect(content.x, y, half, 40f), "Physics FPS", $"{stats.physicsFps:N0}",
+                    stats.physicsFps >= 60.0 ? Palette.Success : Palette.Danger);
+                widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "GPU ms", GpuText());
                 y += 46f;
+                if (advancedOpen)
+                {
+                    // The design leaves the backend rows out while the control gadget's section is closed.
+                    widgets.Readout(new Rect(content.x, y, content.width, 40f), "Backend",
+                        BallsNative.BackendName(session.backend));
+                    y += 46f;
+                }
                 if (probeShown)
                 {
                     widgets.Readout(new Rect(content.x, y, content.width, 40f), "Probe",
                         $"{ProbePhaseName(backend.ProbePhase)} {backend.ProbeFps:F0}/{backend.ProbeTargetFps:F0} fps");
                     y += 46f;
                 }
-                if (!string.IsNullOrEmpty(device))
+                if (advancedOpen && !string.IsNullOrEmpty(device))
                 {
                     widgets.Readout(new Rect(content.x, y, content.width, 40f), "Device", device);
                     y += 46f;
                 }
-                widgets.Readout(new Rect(content.x, y, content.width, 40f), "Ball collisions",
-                    stats.collisions ? "On" : collisionsWanted ? "On (unsupported)" : "Off",
-                    collisionsWanted && !stats.collisions ? Palette.Danger : (Color?)null);
-                y += 52f;
+                if (advancedOpen)
+                {
+                    widgets.Readout(new Rect(content.x, y, content.width, 40f), "Ball collisions",
+                        stats.collisions ? "On" : collisionsWanted ? "On (unsupported)" : "Off",
+                        collisionsWanted && !stats.collisions ? Palette.Danger : (Color?)null);
+                    y += 52f;
+                }
 
                 widgets.Label(new Rect(content.x, y, content.width, 22f), "Objects", TypeSizes.Small,
                     Palette.Accent, TextAnchor.UpperLeft, true);
