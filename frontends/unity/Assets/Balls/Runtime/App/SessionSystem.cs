@@ -19,10 +19,8 @@ namespace Balls.App
         private BoardFrame frame;
         private readonly List<CellElement> cells = new();
         private System.IntPtr sessionHandle;
-        private float m_fps;
-        private float m_fpsWindow = float.MaxValue;
-        private double m_minFpsTimer;
-        private float m_minFps;
+        // The core's rolling one-second window, the same statistics SDL and Unreal show.
+        private System.IntPtr frameTimings;
         private readonly List<LauncherElement> launchers = new();
 
         /// <summary>The live system, so screens can reach the session without a managed component.</summary>
@@ -41,6 +39,7 @@ namespace Balls.App
         protected override void OnCreate()
         {
             Current = this;
+            frameTimings = BallsNative.balls_frame_timings_create();
             boardEntity = EntityManager.CreateEntity();
             EntityManager.AddComponentData(boardEntity, new BoardInfoData());
             EntityManager.AddComponentData(boardEntity, new BallBatch());
@@ -58,6 +57,8 @@ namespace Balls.App
             }
             backend?.Dispose();
             backend = null;
+            BallsNative.balls_frame_timings_destroy(frameTimings);
+            frameTimings = System.IntPtr.Zero;
         }
 
         protected override void OnUpdate()
@@ -216,15 +217,12 @@ namespace Balls.App
                 launcherRemaining = frame.launcherRemainingBalls,
             });
 
-            m_fps = m_fps <= 0f ? 1f / Mathf.Max(deltaSeconds, 1e-4f) : Mathf.Lerp(m_fps, 1f / Mathf.Max(deltaSeconds, 1e-4f), 0.1f);
-            m_minFpsTimer += deltaSeconds;
-            if (m_minFpsTimer >= 1.0)
+            if (deltaSeconds > 0f)
             {
-                m_minFps = m_fpsWindow;
-                m_fpsWindow = float.MaxValue;
-                m_minFpsTimer = 0f;
+                double frameMs = deltaSeconds * 1000.0;
+                BallsNative.balls_frame_timings_record(frameTimings, frameMs, frameMs, 0.0);
             }
-            m_fpsWindow = Mathf.Min(m_fpsWindow, 1f / Mathf.Max(deltaSeconds, 1e-4f));
+            BallsNative.balls_frame_timings_stats(frameTimings, out NativeFrameStats frames);
 
             var stats = backend.Stats;
             EntityManager.SetComponentData(boardEntity, new SessionStatsData
@@ -245,8 +243,8 @@ namespace Balls.App
                 waitingToSpawn = stats.liveBallCount > stats.ballCount ? stats.liveBallCount - stats.ballCount : 0,
                 collisions = backend.BallCollisions,
                 frameMs = deltaSeconds * 1000.0,
-                frameMinFps = m_minFps,
-                fps = m_fps,
+                frameMinFps = frames.worstFpsLastSecond,
+                fps = (float)frames.framesPerSecond,
             });
         }
     }

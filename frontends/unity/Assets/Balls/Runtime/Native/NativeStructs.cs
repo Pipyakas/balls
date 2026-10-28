@@ -192,4 +192,16 @@ namespace Balls.Native
         public int canRedo;
         public int brickCount;
     }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct NativeFrameStats
+    {
+        public double framesPerSecond;
+        public double worstFpsLastSecond;
+        public double workFramesPerSecond;
+        public double worstWorkFpsLastSecond;
+        public double frameMs;
+        public double workMs;
+        public double gpuMs;
+    }
 }

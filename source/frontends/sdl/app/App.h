@@ -1,6 +1,6 @@
 #pragma once
 
-#include "app/FrameTimings.h"
+#include "game/FrameTimings.h"
 #include "app/LaunchOptions.h"
 #include "game/MachineProfile.h"
 #include "app/Paths.h"

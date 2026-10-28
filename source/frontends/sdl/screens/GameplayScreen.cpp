@@ -307,7 +307,7 @@ void GameplayScreen::tickPhysics(const GameplayLayout& layout) {
     const FrameSample& lastFrame = app.frameTimings().latest();
     PhysicsFrameInput input;
     input.paused = paused;
-    input.uiFrameSeconds = lastFrame.workMs() / millisecondsPerSecond;
+    input.uiFrameSeconds = lastFrame.workMs / millisecondsPerSecond;
     input.uiWorkSeconds = std::max(lastFrame.cpuMs, lastFrame.gpuMs) / millisecondsPerSecond;
     input.visibilitySlotCells = BallView::slotCells(layout.board, view->ballRadius);
     runner->tick(input);

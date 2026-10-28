@@ -636,11 +636,15 @@ bool App::frame() {
     }
     input::clearTransientState();
     const double gpuWaitMs = renderer->lastGpuWaitMs();
-    timings.record({millisecondsBetween(updateStart, frameEnd),
-                    millisecondsBetween(workStart, presentStart),
-                    renderer->lastGpuBusyMs(),
-                    millisecondsBetween(presentStart, frameEnd) + gpuWaitMs,
-                    renderer->lastFramePresented() ? 1.0 : 0.0, renderer->lastPresentWaitMs()});
+    const double frameMs = millisecondsBetween(updateStart, frameEnd);
+    const double presentWaitMs = renderer->lastPresentWaitMs();
+    timings.record({.frameMs = frameMs,
+                    .workMs = std::max(0.0, frameMs - presentWaitMs),
+                    .cpuMs = millisecondsBetween(workStart, presentStart),
+                    .gpuMs = renderer->lastGpuBusyMs(),
+                    .presentMs = millisecondsBetween(presentStart, frameEnd) + gpuWaitMs,
+                    .presented = renderer->lastFramePresented() ? 1.0 : 0.0,
+                    .waitMs = presentWaitMs});
     applyPendingRenderAdapter();
     applyPendingRendererSwitch();
     adoptPreparedRenderer();

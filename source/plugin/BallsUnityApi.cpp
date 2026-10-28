@@ -2,6 +2,7 @@
 
 #include "common/BallColor.h"
 #include "editor/LevelEditor.h"
+#include "game/FrameTimings.h"
 #include "game/GameSession.h"
 #include "game/MachineProfile.h"
 #include "game/Settings.h"
@@ -126,6 +127,10 @@ struct BallsBenchmark {
     std::vector<CandidateResult> results;
 
     void refresh() { results = run != nullptr ? run->results() : std::vector<CandidateResult>{}; }
+};
+
+struct BallsFrameTimings {
+    FrameTimings timings;
 };
 
 struct BallsProfile {
@@ -752,6 +757,30 @@ int32_t balls_benchmark_winner(BallsBenchmark* benchmark) {
     const BenchmarkCandidate winner = chooseDefaultBackend(
         benchmark->results, [](BackendKind kind) { return isBackendAvailable(kind); });
     return fromBackendKind(winner.kind);
+}
+
+BallsFrameTimings* balls_frame_timings_create(void) {
+    return new BallsFrameTimings();
+}
+
+void balls_frame_timings_destroy(BallsFrameTimings* timings) {
+    delete timings;
+}
+
+void balls_frame_timings_record(BallsFrameTimings* timings, double frameMs, double workMs, double gpuMs) {
+    if (timings != nullptr) {
+        timings->timings.record({.frameMs = frameMs, .workMs = workMs, .gpuMs = gpuMs});
+    }
+}
+
+void balls_frame_timings_stats(const BallsFrameTimings* timings, BallsFrameStats* stats) {
+    if (timings == nullptr || stats == nullptr) {
+        return;
+    }
+    const FrameTimings& frames = timings->timings;
+    *stats = {frames.framesPerSecond(),        frames.worstFpsLastSecond(), frames.workFramesPerSecond(),
+              frames.worstWorkFpsLastSecond(), frames.average().frameMs,    frames.average().workMs,
+              frames.average().gpuMs};
 }
 
 BallsProfile* balls_profile_open(const char* directory) {

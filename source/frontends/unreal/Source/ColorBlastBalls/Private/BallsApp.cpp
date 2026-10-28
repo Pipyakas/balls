@@ -612,14 +612,18 @@ bool FBallsApp::HandleKey(const FKey& Key) {
 }
 
 void FBallsApp::RecordFrame(float DeltaSeconds) {
-    FBallsFrameSample Sample;
-    Sample.FrameMs = FApp::GetDeltaTime() * 1000.0;
-    Sample.GameMs = FPlatformTime::ToMilliseconds(GGameThreadTime);
-    Sample.RenderMs = FPlatformTime::ToMilliseconds(GRenderThreadTime);
-    Sample.GpuMs = FPlatformTime::ToMilliseconds(RHIGetGPUFrameCycles(0));
-    Sample.IdleMs = FApp::GetIdleTime() * 1000.0;
-    LatestSample = Sample;
-    FrameTimings.Record(Sample);
+    FrameSample Sample;
+    Sample.frameMs = FApp::GetDeltaTime() * 1000.0;
+    Sample.cpuMs = FPlatformTime::ToMilliseconds(GGameThreadTime);
+    Sample.renderMs = FPlatformTime::ToMilliseconds(GRenderThreadTime);
+    Sample.gpuMs = FPlatformTime::ToMilliseconds(RHIGetGPUFrameCycles(0));
+    // Time the engine slept to hold a frame-rate cap (t.MaxFPS): the one wait that is not the game's own work.
+    Sample.waitMs = FApp::GetIdleTime() * 1000.0;
+    // The limiting thread, or the whole frame minus the cap's sleep when that is longer: the thread times alone would
+    // hide a stall (memory paging, a long core step on a worker) that makes the real frame far longer.
+    Sample.workMs = FMath::Max(FMath::Max3(Sample.cpuMs, Sample.renderMs, Sample.gpuMs),
+                               FMath::Max(0.0, Sample.frameMs - Sample.waitMs));
+    Frames.record(Sample);
 }
 
 void FBallsApp::Tick(float DeltaSeconds) {
@@ -654,8 +658,8 @@ void FBallsApp::Tick(float DeltaSeconds) {
     const TSharedPtr<FBallsGameplay> Current = Gameplay;
     // Probe windows use the limiting CPU/GPU work rate, not cadence imposed by VSync or the compositor.
     // After a hitch the spawn budget and brick animation must not jump by the whole stall: clamp like the SDL front end.
-    Current->Tick(FMath::Min(DeltaSeconds, MaximumFrameSeconds), LatestSample.WorkMs() / 1000.0,
-                  LatestSample.WorkMs() / 1000.0);
+    Current->Tick(FMath::Min(DeltaSeconds, MaximumFrameSeconds), Frames.latest().workMs / 1000.0,
+                  Frames.latest().workMs / 1000.0);
     GameSession* Session = Current->GetSession();
     const FGeometry& Geometry = Root->GetCachedGeometry();
     const FVector2D ViewportSize = Geometry.GetLocalSize();
@@ -690,13 +694,13 @@ FString FBallsApp::GetScreenName() const {
 }
 
 FString FBallsApp::BuildControlStateJson() const {
-    const FBallsFrameSample& Sample = LatestSample;
+    const FrameSample& Sample = Frames.latest();
     const FGeometry& Geometry = Root->GetCachedGeometry();
     const FVector2D WindowSize = Geometry.GetLocalSize();
-    const double Fps = FrameTimings.FramesPerSecond();
-    const double MinFps = FrameTimings.WorstFpsLastSecond();
-    const double WorkFps = FrameTimings.WorkFramesPerSecond();
-    const double MinWorkFps = FrameTimings.WorstWorkFpsLastSecond();
+    const double Fps = Frames.framesPerSecond();
+    const double MinFps = Frames.worstFpsLastSecond();
+    const double WorkFps = Frames.workFramesPerSecond();
+    const double MinWorkFps = Frames.worstWorkFpsLastSecond();
     const BackendKind ActiveBackend = Gameplay && Gameplay->GetSession() ? Gameplay->GetSession()->backend()
                                                                         : PreferredBackend;
 
@@ -728,8 +732,8 @@ FString FBallsApp::BuildControlStateJson() const {
         TEXT("\"fps\":%.1f,\"minFps\":%.1f,\"workFps\":%.1f,\"minWorkFps\":%.1f,\"frameMs\":%.2f,\"cpuMs\":%.2f,\"gpuMs\":%.2f,\"renderMs\":%.2f,")
         TEXT("\"backend\":\"%s\",\"vsync\":%s,\"toast\":\"%s\",\"details\":%s}"),
         *EscapeJson(GRHIAdapterName), *GetScreenName(), WindowSize.X, WindowSize.Y, Fps, MinFps,
-        WorkFps, MinWorkFps, Sample.FrameMs, Sample.GameMs,
-        Sample.GpuMs, Sample.RenderMs, *BallsText::FromUtf8(backendKindName(ActiveBackend)),
+        WorkFps, MinWorkFps, Sample.frameMs, Sample.cpuMs,
+        Sample.gpuMs, Sample.renderMs, *BallsText::FromUtf8(backendKindName(ActiveBackend)),
         bVSync ? TEXT("true") : TEXT("false"), *EscapeJson(ToastText), *Details);
 }
 

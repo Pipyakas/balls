@@ -172,6 +172,14 @@ namespace Balls.Native
 
         [DllImport(Library)] public static extern int balls_benchmark_winner(IntPtr benchmark);
 
+        [DllImport(Library)] public static extern IntPtr balls_frame_timings_create();
+
+        [DllImport(Library)] public static extern void balls_frame_timings_destroy(IntPtr timings);
+
+        [DllImport(Library)] public static extern void balls_frame_timings_record(IntPtr timings, double frameMs, double workMs, double gpuMs);
+
+        [DllImport(Library)] public static extern void balls_frame_timings_stats(IntPtr timings, out NativeFrameStats stats);
+
         [DllImport(Library)] public static extern IntPtr balls_profile_open([MarshalAs(UnmanagedType.LPUTF8Str)] string directory);
 
         [DllImport(Library)] public static extern void balls_profile_close(IntPtr profile);

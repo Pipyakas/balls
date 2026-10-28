@@ -3,7 +3,6 @@
 #include "BallsBenchmark.h"
 #include "BallsCoreIncludes.h"
 #include "BallsGraphics.h"
-#include "BallsFrameTimings.h"
 #include "CoreMinimal.h"
 
 #include <filesystem>
@@ -68,8 +67,8 @@ public:
     EBallsGraphics GetGraphicsQuality() const { return GraphicsQuality; }
     void SetGraphicsQuality(EBallsGraphics Quality);
     FBallsGameplay* GetGameplay() const { return Gameplay.Get(); }
-    const FBallsFrameTimings& GetFrameTimings() const { return FrameTimings; }
-    const FBallsFrameSample& GetLatestSample() const { return LatestSample; }
+    const FrameTimings& GetFrameTimings() const { return Frames; }
+    const FrameSample& GetLatestSample() const { return Frames.latest(); }
     // The assets folder (levels, fonts, the scoring machine's benchmark record).
     std::filesystem::path AssetRoot() const;
     std::filesystem::path LevelDirectory(GameMode Mode) const;
@@ -114,8 +113,7 @@ private:
     bool bOrientationApplied = false;
     TWeakPtr<SBallsLevelSelect> LevelSelect;
     FBallsToast Toast;
-    FBallsFrameTimings FrameTimings;
-    FBallsFrameSample LatestSample;
+    FrameTimings Frames;
     MachineProfile Profile;
     FBallsMachineBenchmark Benchmark{Profile};
     bool bBenchmarkSettled = false;

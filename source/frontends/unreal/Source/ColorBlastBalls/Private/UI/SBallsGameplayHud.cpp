@@ -668,8 +668,8 @@ private:
     void PaintStatsStrip(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,
                          const GameSession& Session, const FSlateRect& Strip) const {
         const SimulationStats& Stats = Session.simulation().stats();
-        const FBallsFrameTimings& Frames = App->GetFrameTimings();
-        const FBallsFrameSample& Sample = Frames.Average();
+        const FrameTimings& Frames = App->GetFrameTimings();
+        const FrameSample& Sample = Frames.average();
         const FSlateFontInfo LabelFont = BallsStyle::Font(15.0f);
         const FSlateFontInfo ValueFont = BallsStyle::Font(18.0f, true);
         // The strip has its own row under the portrait header, so it starts at the panel edge.
@@ -685,12 +685,12 @@ private:
             DrawText(Out, Layer, Geometry, Value, FVector2D(X, Y), ValueFont, Color);
             X += static_cast<float>(BallsStyle::Measure(Value, ValueFont).X) + 18.0f;
         };
-        Pair(TEXT("FPS"), FString::Printf(TEXT("%.0f"), Frames.FramesPerSecond()), FpsColor(Frames.FramesPerSecond()));
-        Pair(TEXT("Work"), FString::Printf(TEXT("%.0f"), Frames.WorkFramesPerSecond()),
-             FpsColor(Frames.WorkFramesPerSecond()));
-        Pair(TEXT("Frame"), FString::Printf(TEXT("%.1f ms"), Sample.FrameMs),
+        Pair(TEXT("FPS"), FString::Printf(TEXT("%.0f"), Frames.framesPerSecond()), FpsColor(Frames.framesPerSecond()));
+        Pair(TEXT("Work"), FString::Printf(TEXT("%.0f"), Frames.workFramesPerSecond()),
+             FpsColor(Frames.workFramesPerSecond()));
+        Pair(TEXT("Frame"), FString::Printf(TEXT("%.1f ms"), Sample.frameMs),
              BallsPalette::Linear(BallsPalette::Text));
-        Pair(TEXT("GPU"), FString::Printf(TEXT("%.1f ms"), Sample.GpuMs), BallsPalette::Linear(BallsPalette::Text));
+        Pair(TEXT("GPU"), FString::Printf(TEXT("%.1f ms"), Sample.gpuMs), BallsPalette::Linear(BallsPalette::Text));
         Pair(TEXT("Balls"), BallsText::Grouped(Stats.ballCount), BallsPalette::Linear(BallsPalette::Text));
         Pair(TEXT("Bricks"),
              BallsText::Grouped(static_cast<BallCount>(Session.simulation().board().aliveBrickCount())),
@@ -703,20 +703,20 @@ private:
 
     void WritePerformance(FPanelWriter& Writer, const GameSession& Session) const {
         const SimulationStats& Stats = Session.simulation().stats();
-        const FBallsFrameTimings& Frames = App->GetFrameTimings();
-        const FBallsFrameSample& Sample = Frames.Average();
+        const FrameTimings& Frames = App->GetFrameTimings();
+        const FrameSample& Sample = Frames.average();
 
         Writer.Heading(TEXT("Performance"));
-        Writer.Row(TEXT("FPS"), FString::Printf(TEXT("%.0f"), Frames.FramesPerSecond()), FpsColor(Frames.FramesPerSecond()));
-        Writer.Row(TEXT("Min FPS (1s)"), FString::Printf(TEXT("%.0f"), Frames.WorstFpsLastSecond()),
-                   FpsColor(Frames.WorstFpsLastSecond()));
-        Writer.Row(TEXT("Work FPS"), FString::Printf(TEXT("%.0f"), Frames.WorkFramesPerSecond()),
-                   FpsColor(Frames.WorkFramesPerSecond()));
-        Writer.Row(TEXT("Min work FPS (1s)"), FString::Printf(TEXT("%.0f"), Frames.WorstWorkFpsLastSecond()),
-                   FpsColor(Frames.WorstWorkFpsLastSecond()));
-        Writer.Row(TEXT("Frame ms"), FString::Printf(TEXT("%.2f"), Sample.FrameMs));
+        Writer.Row(TEXT("FPS"), FString::Printf(TEXT("%.0f"), Frames.framesPerSecond()), FpsColor(Frames.framesPerSecond()));
+        Writer.Row(TEXT("Min FPS (1s)"), FString::Printf(TEXT("%.0f"), Frames.worstFpsLastSecond()),
+                   FpsColor(Frames.worstFpsLastSecond()));
+        Writer.Row(TEXT("Work FPS"), FString::Printf(TEXT("%.0f"), Frames.workFramesPerSecond()),
+                   FpsColor(Frames.workFramesPerSecond()));
+        Writer.Row(TEXT("Min work FPS (1s)"), FString::Printf(TEXT("%.0f"), Frames.worstWorkFpsLastSecond()),
+                   FpsColor(Frames.worstWorkFpsLastSecond()));
+        Writer.Row(TEXT("Frame ms"), FString::Printf(TEXT("%.2f"), Sample.frameMs));
         Writer.Row(TEXT("Physics ms"), FString::Printf(TEXT("%.2f"), Stats.lastFramePhysicsMs));
-        Writer.Row(TEXT("GPU ms"), FString::Printf(TEXT("%.2f"), Sample.GpuMs));
+        Writer.Row(TEXT("GPU ms"), FString::Printf(TEXT("%.2f"), Sample.gpuMs));
         const CapacityProbe& Probe = Session.capacityProbe();
         if (Probe.phase() != ProbePhase::Idle) {
             Writer.Row(TEXT("Probe"), FString::Printf(TEXT("%s %.0f/%.0f fps"), ANSI_TO_TCHAR(probePhaseName(Probe.phase())),

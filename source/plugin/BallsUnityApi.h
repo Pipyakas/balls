@@ -193,10 +193,22 @@ typedef struct BallsBenchmarkRow {
     char failure[256];
 } BallsBenchmarkRow;
 
+// The core's rolling one-second frame statistics, as the debug gadget shows them.
+typedef struct BallsFrameStats {
+    double framesPerSecond;
+    double worstFpsLastSecond;
+    double workFramesPerSecond;
+    double worstWorkFpsLastSecond;
+    double frameMs;  // averages over the window
+    double workMs;
+    double gpuMs;
+} BallsFrameStats;
+
 typedef struct BallsSession BallsSession;
 typedef struct BallsEditor BallsEditor;
 typedef struct BallsBenchmark BallsBenchmark;
 typedef struct BallsProfile BallsProfile;
+typedef struct BallsFrameTimings BallsFrameTimings;
 
 // --- Process-wide --------------------------------------------------------------------------------------------
 
@@ -314,6 +326,14 @@ BALLS_API int32_t balls_benchmark_finished(const BallsBenchmark* benchmark);
 BALLS_API int32_t balls_benchmark_rows(BallsBenchmark* benchmark, BallsBenchmarkRow* rows, int32_t capacity);
 // The winner's kind, or -1 while nothing has finished.
 BALLS_API int32_t balls_benchmark_winner(BallsBenchmark* benchmark);
+
+// --- Frame timings -------------------------------------------------------------------------------------------
+
+// workMs is the frame without waits for the display; pass frameMs when the host cannot tell them apart.
+BALLS_API BallsFrameTimings* balls_frame_timings_create(void);
+BALLS_API void balls_frame_timings_destroy(BallsFrameTimings* timings);
+BALLS_API void balls_frame_timings_record(BallsFrameTimings* timings, double frameMs, double workMs, double gpuMs);
+BALLS_API void balls_frame_timings_stats(const BallsFrameTimings* timings, BallsFrameStats* stats);
 
 // --- Machine profile -----------------------------------------------------------------------------------------
 
