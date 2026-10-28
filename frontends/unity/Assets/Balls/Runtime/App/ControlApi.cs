@@ -428,6 +428,7 @@ namespace Balls.App
                 text.Append(",\"backend\":").Append(Json(BallsNative.BackendName(session.backend)));
                 text.Append(",\"pendingBackend\":")
                     .Append(session.pendingBackend >= 0 ? Json(BallsNative.BackendName(session.pendingBackend)) : "null");
+                text.Append(",\"renderer\":").Append(Json(BallsApp.RendererText));
                 text.Append(",\"balls\":").Append(stats.liveBalls.ToString(CultureInfo.InvariantCulture));
                 text.Append(",\"bricks\":").Append(board.aliveBricks.ToString(CultureInfo.InvariantCulture));
                 text.Append(",\"fps\":").Append(stats.fps.ToString("F1", CultureInfo.InvariantCulture));
