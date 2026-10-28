@@ -373,34 +373,102 @@ namespace Balls.App.Screens
             }
         }
 
+        /// <summary>
+        /// The game's header: the whole strip is the Pause button. Hovered or pressed it takes the hover or pressed fill and
+        /// shows only the label; otherwise it shows the title (and a disk notice under it), scrolling sideways when the
+        /// text is wider than the strip, resting 1.5 s at each end at 40 units a second.
+        /// </summary>
         private void DrawHeader(SessionInfo session, BoardInfoData board)
         {
-            Widgets widgets = App.Widgets;
+            UiTheme theme = App.Theme;
             Rect header = layout.Header;
+            Rect pixels = theme.Units(header.x, header.y, header.width, header.height);
+            Vector2 mouse = Event.current.mousePosition;
+            bool hovered = pixels.Contains(mouse);
+            bool pressed = hovered && (Event.current.type == EventType.MouseDown || Event.current.type == EventType.MouseDrag);
+            if (hovered)
+            {
+                theme.Fill(header, pressed ? Palette.ControlPressed : Palette.ControlHover);
+            }
+
             string modeName = session.mode == BallsApp.PerformanceMode ? "Performance" : "Normal";
-            float pauseWidth = 104f;
-            int titleSize = layout.Portrait ? TypeSizes.Small : TypeSizes.Header;
+            string title = $"{modeName} · {App.LevelName}";
             string notice = watcher.Poll() switch
             {
                 LevelWatcher.State.Changed => "Map changed on disk - Restart to load it",
                 LevelWatcher.State.Removed => "Map removed from disk - Restart unavailable",
                 _ => null,
             };
-            float titleHeight = notice == null ? header.height : header.height * 0.55f;
-            string title = widgets.Ellipsize($"{modeName} · {App.LevelName}", titleSize, header.width - pauseWidth - 12f);
-            GUI.Label(App.Theme.Units(header.x, header.y, header.width - pauseWidth - 12f, titleHeight), title,
-                App.Theme.TextStyle(titleSize, Palette.Text, false, TextAnchor.MiddleLeft, true));
-            if (notice != null)
+
+            if (hovered)
             {
-                GUI.Label(App.Theme.Units(header.x, header.y + titleHeight, header.width - pauseWidth - 12f,
-                        header.height - titleHeight), notice,
-                    App.Theme.TextStyle(TypeSizes.Tiny, Palette.Accent, false, TextAnchor.UpperLeft, true));
+                GUI.Label(pixels, paused ? "Resume" : "Pause",
+                    theme.TextStyle(TypeSizes.Header, Palette.Text, false, TextAnchor.MiddleCenter));
+            }
+            else
+            {
+                // 14 units in from the left, the title over the notice when the level files changed under the game.
+                Rect text = new Rect(header.x + 14f, header.y, header.width - 28f, header.height);
+                float titleHeight = notice == null ? text.height : text.height * 0.58f;
+                DrawScrollingText(new Rect(text.x, text.y, text.width, titleHeight), title,
+                    theme.TextStyle(notice == null ? TypeSizes.Header : TypeSizes.Value, Palette.Text, false,
+                        TextAnchor.MiddleLeft, true));
+                if (notice != null)
+                {
+                    DrawScrollingText(new Rect(text.x, text.y + titleHeight, text.width, text.height - titleHeight),
+                        notice, theme.TextStyle(TypeSizes.Tiny, Palette.Accent, false, TextAnchor.MiddleLeft, true));
+                }
             }
 
-            Rect pauseButton = new Rect(header.xMax - pauseWidth, header.y + (header.height - 36f) * 0.5f, pauseWidth, 36f);
-            if (widgets.AccentButton(pauseButton, paused ? "Resume" : "Pause", paused, TypeSizes.Value))
+            if (GUI.Button(pixels, GUIContent.none, GUIStyle.none))
             {
                 paused = !paused;
+            }
+        }
+
+        /// <summary>
+        /// Draws text clipped to its box, sliding sideways when it does not fit: 1.5 s at rest, 40 units a second to
+        /// show the end, 1.5 s there, then back.
+        /// </summary>
+        private void DrawScrollingText(Rect box, string text, GUIStyle style)
+        {
+            Rect pixels = App.Theme.Units(box.x, box.y, box.width, box.height);
+            float textWidth = style.CalcSize(new GUIContent(text)).x;
+            float overflow = (textWidth - pixels.width) / App.Theme.Scale;
+            float offset = 0f;
+            if (overflow > 0.5f)
+            {
+                const float rest = 1.5f;
+                const float speed = 40f;
+                float travel = overflow / speed;
+                float cycle = (rest + travel) * 2f;
+                float phase = Time.unscaledTime % cycle;
+                if (phase < rest)
+                {
+                    offset = 0f;
+                }
+                else if (phase < rest + travel)
+                {
+                    offset = (phase - rest) * speed;
+                }
+                else if (phase < rest + travel + rest)
+                {
+                    offset = overflow;
+                }
+                else
+                {
+                    offset = overflow - (phase - rest - travel - rest) * speed;
+                }
+            }
+            GUI.BeginClip(pixels);
+            try
+            {
+                GUI.Label(new Rect(-offset * App.Theme.Scale, 0f, pixels.width + overflow * App.Theme.Scale, pixels.height),
+                    text, style);
+            }
+            finally
+            {
+                GUI.EndClip();
             }
         }
 
