@@ -160,6 +160,34 @@ Hybrid is the best backend or within a few percent of it on every board; CUDA le
 boards and on 512x512 Columns. Before the sparse hit and target uploads, Hybrid held only 11-16M on the 2048x2048
 brick boards.
 
+## CPU tuning for the target PC
+
+The AVX2 backend's work split can be overridden from the environment, so the target PC (i9-14900K: 8 P-cores and
+16 E-cores, 32 threads) could be tuned without rebuilding: `BALLS_STEP_CHUNK` (balls per step task, default 16384),
+`BALLS_RENDER_SAMPLES` (visibility samples per render task, 64), `BALLS_HYBRID_SPARE_THREADS` (CPU threads Hybrid
+leaves to the GPU's driver and the UI, 1) and `BALLS_PIN_LATENCY_THREADS` (keep the physics thread on P-cores, off).
+Each was swept on the target PC with the edge sweep on Tough, LoneBrick and Empty 512x512 (balls held at 60 FPS):
+
+| Variant | Tough AVX2 | Tough Hybrid | LoneBrick AVX2 | LoneBrick Hybrid |
+|---|---|---|---|---|
+| defaults (first run) | 67 M | 157 M | 78 M | 192 M |
+| step chunk 4096 | 67 M | 163 M | 77 M | 188 M |
+| step chunk 65536 | 72 M | 161 M | 77 M | 180 M |
+| step chunk 262144 | 65 M | 155 M | 74 M | 173 M |
+| render samples 16 | 68 M | 163 M | 77 M | 185 M |
+| render samples 256 | 69 M | 160 M | 77 M | 174 M |
+| Hybrid spare threads 0 | 72 M | 162 M | 78 M | 187 M |
+| Hybrid spare threads 4 | 74 M | 158 M | 77 M | 190 M |
+| Hybrid spare threads 8 | 74 M | 156 M | 77 M | 167 M |
+| physics thread on P-cores | 68 M | 162 M | 76 M | 178 M |
+| defaults (last run) | 68 M | 164 M | 78 M | 171 M |
+
+The two default runs differ by up to 11% (LoneBrick Hybrid 192 M and 171 M), and the spare-thread setting, which
+AVX2 alone never reads, moved AVX2 by as much: no variant beats the defaults beyond run-to-run noise. Empty boards
+reached the memory ceiling (6.3-7.1 B) in every variant. The defaults therefore stay as they are; they are the
+14900K's configuration as well as the 12400F's. Only an extreme setting loses (eight spare threads, 262144-ball
+chunks), because it leaves the E-cores without enough work at the end of a step.
+
 ## Known gaps
 
 - One 1 s frame was seen filling Hybrid to 7.4B on the solid 512x512 board, as the CPU store reached the memory line;
