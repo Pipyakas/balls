@@ -148,7 +148,7 @@ namespace Balls.App.Screens
             {
                 if (App.Settings != null)
                 {
-                    App.Settings.DefaultBackend = BallsNative.BackendName(winner);
+                    App.Settings.DefaultBackend = BallsNative.StoredBackendName(winner);
                     App.SaveSettings();
                 }
                 App.SetBackend(winner);

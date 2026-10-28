@@ -258,14 +258,37 @@ namespace Balls.Native
             return found;
         }
 
-        /// <summary>Replaces the picks; false leaves the old ones and gives the core's reason.</summary>
-        public static bool SetPicks(IReadOnlyList<Pick> picks, out string problem)
+        [DllImport(Library)] public static extern int balls_backend_stored_name(int kind, byte[] buffer, int size);
+
+        [DllImport(Library)] public static extern int balls_backend_parse_saved([MarshalAs(UnmanagedType.LPUTF8Str)] string text);
+
+        /// <summary>The Settings default backend as the settings file stores it; Hybrid is saved as its device picks.</summary>
+        public static string StoredBackendName(int kind)
+        {
+            var buffer = new byte[256];
+            int length = balls_backend_stored_name(kind, buffer, buffer.Length);
+            return length > 0 ? System.Text.Encoding.UTF8.GetString(buffer, 0, length) : string.Empty;
+        }
+
+        [DllImport(Library)] private static extern int balls_kind_for_picks(PickRecord[] picks, int count);
+
+        /// <summary>Hybrid for two or more picks, the pick's kind for one.</summary>
+        public static int KindForPicks(IReadOnlyList<Pick> picks) => balls_kind_for_picks(ToRecords(picks), picks.Count);
+
+        private static PickRecord[] ToRecords(IReadOnlyList<Pick> picks)
         {
             var records = new PickRecord[picks.Count];
             for (int index = 0; index < picks.Count; ++index)
             {
                 records[index] = new PickRecord { device = picks[index].device, kind = picks[index].kind };
             }
+            return records;
+        }
+
+        /// <summary>Replaces the picks; false leaves the old ones and gives the core's reason.</summary>
+        public static bool SetPicks(IReadOnlyList<Pick> picks, out string problem)
+        {
+            PickRecord[] records = ToRecords(picks);
             var text = new byte[256];
             int ok = balls_picks_set(records, records.Length, text, text.Length);
             int end = Array.IndexOf(text, (byte)0);

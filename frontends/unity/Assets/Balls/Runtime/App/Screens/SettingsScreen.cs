@@ -166,7 +166,7 @@ namespace Balls.App.Screens
                     if (widgets.OptionRow(new Rect(content.x, y, content.width, 34f), BackendNames[kind], selected,
                             available, detail) && available)
                     {
-                        settings.DefaultBackend = BackendNames[kind];
+                        settings.DefaultBackend = BallsNative.StoredBackendName(kind);
                         Apply(settings);
                     }
                     y += 38f;
@@ -255,6 +255,8 @@ namespace Balls.App.Screens
             }
             if (BallsNative.SetPicks(picks, out string problem))
             {
+                // The picks become the default backend, saved as picks so they come back on the next start.
+                App.Settings.DefaultBackend = BallsNative.StoredBackendName(BallsNative.KindForPicks(picks));
                 Apply(App.Settings);
                 App.Toast(kind >= 0 ? $"Device: {BallsNative.BackendName(kind)}" : "Device off");
             }

@@ -575,6 +575,22 @@ int32_t balls_kind_for_picks(const BallsPick* picks, int32_t count) {
     return fromBackendKind(kindForPicks(toPicks(picks, count)));
 }
 
+int32_t balls_backend_stored_name(int32_t kind, char* buffer, int32_t size) {
+    return writeText(storedBackendName(toBackendKind(kind)), buffer, size);
+}
+
+int32_t balls_backend_parse_saved(const char* text) {
+    if (text == nullptr) {
+        return -1;
+    }
+    const std::optional<BackendKind> kind = parseSavedBackendKind(text);
+    // The pair has no BALLS_BACKEND_* value of its own here, so it cannot be handed to the host.
+    if (!kind || *kind == BackendKind::CudaAvx2) {
+        return -1;
+    }
+    return fromBackendKind(*kind);
+}
+
 int32_t balls_compute_gpu(char* buffer, int32_t size) {
     return writeText(computeGpuPreference(), buffer, size);
 }

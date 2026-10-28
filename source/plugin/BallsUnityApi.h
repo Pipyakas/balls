@@ -339,6 +339,11 @@ BALLS_API int32_t balls_default_hybrid_picks(BallsPick* picks, int32_t capacity)
 // "AVX2 (CPU) + CUDA (RTX 2060)" for menus, and the backend those picks run as.
 BALLS_API int32_t balls_picks_label(const BallsPick* picks, int32_t count, char* buffer, int32_t size);
 BALLS_API int32_t balls_kind_for_picks(const BallsPick* picks, int32_t count);
+// The Settings default backend as the settings file stores it: the kind's name, or Hybrid as its device picks
+// ("AVX2@cpu+CUDA@gpu0"), so a multi-device choice survives a restart.
+BALLS_API int32_t balls_backend_stored_name(int32_t kind, char* buffer, int32_t size);
+// Reads that value back, making stored picks the process-wide picks. -1 when it names nothing usable here.
+BALLS_API int32_t balls_backend_parse_saved(const char* text);
 
 // --- Levels and settings -------------------------------------------------------------------------------------
 

@@ -42,14 +42,9 @@ namespace Balls.Ui
             {
                 return fallback;
             }
-            for (int kind = 0; kind < BallsNative.BackendCount; ++kind)
-            {
-                if (BallsNative.BackendName(kind).Equals(DefaultBackend, StringComparison.OrdinalIgnoreCase))
-                {
-                    return BallsNative.balls_backend_available(kind) != 0 ? kind : fallback;
-                }
-            }
-            return fallback;
+            // A kind name, or Hybrid's device picks, which the core makes the picks in use as it reads them.
+            int kind = BallsNative.balls_backend_parse_saved(DefaultBackend);
+            return kind >= 0 && BallsNative.balls_backend_available(kind) != 0 ? kind : fallback;
         }
 
         public string OrientationName => Orientation switch
