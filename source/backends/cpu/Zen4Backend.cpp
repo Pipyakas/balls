@@ -68,8 +68,11 @@ constexpr float coastMargin = 1e-3f;
 
 constexpr size_t zen4LaneCount = 16;
 
-inline __m512 cmp_ps(__m512 a, __m512 b, int pred) {
-    const __mmask16 mask = _mm512_cmp_ps_mask(a, b, pred);
+// The predicate is an instruction immediate, so it has to be a constant: clang rejects a runtime argument once the
+// call is not inlined, and MSVC 14.44 crashes on it.
+template <int Predicate>
+inline __m512 cmp_ps(__m512 a, __m512 b) {
+    const __mmask16 mask = _mm512_cmp_ps_mask(a, b, Predicate);
     return _mm512_castsi512_ps(_mm512_maskz_set1_epi32(mask, -1));
 }
 inline __m512i cmpgt_epi32(__m512i a, __m512i b) {
@@ -245,8 +248,8 @@ struct GridTarget {
     }
 };
 
-inline __m512 lessThan(__m512 a, __m512 b) { return cmp_ps(a, b, _CMP_LT_OQ); }
-inline __m512 greaterThan(__m512 a, __m512 b) { return cmp_ps(a, b, _CMP_GT_OQ); }
+inline __m512 lessThan(__m512 a, __m512 b) { return cmp_ps<_CMP_LT_OQ>(a, b); }
+inline __m512 greaterThan(__m512 a, __m512 b) { return cmp_ps<_CMP_GT_OQ>(a, b); }
 
 struct ContactSearch {
     __m512 distanceSquared;
@@ -476,7 +479,7 @@ LaneStepResult stepLanes(LaneState& state, const LaneConstants& k, const BoardVi
         const __m512i brickColor = _mm512_i32gather_epi32(gatherIndex, board.brickColors, 4);
         sameColor = _mm512_castsi512_ps(cmpeq_epi32(brickColor, state.color));
         embedded = _mm512_andnot_ps(
-            sameColor, _mm512_and_ps(contact, cmp_ps(best.distanceSquared, k.embeddedEpsilon, _CMP_LE_OQ)));
+            sameColor, _mm512_and_ps(contact, cmp_ps<_CMP_LE_OQ>(best.distanceSquared, k.embeddedEpsilon)));
         const __m512 reflect = _mm512_andnot_ps(embedded, _mm512_andnot_ps(sameColor, contact));
 
         const __m512 distance = _mm512_sqrt_ps(_mm512_max_ps(best.distanceSquared, k.embeddedEpsilon));
@@ -518,8 +521,8 @@ LaneStepResult stepLanes(LaneState& state, const LaneConstants& k, const BoardVi
             _mm512_div_ps(k.one, _mm512_sqrt_ps(_mm512_max_ps(lengthSquared, k.retargetEpsilon)));
         const __m512 directionX = _mm512_mul_ps(toTargetX, inverseLength);
         const __m512 directionY = _mm512_mul_ps(toTargetY, inverseLength);
-        const __m512 facing = cmp_ps(
-            _mm512_fmadd_ps(directionX, normalX, _mm512_mul_ps(directionY, normalY)), k.zero, _CMP_GE_OQ);
+        const __m512 facing = cmp_ps<_CMP_GE_OQ>(
+            _mm512_fmadd_ps(directionX, normalX, _mm512_mul_ps(directionY, normalY)), k.zero);
         const __m512 hasTarget = _mm512_castsi512_ps(cmpgt_epi32(target, k.minusOneInt));
         __m512 apply = _mm512_and_ps(_mm512_and_ps(retarget, hasTarget),
                                      _mm512_and_ps(facing, greaterThan(lengthSquared, k.retargetEpsilon)));

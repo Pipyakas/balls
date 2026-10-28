@@ -32,6 +32,9 @@ namespace Balls.App
         private float quitAt = -1f;
         private bool captured;
         private bool autoPlay;
+        // -balls-fill <count>: a Performance game is filled with that many balls once it runs, for frame-time runs.
+        private ulong fillBalls;
+        private bool filled;
         private bool autoPlayed;
         private bool parityRun;
         private bool parityDone;
@@ -130,6 +133,12 @@ namespace Balls.App
                     case "-balls-auto":
                         autoPlay = true;
                         break;
+                    case "-balls-fill" when index + 1 < args.Length:
+                        ulong.TryParse(args[index + 1], out fillBalls);
+                        break;
+                    case "-balls-physics-thread":
+                        Balls.Game.NativeGameBackend.UsePhysicsThread = true;
+                        break;
                     case "-balls-parity":
                         parityRun = true;
                         break;
@@ -202,6 +211,12 @@ namespace Balls.App
                     BallsInput.ClickLauncher(1, 0);
                     BallsInput.ClickLauncher(2, 0);
                 }
+            }
+            if (fillBalls > 0 && !filled && app != null && app.Running && app.Mode == BallsApp.PerformanceMode &&
+                SessionSystem.Current?.Backend is Balls.Game.NativeGameBackend native)
+            {
+                filled = true;
+                BallsNative.balls_session_fill_with_balls(native.SessionHandle, fillBalls);
             }
             if (switchTo >= 0 && !switched && app != null && app.Running && now - startedAt > switchAt)
             {

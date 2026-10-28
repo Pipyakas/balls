@@ -2,11 +2,16 @@
 
 #include "common/BallColor.h"
 #include "editor/LevelEditor.h"
+#include "control/ControlApi.h"
+#include "game/FrameTimings.h"
 #include "game/GameSession.h"
+#include "game/SessionRunner.h"
+#include "game/MachineProfile.h"
 #include "game/Settings.h"
 #include "level/LevelImporter.h"
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
+#include "level/LevelWatcher.h"
 #include "level/LevelWriter.h"
 #include "sim/BackendBenchmark.h"
 #include "sim/BackendFactory.h"
@@ -17,6 +22,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
+#include <thread>
 #include <cstring>
 #include <memory>
 #include <optional>
@@ -83,6 +90,28 @@ int32_t fromBackendKind(BackendKind kind) {
     }
 }
 
+void fromCoreSettings(const Settings& from, BallsSettings& to) {
+    to.ballCollisions = from.ballCollisions ? 1 : 0;
+    to.vsync = from.vsync ? 1 : 0;
+    to.advancedSettings = from.advancedSettings ? 1 : 0;
+    to.orientation = from.layout == LayoutOrientation::Landscape  ? BALLS_ORIENTATION_LANDSCAPE
+                     : from.layout == LayoutOrientation::Portrait ? BALLS_ORIENTATION_PORTRAIT
+                                                                  : BALLS_ORIENTATION_AUTO;
+    copyName(from.defaultBackend, to.defaultBackend, sizeof(to.defaultBackend));
+}
+
+Settings toCoreSettings(const BallsSettings& from) {
+    Settings to;
+    to.ballCollisions = from.ballCollisions != 0;
+    to.vsync = from.vsync != 0;
+    to.advancedSettings = from.advancedSettings != 0;
+    to.layout = from.orientation == BALLS_ORIENTATION_LANDSCAPE  ? LayoutOrientation::Landscape
+                : from.orientation == BALLS_ORIENTATION_PORTRAIT ? LayoutOrientation::Portrait
+                                                                : LayoutOrientation::Auto;
+    to.defaultBackend = std::string(from.defaultBackend, strnlen(from.defaultBackend, sizeof(from.defaultBackend)));
+    return to;
+}
+
 std::optional<LevelData> loadLevelOrReport(const char* directory, const char* name) {
     if (directory == nullptr || name == nullptr) {
         setError("level directory and name are required");
@@ -100,9 +129,41 @@ std::optional<LevelData> loadLevelOrReport(const char* directory, const char* na
 } // namespace
 
 struct BallsSession {
+    // Exactly one of the two runs the game: game on the caller's thread, or runner on its own physics thread, read
+    // through view, the latest frame it published (kept until the next update so pointers into it stay valid).
     std::unique_ptr<GameSession> game;
+    std::unique_ptr<SessionRunner> runner;
+    std::shared_ptr<const SessionView> view;
+    PhysicsFrameInput frameInput;
+    int visibilityWidth = 0;
+    std::vector<int32_t> collisionChanges;
+    std::vector<SessionEvent> switchEvents;
+    GameMode mode = GameMode::Normal;
+    int playableHeight = 0;
     std::string levelDirectory;
     std::string levelName;
+
+    bool threaded() const { return runner != nullptr; }
+    // Runs a command on the session: at once, or at the start of the next physics frame.
+    void apply(SessionRunner::Command command) {
+        if (runner) {
+            runner->post(std::move(command));
+        } else {
+            command(*game);
+        }
+    }
+    const BrickBoard* board() const {
+        if (runner) {
+            return view && view->board ? view->board.get() : nullptr;
+        }
+        return &game->simulation().board();
+    }
+    const LauncherQueue* launchers() const {
+        if (runner) {
+            return view ? &view->launchers : nullptr;
+        }
+        return &game->launchers();
+    }
 
     // Board view scratch: BrickBoard keeps these per-brick values inside a vector<Brick>, so the flat arrays a host
     // reads are refreshed on demand and shared until the next update.
@@ -111,8 +172,7 @@ struct BallsSession {
     std::vector<float> brickHitFlash;
 
     void refreshBoardScratch() {
-        const BrickBoard& board = game->simulation().board();
-        const std::vector<Brick>& bricks = board.bricks();
+        const std::vector<Brick>& bricks = board()->bricks();
         brickHitsLeft.resize(bricks.size());
         brickRiseOffset.resize(bricks.size());
         brickHitFlash.resize(bricks.size());
@@ -131,11 +191,207 @@ struct BallsBenchmark {
     void refresh() { results = run != nullptr ? run->results() : std::vector<CandidateResult>{}; }
 };
 
+struct BallsLevelWatcher {
+    LevelWatcher watcher;
+};
+
+int32_t fromDiskState(LevelDiskState state) {
+    switch (state) {
+    case LevelDiskState::Changed:
+        return BALLS_DISK_CHANGED;
+    case LevelDiskState::Removed:
+        return BALLS_DISK_REMOVED;
+    case LevelDiskState::Unchanged:
+        break;
+    }
+    return BALLS_DISK_UNCHANGED;
+}
+
+struct BallsFrameTimings {
+    FrameTimings timings;
+};
+
+struct BallsProfile {
+    MachineProfile profile;
+};
+
 struct BallsEditor {
     LevelEditor editor;
     std::string levelDirectory;
     std::string levelName = "Untitled";
     mutable EditorValidation validation;
+};
+
+namespace {
+
+std::unique_ptr<BallsSession> newSession(int32_t mode, const char* levelDirectory, const char* levelName,
+                                         const LevelData& level) {
+    auto session = std::make_unique<BallsSession>();
+    session->levelDirectory = levelDirectory;
+    session->levelName = levelName;
+    session->mode = mode == BALLS_MODE_PERFORMANCE ? GameMode::Performance : GameMode::Normal;
+    session->playableHeight = level.bricks.playableHeight;
+    return session;
+}
+
+int32_t fromCollisionsChange(BallCollisionsChange change) {
+    switch (change) {
+    case BallCollisionsChange::SwitchingToScalar:
+        return BALLS_COLLISIONS_SWITCHING_TO_SCALAR;
+    case BallCollisionsChange::ScalarNotOffered:
+        return BALLS_COLLISIONS_SCALAR_NOT_OFFERED;
+    case BallCollisionsChange::None:
+        break;
+    }
+    return BALLS_COLLISIONS_UNCHANGED;
+}
+
+int32_t fromSessionState(SessionState state) {
+    switch (state) {
+    case SessionState::Running:
+        return BALLS_STATE_RUNNING;
+    case SessionState::Won:
+        return BALLS_STATE_WON;
+    case SessionState::Ready:
+    default:
+        return BALLS_STATE_READY;
+    }
+}
+
+} // namespace
+
+// The control API's host for Unity: what the core reads comes from the context Unity passes with each request, and
+// what Unity has to do itself is queued as actions, since the C ABI has no callbacks.
+struct BallsControl final : ControlHost {
+    struct Game final : ControlGame {
+        BallsControl& owner;
+        explicit Game(BallsControl& control) : owner(control) {}
+
+        const BallsControlContext& context() const { return *owner.context; }
+        GameMode gameMode() const override { return context().mode == BALLS_MODE_PERFORMANCE ? GameMode::Performance : GameMode::Normal; }
+        std::string levelName() const override { return context().levelName ? context().levelName : ""; }
+        std::string levelLoadError() const override { return context().loadError ? context().loadError : ""; }
+        LevelDiskState diskState() const override {
+            return context().diskState == BALLS_DISK_CHANGED   ? LevelDiskState::Changed
+                   : context().diskState == BALLS_DISK_REMOVED ? LevelDiskState::Removed
+                                                               : LevelDiskState::Unchanged;
+        }
+        std::shared_ptr<const SessionView> sessionView() override {
+            BallsSession* session = context().session;
+            if (session == nullptr) {
+                return nullptr;
+            }
+            if (session->threaded()) {
+                return session->view;
+            }
+            auto view = std::make_shared<SessionView>();
+            describeSession(*session->game, *view);
+            return view;
+        }
+        void post(std::function<void(GameSession&)> command) override {
+            if (context().session != nullptr) {
+                context().session->apply(std::move(command));
+            }
+        }
+        bool isPaused() const override { return context().paused != 0; }
+        void setPaused(bool paused) override { owner.queue({BALLS_CONTROL_SET_PAUSED, 0, paused ? 1 : 0}); }
+        void restart() override { owner.queue({BALLS_CONTROL_RESTART}); }
+        // A probe asked for in this request answers with its own target; the host stores it when it runs the action.
+        int capacityProbeTargetFps() const override { return requestedProbeFps ? *requestedProbeFps : context().probeTargetFps; }
+        void startCapacityProbe(int targetFps) override {
+            requestedProbeFps = targetFps;
+            owner.queue({BALLS_CONTROL_START_PROBE, 0, targetFps});
+        }
+        std::optional<int> requestedProbeFps;
+    };
+
+    std::filesystem::path normalLevels;
+    std::filesystem::path performanceLevels;
+    const BallsControlContext* context = nullptr;
+    Settings currentSettings;
+    Game gameInPlay{*this};
+    std::vector<BallsControlAction> actions;
+
+    void queue(BallsControlAction action, std::string_view text = {}) {
+        copyName(std::string(text), action.text, sizeof(action.text));
+        actions.push_back(action);
+    }
+    static int32_t modeOf(GameMode mode) { return mode == GameMode::Performance ? BALLS_MODE_PERFORMANCE : BALLS_MODE_NORMAL; }
+    static std::string textOf(const char* text) { return text != nullptr ? text : ""; }
+
+    ControlFrontEndState frontEndState() const override {
+        ControlFrontEndState state;
+        state.frontEnd = "unity";
+        state.renderer = textOf(context->renderer);
+        state.screen = context->screen != nullptr ? context->screen : "main-menu";
+        state.windowWidth = context->windowWidth;
+        state.windowHeight = context->windowHeight;
+        state.frames = context->frames != nullptr ? &context->frames->timings : nullptr;
+        state.preferredBackend = toBackendKind(context->preferredBackend);
+        state.vsync = context->vsync != 0;
+        state.toast = textOf(context->toast);
+        state.extraFields = textOf(context->extraFields);
+        state.screenDetails = textOf(context->screenDetails);
+        return state;
+    }
+    ControlGame* game() override {
+        return context->session != nullptr || (context->loadError != nullptr && *context->loadError != 0) ? &gameInPlay : nullptr;
+    }
+    std::filesystem::path levelDirectory(GameMode mode) const override {
+        return mode == GameMode::Performance ? performanceLevels : normalLevels;
+    }
+
+    std::optional<ControlResponse> takeScreenshot(const std::string& path) override {
+        queue({BALLS_CONTROL_SCREENSHOT}, path);
+        return std::nullopt;
+    }
+    void play(GameMode mode, const LevelFiles& level) override { queue({BALLS_CONTROL_PLAY, modeOf(mode)}, level.name); }
+    void showMainMenu() override { queue({BALLS_CONTROL_MAIN_MENU}); }
+    bool showLevelSelect(GameMode mode) override {
+        queue({BALLS_CONTROL_LEVEL_SELECT, modeOf(mode)});
+        return true;
+    }
+    bool openEditor(GameMode mode, const std::optional<LevelFiles>& level) override {
+        queue({BALLS_CONTROL_EDITOR, modeOf(mode)}, level ? level->name : std::string());
+        return true;
+    }
+    void quit() override { queue({BALLS_CONTROL_QUIT}); }
+
+    const Settings& settings() const override { return currentSettings; }
+    void applySettings(const Settings& next, std::optional<BackendKind> defaultBackend) override {
+        currentSettings = next;
+        BallsControlAction action{BALLS_CONTROL_APPLY_SETTINGS, 0, defaultBackend ? fromBackendKind(*defaultBackend) : -1};
+        fromCoreSettings(next, action.settings);
+        queue(action);
+    }
+    void openSettings() override { queue({BALLS_CONTROL_OPEN_SETTINGS}); }
+    void setVsync(bool enabled) override { queue({BALLS_CONTROL_SET_VSYNC, 0, enabled ? 1 : 0}); }
+
+    ControlBenchmarkState benchmarkState() const override {
+        if (context->benchmark != nullptr && context->benchmark->run != nullptr) {
+            context->benchmark->refresh();
+            const bool finished = context->benchmark->run->finished();
+            ControlBenchmarkState state{finished ? "done" : "running", context->benchmark->results, std::nullopt};
+            if (finished) {
+                state.winner = chooseDefaultBackend(state.results, [](BackendKind kind) { return isBackendAvailable(kind); });
+            }
+            return state;
+        }
+        if (context->profile == nullptr || !context->profile->profile.benchmark()) {
+            return {};
+        }
+        const BenchmarkRecord& record = *context->profile->profile.benchmark();
+        return {record.complete ? "done" : "skipped", record.results, record.winner};
+    }
+    void runBenchmark() override { queue({BALLS_CONTROL_RUN_BENCHMARK}); }
+    bool skipBenchmark() override {
+        queue({BALLS_CONTROL_SKIP_BENCHMARK});
+        return true;
+    }
+    bool continueFromBenchmark() override {
+        queue({BALLS_CONTROL_CONTINUE_BENCHMARK});
+        return true;
+    }
 };
 
 extern "C" {
@@ -324,6 +580,22 @@ int32_t balls_kind_for_picks(const BallsPick* picks, int32_t count) {
     return fromBackendKind(kindForPicks(toPicks(picks, count)));
 }
 
+int32_t balls_backend_stored_name(int32_t kind, char* buffer, int32_t size) {
+    return writeText(storedBackendName(toBackendKind(kind)), buffer, size);
+}
+
+int32_t balls_backend_parse_saved(const char* text) {
+    if (text == nullptr) {
+        return -1;
+    }
+    const std::optional<BackendKind> kind = parseSavedBackendKind(text);
+    // The pair has no BALLS_BACKEND_* value of its own here, so it cannot be handed to the host.
+    if (!kind || *kind == BackendKind::CudaAvx2) {
+        return -1;
+    }
+    return fromBackendKind(*kind);
+}
+
 int32_t balls_compute_gpu(char* buffer, int32_t size) {
     return writeText(computeGpuPreference(), buffer, size);
 }
@@ -409,14 +681,7 @@ int32_t balls_settings_load(const char* path, BallsSettings* settings) {
     if (path == nullptr || settings == nullptr) {
         return -1;
     }
-    const Settings loaded = loadSettings(std::filesystem::path(path));
-    settings->ballCollisions = loaded.ballCollisions ? 1 : 0;
-    settings->vsync = loaded.vsync ? 1 : 0;
-    settings->advancedSettings = loaded.advancedSettings ? 1 : 0;
-    settings->orientation = loaded.layout == LayoutOrientation::Landscape  ? BALLS_ORIENTATION_LANDSCAPE
-                            : loaded.layout == LayoutOrientation::Portrait ? BALLS_ORIENTATION_PORTRAIT
-                                                                           : BALLS_ORIENTATION_AUTO;
-    copyName(loaded.defaultBackend, settings->defaultBackend, sizeof(settings->defaultBackend));
+    fromCoreSettings(loadSettings(std::filesystem::path(path)), *settings);
     return 0;
 }
 
@@ -424,15 +689,7 @@ int32_t balls_settings_save(const char* path, const BallsSettings* settings) {
     if (path == nullptr || settings == nullptr) {
         return -1;
     }
-    Settings outgoing;
-    outgoing.ballCollisions = settings->ballCollisions != 0;
-    outgoing.vsync = settings->vsync != 0;
-    outgoing.advancedSettings = settings->advancedSettings != 0;
-    outgoing.layout = settings->orientation == BALLS_ORIENTATION_LANDSCAPE  ? LayoutOrientation::Landscape
-                      : settings->orientation == BALLS_ORIENTATION_PORTRAIT ? LayoutOrientation::Portrait
-                                                                           : LayoutOrientation::Auto;
-    outgoing.defaultBackend = settings->defaultBackend;
-    const Result<void> saved = saveSettings(std::filesystem::path(path), outgoing);
+    const Result<void> saved = saveSettings(std::filesystem::path(path), toCoreSettings(*settings));
     if (!saved) {
         setError(saved.error());
         return -1;
@@ -446,13 +703,51 @@ BallsSession* balls_session_create(int32_t mode, const char* levelDirectory, con
     if (!level) {
         return nullptr;
     }
-    auto session = std::make_unique<BallsSession>();
-    session->levelDirectory = levelDirectory;
-    session->levelName = levelName;
-    session->game = std::make_unique<GameSession>(mode == BALLS_MODE_PERFORMANCE ? GameMode::Performance
-                                                                                : GameMode::Normal,
-                                                  *level, toBackendKind(backend));
+    auto session = newSession(mode, levelDirectory, levelName, *level);
+    session->game = std::make_unique<GameSession>(session->mode, *level, toBackendKind(backend));
     return session.release();
+}
+
+BallsSession* balls_session_create_threaded(int32_t mode, const char* levelDirectory, const char* levelName,
+                                            int32_t backend) {
+    const auto level = loadLevelOrReport(levelDirectory, levelName);
+    if (!level) {
+        return nullptr;
+    }
+    auto session = newSession(mode, levelDirectory, levelName, *level);
+    session->runner = std::make_unique<SessionRunner>(session->mode, *level, toBackendKind(backend));
+    // The host reads the session right after creating it, so wait for the physics thread's first view.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    while (!(session->view = session->runner->view()) && std::chrono::steady_clock::now() < deadline) {
+        session->runner->tick(session->frameInput);
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if (!session->view) {
+        setError("the physics thread did not start");
+        return nullptr;
+    }
+    return session.release();
+}
+
+int32_t balls_session_threaded(const BallsSession* session) {
+    return session != nullptr && session->threaded() ? 1 : 0;
+}
+
+int32_t balls_session_take_collisions_change(BallsSession* session) {
+    if (session == nullptr || session->collisionChanges.empty()) {
+        return BALLS_COLLISIONS_UNCHANGED;
+    }
+    const int32_t change = session->collisionChanges.front();
+    session->collisionChanges.erase(session->collisionChanges.begin());
+    return change;
+}
+
+double balls_session_physics_frame_ms(const BallsSession* session) {
+    return session != nullptr && session->view ? session->view->physicsFrameMs : 0.0;
+}
+
+double balls_session_physics_fps(const BallsSession* session) {
+    return session != nullptr && session->view ? session->view->physicsFramesPerSecond : 0.0;
 }
 
 void balls_session_destroy(BallsSession* session) {
@@ -469,7 +764,8 @@ int32_t balls_session_load_level(BallsSession* session, const char* levelDirecto
     }
     session->levelDirectory = levelDirectory;
     session->levelName = levelName;
-    session->game->reload(*level);
+    session->playableHeight = level->bricks.playableHeight;
+    session->apply([level = *level](GameSession& game) { game.reload(level); });
     return 0;
 }
 
@@ -477,7 +773,7 @@ int32_t balls_session_restart(BallsSession* session) {
     if (session == nullptr) {
         return -1;
     }
-    session->game->restart();
+    session->apply([](GameSession& game) { game.restart(); });
     return 0;
 }
 
@@ -485,91 +781,139 @@ void balls_session_update(BallsSession* session, float deltaSeconds) {
     if (session == nullptr) {
         return;
     }
-    // A backend built off the frame is adopted here, before the tick that would run on it (SessionRunner's order).
-    session->game->pollBackgroundWork();
-    session->game->update(deltaSeconds);
+    if (!session->threaded()) {
+        // A backend built off the frame is adopted here, before the tick that would run on it (SessionRunner's order).
+        session->game->pollBackgroundWork();
+        session->game->update(deltaSeconds);
+        return;
+    }
+    // The physics thread keeps its own pace; the host's frame only hands over its timings and takes the newest view.
+    if (session->view && session->visibilityWidth > 0) {
+        session->frameInput.visibilitySlotCells = session->view->balls.fieldWidth / static_cast<float>(session->visibilityWidth);
+    }
+    session->runner->tick(session->frameInput);
+    if (auto latest = session->runner->view()) {
+        session->view = std::move(latest);
+    }
+    for (const SessionEvent& event : session->runner->takeEvents()) {
+        if (event.kind == SessionEventKind::BallCollisionsChanged) {
+            session->collisionChanges.push_back(fromCollisionsChange(event.collisionsChange));
+        } else {
+            session->switchEvents.push_back(event);
+        }
+    }
 }
 
 void balls_session_report_frame(BallsSession* session, double frameSeconds, double workSeconds) {
-    if (session != nullptr) {
+    if (session == nullptr) {
+        return;
+    }
+    if (session->threaded()) {
+        session->frameInput.uiFrameSeconds = frameSeconds;
+        session->frameInput.uiWorkSeconds = workSeconds;
+    } else {
         session->game->reportFrameSeconds(frameSeconds, workSeconds);
     }
 }
 
 int32_t balls_session_mode(const BallsSession* session) {
-    return session != nullptr && session->game->mode() == GameMode::Performance ? BALLS_MODE_PERFORMANCE
-                                                                               : BALLS_MODE_NORMAL;
+    return session != nullptr && session->mode == GameMode::Performance ? BALLS_MODE_PERFORMANCE : BALLS_MODE_NORMAL;
 }
 
 int32_t balls_session_state(const BallsSession* session) {
     if (session == nullptr) {
         return BALLS_STATE_READY;
     }
-    switch (session->game->state()) {
-    case SessionState::Running:
-        return BALLS_STATE_RUNNING;
-    case SessionState::Won:
-        return BALLS_STATE_WON;
-    case SessionState::Ready:
-    default:
-        return BALLS_STATE_READY;
-    }
+    return fromSessionState(session->threaded() ? session->view->state : session->game->state());
 }
 
 int32_t balls_session_backend(const BallsSession* session) {
-    return session == nullptr ? BALLS_BACKEND_SCALAR : fromBackendKind(session->game->backend());
+    if (session == nullptr) {
+        return BALLS_BACKEND_SCALAR;
+    }
+    return session->threaded() ? fromBackendKind(session->view->backend) : fromBackendKind(session->game->backend());
 }
 
 double balls_session_elapsed_seconds(const BallsSession* session) {
-    return session == nullptr ? 0.0 : session->game->elapsedSeconds();
+    if (session == nullptr) {
+        return 0.0;
+    }
+    return session->threaded() ? session->view->elapsedSeconds : session->game->elapsedSeconds();
 }
 
 int32_t balls_session_choose_launcher(BallsSession* session, int32_t column, int32_t row) {
-    return session != nullptr && session->game->chooseLauncher(column, row) ? 1 : 0;
+    if (session == nullptr) {
+        return 0;
+    }
+    if (!session->threaded()) {
+        return session->game->chooseLauncher(column, row) ? 1 : 0;
+    }
+    // The physics thread takes it next frame; the view tells whether there is a launcher to take.
+    if (session->view->mode != GameMode::Normal || session->view->state != SessionState::Running ||
+        session->view->launchers.visible(column, row) == nullptr) {
+        return 0;
+    }
+    session->apply([column, row](GameSession& game) { game.chooseLauncher(column, row); });
+    return 1;
 }
 
 void balls_session_start_auto_release(BallsSession* session) {
     if (session != nullptr) {
-        session->game->startAutoRelease();
+        session->apply([](GameSession& game) { game.startAutoRelease(); });
     }
 }
 
 void balls_session_select_spawn_rate(BallsSession* session, int32_t optionIndex) {
     if (session != nullptr) {
-        session->game->selectSpawnRate(optionIndex);
+        session->apply([optionIndex](GameSession& game) { game.selectSpawnRate(optionIndex); });
     }
 }
 
 void balls_session_select_ball_multiplier(BallsSession* session, int32_t optionIndex) {
     if (session != nullptr) {
-        session->game->selectBallMultiplier(optionIndex);
+        session->apply([optionIndex](GameSession& game) { game.selectBallMultiplier(optionIndex); });
     }
 }
 
 void balls_session_select_ball_limit(BallsSession* session, int32_t optionIndex) {
     if (session != nullptr) {
-        session->game->selectBallLimit(optionIndex);
+        session->apply([optionIndex](GameSession& game) { game.selectBallLimit(optionIndex); });
     }
 }
 
 int32_t balls_session_spawn_rate_index(const BallsSession* session) {
-    return session == nullptr ? 0 : session->game->spawnRateIndex();
+    if (session == nullptr) {
+        return 0;
+    }
+    return session->threaded() ? session->view->spawnRateIndex : session->game->spawnRateIndex();
 }
 
 int32_t balls_session_ball_multiplier_index(const BallsSession* session) {
-    return session == nullptr ? 0 : session->game->ballMultiplierIndex();
+    if (session == nullptr) {
+        return 0;
+    }
+    return session->threaded() ? session->view->ballMultiplierIndex : session->game->ballMultiplierIndex();
 }
 
 int32_t balls_session_ball_limit_index(const BallsSession* session) {
-    return session == nullptr ? 0 : session->game->ballLimitIndex();
+    if (session == nullptr) {
+        return 0;
+    }
+    return session->threaded() ? session->view->ballLimitIndex : session->game->ballLimitIndex();
 }
 
 uint64_t balls_session_ball_limit(const BallsSession* session) {
-    return session == nullptr ? 0 : session->game->ballLimit();
+    if (session == nullptr) {
+        return 0;
+    }
+    return session->threaded() ? session->view->ballLimit : session->game->ballLimit();
 }
 
 int32_t balls_session_auto_releasing(const BallsSession* session) {
-    return session != nullptr && session->game->isAutoReleasing() ? 1 : 0;
+    if (session == nullptr) {
+        return 0;
+    }
+    return session->threaded() ? (session->view->autoReleasing ? 1 : 0) : (session->game->isAutoReleasing() ? 1 : 0);
 }
 
 int32_t balls_session_switch_backend(BallsSession* session, int32_t kind) {
@@ -577,7 +921,7 @@ int32_t balls_session_switch_backend(BallsSession* session, int32_t kind) {
         return 0;
     }
     // The new backend is built off the frame; the session keeps running on the current one until it is ready.
-    session->game->requestBackend(toBackendKind(kind));
+    session->apply([backend = toBackendKind(kind)](GameSession& game) { game.requestBackend(backend); });
     return 1;
 }
 
@@ -585,7 +929,7 @@ int32_t balls_session_pending_backend(const BallsSession* session) {
     if (session == nullptr) {
         return -1;
     }
-    const std::optional<BackendKind> pending = session->game->pendingBackend();
+    const std::optional<BackendKind> pending = session->threaded() ? session->view->pendingBackend : session->game->pendingBackend();
     return pending ? fromBackendKind(*pending) : -1;
 }
 
@@ -593,7 +937,14 @@ int32_t balls_session_take_switch_outcome(BallsSession* session, int32_t* kind) 
     if (session == nullptr) {
         return 0;
     }
-    const std::optional<BackendSwitchOutcome> outcome = session->game->takeBackendSwitchOutcome();
+    std::optional<BackendSwitchOutcome> outcome;
+    if (!session->threaded()) {
+        outcome = session->game->takeBackendSwitchOutcome();
+    } else if (!session->switchEvents.empty()) {
+        const SessionEvent event = session->switchEvents.front();
+        session->switchEvents.erase(session->switchEvents.begin());
+        outcome = BackendSwitchOutcome{event.backend, event.kind == SessionEventKind::BackendSwitched, event.forBallCollisions};
+    }
     if (!outcome) {
         return 0;
     }
@@ -605,13 +956,13 @@ int32_t balls_session_take_switch_outcome(BallsSession* session, int32_t* kind) 
 
 void balls_session_start_capacity_probe(BallsSession* session, double targetFps) {
     if (session != nullptr) {
-        session->game->startCapacityProbe(targetFps);
+        session->apply([targetFps](GameSession& game) { game.startCapacityProbe(targetFps); });
     }
 }
 
 void balls_session_cancel_capacity_probe(BallsSession* session) {
     if (session != nullptr) {
-        session->game->cancelCapacityProbe();
+        session->apply([](GameSession& game) { game.cancelCapacityProbe(); });
     }
 }
 
@@ -619,7 +970,7 @@ void balls_session_probe(const BallsSession* session, BallsProbeInfo* probe) {
     if (session == nullptr || probe == nullptr) {
         return;
     }
-    const CapacityProbe& source = session->game->capacityProbe();
+    const CapacityProbe& source = session->threaded() ? session->view->probe : session->game->capacityProbe();
     probe->active = source.isActive() ? 1 : 0;
     switch (source.phase()) {
     case ProbePhase::Settling:
@@ -645,33 +996,41 @@ void balls_session_probe(const BallsSession* session, BallsProbeInfo* probe) {
 }
 
 int32_t balls_session_has_machine_ball_limit(const BallsSession* session) {
-    return session != nullptr && session->game->machineBallLimit().has_value() ? 1 : 0;
+    if (session == nullptr) {
+        return 0;
+    }
+    return session->threaded() ? (session->view->machineLimit.has_value() ? 1 : 0) : (session->game->machineBallLimit().has_value() ? 1 : 0);
 }
 
 uint64_t balls_session_machine_ball_limit(const BallsSession* session) {
     if (session == nullptr) {
         return 0;
     }
-    const std::optional<BallCount> limit = session->game->machineBallLimit();
-    return limit.value_or(0);
+    return session->threaded() ? session->view->machineLimit.value_or(0) : session->game->machineBallLimit().value_or(0);
 }
 
 void balls_session_use_machine_ball_limit(BallsSession* session, uint64_t limit) {
     if (session != nullptr) {
-        session->game->useMachineBallLimit(limit);
+        session->apply([limit](GameSession& game) { game.useMachineBallLimit(limit); });
     }
 }
 
 void balls_session_fill_with_balls(BallsSession* session, uint64_t count) {
     if (session != nullptr) {
-        session->game->fillWithBalls(count);
+        session->apply([count](GameSession& game) { game.fillWithBalls(count); });
     }
 }
 
 void balls_session_set_visibility_grid(BallsSession* session, int32_t width, int32_t height) {
-    if (session != nullptr) {
-        session->game->simulation().backend().setVisibilityGrid(width, height);
+    if (session == nullptr) {
+        return;
     }
+    if (session->threaded()) {
+        // The physics thread sizes the grid from slot cells; the width in slots sets them at the next update.
+        session->visibilityWidth = width;
+        return;
+    }
+    session->game->simulation().backend().setVisibilityGrid(width, height);
 }
 
 void balls_set_compute_gpu_preference(const char* preference) {
@@ -682,18 +1041,34 @@ int32_t balls_compute_gpu_preference(char* buffer, int32_t size) {
     return writeText(computeGpuPreference(), buffer, size);
 }
 
-void balls_session_set_ball_collisions(BallsSession* session, int32_t enabled) {
-    if (session != nullptr) {
-        session->game->simulation().setBallCollisions(enabled != 0);
+int32_t balls_session_set_ball_collisions(BallsSession* session, int32_t enabled) {
+    if (session == nullptr) {
+        return BALLS_COLLISIONS_UNCHANGED;
     }
+    if (session->threaded()) {
+        session->runner->setBallCollisions(enabled != 0);
+        return BALLS_COLLISIONS_UNCHANGED;
+    }
+    return fromCollisionsChange(session->game->setBallCollisions(enabled != 0));
+}
+
+int32_t balls_ball_collisions_message(int32_t change, char* buffer, int32_t size) {
+    const BallCollisionsChange kind = change == BALLS_COLLISIONS_SWITCHING_TO_SCALAR ? BallCollisionsChange::SwitchingToScalar
+                                      : change == BALLS_COLLISIONS_SCALAR_NOT_OFFERED ? BallCollisionsChange::ScalarNotOffered
+                                                                                      : BallCollisionsChange::None;
+    return writeText(ballCollisionsMessage(kind), buffer, size);
 }
 
 int32_t balls_session_ball_collisions(const BallsSession* session) {
-    return session != nullptr && session->game->simulation().ballCollisionsRequested() ? 1 : 0;
+    if (session == nullptr) {
+        return 0;
+    }
+    return session->threaded() ? (session->view->collisionsRequested ? 1 : 0) : (session->game->simulation().ballCollisionsRequested() ? 1 : 0);
 }
 
 int32_t balls_session_launch_balls(BallsSession* session, int32_t color, uint64_t count) {
-    if (session == nullptr || color < 0 || color >= BALLS_COLOR_COUNT) {
+    // The parity harness drives a session on its own thread only.
+    if (session == nullptr || session->threaded() || color < 0 || color >= BALLS_COLOR_COUNT) {
         return 0;
     }
     session->game->simulation().launchBalls(ballColorFromIndex(color), count);
@@ -701,7 +1076,8 @@ int32_t balls_session_launch_balls(BallsSession* session, int32_t color, uint64_
 }
 
 int32_t balls_session_spawn_ball(BallsSession* session, float x, float y, float vx, float vy, int32_t color) {
-    if (session == nullptr || color < 0 || color >= BALLS_COLOR_COUNT) {
+    // The parity harness drives a session on its own thread only.
+    if (session == nullptr || session->threaded() || color < 0 || color >= BALLS_COLOR_COUNT) {
         return 0;
     }
     session->game->simulation().spawnBalls({BallSpawn{x, y, vx, vy, color}});
@@ -709,25 +1085,28 @@ int32_t balls_session_spawn_ball(BallsSession* session, float x, float y, float 
 }
 
 void balls_session_tick(BallsSession* session, int32_t ticks) {
-    if (session == nullptr || ticks <= 0) {
+    if (session == nullptr || session->threaded() || ticks <= 0) {
         return;
     }
     session->game->simulation().tick(ticks);
 }
 
 int32_t balls_session_last_backend_fault(const BallsSession* session, char* buffer, int32_t size) {
-    return session == nullptr ? 0 : writeText(session->game->lastBackendFault(), buffer, size);
+    if (session == nullptr) {
+        return 0;
+    }
+    return writeText(session->threaded() ? session->view->backendFault : session->game->lastBackendFault(), buffer, size);
 }
 
 void balls_session_board_info(const BallsSession* session, BallsBoardInfo* info) {
-    if (session == nullptr || info == nullptr) {
+    if (session == nullptr || info == nullptr || session->board() == nullptr) {
         return;
     }
-    const BrickBoard& board = session->game->simulation().board();
-    const LauncherQueue& launchers = session->game->launchers();
+    const BrickBoard& board = *session->board();
+    const LauncherQueue& launchers = *session->launchers();
     info->columns = board.columns();
     info->rows = board.rows();
-    info->playableHeight = session->game->level().bricks.playableHeight;
+    info->playableHeight = session->playableHeight;
     info->paddedWidth = board.paddedWidth();
     info->paddedCellCount = board.paddedCellCount();
     info->brickCount = static_cast<int32_t>(board.bricks().size());
@@ -744,11 +1123,11 @@ void balls_session_board_info(const BallsSession* session, BallsBoardInfo* info)
 }
 
 void balls_session_board_view(BallsSession* session, BallsBoardView* view) {
-    if (session == nullptr || view == nullptr) {
+    if (session == nullptr || view == nullptr || session->board() == nullptr) {
         return;
     }
     session->refreshBoardScratch();
-    const BrickBoard& board = session->game->simulation().board();
+    const BrickBoard& board = *session->board();
     view->paddedCells = board.paddedCells().data();
     view->brickColors = board.brickColors().data();
     view->brickHitsLeft = session->brickHitsLeft.data();
@@ -762,7 +1141,8 @@ void balls_session_board_view(BallsSession* session, BallsBoardView* view) {
 }
 
 void balls_session_clear_changed_cells(BallsSession* session) {
-    if (session != nullptr) {
+    // A threaded session's board is a copy per view; its changed cells are dropped with the view.
+    if (session != nullptr && !session->threaded()) {
         session->game->simulation().board().clearChangedCells();
     }
 }
@@ -771,10 +1151,9 @@ void balls_session_stats(const BallsSession* session, BallsStats* stats) {
     if (session == nullptr || stats == nullptr) {
         return;
     }
-    const Simulation& simulation = session->game->simulation();
-    const SimulationStats& source = simulation.stats();
-    stats->ballCount = simulation.backend().ballCount();
-    stats->liveBallCount = simulation.liveBallCount();
+    const SimulationStats& source = session->threaded() ? session->view->stats : session->game->simulation().stats();
+    stats->ballCount = session->threaded() ? session->view->stats.ballCount : session->game->simulation().backend().ballCount();
+    stats->liveBallCount = session->threaded() ? session->view->liveBalls : session->game->simulation().liveBallCount();
     for (int color = 0; color < BALLS_COLOR_COUNT; ++color) {
         stats->ballsByColor[color] = source.ballsByColor[static_cast<size_t>(color)];
     }
@@ -787,6 +1166,17 @@ void balls_session_stats(const BallsSession* session, BallsStats* stats) {
 int32_t balls_session_snapshot(BallsSession* session, BallsSnapshot* snapshot) {
     if (session == nullptr || snapshot == nullptr) {
         return 0;
+    }
+    if (session->threaded()) {
+        // The view carries a copy of the packed balls, taken by the physics thread after its frame.
+        const BallFrame& balls = session->view->balls;
+        snapshot->packed = balls.packed.empty() ? nullptr : balls.packed.data();
+        snapshot->count = balls.packed.size();
+        snapshot->fieldWidth = balls.fieldWidth;
+        snapshot->fieldHeight = balls.fieldHeight;
+        snapshot->residentInRenderBuffer = 0;
+        snapshot->visibilityGrid = balls.visibilityGrid ? 1 : 0;
+        return snapshot->packed != nullptr ? 1 : 0;
     }
     const BallSnapshot source = session->game->simulation().backend().snapshot();
     snapshot->packed = source.packed;
@@ -802,7 +1192,7 @@ int32_t balls_session_launcher(const BallsSession* session, int32_t column, int3
     if (session == nullptr || launcher == nullptr) {
         return 0;
     }
-    const QueuedLauncher* visible = session->game->launchers().visible(column, row);
+    const QueuedLauncher* visible = session->launchers() ? session->launchers()->visible(column, row) : nullptr;
     if (visible == nullptr) {
         launcher->present = 0;
         launcher->color = 0;
@@ -821,7 +1211,7 @@ uint64_t balls_session_remaining_balls_by_color(const BallsSession* session, int
     if (session == nullptr || color < 0 || color >= BALLS_COLOR_COUNT) {
         return 0;
     }
-    return session->game->launchers().remainingBalls()[static_cast<size_t>(color)];
+    return session->launchers() ? session->launchers()->remainingBalls()[static_cast<size_t>(color)] : 0;
 }
 
 BallsBenchmark* balls_benchmark_create(const char* levelDirectory, const char* levelName) {
@@ -892,6 +1282,8 @@ int32_t balls_benchmark_rows(BallsBenchmark* benchmark, BallsBenchmarkRow* rows,
         rows[index].ballStepsPerSecond = result.ballStepsPerSecond;
         rows[index].progress = result.progress;
         copyName(result.failure, rows[index].failure, sizeof(rows[index].failure));
+        rows[index].estimatedBalls = result.estimatedBalls;
+        copyName(candidateResultText(result), rows[index].result, sizeof(rows[index].result));
     }
     return count;
 }
@@ -904,6 +1296,186 @@ int32_t balls_benchmark_winner(BallsBenchmark* benchmark) {
     const BenchmarkCandidate winner = chooseDefaultBackend(
         benchmark->results, [](BackendKind kind) { return isBackendAvailable(kind); });
     return fromBackendKind(winner.kind);
+}
+
+BallsControl* balls_control_create(const char* normalLevels, const char* performanceLevels) {
+    auto control = std::make_unique<BallsControl>();
+    control->normalLevels = std::filesystem::path(normalLevels != nullptr ? normalLevels : "");
+    control->performanceLevels = std::filesystem::path(performanceLevels != nullptr ? performanceLevels : "");
+    return control.release();
+}
+
+void balls_control_destroy(BallsControl* control) {
+    delete control;
+}
+
+int32_t balls_control_handle(BallsControl* control, const BallsControlContext* context, const char* target, char* json,
+                             int32_t size, int32_t* jsonLength) {
+    if (control == nullptr || context == nullptr || target == nullptr) {
+        return 400;
+    }
+    control->context = context;
+    control->gameInPlay.requestedProbeFps.reset();
+    control->currentSettings = toCoreSettings(context->settings);
+    const ControlRequest request = parseControlTarget(target);
+    const bool known = std::ranges::find(controlApiPaths(), std::string_view(request.path)) != controlApiPaths().end();
+    std::optional<ControlResponse> response;
+    if (known) {
+        response = handleControlRequest(*control, request);
+    }
+    control->context = nullptr;
+    if (!known || !response) {
+        // Nothing to send yet: the host answers its own routes and the screenshot it takes.
+        writeText(std::string_view{}, json, size);
+        if (jsonLength != nullptr) {
+            *jsonLength = 0;
+        }
+        return known ? 0 : -1;
+    }
+    if (jsonLength != nullptr) {
+        *jsonLength = static_cast<int32_t>(response->json.size());
+    }
+    writeText(response->json, json, size);
+    return response->status;
+}
+
+int32_t balls_control_take_action(BallsControl* control, BallsControlAction* action) {
+    if (control == nullptr || action == nullptr || control->actions.empty()) {
+        return 0;
+    }
+    *action = control->actions.front();
+    control->actions.erase(control->actions.begin());
+    return action->kind;
+}
+
+BallsLevelWatcher* balls_level_watcher_create(const char* levelDirectory, const char* levelName) {
+    if (levelDirectory == nullptr || levelName == nullptr) {
+        setError("level directory and name are required");
+        return nullptr;
+    }
+    auto watcher = std::make_unique<BallsLevelWatcher>();
+    watcher->watcher.watch(levelFilesFor(std::filesystem::path(levelDirectory), levelName));
+    return watcher.release();
+}
+
+void balls_level_watcher_destroy(BallsLevelWatcher* watcher) {
+    delete watcher;
+}
+
+int32_t balls_level_watcher_poll(BallsLevelWatcher* watcher) {
+    if (watcher == nullptr) {
+        return BALLS_DISK_UNCHANGED;
+    }
+    watcher->watcher.pollChanged(std::chrono::steady_clock::now());
+    return fromDiskState(watcher->watcher.diskState());
+}
+
+void balls_level_watcher_mark_loaded(BallsLevelWatcher* watcher) {
+    if (watcher != nullptr) {
+        watcher->watcher.markLoaded();
+    }
+}
+
+int32_t balls_level_disk_notice(int32_t state, char* buffer, int32_t size) {
+    const LevelDiskState kind = state == BALLS_DISK_CHANGED   ? LevelDiskState::Changed
+                                : state == BALLS_DISK_REMOVED ? LevelDiskState::Removed
+                                                              : LevelDiskState::Unchanged;
+    return writeText(levelDiskNotice(kind), buffer, size);
+}
+
+BallsFrameTimings* balls_frame_timings_create(void) {
+    return new BallsFrameTimings();
+}
+
+void balls_frame_timings_destroy(BallsFrameTimings* timings) {
+    delete timings;
+}
+
+void balls_frame_timings_record(BallsFrameTimings* timings, double frameMs, double workMs, double gpuMs) {
+    if (timings != nullptr) {
+        timings->timings.record({.frameMs = frameMs, .workMs = workMs, .gpuMs = gpuMs});
+    }
+}
+
+void balls_frame_timings_stats(const BallsFrameTimings* timings, BallsFrameStats* stats) {
+    if (timings == nullptr || stats == nullptr) {
+        return;
+    }
+    const FrameTimings& frames = timings->timings;
+    *stats = {frames.framesPerSecond(),        frames.worstFpsLastSecond(), frames.workFramesPerSecond(),
+              frames.worstWorkFpsLastSecond(), frames.average().frameMs,    frames.average().workMs,
+              frames.average().gpuMs};
+}
+
+BallsProfile* balls_profile_open(const char* directory) {
+    if (directory == nullptr) {
+        setError("profile directory is required");
+        return nullptr;
+    }
+    auto profile = std::make_unique<BallsProfile>(BallsProfile{MachineProfile(std::filesystem::path(directory))});
+    profile->profile.load();
+    return profile.release();
+}
+
+void balls_profile_close(BallsProfile* profile) {
+    delete profile;
+}
+
+int32_t balls_profile_ball_limit(const BallsProfile* profile, int32_t kind, double* targetFps, uint64_t* balls) {
+    if (profile == nullptr) {
+        return 0;
+    }
+    const std::optional<MachineProfile::MeasuredLimit> limit = profile->profile.ballLimit(toBackendKind(kind));
+    if (!limit) {
+        return 0;
+    }
+    if (targetFps != nullptr) {
+        *targetFps = limit->targetFps;
+    }
+    if (balls != nullptr) {
+        *balls = limit->balls;
+    }
+    return 1;
+}
+
+void balls_profile_remember_ball_limit(BallsProfile* profile, int32_t kind, double targetFps, uint64_t balls) {
+    if (profile != nullptr) {
+        profile->profile.rememberBallLimit(toBackendKind(kind), targetFps, balls);
+    }
+}
+
+int32_t balls_profile_benchmark_score(const BallsProfile* profile, int32_t kind, double* ballStepsPerSecond) {
+    if (profile == nullptr || !profile->profile.benchmark()) {
+        return 0;
+    }
+    const BackendKind wanted = toBackendKind(kind);
+    double best = 0.0;
+    for (const CandidateResult& result : profile->profile.benchmark()->results) {
+        if (result.candidate.kind == wanted && result.status == CandidateStatus::Done) {
+            best = std::max(best, result.ballStepsPerSecond);
+        }
+    }
+    if (best <= 0.0) {
+        return 0;
+    }
+    if (ballStepsPerSecond != nullptr) {
+        *ballStepsPerSecond = best;
+    }
+    return 1;
+}
+
+void balls_profile_remember_benchmark(BallsProfile* profile, BallsBenchmark* benchmark, int32_t complete,
+                                      const char* gameVersion) {
+    if (profile == nullptr || benchmark == nullptr || benchmark->run == nullptr) {
+        return;
+    }
+    benchmark->refresh();
+    BenchmarkRecord record;
+    record.fingerprint = currentHardwareFingerprint(gameVersion != nullptr ? gameVersion : "");
+    record.results = benchmark->results;
+    record.winner = chooseDefaultBackend(record.results, [](BackendKind kind) { return isBackendAvailable(kind); });
+    record.complete = complete != 0;
+    profile->profile.rememberBenchmark(std::move(record));
 }
 
 BallsEditor* balls_editor_create(void) {

@@ -67,3 +67,9 @@ struct StoredBackend {
 };
 std::optional<StoredBackend> parseStoredBackend(std::string_view text);
 std::string storedBackendName(BackendKind kind);
+// A kind name ("cuda", "hybrid") or device picks ("avx2@cpu+cuda@gpu0"), as launch options and the control API take
+// them. Picks that can run here become the process-wide picks (setBackendPicks) and yield the kind they make; picks
+// that cannot run yield nullopt.
+std::optional<BackendKind> parseBackendKind(std::string_view text);
+// The same for a value saved in Settings, where the old name "Hybrid" means the CUDA+AVX2 pair.
+std::optional<BackendKind> parseSavedBackendKind(std::string_view text);

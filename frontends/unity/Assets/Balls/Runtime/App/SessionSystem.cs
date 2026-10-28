@@ -19,10 +19,8 @@ namespace Balls.App
         private BoardFrame frame;
         private readonly List<CellElement> cells = new();
         private System.IntPtr sessionHandle;
-        private float m_fps;
-        private float m_fpsWindow = float.MaxValue;
-        private double m_minFpsTimer;
-        private float m_minFps;
+        // The core's rolling one-second window, the same statistics SDL and Unreal show.
+        private System.IntPtr frameTimings;
         private double m_physicsFps;
         private double m_physicsTimer;
         private int m_physicsTicks;
@@ -36,11 +34,18 @@ namespace Balls.App
         /// <summary>Why the last start request failed (an unreadable level), or null.</summary>
         public string LoadFailure { get; set; }
 
+        /// <summary>The core's frame statistics, for the control API's /state.</summary>
+        public System.IntPtr FrameTimingsHandle => frameTimings;
+
+        /// <summary>A toast the session has for the player (the core's ball collisions notice), taken by BallsApp.</summary>
+        public string Notice { get; set; }
+
         public GameBackend Backend => backend;
 
         protected override void OnCreate()
         {
             Current = this;
+            frameTimings = BallsNative.balls_frame_timings_create();
             boardEntity = EntityManager.CreateEntity();
             EntityManager.AddComponentData(boardEntity, new BoardInfoData());
             EntityManager.AddComponentData(boardEntity, new BallBatch());
@@ -58,10 +63,19 @@ namespace Balls.App
             }
             backend?.Dispose();
             backend = null;
+            BallsNative.balls_frame_timings_destroy(frameTimings);
+            frameTimings = System.IntPtr.Zero;
         }
 
         protected override void OnUpdate()
         {
+            // Every frame, on every screen, so the control API's /state reports the menus' frame rate too.
+            float frameSeconds = SystemAPI.Time.DeltaTime;
+            if (frameSeconds > 0f)
+            {
+                double frameMs = frameSeconds * 1000.0;
+                BallsNative.balls_frame_timings_record(frameTimings, frameMs, frameMs, 0.0);
+            }
             // A start request replaces a running session too: Next Level, Restart after the map changed on disk and
             // the control API's /play all start a game from inside another one.
             if (BallsInput.TryTakeStartRequest(out var request))
@@ -89,7 +103,7 @@ namespace Balls.App
             }
             if (BallsInput.TryTakeCollisions(out bool collisions))
             {
-                backend.SetBallCollisions(collisions);
+                ApplyBallCollisions(collisions);
             }
             if (BallsInput.TryTakeAutoRelease())
             {
@@ -99,6 +113,10 @@ namespace Balls.App
             float deltaSeconds = SystemAPI.Time.DeltaTime;
             backend.Update(deltaSeconds);
             backend.ReportFrame(deltaSeconds, backend.Stats.physicsMs / 1000.0);
+            if (backend.TakeCollisionsChange() is int change && change != 0)
+            {
+                Notice = BallsNative.BallCollisionsMessage(change);
+            }
 
             if (backend.Frame.revision != frame.revision || backend.Frame.paddedCellCount != frame.paddedCellCount)
             {
@@ -135,11 +153,20 @@ namespace Balls.App
             // The GPU backends sample one grid cell per ball-sized block of the render target; a 1920-wide frame at
             // the 0.4-cell ball diameter is the default the other front ends use.
             backend.SetVisibilityGrid(160, 90);
-            backend.SetBallCollisions(request.collisions);
+            ApplyBallCollisions(request.collisions);
             frame = backend.Frame;
             RefreshBoard();
             ReadLaunchers();
             Publish(0f);
+        }
+
+        private void ApplyBallCollisions(bool enabled)
+        {
+            int change = backend.SetBallCollisions(enabled);
+            if (change != 0)
+            {
+                Notice = BallsNative.BallCollisionsMessage(change);
+            }
         }
 
         private void RefreshBoard()
@@ -209,15 +236,7 @@ namespace Balls.App
                 launcherRemaining = frame.launcherRemainingBalls,
             });
 
-            m_fps = m_fps <= 0f ? 1f / Mathf.Max(deltaSeconds, 1e-4f) : Mathf.Lerp(m_fps, 1f / Mathf.Max(deltaSeconds, 1e-4f), 0.1f);
-            m_minFpsTimer += deltaSeconds;
-            if (m_minFpsTimer >= 1.0)
-            {
-                m_minFps = m_fpsWindow;
-                m_fpsWindow = float.MaxValue;
-                m_minFpsTimer = 0f;
-            }
-            m_fpsWindow = Mathf.Min(m_fpsWindow, 1f / Mathf.Max(deltaSeconds, 1e-4f));
+            BallsNative.balls_frame_timings_stats(frameTimings, out NativeFrameStats frames);
 
             var stats = backend.Stats;
             // Physics FPS is how many physics frames finished in the last stretch of wall time; the UI rate can differ.
@@ -238,7 +257,7 @@ namespace Balls.App
                 spawned = stats.spawned,
                 hits = stats.hits,
                 physicsMs = stats.physicsMs,
-                physicsFps = m_physicsFps,
+                physicsFps = backend.PhysicsThreadFps >= 0.0 ? backend.PhysicsThreadFps : m_physicsFps,
                 ticks = stats.ticks,
                 color0 = stats.red,
                 color1 = stats.orange,
@@ -250,8 +269,8 @@ namespace Balls.App
                 waitingToSpawn = stats.liveBallCount > stats.ballCount ? stats.liveBallCount - stats.ballCount : 0,
                 collisions = backend.BallCollisions,
                 frameMs = deltaSeconds * 1000.0,
-                frameMinFps = m_minFps,
-                fps = m_fps,
+                frameMinFps = frames.worstFpsLastSecond,
+                fps = (float)frames.framesPerSecond,
             });
         }
     }

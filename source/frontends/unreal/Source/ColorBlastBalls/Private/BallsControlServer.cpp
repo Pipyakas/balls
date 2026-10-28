@@ -12,14 +12,6 @@ namespace {
 
 const TCHAR* const JsonContentType = TEXT("application/json");
 
-// The control API, plus the two screen actions the gameplay HUD needs for automation.
-const TCHAR* const ControlPaths[] = {
-    TEXT("/state"), TEXT("/screenshot"), TEXT("/play"),  TEXT("/start"),    TEXT("/rate"),     TEXT("/backend"),
-    TEXT("/settings"), TEXT("/fill"),   TEXT("/limit"), TEXT("/probe"),    TEXT("/pause"),    TEXT("/resume"),
-    TEXT("/menu"),  TEXT("/quit"),      TEXT("/benchmark"), TEXT("/benchmark/skip"), TEXT("/benchmark/continue"),
-    TEXT("/graphics"), TEXT("/cvar"),   TEXT("/launcher"),
-};
-
 FString EnsureStartSlash(const FString& Path) {
     return Path.StartsWith(TEXT("/")) ? Path : FString(TEXT("/")) + Path;
 }
@@ -44,8 +36,12 @@ bool FBallsControlServer::Start(int32 Port) {
         UE_LOG(LogTemp, Warning, TEXT("BallsControl: port %d could not be bound"), Port);
         return false;
     }
-    for (const TCHAR* Path : ControlPaths) {
-        Bind(Path);
+    // UE's router binds paths one by one: every path the core answers, then Unreal's own.
+    for (const std::string_view Path : controlApiPaths()) {
+        Bind(*FString(UTF8_TO_TCHAR(std::string(Path).c_str())));
+    }
+    for (const FString& Path : FBallsApp::OwnControlPaths()) {
+        Bind(*Path);
     }
     Module.StartAllListeners();
     BoundPort = Port;

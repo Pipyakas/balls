@@ -72,6 +72,41 @@ std::shared_ptr<const BrickBoard> boardFor(const Simulation& simulation, const s
     return std::make_shared<const BrickBoard>(board);
 }
 
+// Everything but the board and the balls, which the physics thread shares and recycles between views.
+void describeSessionState(const GameSession& session, SessionView& view) {
+    const Simulation& simulation = session.simulation();
+    view.mode = session.mode();
+    view.state = session.state();
+    view.elapsedSeconds = session.elapsedSeconds();
+    view.launchers = session.launchers();
+    view.pendingSpawn = session.spawner().pendingBalls();
+    view.autoReleasing = session.isAutoReleasing();
+    view.spawnRateIndex = session.spawnRateIndex();
+    view.ballMultiplierIndex = session.ballMultiplierIndex();
+    view.ballLimitIndex = session.ballLimitIndex();
+    view.ballLimit = session.ballLimit();
+    view.usingMachineLimit = session.isUsingMachineBallLimit();
+    view.machineLimit = session.machineBallLimit();
+    view.probe = session.capacityProbe();
+    view.backend = session.backend();
+    view.pendingBackend = session.pendingBackend();
+    view.refilling = session.ballsLeftToRefill();
+    view.backendFault = session.lastBackendFault();
+    view.deviceStepMs = simulation.backend().deviceStepMs();
+    if (const auto* hybrid = dynamic_cast<const HybridBackend*>(&simulation.backend())) {
+        view.hybrid = HybridSplit{hybrid->cpuBallCount(), hybrid->ballCount(), hybrid->cpuStepMs(), hybrid->gpuStepMs()};
+    } else {
+        view.hybrid.reset();
+    }
+    view.collisionsRequested = simulation.ballCollisionsRequested();
+    view.collisionsActive = simulation.ballCollisionsActive();
+    view.stats = simulation.stats();
+    view.liveBalls = simulation.liveBallCount();
+    view.launchX = simulation.launchX();
+    view.launchY = simulation.launchY();
+    view.ballRadius = simulation.tuning().ballRadius;
+}
+
 // The last field size the backend reported, kept across frames: the grid is sized from it, and a size that changed
 // from frame to frame would make the backend rebuild its grid every frame.
 struct FieldSize {
@@ -102,38 +137,9 @@ void captureBalls(Simulation& simulation, float slotCells, FieldSize& field, Bal
 
 void fillView(GameSession& session, SessionView& view, const SessionView* previous, uint64_t& boardRevision,
               float slotCells, FieldSize& field) {
+    describeSessionState(session, view);
     Simulation& simulation = session.simulation();
-    view.mode = session.mode();
-    view.state = session.state();
-    view.elapsedSeconds = session.elapsedSeconds();
-    view.launchers = session.launchers();
-    view.pendingSpawn = session.spawner().pendingBalls();
-    view.autoReleasing = session.isAutoReleasing();
-    view.spawnRateIndex = session.spawnRateIndex();
-    view.ballMultiplierIndex = session.ballMultiplierIndex();
-    view.ballLimitIndex = session.ballLimitIndex();
-    view.ballLimit = session.ballLimit();
-    view.usingMachineLimit = session.isUsingMachineBallLimit();
-    view.machineLimit = session.machineBallLimit();
-    view.probe = session.capacityProbe();
-    view.backend = session.backend();
-    view.pendingBackend = session.pendingBackend();
-    view.refilling = session.ballsLeftToRefill();
-    view.backendFault = session.lastBackendFault();
-    view.deviceStepMs = simulation.backend().deviceStepMs();
-    if (const auto* hybrid = dynamic_cast<const HybridBackend*>(&simulation.backend())) {
-        view.hybrid = HybridSplit{hybrid->cpuBallCount(), hybrid->ballCount(), hybrid->cpuStepMs(), hybrid->gpuStepMs()};
-    } else {
-        view.hybrid.reset();
-    }
-    view.collisionsRequested = simulation.ballCollisionsRequested();
-    view.collisionsActive = simulation.ballCollisionsActive();
-    view.stats = simulation.stats();
-    view.liveBalls = simulation.liveBallCount();
     view.board = boardFor(simulation, previous ? previous->board : nullptr, boardRevision);
-    view.launchX = simulation.launchX();
-    view.launchY = simulation.launchY();
-    view.ballRadius = simulation.tuning().ballRadius;
     captureBalls(simulation, slotCells, field, view.balls);
 }
 
@@ -180,7 +186,7 @@ void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, Le
         std::optional<SessionEvent> event;
         if (const auto outcome = session->takeBackendSwitchOutcome()) {
             event = SessionEvent{outcome->succeeded ? SessionEventKind::BackendSwitched : SessionEventKind::BackendFailed,
-                                 outcome->kind};
+                                 outcome->kind, outcome->forBallCollisions};
         }
         const double sinceLastUpdate = secondsBetween(lastUpdate, workStart);
         lastUpdate = workStart;
@@ -270,9 +276,34 @@ std::shared_ptr<const SessionView> SessionRunner::view() const {
     return shared->latest;
 }
 
+void SessionRunner::setBallCollisions(bool enabled) {
+    // The physics thread keeps Shared alive while it runs commands, so the raw pointer cannot dangle.
+    post([enabled, shared = shared.get()](GameSession& session) {
+        const BallCollisionsChange change = session.setBallCollisions(enabled);
+        if (change == BallCollisionsChange::None) {
+            return;
+        }
+        SessionEvent event{SessionEventKind::BallCollisionsChanged, session.backend()};
+        event.collisionsChange = change;
+        std::lock_guard lock(shared->mutex);
+        shared->events.push_back(event);
+    });
+}
+
 std::vector<SessionEvent> SessionRunner::takeEvents() {
     std::lock_guard lock(shared->mutex);
     return std::exchange(shared->events, {});
+}
+
+void describeSession(const GameSession& session, SessionView& view, const SessionView* previous) {
+    describeSessionState(session, view);
+    const BrickBoard& board = session.simulation().board();
+    // Like the physics thread's views, a board that has not changed is shared rather than copied.
+    if (previous && previous->board && previous->board->revision() == board.revision() && !board.isAnimating()) {
+        view.board = previous->board;
+    } else {
+        view.board = std::make_shared<const BrickBoard>(board);
+    }
 }
 
 bool SessionRunner::waitForStoppedRunners(std::chrono::milliseconds timeout) {

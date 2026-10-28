@@ -212,3 +212,10 @@ const PhysicalDevice* defaultDeviceFor(BackendKind kind) {
     const auto found = std::ranges::find_if(devices, runs);
     return found == devices.end() ? nullptr : &*found;
 }
+
+std::string physicalDeviceLabel(const PhysicalDevice& device) {
+    if (device.type == PhysicsDeviceType::Cpu) {
+        return "CPU";
+    }
+    return device.type == PhysicsDeviceType::IntegratedGpu ? device.name + " (iGPU)" : device.name;
+}

@@ -1,8 +1,8 @@
 #pragma once
 
-#include "app/FrameTimings.h"
+#include "game/FrameTimings.h"
 #include "app/LaunchOptions.h"
-#include "app/MachineProfile.h"
+#include "game/MachineProfile.h"
 #include "app/Paths.h"
 #include "app/Screen.h"
 #include "gpu/GpuAdapters.h"
@@ -50,7 +50,6 @@ public:
     const Settings& settings() const { return currentSettings; }
     void applySettings(const Settings& settings, std::optional<BackendKind> backend = std::nullopt);
     void setAdvancedSettingsOpen(bool open);
-    std::string settingsJson() const;
     // Whether this build links a WebGPU renderer, so the Settings page can offer it.
     bool isWebGpuSupported() const;
     void notifySettingsConsumers();
@@ -122,9 +121,10 @@ private:
     void applyPendingScreen();
     void drawFrameTimingsOverlay() const;
     void updateTextInput();
+    // Answers the control API through the core's handler; ControlBridge is SDL's side of it.
+    struct ControlBridge;
     std::optional<ControlResponse> handleControl(const ControlRequest& request);
-    std::string stateJson() const;
-    std::string benchmarkStateJson() const;
+    std::optional<ControlResponse> handleOwnControl(const ControlRequest& request);
 
     SDL_Window* window = nullptr;
     std::unique_ptr<IRenderer> renderer;
@@ -135,6 +135,8 @@ private:
     std::unique_ptr<Screen> pendingScreen;
     FrameTimings timings;
     ControlServer controlServer;
+    // Shared only so ~App, defined before ControlBridge is complete, need not see it.
+    std::shared_ptr<ControlBridge> controlBridge;
     MachineProfile profile;
     Settings currentSettings;
     BackendKind backendChoice = BackendKind::Avx2;

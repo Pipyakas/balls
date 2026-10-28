@@ -16,6 +16,8 @@
 #include "Widgets/SOverlay.h"
 #include "Widgets/Text/STextBlock.h"
 
+#include <algorithm>
+
 namespace {
 
 constexpr float MenuButtonWidth = 380.0f;
@@ -329,7 +331,8 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
     AddLabel(TEXT("Default backend"));
     // Each backend shows its last machine benchmark score, muted ("First launch: machine benchmark").
     const std::optional<BenchmarkRecord>& Record = Owner->GetBenchmark().GetRecord();
-    for (const BackendKind Kind : allBackendKinds) {
+    // Scalar is listed only where nothing faster loads (design Settings, Physics).
+    for (const BackendKind Kind : selectableBackends()) {
         const bool bAvailable = isBackendAvailable(Kind);
         AddOption(BallsText::FromUtf8(backendKindName(Kind)),
                   TAttribute<bool>::CreateLambda([Owner, Kind] { return Owner->GetPreferredBackend() == Kind; }),
@@ -355,6 +358,59 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
             AddHint(*Score);
         }
     }
+    // design Settings, Physics, Devices: one row per physical device with Off and one button per backend it runs. Each
+    // device runs at most one backend; two or more make Hybrid, one runs that backend alone, and the last device on
+    // cannot be turned off.
+    AddLabel(TEXT("Devices"));
+    const auto ShownPicks = [Owner] { return displayedPicks(Owner->GetPreferredBackend()); };
+    const auto PickedKind = [ShownPicks](const std::string& Device) -> std::optional<BackendKind> {
+        const std::vector<BackendPick> Picks = ShownPicks();
+        const auto Found = std::ranges::find(Picks, Device, &BackendPick::device);
+        return Found == Picks.end() ? std::nullopt : std::optional<BackendKind>(Found->kind);
+    };
+    const auto Pick = [Owner, ShownPicks](const std::string& Device, std::optional<BackendKind> Kind) {
+        const std::vector<BackendPick> Next = withDevicePick(ShownPicks(), Device, Kind);
+        if (Next.empty()) {
+            return;
+        }
+        setBackendPicks(Next);
+        refreshBackendStatuses();
+        Owner->SetPreferredBackend(kindForPicks(Next));
+    };
+    for (const PhysicalDevice& Device : physicalDevices()) {
+        const std::string Id = Device.id;
+        TSharedRef<SHorizontalBox> Row = SNew(SHorizontalBox);
+        Row->AddSlot().FillWidth(0.34f).VAlign(VAlign_Center).Padding(0.0f, 0.0f, OptionGap, 0.0f)
+        [
+            SNew(STextBlock)
+            .Text(FText::FromString(BallsText::FromUtf8(physicalDeviceLabel(Device))))
+            .Font(BallsStyle::Font(17.0f))
+            .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Text))
+        ];
+        const float ButtonShare = 0.66f / static_cast<float>(pickableKinds(Device).size() + 1);
+        Row->AddSlot().FillWidth(ButtonShare).Padding(0.0f, 0.0f, OptionGap, 0.0f)
+        [
+            BallsWidgets::Button(FText::FromString(TEXT("Off")), [Pick, Id] { Pick(Id, std::nullopt); }, 17.0f,
+                                 TAttribute<bool>::CreateLambda([PickedKind, ShownPicks, Id] {
+                                     return !(PickedKind(Id) && ShownPicks().size() == 1);
+                                 }),
+                                 TAttribute<bool>::CreateLambda([PickedKind, Id] { return !PickedKind(Id); }))
+        ];
+        for (const BackendKind Kind : pickableKinds(Device)) {
+            const DeviceBackendOption* Option = Device.option(Kind);
+            const bool bAvailable = Option && deviceBackendStatus(Kind, Option->pluginDevice).available;
+            Row->AddSlot().FillWidth(ButtonShare).Padding(0.0f, 0.0f, OptionGap, 0.0f)
+            [
+                BallsWidgets::Button(FText::FromString(BallsText::FromUtf8(backendKindName(Kind))),
+                                     [Pick, Id, Kind] { Pick(Id, Kind); }, 17.0f, bAvailable,
+                                     TAttribute<bool>::CreateLambda([PickedKind, Id, Kind] { return PickedKind(Id) == Kind; }))
+            ];
+        }
+        Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, OptionGap)[SNew(SBox).HeightOverride(OptionHeight)[Row]];
+    }
+    AddHint(TEXT("One backend per device. Two or more devices run as Hybrid, splitting the balls between them; one runs "
+                 "that backend alone."));
+
     if (InArgs._bAllowBenchmark) {
         Column->AddSlot().AutoHeight().Padding(0.0f, OptionGap, 0.0f, OptionGap)
         [

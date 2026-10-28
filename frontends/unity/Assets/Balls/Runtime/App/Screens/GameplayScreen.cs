@@ -143,7 +143,7 @@ namespace Balls.App.Screens
             limitIndex = 0;
             autoLimit = true;
             string name = BallsNative.BackendName(backend.BackendKind);
-            if (App.Profile.TryLimit(name, out ulong balls, out double fps) && Mathf.RoundToInt((float)fps) == probeTargetFps)
+            if (App.Profile.TryLimit(backend.BackendKind, out ulong balls, out double fps) && Mathf.RoundToInt((float)fps) == probeTargetFps)
             {
                 backend.UseMachineLimit(balls);
                 App.Toast($"{name} limit {balls:N0} balls @{fps:F0} FPS");
@@ -168,8 +168,7 @@ namespace Balls.App.Screens
                 return;
             }
             probeRecorded = true;
-            App.Profile.SetLimit(BallsNative.BackendName(backend.BackendKind), backend.ProbeBest, backend.ProbeTargetFps);
-            App.Profile.Save();
+            App.Profile.SetLimit(backend.BackendKind, backend.ProbeBest, backend.ProbeTargetFps);
         }
 
         public void OnRestarted()
@@ -264,6 +263,15 @@ namespace Balls.App.Screens
 
         /// <summary>The control API drives the same pause the header button does.</summary>
         public void SetPaused(bool value) => paused = value;
+
+        public int ProbeTargetFps => probeTargetFps;
+
+        /// <summary>The control API's /probe: the target the stepper would set, then a probe at it.</summary>
+        public void ControlProbe(int targetFps)
+        {
+            probeTargetFps = targetFps;
+            SessionSystem.Current?.Backend?.StartProbe(targetFps);
+        }
 
         /// <summary>Opens or closes the control gadget's Advanced Settings section, as its row does.</summary>
         public void SetAdvancedOpen(bool open) => advancedOpen = open;
@@ -413,12 +421,7 @@ namespace Balls.App.Screens
 
             string modeName = session.mode == BallsApp.PerformanceMode ? "Performance" : "Normal";
             string title = $"{modeName} · {App.LevelName}";
-            string notice = watcher.Poll() switch
-            {
-                LevelWatcher.State.Changed => "Map changed on disk - Restart to load it",
-                LevelWatcher.State.Removed => "Map removed from disk - Restart unavailable",
-                _ => null,
-            };
+            string notice = LevelWatcher.Notice(watcher.Poll());
 
             if (hovered)
             {

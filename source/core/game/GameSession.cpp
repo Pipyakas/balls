@@ -174,6 +174,34 @@ void GameSession::requestBackend(BackendKind kind) {
         pendingBuild->abandon();
     }
     pendingBuild = BackendWorker::shared().build(kind);
+    pendingBuildForCollisions = false;
+}
+
+BallCollisionsChange GameSession::setBallCollisions(bool enabled) {
+    physicsSimulation.setBallCollisions(enabled);
+    if (!enabled || physicsSimulation.ballCollisionsActive()) {
+        return BallCollisionsChange::None;
+    }
+    if (!isBackendSelectable(BackendKind::Scalar)) {
+        return BallCollisionsChange::ScalarNotOffered;
+    }
+    if (pendingBackend() != BackendKind::Scalar) {
+        requestBackend(BackendKind::Scalar);
+    }
+    pendingBuildForCollisions = true;
+    return BallCollisionsChange::SwitchingToScalar;
+}
+
+std::string_view ballCollisionsMessage(BallCollisionsChange change) {
+    switch (change) {
+    case BallCollisionsChange::SwitchingToScalar:
+        return "Ball collisions need the Scalar backend - switching to Scalar";
+    case BallCollisionsChange::ScalarNotOffered:
+        return "Ball collisions need the Scalar backend, which is not offered on this machine";
+    case BallCollisionsChange::None:
+        break;
+    }
+    return {};
 }
 
 std::optional<BackendKind> GameSession::pendingBackend() const {
@@ -188,12 +216,14 @@ void GameSession::pollBackgroundWork() {
     if (pendingBuild) {
         if (std::optional<BackendHandle> finished = pendingBuild->take()) {
             const BackendKind kind = pendingBuild->kind();
+            const bool forCollisions = std::exchange(pendingBuildForCollisions, false);
             pendingBuild.reset();
             if (*finished) {
                 adoptBackend(kind, std::move(*finished));
             } else {
                 switchOutcome = BackendSwitchOutcome{kind, false};
             }
+            switchOutcome->forBallCollisions = forCollisions;
         }
     }
     refillBatch();

@@ -24,8 +24,12 @@ public:
     ~FBallsBoardView();
 
     // Frames the camera so the board lands on Layout.Board inside a ViewportSize (both in Slate units).
-    void Update(const Simulation& Sim, const FBallsGameplayLayout& Layout, FVector2D ViewportSize, float DpiScale);
+    void Update(const BrickBoard& Board, const FBallsGameplayLayout& Layout, FVector2D ViewportSize, float DpiScale);
+    // A session on the game thread: sizes the backend's visibility grid and draws straight from it.
     void SubmitBalls(Simulation& Sim, const FBallsGameplayLayout& Layout, float DpiScale);
+    // Balls already copied out, by the physics thread into a SessionView.
+    void SubmitBalls(const BallSnapshot& Snapshot, float BallRadius, const FBallsGameplayLayout& Layout, float DpiScale);
+    static float VisibilitySlotCells(float BallRadius, const FBallsGameplayLayout& Layout, float DpiScale);
     void Hide();
     // Camera half of the graphics level: bloom and vignette strength, a fixed exposure below High, and how bright
     // the balls are drawn (1.0 once bloom is off, so the palette reads exactly).

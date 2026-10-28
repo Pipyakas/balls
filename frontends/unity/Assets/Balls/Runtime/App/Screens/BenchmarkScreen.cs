@@ -12,6 +12,10 @@ namespace Balls.App.Screens
     {
         private const string BenchmarkLevel = "DA_1000Bricks";
         private const float SkipDelay = 1.5f;
+        private const float ProgressWidth = 220f;
+        private const float ProgressHeight = 8f;
+        private const int RowPending = 0;
+        private const int RowRunning = 1;
 
         private System.IntPtr benchmark;
         private NativeBenchmarkRow[] rows = System.Array.Empty<NativeBenchmarkRow>();
@@ -77,16 +81,22 @@ namespace Balls.App.Screens
                 Color labelColor = isWinner ? Palette.Background : Palette.Text;
                 widgets.Label(new Rect(line.x + 12f, line.y, line.width * 0.45f, line.height), row.Label,
                     TypeSizes.Header, labelColor, TextAnchor.MiddleLeft);
-                string detail = row.status switch
+                if (row.status == RowRunning)
                 {
-                    2 => $"{row.ballStepsPerSecond / 1e6:N0} M ball-steps/s",
-                    3 => $"failed: {row.Failure}",
-                    4 => "not available",
-                    1 => $"{row.progress * 100f:F0}%",
-                    _ => "waiting",
-                };
-                widgets.Label(new Rect(line.x, line.y, line.width - 12f, line.height), detail, TypeSizes.Value,
-                    isWinner ? Palette.Background : Palette.TextMuted, TextAnchor.MiddleRight, true);
+                    // The game's progress bar while the candidate runs.
+                    var track = new Rect(line.xMax - 12f - ProgressWidth, line.center.y - ProgressHeight * 0.5f,
+                        ProgressWidth, ProgressHeight);
+                    theme.Fill(track, Palette.ControlPressed);
+                    theme.Fill(new Rect(track.x, track.y, track.width * Mathf.Clamp01((float)row.progress), track.height),
+                        Palette.Accent);
+                }
+                else
+                {
+                    // The core's text: balls at 60 FPS and ball-steps, failed: reason, or not available.
+                    string detail = row.status == RowPending ? "waiting" : row.Result;
+                    widgets.Label(new Rect(line.x, line.y, line.width - 12f, line.height), detail, TypeSizes.Value,
+                        isWinner ? Palette.Background : Palette.TextMuted, TextAnchor.MiddleRight, true);
+                }
                 y += 46f;
             }
 
@@ -132,7 +142,7 @@ namespace Balls.App.Screens
             if (!recorded && BallsNative.balls_benchmark_finished(benchmark) != 0)
             {
                 recorded = true;
-                RecordScores(count);
+                App.Profile.RememberBenchmark(benchmark, true);
             }
             int currentWinner = BallsNative.balls_benchmark_winner(benchmark);
             if (currentWinner >= 0)
@@ -142,17 +152,11 @@ namespace Balls.App.Screens
             return Mathf.Min(count, rows.Length);
         }
 
-        private void RecordScores(int count)
-        {
-            for (int index = 0; index < count; ++index)
-            {
-                if (rows[index].status == 2 && rows[index].ballStepsPerSecond > 0.0)
-                {
-                    App.Profile.SetScore(BallsNative.BackendName(rows[index].kind), rows[index].ballStepsPerSecond);
-                }
-            }
-            App.Profile.Save();
-        }
+        /// <summary>The running benchmark, for the control API; zero when none.</summary>
+        public System.IntPtr Handle => benchmark;
+
+        /// <summary>The control API's skip and continue: the same as the button.</summary>
+        public void ControlContinue() => Continue();
 
         private void Continue()
         {
@@ -160,7 +164,7 @@ namespace Balls.App.Screens
             {
                 if (App.Settings != null)
                 {
-                    App.Settings.DefaultBackend = BallsNative.BackendName(winner);
+                    App.Settings.DefaultBackend = BallsNative.StoredBackendName(winner);
                     App.SaveSettings();
                 }
                 App.SetBackend(winner);

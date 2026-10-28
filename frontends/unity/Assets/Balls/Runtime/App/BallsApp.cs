@@ -179,6 +179,11 @@ namespace Balls.App
             {
                 current.HandleEscape();
             }
+            if (SessionSystem.Current?.Notice is string notice)
+            {
+                SessionSystem.Current.Notice = null;
+                Toast(notice);
+            }
             string loadFailure = SessionSystem.Current?.LoadFailure;
             if (current is Screens.GameplayScreen && loadFailure != null)
             {
@@ -240,11 +245,6 @@ namespace Balls.App
         public void StartGameplay(int mode, string levelName, int backendKind)
         {
             bool collisions = Settings != null && Settings.BallCollisions;
-            if (collisions && backendKind != BallsNative.BackendScalar)
-            {
-                backendKind = BallsNative.BackendScalar;
-                Toast(CollisionsNeedScalar);
-            }
             if (SessionSystem.Current != null)
             {
                 SessionSystem.Current.LoadFailure = null;
@@ -264,28 +264,20 @@ namespace Balls.App
             Go<Screens.GameplayScreen>();
             var gameplay = Get<Screens.GameplayScreen>();
             gameplay.BeginSession();
-            if (!collisions)
-            {
-                Toast($"{BallsNative.BackendName(backendKind)} physics");
-            }
+            // The core's ball collisions notice, if the session has one, replaces this once the session starts.
+            Toast($"{BallsNative.BackendName(backendKind)} physics");
         }
 
-        public const string CollisionsNeedScalar = "Ball collisions need the Scalar backend - switched to Scalar";
-
-        /// <summary>Applies the Ball collisions setting to the running game; the Scalar backend is the only one that supports it.</summary>
+        /// <summary>
+        /// Applies the Ball collisions setting to the running game. The core decides whether that needs Scalar and
+        /// whether Scalar is offered, and SessionSystem passes its toast on.
+        /// </summary>
         public void ApplyBallCollisions(bool enabled)
         {
-            if (!Running)
+            if (Running)
             {
-                return;
+                BallsInput.RequestCollisions(enabled);
             }
-            if (enabled && BackendKind != BallsNative.BackendScalar)
-            {
-                BackendKind = BallsNative.BackendScalar;
-                BallsInput.RequestBackendSwitch(BallsNative.BackendScalar);
-                Toast(CollisionsNeedScalar);
-            }
-            BallsInput.RequestCollisions(enabled);
         }
 
         /// <summary>The level after the current one in the mode's list, or Level select after the last.</summary>

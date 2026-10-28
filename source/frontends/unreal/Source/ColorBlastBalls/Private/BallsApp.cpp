@@ -37,6 +37,7 @@
 #include "UI/SBallsMenus.h"
 #include "UI/SBallsRoot.h"
 
+#include <format>
 #include <fstream>
 #include <sstream>
 
@@ -108,12 +109,8 @@ std::optional<BackendKind> BackendFromCommandLine() {
     if (!FParse::Value(FCommandLine::Get(), TEXT("BallsBackend="), Name)) {
         return std::nullopt;
     }
-    for (const BackendKind Kind : allBackendKinds) {
-        if (Name.Equals(BallsText::FromUtf8(backendKindName(Kind)), ESearchCase::IgnoreCase) && isBackendAvailable(Kind)) {
-            return Kind;
-        }
-    }
-    return std::nullopt;
+    // A kind name or device picks ("AVX2@cpu+CUDA@gpu0"), as the game's backend launch option takes them.
+    return parseBackendKind(TCHAR_TO_UTF8(*Name));
 }
 
 // The Settings page values the core does not own (backend, VSync) live in the per-user GameUserSettings.ini.
@@ -124,29 +121,29 @@ std::filesystem::path SettingsFile() {
     return std::filesystem::path(TCHAR_TO_UTF8(*Path));
 }
 
-std::optional<BackendKind> AvailableBackendNamed(const std::string& Name) {
-    for (const BackendKind Kind : allBackendKinds) {
-        if (Name == backendKindName(Kind) && isBackendAvailable(Kind)) {
-            return Kind;
-        }
-    }
-    return std::nullopt;
-}
+std::filesystem::path ProfileFolder() { return SettingsFile().parent_path(); }
 
-// The scoring machine's machine-benchmark record ships with the assets, so the game starts on the backend that is
-// fastest where it is judged ("Default backend and machine benchmark").
-std::optional<BackendKind> TargetMachineBackend(const std::filesystem::path& AssetRoot) {
-    std::ifstream File(AssetRoot / "target-benchmark.txt", std::ios::binary);
-    if (!File) {
-        return std::nullopt;
+// Builds before the core owned the machine profile kept the probe limits in GameUserSettings.ini as
+// "Limit.<backend>=<fps> <balls>"; carry them over to the profile once.
+void AdoptIniBallLimits(MachineProfile& Profile) {
+    if (!GConfig) {
+        return;
     }
-    std::stringstream Text;
-    Text << File.rdbuf();
-    const std::optional<BenchmarkRecord> Record = parseBenchmarkRecord(Text.str());
-    if (!Record || !Record->winner) {
-        return std::nullopt;
+    for (const BackendKind Kind : allBackendKinds) {
+        const FString Key = TEXT("Limit.") + BallsText::FromUtf8(backendKindName(Kind));
+        FString Value;
+        FString Target;
+        FString Balls;
+        if (!GConfig->GetString(PreferencesSection, *Key, Value, GGameUserSettingsIni) ||
+            !Value.Split(TEXT(" "), &Target, &Balls)) {
+            continue;
+        }
+        if (!Profile.ballLimit(Kind)) {
+            Profile.rememberBallLimit(Kind, FCString::Atod(*Target), FCString::Strtoui64(*Balls, nullptr, 10));
+        }
+        GConfig->RemoveKey(PreferencesSection, *Key, GGameUserSettingsIni);
     }
-    return AvailableBackendNamed(std::string(backendKindName(Record->winner->kind)));
+    GConfig->Flush(false, GGameUserSettingsIni);
 }
 
 // The Unreal port owns this one: the design has no graphics level, but its post chain costs more than the scene.
@@ -181,51 +178,16 @@ BackendKind StartupBackend(const std::string& SettingsDefault, const std::filesy
 #if PLATFORM_WINDOWS && defined(BALLS_PLUGIN_DIR)
     AddPhysicsPluginDirectory();
 #endif
-    if (const std::optional<BackendKind> Requested = BackendFromCommandLine()) {
-        return *Requested;
-    }
-    if (const std::optional<BackendKind> Saved = AvailableBackendNamed(SettingsDefault)) {
-        return *Saved;
-    }
-    if (const std::optional<BackendKind> Target = TargetMachineBackend(AssetRoot)) {
-        return *Target;
-    }
-    return fastestAvailableCpuBackend();
-}
-
-// The control API answers JSON, so level names and toasts have to be escaped.
-FString EscapeJson(const FString& Text) {
-    FString Out;
-    Out.Reserve(Text.Len() + 8);
-    for (const TCHAR Character : Text) {
-        switch (Character) {
-        case TEXT('"'):
-            Out += TEXT("\\\"");
-            break;
-        case TEXT('\\'):
-            Out += TEXT("\\\\");
-            break;
-        case TEXT('\n'):
-            Out += TEXT("\\n");
-            break;
-        case TEXT('\r'):
-            Out += TEXT("\\r");
-            break;
-        case TEXT('\t'):
-            Out += TEXT("\\t");
-            break;
-        default:
-            Out.AppendChar(Character);
-        }
-    }
-    return Out;
+    return chooseStartupBackend(BackendFromCommandLine(), SettingsDefault, AssetRoot / targetBenchmarkFileName);
 }
 
 }
 
 FBallsApp::FBallsApp(UWorld* InWorld)
     : World(InWorld), CurrentSettings(loadSettings(SettingsFile())), bVSync(SavedVSync()),
-      GraphicsQuality(SavedGraphics()) {
+      GraphicsQuality(SavedGraphics()), Profile(ProfileFolder()) {
+    Profile.load();
+    AdoptIniBallLimits(Profile);
 #if PLATFORM_ANDROID
     StageAndroidLevels();
 #endif
@@ -489,8 +451,9 @@ FString FBallsApp::GetBenchmarkWinnerLabel() const {
 
 void FBallsApp::SetPreferredBackend(BackendKind Kind) {
     PreferredBackend = Kind;
-    // The default backend is a core setting, shared with the SDL front end's Settings page.
-    CurrentSettings.defaultBackend = std::string(backendKindName(Kind));
+    // The default backend is a core setting, shared with the SDL front end's Settings page; Hybrid is saved as its
+    // device picks.
+    CurrentSettings.defaultBackend = storedBackendName(Kind);
     if (const Result<void> Saved = saveSettings(SettingsFile(), CurrentSettings); !Saved) {
         UE_LOG(LogTemp, Warning, TEXT("BallsSettings: %s"), *BallsText::FromUtf8(Saved.error()));
     }
@@ -526,30 +489,6 @@ void FBallsApp::UpdateSettings(const Settings& Next) {
     if (Gameplay) {
         Gameplay->ApplySettings();
     }
-}
-
-std::optional<FBallsApp::FMachineLimit> FBallsApp::GetMachineLimit(BackendKind Kind) const {
-    FString Value;
-    if (!GConfig || !GConfig->GetString(PreferencesSection, *(TEXT("Limit.") + BallsText::FromUtf8(backendKindName(Kind))),
-                                        Value, GGameUserSettingsIni)) {
-        return std::nullopt;
-    }
-    FString Target;
-    FString Balls;
-    if (!Value.Split(TEXT(" "), &Target, &Balls)) {
-        return std::nullopt;
-    }
-    return FMachineLimit{FCString::Atod(*Target), static_cast<BallCount>(FCString::Strtoui64(*Balls, nullptr, 10))};
-}
-
-void FBallsApp::RememberMachineLimit(BackendKind Kind, double TargetFps, BallCount Balls) {
-    if (!GConfig) {
-        return;
-    }
-    GConfig->SetString(PreferencesSection, *(TEXT("Limit.") + BallsText::FromUtf8(backendKindName(Kind))),
-                       *FString::Printf(TEXT("%g %llu"), TargetFps, static_cast<unsigned long long>(Balls)),
-                       GGameUserSettingsIni);
-    GConfig->Flush(false, GGameUserSettingsIni);
 }
 
 void FBallsApp::SetVSyncEnabled(bool bEnabled) {
@@ -609,14 +548,18 @@ bool FBallsApp::HandleKey(const FKey& Key) {
 }
 
 void FBallsApp::RecordFrame(float DeltaSeconds) {
-    FBallsFrameSample Sample;
-    Sample.FrameMs = FApp::GetDeltaTime() * 1000.0;
-    Sample.GameMs = FPlatformTime::ToMilliseconds(GGameThreadTime);
-    Sample.RenderMs = FPlatformTime::ToMilliseconds(GRenderThreadTime);
-    Sample.GpuMs = FPlatformTime::ToMilliseconds(RHIGetGPUFrameCycles(0));
-    Sample.IdleMs = FApp::GetIdleTime() * 1000.0;
-    LatestSample = Sample;
-    FrameTimings.Record(Sample);
+    FrameSample Sample;
+    Sample.frameMs = FApp::GetDeltaTime() * 1000.0;
+    Sample.cpuMs = FPlatformTime::ToMilliseconds(GGameThreadTime);
+    Sample.renderMs = FPlatformTime::ToMilliseconds(GRenderThreadTime);
+    Sample.gpuMs = FPlatformTime::ToMilliseconds(RHIGetGPUFrameCycles(0));
+    // Time the engine slept to hold a frame-rate cap (t.MaxFPS): the one wait that is not the game's own work.
+    Sample.waitMs = FApp::GetIdleTime() * 1000.0;
+    // The limiting thread, or the whole frame minus the cap's sleep when that is longer: the thread times alone would
+    // hide a stall (memory paging, a long core step on a worker) that makes the real frame far longer.
+    Sample.workMs = FMath::Max(FMath::Max3(Sample.cpuMs, Sample.renderMs, Sample.gpuMs),
+                               FMath::Max(0.0, Sample.frameMs - Sample.waitMs));
+    Frames.record(Sample);
 }
 
 void FBallsApp::Tick(float DeltaSeconds) {
@@ -651,341 +594,201 @@ void FBallsApp::Tick(float DeltaSeconds) {
     const TSharedPtr<FBallsGameplay> Current = Gameplay;
     // Probe windows use the limiting CPU/GPU work rate, not cadence imposed by VSync or the compositor.
     // After a hitch the spawn budget and brick animation must not jump by the whole stall: clamp like the SDL front end.
-    Current->Tick(FMath::Min(DeltaSeconds, MaximumFrameSeconds), LatestSample.WorkMs() / 1000.0,
-                  LatestSample.WorkMs() / 1000.0);
-    GameSession* Session = Current->GetSession();
+    Current->Tick(FMath::Min(DeltaSeconds, MaximumFrameSeconds), Frames.latest().workMs / 1000.0,
+                  Frames.latest().workMs / 1000.0);
+    const SessionView* View = Current->GetView();
     const FGeometry& Geometry = Root->GetCachedGeometry();
     const FVector2D ViewportSize = Geometry.GetLocalSize();
-    if (!Session || Current != Gameplay || ViewportSize.X <= 1.0 || ViewportSize.Y <= 1.0) {
+    if (!View || !View->board || Current != Gameplay || ViewportSize.X <= 1.0 || ViewportSize.Y <= 1.0) {
         return;
     }
     const float DpiScale = Geometry.GetAccumulatedLayoutTransform().GetScale();
-    Simulation& Sim = Session->simulation();
-    const int32 LauncherRows =
-        Current->GetMode() == GameMode::Normal ? Session->launchers().visibleRows() : 0;
-    const FBallsGameplayLayout Layout = ComputeGameplayLayout(ViewportSize, Sim.board().columns(),
-                                                              Sim.board().rows(), DpiScale, LauncherRows);
-    BoardView->Update(Sim, Layout, ViewportSize, DpiScale);
-    BoardView->SubmitBalls(Sim, Layout, DpiScale);
+    const BrickBoard& Board = *View->board;
+    const int32 LauncherRows = Current->GetMode() == GameMode::Normal ? View->launchers.visibleRows() : 0;
+    const FBallsGameplayLayout Layout =
+        ComputeGameplayLayout(ViewportSize, Board.columns(), Board.rows(), DpiScale, LauncherRows);
+    BoardView->Update(Board, Layout, ViewportSize, DpiScale);
+    if (GameSession* Live = Current->GetLiveSession()) {
+        BoardView->SubmitBalls(Live->simulation(), Layout, DpiScale);
+    } else {
+        // The physics thread copied this frame's balls into the view; it sizes the visibility grid from the slot.
+        Current->SetVisibilitySlotCells(FBallsBoardView::VisibilitySlotCells(View->ballRadius, Layout, DpiScale));
+        const BallFrame& Balls = View->balls;
+        BoardView->SubmitBalls({Balls.packed.data(), Balls.packed.size(), Balls.fieldWidth, Balls.fieldHeight, false,
+                                Balls.visibilityGrid},
+                               View->ballRadius, Layout, DpiScale);
+    }
 }
 
-FString FBallsApp::GetScreenName() const {
+std::string_view FBallsApp::GetScreenName() const {
     switch (CurrentScreen) {
     case EScreen::LevelSelect:
-        return TEXT("level-select");
+        return "level-select";
     case EScreen::Gameplay:
-        return TEXT("gameplay");
+        return "gameplay";
     case EScreen::MapEditor:
-        return TEXT("editor");
+        return "editor";
     case EScreen::Settings:
-        return TEXT("settings");
+        return "settings";
     case EScreen::Benchmark:
-        return TEXT("benchmark");
+        return "benchmark";
     default:
-        return TEXT("main-menu");
+        return "main-menu";
     }
 }
 
-FString FBallsApp::BuildControlStateJson() const {
-    const FBallsFrameSample& Sample = LatestSample;
-    const FGeometry& Geometry = Root->GetCachedGeometry();
-    const FVector2D WindowSize = Geometry.GetLocalSize();
-    const double Fps = FrameTimings.FramesPerSecond();
-    const double MinFps = FrameTimings.WorstFpsLastSecond();
-    const double WorkFps = FrameTimings.WorkFramesPerSecond();
-    const double MinWorkFps = FrameTimings.WorstWorkFpsLastSecond();
-    const BackendKind ActiveBackend = Gameplay && Gameplay->GetSession() ? Gameplay->GetSession()->backend()
-                                                                        : PreferredBackend;
+struct FBallsApp::FControlBridge final : ControlHost {
+    FBallsApp& App;
 
-    FString Details = TEXT("{}");
-    if (Gameplay && Gameplay->GetSession()) {
-        const GameSession& Session = *Gameplay->GetSession();
-        const Simulation& Sim = Session.simulation();
-        static const TCHAR* const StateNames[] = {TEXT("ready"), TEXT("running"), TEXT("won")};
-        const int32 StateIndex = static_cast<int32>(Session.state());
-        Details = FString::Printf(
-            TEXT("{\"mode\":\"%s\",\"level\":\"%s\",\"state\":\"%s\",\"paused\":%s,\"balls\":%llu,")
-            TEXT("\"bricks\":%d,\"launchersLeft\":%d,\"physicsMs\":%.2f,\"ticks\":%d,\"spawnRate\":%d,")
-            TEXT("\"ballLimit\":%llu,\"elapsed\":%.2f,")
-            TEXT("\"probe\":{\"phase\":\"%s\",\"target\":%.0f,\"fps\":%.1f,\"best\":%llu}}"),
-            Gameplay->GetMode() == GameMode::Performance ? TEXT("performance") : TEXT("normal"),
-            *EscapeJson(BallsText::FromUtf8(Gameplay->GetFiles().name)),
-            StateNames[FMath::Clamp(StateIndex, 0, 2)], Gameplay->IsPaused() ? TEXT("true") : TEXT("false"),
-            static_cast<unsigned long long>(Sim.stats().ballCount), Sim.board().aliveBrickCount(),
-            Session.launchers().launcherCount(), Sim.stats().lastFramePhysicsMs, Sim.stats().ticksLastFrame,
-            spawnRateOptions[Session.spawnRateIndex()], static_cast<unsigned long long>(Session.ballLimit()),
-            Session.elapsedSeconds(), ANSI_TO_TCHAR(probePhaseName(Session.capacityProbe().phase())),
-            Session.capacityProbe().targetFps(), Session.capacityProbe().lastFps(),
-            static_cast<unsigned long long>(Session.capacityProbe().bestPassingCount()));
+    explicit FControlBridge(FBallsApp& Owner) : App(Owner) {}
+
+    ControlFrontEndState frontEndState() const override {
+        const FVector2D WindowSize = App.Root->GetCachedGeometry().GetLocalSize();
+        ControlFrontEndState State;
+        State.frontEnd = "unreal";
+        State.renderer = TCHAR_TO_UTF8(*GRHIAdapterName);
+        State.screen = App.GetScreenName();
+        State.windowWidth = static_cast<int>(WindowSize.X);
+        State.windowHeight = static_cast<int>(WindowSize.Y);
+        State.frames = &App.Frames;
+        State.preferredBackend = App.PreferredBackend;
+        State.vsync = App.bVSync;
+        State.toast = App.Toast.SecondsLeft > 0.0f ? std::string(TCHAR_TO_UTF8(*App.Toast.Text)) : std::string();
+        return State;
+    }
+    ControlGame* game() override {
+        return App.CurrentScreen == EScreen::Gameplay && App.Gameplay ? App.Gameplay.Get() : nullptr;
+    }
+    std::filesystem::path levelDirectory(GameMode Mode) const override { return App.LevelDirectory(Mode); }
+
+    std::optional<ControlResponse> takeScreenshot(const std::string& Path) override {
+        FScreenshotRequest::RequestScreenshot(UTF8_TO_TCHAR(Path.c_str()), true, false);
+        return ControlResponse::ok(std::format("{{\"ok\":true,\"path\":\"{}\"}}", jsonEscape(Path)));
+    }
+    void play(GameMode Mode, const LevelFiles& Level) override { App.StartGame(Mode, Level); }
+    void showMainMenu() override { App.ShowMainMenu(); }
+    bool showLevelSelect(GameMode Mode) override {
+        App.ShowLevelSelect(Mode);
+        return true;
+    }
+    bool openEditor(GameMode Mode, const std::optional<LevelFiles>& Level) override {
+        App.ShowMapEditor(Mode, Level);
+        return true;
+    }
+    void quit() override { App.Quit(); }
+
+    const Settings& settings() const override { return App.CurrentSettings; }
+    void applySettings(const Settings& Next, std::optional<BackendKind> DefaultBackend) override {
+        if (Next.vsync != App.bVSync) {
+            App.SetVSyncEnabled(Next.vsync);
+        }
+        if (Next != App.CurrentSettings) {
+            App.UpdateSettings(Next);
+        }
+        if (DefaultBackend) {
+            App.SetPreferredBackend(*DefaultBackend);
+        }
+    }
+    void openSettings() override {
+        if (FBallsGameplay* Game = App.CurrentScreen == EScreen::Gameplay ? App.Gameplay.Get() : nullptr) {
+            Game->SetPaused(true);
+            Game->SetSettingsOpen(true);
+        } else if (App.CurrentScreen != EScreen::Settings) {
+            App.ShowSettings();
+        }
+    }
+    void setVsync(bool bEnabled) override { App.SetVSyncEnabled(bEnabled); }
+
+    ControlBenchmarkState benchmarkState() const override {
+        ControlBenchmarkState State;
+        const std::optional<BenchmarkRecord>& Record = App.Benchmark.GetRecord();
+        State.state = App.Benchmark.IsRunning() ? "running"
+                      : App.bBenchmarkSettled || (Record && Record->complete) ? "done"
+                      : Record                                             ? "skipped"
+                                                                           : "none";
+        State.results = App.Benchmark.Results();
+        State.winner = App.Benchmark.PickWinner();
+        return State;
+    }
+    void runBenchmark() override {
+        if (!App.Benchmark.IsRunning()) {
+            App.bBenchmarkReturnToSettings = false;
+            App.ShowBenchmark();
+        }
+    }
+    bool skipBenchmark() override {
+        if (App.CurrentScreen != EScreen::Benchmark || App.bBenchmarkSettled) {
+            return false;
+        }
+        App.SkipBenchmark();
+        return true;
+    }
+    bool continueFromBenchmark() override {
+        if (App.CurrentScreen != EScreen::Benchmark || !App.bBenchmarkSettled) {
+            return false;
+        }
+        App.LeaveBenchmark();
+        return true;
     }
 
-    const FString ToastText = Toast.SecondsLeft > 0.0f ? Toast.Text : FString();
-    return FString::Printf(
-        TEXT("{\"ok\":true,\"frontend\":\"unreal\",\"renderer\":\"%s\",\"screen\":\"%s\",\"window\":[%.0f,%.0f],")
-        TEXT("\"fps\":%.1f,\"minFps\":%.1f,\"workFps\":%.1f,\"minWorkFps\":%.1f,\"frameMs\":%.2f,\"cpuMs\":%.2f,\"gpuMs\":%.2f,\"renderMs\":%.2f,")
-        TEXT("\"backend\":\"%s\",\"vsync\":%s,\"toast\":\"%s\",\"details\":%s}"),
-        *EscapeJson(GRHIAdapterName), *GetScreenName(), WindowSize.X, WindowSize.Y, Fps, MinFps,
-        WorkFps, MinWorkFps, Sample.FrameMs, Sample.GameMs,
-        Sample.GpuMs, Sample.RenderMs, *BallsText::FromUtf8(backendKindName(ActiveBackend)),
-        bVSync ? TEXT("true") : TEXT("false"), *EscapeJson(ToastText), *Details);
-}
+    std::optional<ControlResponse> handleOwnRoute(const ControlRequest& Request) override {
+        return App.HandleOwnControl(Request);
+    }
+};
+
+TArray<FString> FBallsApp::OwnControlPaths() { return {TEXT("/cvar"), TEXT("/graphics")}; }
 
 void FBallsApp::HandleControl(const FString& Path, const TMap<FString, FString>& Query, FString& OutBody,
                               int32& OutCode) {
-    OutCode = 200;
-    const auto Param = [&Query](const TCHAR* Name) {
-        const FString* Value = Query.Find(Name);
-        return Value ? *Value : FString();
-    };
-    const auto IntParam = [&Param](const TCHAR* Name, int32 Fallback) {
-        const FString Value = Param(Name);
-        return Value.IsEmpty() ? Fallback : FCString::Atoi(*Value);
-    };
+    if (!ControlBridge) {
+        ControlBridge = MakeShared<FControlBridge>(*this);
+    }
+    ControlRequest Request;
+    Request.path = TCHAR_TO_UTF8(*Path);
+    for (const TPair<FString, FString>& Entry : Query) {
+        Request.query[std::string(TCHAR_TO_UTF8(*Entry.Key))] = TCHAR_TO_UTF8(*Entry.Value);
+    }
+    // Unreal answers a screenshot at once, so the core never leaves a request waiting here.
+    const ControlResponse Response = handleControlRequest(*ControlBridge, Request).value_or(ControlResponse::ok());
+    OutCode = Response.status;
+    OutBody = UTF8_TO_TCHAR(Response.json.c_str());
+}
 
-    if (Path == TEXT("/state")) {
-        OutBody = BuildControlStateJson();
-        return;
-    }
-    if (Path == TEXT("/screenshot")) {
-        const FString Target = Param(TEXT("path"));
-        if (Target.IsEmpty()) {
-            OutCode = 400;
-            OutBody = TEXT("{\"ok\":false,\"error\":\"missing path\"}");
-            return;
-        }
-        FScreenshotRequest::RequestScreenshot(Target, true, false);
-        OutBody = FString::Printf(TEXT("{\"ok\":true,\"path\":\"%s\"}"), *EscapeJson(Target));
-        return;
-    }
-    if (Path == TEXT("/play")) {
-        const FString ModeName = Param(TEXT("mode"));
-        const bool bPerformance = ModeName.Equals(TEXT("performance"), ESearchCase::IgnoreCase);
-        if (!bPerformance && !ModeName.IsEmpty() && !ModeName.Equals(TEXT("normal"), ESearchCase::IgnoreCase)) {
-            OutCode = 400;
-            OutBody = TEXT("{\"ok\":false,\"error\":\"mode must be normal or performance\"}");
-            return;
-        }
-        const GameMode Mode = bPerformance ? GameMode::Performance : GameMode::Normal;
-        const FString LevelName = Param(TEXT("level"));
-        for (const LevelFiles& Files : findLevels(LevelDirectory(Mode))) {
-            if (LevelName.IsEmpty() || LevelName.Equals(BallsText::FromUtf8(Files.name), ESearchCase::IgnoreCase)) {
-                StartGame(Mode, Files);
-                OutBody = TEXT("{\"ok\":true}");
-                return;
-            }
-        }
-        OutCode = 404;
-        OutBody = FString::Printf(TEXT("{\"ok\":false,\"error\":\"no level '%s'\"}"), *EscapeJson(LevelName));
-        return;
-    }
-    if (Path == TEXT("/start")) {
-        if (!Gameplay) {
-            OutCode = 409;
-            OutBody = TEXT("{\"ok\":false,\"error\":\"no game\"}");
-            return;
-        }
-        Gameplay->StartAutoRelease();
-        OutBody = TEXT("{\"ok\":true}");
-        return;
-    }
-    if (Path == TEXT("/launcher")) {
-        // Normal mode has no auto-release; this is how automation and the design captures pick a launcher.
-        if (!Gameplay || !Gameplay->GetSession()) {
-            OutCode = 409;
-            OutBody = TEXT("{\"ok\":false,\"error\":\"no game\"}");
-            return;
-        }
-        Gameplay->ChooseLauncher(IntParam(TEXT("column"), 0), IntParam(TEXT("row"), 0));
-        OutBody = TEXT("{\"ok\":true}");
-        return;
-    }
-    if (Path == TEXT("/rate")) {
-        if (!Gameplay) {
-            OutCode = 409;
-            OutBody = TEXT("{\"ok\":false,\"error\":\"no game\"}");
-            return;
-        }
-        Gameplay->SelectSpawnRate(IntParam(TEXT("index"), 0));
-        OutBody = TEXT("{\"ok\":true}");
-        return;
-    }
-    if (Path == TEXT("/limit")) {
-        if (!Gameplay) {
-            OutCode = 409;
-            OutBody = TEXT("{\"ok\":false,\"error\":\"no game\"}");
-            return;
-        }
-        Gameplay->SelectBallLimit(IntParam(TEXT("index"), 0));
-        OutBody = TEXT("{\"ok\":true}");
-        return;
-    }
-    if (Path == TEXT("/fill")) {
-        GameSession* Session = Gameplay ? Gameplay->GetSession() : nullptr;
-        if (!Session) {
-            OutCode = 409;
-            OutBody = TEXT("{\"ok\":false,\"error\":\"no game\"}");
-            return;
-        }
-        Session->fillWithBalls(static_cast<BallCount>(FMath::Max(IntParam(TEXT("count"), 0), 0)));
-        OutBody = TEXT("{\"ok\":true}");
-        return;
-    }
-    if (Path == TEXT("/probe")) {
-        if (!Gameplay) {
-            OutCode = 409;
-            OutBody = TEXT("{\"ok\":false,\"error\":\"no game\"}");
-            return;
-        }
-        if (IntParam(TEXT("cancel"), 0) != 0) {
-            Gameplay->CancelCapacityProbe();
-        } else {
-            Gameplay->SetProbeTargetFps(IntParam(TEXT("fps"), Gameplay->GetProbeTargetFps()));
-            Gameplay->StartCapacityProbe();
-        }
-        OutBody = FString::Printf(TEXT("{\"ok\":true,\"target\":%d}"), Gameplay->GetProbeTargetFps());
-        return;
-    }
-    if (Path == TEXT("/backend")) {
-        const FString Name = Param(TEXT("kind"));
-        std::optional<BackendKind> Kind;
-        for (const BackendKind Candidate : allBackendKinds) {
-            if (Name.Equals(BallsText::FromUtf8(backendKindName(Candidate)), ESearchCase::IgnoreCase)) {
-                Kind = Candidate;
-            }
-        }
-        if (!Kind || !isBackendAvailable(*Kind)) {
-            OutCode = 409;
-            OutBody = TEXT("{\"ok\":false,\"error\":\"backend unknown or unavailable\"}");
-            return;
-        }
-        if (Gameplay && Gameplay->GetSession()) {
-            Gameplay->SwitchBackend(*Kind);
-        } else {
-            SetPreferredBackend(*Kind);
-        }
-        OutBody = TEXT("{\"ok\":true}");
-        return;
-    }
-    if (Path == TEXT("/settings")) {
-        Settings Next = CurrentSettings;
-        const FString Layout = Param(TEXT("layout"));
-        if (!Layout.IsEmpty()) {
-            if (const std::optional<LayoutOrientation> Parsed = parseOrientation(std::string(TCHAR_TO_UTF8(*Layout)))) {
-                Next.layout = *Parsed;
-            }
-        }
-        const FString Collisions = Param(TEXT("ballCollisions"));
-        if (!Collisions.IsEmpty()) {
-            Next.ballCollisions = Collisions != TEXT("0") && !Collisions.Equals(TEXT("false"), ESearchCase::IgnoreCase);
-        }
-        if (Next != CurrentSettings) {
-            UpdateSettings(Next);
-        }
-        const FString VSync = Param(TEXT("vsync"));
-        if (!VSync.IsEmpty()) {
-            SetVSyncEnabled(VSync != TEXT("0") && !VSync.Equals(TEXT("false"), ESearchCase::IgnoreCase));
-        }
-        OutBody = FString::Printf(
-            TEXT("{\"ok\":true,\"layout\":\"%s\",\"ballCollisions\":%s,\"vsync\":%s,\"backend\":\"%s\"}"),
-            *BallsText::FromUtf8(orientationName(CurrentSettings.layout)),
-            CurrentSettings.ballCollisions ? TEXT("true") : TEXT("false"), bVSync ? TEXT("true") : TEXT("false"),
-            *BallsText::FromUtf8(backendKindName(PreferredBackend)));
-        return;
-    }
-    if (Path == TEXT("/pause") || Path == TEXT("/resume")) {
-        if (!Gameplay) {
-            OutCode = 409;
-            OutBody = TEXT("{\"ok\":false,\"error\":\"no game\"}");
-            return;
-        }
-        Gameplay->SetPaused(Path == TEXT("/pause"));
-        OutBody = TEXT("{\"ok\":true}");
-        return;
-    }
+std::optional<ControlResponse> FBallsApp::HandleOwnControl(const ControlRequest& Request) {
+    const FString Path = UTF8_TO_TCHAR(Request.path.c_str());
+    const auto Param = [&Request](const char* Name) { return FString(UTF8_TO_TCHAR(Request.text(Name).value_or("").c_str())); };
     if (Path == TEXT("/cvar")) {
         // Profiling hook for the ball pass and the frame cap: r.Balls.DrawPasses and r.Balls.VertexOnly split its
         // vertex and fragment cost, and t.MaxFPS lifts the display's cap so a measurement can see the real frame
         // time instead of the vsync clamp. Nothing else may be set from HTTP.
-        const FString CvarName = Param(TEXT("name"));
-        const FString Value = Param(TEXT("value"));
+        const FString CvarName = Param("name");
+        const FString Value = Param("value");
         const bool bAllowed =
             CvarName.StartsWith(TEXT("r.Balls.")) || CvarName.Equals(TEXT("t.MaxFPS"), ESearchCase::IgnoreCase);
         IConsoleVariable* Variable =
             bAllowed && !Value.IsEmpty() ? IConsoleManager::Get().FindConsoleVariable(*CvarName) : nullptr;
         if (!Variable) {
-            OutCode = 400;
-            OutBody = TEXT("{\"ok\":false,\"error\":\"only r.Balls.* and t.MaxFPS can be set, with a value\"}");
-            return;
+            return ControlResponse::error(400, "only r.Balls.* and t.MaxFPS can be set, with a value");
         }
         Variable->Set(*Value, ECVF_SetByCode);
-        OutBody = FString::Printf(TEXT("{\"ok\":true,\"name\":\"%s\",\"value\":%d}"), *EscapeJson(CvarName),
-                                  Variable->GetInt());
-        return;
+        return ControlResponse::ok(std::format("{{\"ok\":true,\"name\":\"{}\",\"value\":{}}}",
+                                               jsonEscape(TCHAR_TO_UTF8(*CvarName)), Variable->GetInt()));
     }
     if (Path == TEXT("/graphics")) {
-        const FString Requested = Param(TEXT("level"));
+        const FString Requested = Param("level");
         if (!Requested.IsEmpty()) {
             const std::optional<EBallsGraphics> Parsed = BallsGraphics::Parse(Requested);
             if (!Parsed) {
-                OutCode = 400;
-                OutBody = TEXT("{\"ok\":false,\"error\":\"level must be minimum, balanced or high\"}");
-                return;
+                return ControlResponse::error(400, "level must be minimum, balanced or high");
             }
             SetGraphicsQuality(*Parsed);
         }
-        OutBody = FString::Printf(TEXT("{\"ok\":true,\"level\":\"%s\",\"screenPercentage\":%d}"),
-                                  *BallsGraphics::Name(GraphicsQuality),
-                                  GraphicsQuality == EBallsGraphics::Minimum ? 70
-                                  : GraphicsQuality == EBallsGraphics::Balanced ? 85
-                                                                                : 100);
-        return;
+        const int32 ScreenPercentage = GraphicsQuality == EBallsGraphics::Minimum    ? 70
+                                       : GraphicsQuality == EBallsGraphics::Balanced ? 85
+                                                                                     : 100;
+        return ControlResponse::ok(std::format("{{\"ok\":true,\"level\":\"{}\",\"screenPercentage\":{}}}",
+                                               TCHAR_TO_UTF8(*BallsGraphics::Name(GraphicsQuality)), ScreenPercentage));
     }
-    if (Path == TEXT("/benchmark")) {
-        if (IntParam(TEXT("run"), 0) != 0 && !Benchmark.IsRunning()) {
-            bBenchmarkReturnToSettings = false;
-            ShowBenchmark();
-        }
-        static const TCHAR* const StatusNames[] = {TEXT("pending"), TEXT("running"), TEXT("done"), TEXT("failed"),
-                                                   TEXT("unavailable")};
-        FString Candidates;
-        for (const CandidateResult& Result : Benchmark.Results()) {
-            Candidates += FString::Printf(
-                TEXT("%s{\"backend\":\"%s\",\"status\":\"%s\",\"ballStepsPerSecond\":%.0f,")
-                TEXT("\"estimatedBalls\":%.0f,\"ballCapacity\":%.0f,\"progress\":%.2f,\"failure\":\"%s\"}"),
-                Candidates.IsEmpty() ? TEXT("") : TEXT(","),
-                *EscapeJson(BallsText::FromUtf8(backendKindName(Result.candidate.kind))),
-                StatusNames[FMath::Clamp(static_cast<int32>(Result.status), 0, 4)], Result.ballStepsPerSecond,
-                Result.estimatedBalls, Result.ballCapacity, Result.progress,
-                *EscapeJson(BallsText::FromUtf8(Result.failure)));
-        }
-        const FString Winner = GetBenchmarkWinnerLabel();
-        const TCHAR* State = Benchmark.IsRunning() ? TEXT("running") : bBenchmarkSettled ? TEXT("done") : TEXT("idle");
-        OutBody = FString::Printf(
-            TEXT("{\"ok\":true,\"state\":\"%s\",\"winner\":%s,\"results\":[%s]}"), State,
-            Winner.IsEmpty() ? TEXT("null") : *FString::Printf(TEXT("\"%s\""), *EscapeJson(Winner)), *Candidates);
-        return;
-    }
-    if (Path == TEXT("/benchmark/skip")) {
-        SkipBenchmark();
-        OutBody = TEXT("{\"ok\":true}");
-        return;
-    }
-    if (Path == TEXT("/benchmark/continue")) {
-        LeaveBenchmark();
-        OutBody = TEXT("{\"ok\":true}");
-        return;
-    }
-    if (Path == TEXT("/menu")) {
-        ShowMainMenu();
-        OutBody = TEXT("{\"ok\":true}");
-        return;
-    }
-    if (Path == TEXT("/quit")) {
-        OutBody = TEXT("{\"ok\":true}");
-        Quit();
-        return;
-    }
-    OutCode = 404;
-    OutBody = FString::Printf(TEXT("{\"ok\":false,\"error\":\"unknown path %s\"}"), *EscapeJson(Path));
+    return std::nullopt;
 }
 

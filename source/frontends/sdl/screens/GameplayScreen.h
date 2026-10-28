@@ -16,7 +16,7 @@
 
 class App;
 
-class GameplayScreen final : public Screen {
+class GameplayScreen final : public Screen, public ControlGame {
 public:
     GameplayScreen(App& app, GameMode mode, LevelFiles files);
 
@@ -24,10 +24,23 @@ public:
     void draw() override;
     std::string_view name() const override { return "gameplay"; }
     bool drawsFrameTimings() const override { return true; }
-    std::string stateJson() const override;
     std::optional<ControlResponse> handleControl(const ControlRequest& request) override;
+    ControlGame* controlGame() override { return this; }
     void refreshSettings();
     void openSettingsOverlay();
+
+    // ControlGame
+    GameMode gameMode() const override { return mode; }
+    std::string levelName() const override { return files.name; }
+    std::string levelLoadError() const override { return loadError; }
+    LevelDiskState diskState() const override { return watcher.diskState(); }
+    std::shared_ptr<const SessionView> sessionView() override { return runner ? runner->view() : nullptr; }
+    void post(std::function<void(GameSession&)> command) override;
+    bool isPaused() const override { return paused; }
+    void setPaused(bool pause) override { paused = pause; }
+    void restart() override { restartLevel(); }
+    int capacityProbeTargetFps() const override { return probeTargetFps; }
+    void startCapacityProbe(int targetFps) override;
 
 private:
     struct Toast {
@@ -36,14 +49,8 @@ private:
         bool isError = false;
     };
 
-    // What happened to the level's files since this session loaded them. The level in play is never swapped
-    // mid-game; the header says so and Restart picks the new files up.
-    enum class DiskState { Unchanged, Changed, Removed };
-
     void loadSession();
-    void noticeDiskChange();
     void restartLevel();
-    std::string_view diskNotice() const;
     void handleLauncherClick(const GameplayLayout& layout);
     void showToast(std::string text, bool isError);
     void openNextLevel();
@@ -82,8 +89,9 @@ private:
     std::unique_ptr<SessionRunner> runner;
     std::shared_ptr<const SessionView> view;
     std::string loadError;
+    // The level in play is never swapped mid-game: the watcher's disk state puts a notice in the header and Restart
+    // picks the new files up.
     LevelWatcher watcher;
-    DiskState diskState = DiskState::Unchanged;
     Toast toast;
     bool paused = false;
     bool settingsOpen = false;

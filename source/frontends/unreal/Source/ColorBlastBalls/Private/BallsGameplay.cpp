@@ -3,12 +3,21 @@
 #include "BallsApp.h"
 #include "BallsText.h"
 #include "InputCoreTypes.h"
+#include "Misc/CommandLine.h"
+#include "Misc/Parse.h"
 
 #include <algorithm>
 #include <chrono>
 
 namespace {
 
+// -BallsPhysicsThread=1 runs the session on the core's physics thread (SessionRunner), as the SDL front end does;
+// 0 keeps it on the game thread, inside the frame.
+SessionThreading ThreadingFromCommandLine() {
+    int32 Value = 0;
+    FParse::Value(FCommandLine::Get(), TEXT("BallsPhysicsThread="), Value);
+    return Value != 0 ? SessionThreading::PhysicsThread : SessionThreading::UiThread;
+}
 
 }
 
@@ -25,39 +34,45 @@ void FBallsGameplay::LoadSession() {
         return;
     }
     LoadError.Reset();
-    Session = std::make_unique<GameSession>(Mode, std::move(*Level), App.GetPreferredBackend());
+    Host = std::make_unique<SessionHost>(Mode, std::move(*Level), App.GetPreferredBackend(), ThreadingFromCommandLine());
+    View = Host->view();
     ApplySettings();
     ApplyDefaultBallLimit();
 }
 
 void FBallsGameplay::ApplyDefaultBallLimit() {
-    if (Mode == GameMode::Performance && Session) {
+    if (Mode == GameMode::Performance && Host) {
         UseAutoBallLimit();
     }
 }
 
 void FBallsGameplay::UseAutoBallLimit() {
-    if (!Session) {
+    if (!Host) {
         return;
     }
-    const std::optional<FBallsApp::FMachineLimit> Limit = App.GetMachineLimit(Session->backend());
-    if (Limit && static_cast<int32>(Limit->TargetFps) == ProbeTargetFps) {
-        Session->cancelCapacityProbe();
-        Session->useMachineBallLimit(Limit->Balls);
-    } else {
-        StartCapacityProbe();
-    }
+    // The backend may still be settling (a physics thread, a fallback), so the session picks its own limit.
+    Host->post([Profile = App.GetMachineProfile(), TargetFps = ProbeTargetFps](GameSession& Session) {
+        const std::optional<MachineProfile::MeasuredLimit> Limit = Profile.ballLimit(Session.backend());
+        if (Limit && static_cast<int32>(Limit->targetFps) == TargetFps) {
+            Session.cancelCapacityProbe();
+            Session.useMachineBallLimit(Limit->balls);
+        } else {
+            Session.startCapacityProbe(static_cast<double>(TargetFps));
+        }
+    });
 }
 
 void FBallsGameplay::StartCapacityProbe() {
-    if (Session) {
-        Session->startCapacityProbe(static_cast<double>(ProbeTargetFps));
+    if (Host) {
+        Host->post([TargetFps = static_cast<double>(ProbeTargetFps)](GameSession& Session) {
+            Session.startCapacityProbe(TargetFps);
+        });
     }
 }
 
 void FBallsGameplay::CancelCapacityProbe() {
-    if (Session) {
-        Session->cancelCapacityProbe();
+    if (Host) {
+        Host->post([](GameSession& Session) { Session.cancelCapacityProbe(); });
     }
 }
 
@@ -73,48 +88,38 @@ void FBallsGameplay::SetProbeTargetFps(int32 Fps) {
 }
 
 FString FBallsGameplay::GetProbeStatus() const {
-    if (!Session) {
+    if (!View) {
         return FString();
     }
-    const CapacityProbe& Probe = Session->capacityProbe();
+    const CapacityProbe& Probe = View->probe;
     if (Probe.isActive()) {
-        return FString::Printf(TEXT("Probing... %s balls, %.0f fps"),
-                               *BallsText::Grouped(Session->simulation().liveBallCount()), Probe.lastFps());
+        return FString::Printf(TEXT("Probing... %s balls, %.0f fps"), *BallsText::Grouped(View->liveBalls), Probe.lastFps());
     }
     if (Probe.phase() == ProbePhase::Done) {
         return FString::Printf(TEXT("Max @%.0f FPS: %s"), Probe.targetFps(), *BallsText::Grouped(Probe.bestPassingCount()));
     }
-    if (const std::optional<BallCount> Measured = Session->machineBallLimit()) {
-        return FString::Printf(TEXT("Max: %s"), *BallsText::Grouped(*Measured));
+    if (View->machineLimit) {
+        return FString::Printf(TEXT("Max: %s"), *BallsText::Grouped(*View->machineLimit));
     }
     return FString();
 }
 
-void FBallsGameplay::OnFilesChanged() {
-    if (!Session) {
-        // The load-error screen retries by itself whenever the files change again.
-        ReloadFromDisk();
-        return;
-    }
-    std::error_code Error;
-    const bool bGone = !std::filesystem::exists(Files.bricksPath, Error) || !std::filesystem::exists(Files.launchersPath, Error);
-    MapNotice = bGone ? EMapNotice::Removed : EMapNotice::Changed;
-}
-
 // Loads the files as they are now: a parse failure drops to the load-error screen instead of keeping the old game.
 void FBallsGameplay::ReloadFromDisk() {
-    MapNotice = EMapNotice::None;
+    Watcher.markLoaded();
     Result<LevelData> Level = loadLevel(Files);
     if (!Level) {
-        Session.reset();
+        Host.reset();
+        View.reset();
         LoadError = BallsText::FromUtf8(Level.error());
         return;
     }
     LoadError.Reset();
-    if (Session) {
-        Session->reload(std::move(*Level));
+    if (Host) {
+        Host->post([Loaded = std::move(*Level)](GameSession& Session) { Session.reload(Loaded); });
     } else {
-        Session = std::make_unique<GameSession>(Mode, std::move(*Level), App.GetPreferredBackend());
+        Host = std::make_unique<SessionHost>(Mode, std::move(*Level), App.GetPreferredBackend(), ThreadingFromCommandLine());
+        View = Host->view();
         ApplySettings();
         ApplyDefaultBallLimit();
     }
@@ -125,47 +130,44 @@ void FBallsGameplay::ShowToast(FString Text, bool bIsError) { App.ShowToast(Move
 
 const FBallsToast& FBallsGameplay::GetToast() const { return App.GetToast(); }
 
-bool FBallsGameplay::IsWon() const {
-    return Session && Mode == GameMode::Normal && Session->state() == SessionState::Won;
-}
+bool FBallsGameplay::IsWon() const { return View && Mode == GameMode::Normal && View->state == SessionState::Won; }
 
 void FBallsGameplay::Tick(float DeltaSeconds, double FrameSeconds, double WorkSeconds) {
-    if (Watcher.pollChanged(std::chrono::steady_clock::now())) {
-        OnFilesChanged();
+    // With a game running the change only shows as the watcher's disk state; the load-error screen retries at once.
+    if (Watcher.pollChanged(std::chrono::steady_clock::now()) && !Host) {
+        ReloadFromDisk();
     }
-    if (!Session || bPaused) {
+    if (!Host) {
         return;
     }
-    Session->reportFrameSeconds(FrameSeconds, WorkSeconds);
-    // A backend switch builds in the background; the balls stay with the old backend until it reports in.
-    Session->pollBackgroundWork();
-    Session->update(DeltaSeconds);
-
-    if (const std::optional<BackendSwitchOutcome> Outcome = Session->takeBackendSwitchOutcome()) {
-        if (Outcome->succeeded) {
+    // On the game thread this steps the session; on the physics thread it only hands over the frame's timings and
+    // takes the newest view. A backend switch builds in the background either way.
+    Host->tick({bPaused, FrameSeconds, WorkSeconds, VisibilitySlotCells}, DeltaSeconds);
+    View = Host->view();
+    for (const SessionEvent& Event : Host->takeEvents()) {
+        if (Event.kind == SessionEventKind::BallCollisionsChanged) {
+            ShowToast(BallsText::FromUtf8(ballCollisionsMessage(Event.collisionsChange)), false);
+        } else if (Event.kind == SessionEventKind::BackendSwitched) {
             // A switch inside a game lasts for that game only; the Settings page owns the remembered default.
-            ShowToast(TEXT("Backend: ") + BallsText::FromUtf8(backendKindName(Outcome->kind)), false);
-            if (bCollisionsNeedScalar) {
-                bCollisionsNeedScalar = false;
-                Session->simulation().setBallCollisions(true);
-                ShowToast(TEXT("Ball collisions need the Scalar backend - switched to Scalar."), false);
-            }
+            ShowToast(TEXT("Backend: ") + BallsText::FromUtf8(backendKindName(Event.backend)), false);
             ApplyDefaultBallLimit();
         } else {
-            bCollisionsNeedScalar = false;
-            ShowToast(FString::Printf(TEXT("%s failed: %s"), *BallsText::FromUtf8(backendKindName(Outcome->kind)),
-                                      *BallsText::FromUtf8(Session->lastBackendFault())),
+            ShowToast(FString::Printf(TEXT("%s failed: %s"), *BallsText::FromUtf8(backendKindName(Event.backend)),
+                                      View ? *BallsText::FromUtf8(View->backendFault) : TEXT("")),
                       true);
         }
     }
+    if (!View) {
+        return;
+    }
 
-    const CapacityProbe& Probe = Session->capacityProbe();
+    const CapacityProbe& Probe = View->probe;
     if (Probe.isActive()) {
         bProbeResultShown = false;
     } else if (!bProbeResultShown && Probe.phase() == ProbePhase::Done) {
-        App.RememberMachineLimit(Session->backend(), Probe.targetFps(), Probe.bestPassingCount());
+        App.GetMachineProfile().rememberBallLimit(View->backend, Probe.targetFps(), Probe.bestPassingCount());
         ShowToast(FString::Printf(TEXT("%s limit on this machine: %s balls @%.0f FPS"),
-                                  *BallsText::FromUtf8(backendKindName(Session->backend())),
+                                  *BallsText::FromUtf8(backendKindName(View->backend)),
                                   *BallsText::Grouped(Probe.bestPassingCount()), Probe.targetFps()),
                   false);
         bProbeResultShown = true;
@@ -175,7 +177,7 @@ void FBallsGameplay::Tick(float DeltaSeconds, double FrameSeconds, double WorkSe
 // The design gives gameplay no keyboard shortcuts: every action is a visible control. Only the load-error screen keeps
 // Esc as Back, like the menus.
 bool FBallsGameplay::HandleKey(const FKey& Key) {
-    if (!Session && Key == EKeys::Escape) {
+    if (!Host && Key == EKeys::Escape) {
         App.ShowLevelSelect(Mode);
         return true;
     }
@@ -183,53 +185,47 @@ bool FBallsGameplay::HandleKey(const FKey& Key) {
 }
 
 void FBallsGameplay::ApplySettings() {
-    if (!Session) {
-        return;
-    }
-    Simulation& Sim = Session->simulation();
-    const bool bWanted = App.GetSettings().ballCollisions;
-    Sim.setBallCollisions(bWanted);
-    // Only the Scalar backend implements collisions; asking for them elsewhere moves the game to Scalar. The switch
-    // finishes on a later frame, so Tick reports it once the new backend has adopted the balls.
-    if (bWanted && !Sim.ballCollisionsActive() && Session->backend() != BackendKind::Scalar && isBackendAvailable(BackendKind::Scalar)) {
-        bCollisionsNeedScalar = true;
-        Session->requestBackend(BackendKind::Scalar);
+    if (Host) {
+        // What it did, with the game's toast, comes back as an event at the next tick.
+        Host->setBallCollisions(App.GetSettings().ballCollisions);
     }
 }
 
 void FBallsGameplay::ChooseLauncher(int32 Column, int32 Row) {
-    if (Session && !bPaused) {
-        Session->chooseLauncher(Column, Row);
+    if (Host && !bPaused) {
+        Host->post([Column, Row](GameSession& Session) { Session.chooseLauncher(Column, Row); });
     }
 }
 
 void FBallsGameplay::StartAutoRelease() {
-    if (Session) {
-        Session->startAutoRelease();
+    if (Host) {
+        Host->post([](GameSession& Session) { Session.startAutoRelease(); });
     }
 }
 
 void FBallsGameplay::SelectSpawnRate(int32 Index) {
-    if (Session) {
-        Session->selectSpawnRate(Index);
+    if (Host) {
+        Host->post([Index](GameSession& Session) { Session.selectSpawnRate(Index); });
     }
 }
 
 void FBallsGameplay::SelectBallMultiplier(int32 Index) {
-    if (Session) {
-        Session->selectBallMultiplier(Index);
+    if (Host) {
+        Host->post([Index](GameSession& Session) { Session.selectBallMultiplier(Index); });
     }
 }
 
 void FBallsGameplay::SelectBallLimit(int32 Index) {
-    if (Session) {
-        Session->cancelCapacityProbe();
-        Session->selectBallLimit(Index);
+    if (Host) {
+        Host->post([Index](GameSession& Session) {
+            Session.cancelCapacityProbe();
+            Session.selectBallLimit(Index);
+        });
     }
 }
 
 void FBallsGameplay::SwitchBackend(BackendKind Kind) {
-    if (!Session) {
+    if (!Host) {
         return;
     }
     const FString Name = BallsText::FromUtf8(backendKindName(Kind));
@@ -241,20 +237,31 @@ void FBallsGameplay::SwitchBackend(BackendKind Kind) {
     }
     // Building the backend takes long enough to run in the background, so the game keeps playing on the old one and
     // Tick reports the switch when it lands.
-    Session->requestBackend(Kind);
+    Host->post([Kind](GameSession& Session) { Session.requestBackend(Kind); });
+}
+
+void FBallsGameplay::post(std::function<void(GameSession&)> Command) {
+    if (Host) {
+        Host->post(std::move(Command));
+    }
+}
+
+void FBallsGameplay::startCapacityProbe(int TargetFps) {
+    ProbeTargetFps = TargetFps;
+    StartCapacityProbe();
 }
 
 void FBallsGameplay::Restart() {
-    if (MapNotice == EMapNotice::Removed) {
+    if (Watcher.diskState() == LevelDiskState::Removed) {
         App.ShowLevelSelect(Mode);
         return;
     }
-    if (MapNotice == EMapNotice::Changed) {
+    if (Watcher.diskState() == LevelDiskState::Changed) {
         ReloadFromDisk();
         return;
     }
-    if (Session) {
-        Session->restart();
+    if (Host) {
+        Host->post([](GameSession& Session) { Session.restart(); });
         bPaused = false;
     }
 }

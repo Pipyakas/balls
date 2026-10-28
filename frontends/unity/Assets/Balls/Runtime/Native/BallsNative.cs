@@ -13,7 +13,7 @@ namespace Balls.Native
     {
         public const string Library = "balls_unity";
 
-        public const int AbiVersion = 1;
+        public const int AbiVersion = 2;
 
         public const int ModeNormal = 0;
         public const int ModePerformance = 1;
@@ -30,6 +30,10 @@ namespace Balls.Native
         public const int StateWon = 2;
 
         public const int ColorCount = 7;
+
+        public const int DiskUnchanged = 0;
+        public const int DiskChanged = 1;
+        public const int DiskRemoved = 2;
 
         public const uint RenderCoordinateMask = 0x3FFFu;
         public const int RenderCoordinateBits = 14;
@@ -290,14 +294,22 @@ namespace Balls.Native
             return found;
         }
 
+        [DllImport(Library)] public static extern int balls_backend_stored_name(int kind, byte[] buffer, int size);
+
+        [DllImport(Library)] public static extern int balls_backend_parse_saved([MarshalAs(UnmanagedType.LPUTF8Str)] string text);
+
+        /// <summary>The Settings default backend as the settings file stores it; Hybrid is saved as its device picks.</summary>
+        public static string StoredBackendName(int kind)
+        {
+            var buffer = new byte[256];
+            int length = balls_backend_stored_name(kind, buffer, buffer.Length);
+            return length > 0 ? System.Text.Encoding.UTF8.GetString(buffer, 0, length) : string.Empty;
+        }
+
         /// <summary>Replaces the picks; false leaves the old ones and gives the core's reason.</summary>
         public static bool SetPicks(IReadOnlyList<Pick> picks, out string problem)
         {
-            var records = new PickRecord[picks.Count];
-            for (int index = 0; index < picks.Count; ++index)
-            {
-                records[index] = new PickRecord { device = picks[index].device, kind = picks[index].kind };
-            }
+            PickRecord[] records = Records(picks);
             var text = new byte[256];
             int ok = balls_picks_set(records, records.Length, text, text.Length);
             int end = Array.IndexOf(text, (byte)0);
@@ -338,6 +350,16 @@ namespace Balls.Native
         [DllImport(Library)] public static extern IntPtr balls_session_create(int mode, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelDirectory, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelName, int backend);
 
         [DllImport(Library)] public static extern void balls_session_destroy(IntPtr session);
+
+        [DllImport(Library)] public static extern IntPtr balls_session_create_threaded(int mode, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelDirectory, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelName, int backend);
+
+        [DllImport(Library)] public static extern int balls_session_threaded(IntPtr session);
+
+        [DllImport(Library)] public static extern int balls_session_take_collisions_change(IntPtr session);
+
+        [DllImport(Library)] public static extern double balls_session_physics_frame_ms(IntPtr session);
+
+        [DllImport(Library)] public static extern double balls_session_physics_fps(IntPtr session);
 
         [DllImport(Library)] public static extern int balls_session_load_level(IntPtr session, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelDirectory, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelName);
 
@@ -405,7 +427,9 @@ namespace Balls.Native
 
         [DllImport(Library)] public static extern int balls_editor_brick_hits(IntPtr editor, int column, int row);
 
-        [DllImport(Library)] public static extern void balls_session_set_ball_collisions(IntPtr session, int enabled);
+        [DllImport(Library)] public static extern int balls_session_set_ball_collisions(IntPtr session, int enabled);
+
+        [DllImport(Library)] public static extern int balls_ball_collisions_message(int change, byte[] buffer, int size);
 
         [DllImport(Library)] public static extern int balls_session_ball_collisions(IntPtr session);
 
@@ -444,6 +468,62 @@ namespace Balls.Native
         [DllImport(Library)] public static extern int balls_benchmark_rows(IntPtr benchmark, [Out] NativeBenchmarkRow[] rows, int capacity);
 
         [DllImport(Library)] public static extern int balls_benchmark_winner(IntPtr benchmark);
+
+        public const int ControlNone = 0;
+        public const int ControlScreenshot = 1;
+        public const int ControlPlay = 2;
+        public const int ControlMainMenu = 3;
+        public const int ControlLevelSelect = 4;
+        public const int ControlEditor = 5;
+        public const int ControlQuit = 6;
+        public const int ControlApplySettings = 7;
+        public const int ControlOpenSettings = 8;
+        public const int ControlSetVsync = 9;
+        public const int ControlRunBenchmark = 10;
+        public const int ControlSkipBenchmark = 11;
+        public const int ControlContinueBenchmark = 12;
+        public const int ControlSetPaused = 13;
+        public const int ControlRestart = 14;
+        public const int ControlStartProbe = 15;
+
+        [DllImport(Library)] public static extern IntPtr balls_control_create([MarshalAs(UnmanagedType.LPUTF8Str)] string normalLevels, [MarshalAs(UnmanagedType.LPUTF8Str)] string performanceLevels);
+
+        [DllImport(Library)] public static extern void balls_control_destroy(IntPtr control);
+
+        /// <summary>The HTTP status with the JSON in <paramref name="json"/>; 0 when the host answers later (a screenshot); -1 for a path the core does not own.</summary>
+        [DllImport(Library)] public static extern int balls_control_handle(IntPtr control, ref NativeControlContext context, [MarshalAs(UnmanagedType.LPUTF8Str)] string target, byte[] json, int size, out int jsonLength);
+
+        [DllImport(Library)] public static extern int balls_control_take_action(IntPtr control, out NativeControlAction action);
+
+        [DllImport(Library)] public static extern IntPtr balls_level_watcher_create([MarshalAs(UnmanagedType.LPUTF8Str)] string levelDirectory, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelName);
+
+        [DllImport(Library)] public static extern void balls_level_watcher_destroy(IntPtr watcher);
+
+        [DllImport(Library)] public static extern int balls_level_watcher_poll(IntPtr watcher);
+
+        [DllImport(Library)] public static extern void balls_level_watcher_mark_loaded(IntPtr watcher);
+
+        [DllImport(Library)] public static extern int balls_level_disk_notice(int state, byte[] buffer, int size);
+
+        [DllImport(Library)] public static extern IntPtr balls_frame_timings_create();
+
+        [DllImport(Library)] public static extern void balls_frame_timings_destroy(IntPtr timings);
+
+        [DllImport(Library)] public static extern void balls_frame_timings_record(IntPtr timings, double frameMs, double workMs, double gpuMs);
+
+        [DllImport(Library)] public static extern void balls_frame_timings_stats(IntPtr timings, out NativeFrameStats stats);
+
+        [DllImport(Library)] public static extern IntPtr balls_profile_open([MarshalAs(UnmanagedType.LPUTF8Str)] string directory);
+
+        [DllImport(Library)] public static extern void balls_profile_close(IntPtr profile);
+
+        [DllImport(Library)] public static extern int balls_profile_ball_limit(IntPtr profile, int kind, out double targetFps, out ulong balls);
+
+        [DllImport(Library)] public static extern void balls_profile_remember_ball_limit(IntPtr profile, int kind, double targetFps, ulong balls);
+
+        [DllImport(Library)] public static extern int balls_profile_benchmark_score(IntPtr profile, int kind, out double ballStepsPerSecond);
+
+        [DllImport(Library)] public static extern void balls_profile_remember_benchmark(IntPtr profile, IntPtr benchmark, int complete, [MarshalAs(UnmanagedType.LPUTF8Str)] string gameVersion);
 
         [DllImport(Library)] public static extern IntPtr balls_editor_create();
 
@@ -534,6 +614,22 @@ namespace Balls.Native
                 BackendNames[kind] = name;
             }
             return name;
+        }
+
+        /// <summary>The core's header notice for a level disk state, or an empty string when the files match.</summary>
+        public static string LevelDiskNotice(int state)
+        {
+            var buffer = new byte[256];
+            int length = balls_level_disk_notice(state, buffer, buffer.Length);
+            return length > 0 ? System.Text.Encoding.UTF8.GetString(buffer, 0, length) : string.Empty;
+        }
+
+        /// <summary>The core's toast for what turning ball collisions on did, or an empty string for no change.</summary>
+        public static string BallCollisionsMessage(int change)
+        {
+            var buffer = new byte[256];
+            int length = balls_ball_collisions_message(change, buffer, buffer.Length);
+            return length > 0 ? System.Text.Encoding.UTF8.GetString(buffer, 0, length) : string.Empty;
         }
 
         /// <summary>Matches a backend by its display name, ignoring case, '+', '-' and '_', as the core does.</summary>

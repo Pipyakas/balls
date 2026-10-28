@@ -9,10 +9,12 @@
 
 // "First launch: machine benchmark". Measures every backend once on this machine on a worker thread, keeps the
 // winner as the default backend, and re-measures when the hardware fingerprint (CPU, GPUs, drivers, game version)
-// changes. The record lives next to the settings file so a machine profile stays one folder.
+// changes. The record is kept by the core's MachineProfile, next to the settings file.
 class FBallsMachineBenchmark {
 public:
-    // The stored record, or nothing when this machine has never measured.
+    explicit FBallsMachineBenchmark(MachineProfile& InProfile) : Profile(InProfile) {}
+
+    // Reads this machine's fingerprint; the stored record is the profile's.
     void LoadRecord();
     // True when the record no longer describes this machine, or was skipped last time.
     bool NeedsRun() const;
@@ -27,13 +29,11 @@ public:
     std::optional<BenchmarkCandidate> PickWinner() const;
     // Stores the record; Complete is false when the player skipped, so the next launch measures again.
     void Save(bool bComplete, const std::optional<BenchmarkCandidate>& Winner);
-    const std::optional<BenchmarkRecord>& GetRecord() const { return Record; }
+    const std::optional<BenchmarkRecord>& GetRecord() const { return Profile.benchmark(); }
     const HardwareFingerprint& GetFingerprint() const { return Fingerprint; }
 
 private:
-    static std::filesystem::path RecordFile();
-
+    MachineProfile& Profile;
     std::unique_ptr<BackendBenchmark> Benchmark;
-    std::optional<BenchmarkRecord> Record;
     HardwareFingerprint Fingerprint;
 };

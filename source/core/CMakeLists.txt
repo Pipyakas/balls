@@ -25,7 +25,13 @@ add_library(balls_core STATIC
     game/SpawnController.cpp
     game/GameSession.cpp
     game/SessionRunner.cpp
+    game/SessionHost.cpp
     game/Settings.cpp
+    game/MachineProfile.cpp
+    game/GameMode.cpp
+    control/ControlProtocol.cpp
+    control/ControlApi.cpp
+    game/FrameTimings.cpp
     ui/GameplayLayout.cpp
     editor/LevelEditor.cpp
 )

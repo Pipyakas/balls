@@ -3,7 +3,6 @@
 #include "BallsBenchmark.h"
 #include "BallsCoreIncludes.h"
 #include "BallsGraphics.h"
-#include "BallsFrameTimings.h"
 #include "CoreMinimal.h"
 
 #include <filesystem>
@@ -57,13 +56,8 @@ public:
     const Settings& GetSettings() const { return CurrentSettings; }
     // Saves the settings and applies them to the running game.
     void UpdateSettings(const Settings& Next);
-    // The capacity probe's result per backend, saved per machine and reapplied on the next run.
-    struct FMachineLimit {
-        double TargetFps = 0.0;
-        BallCount Balls = 0;
-    };
-    std::optional<FMachineLimit> GetMachineLimit(BackendKind Kind) const;
-    void RememberMachineLimit(BackendKind Kind, double TargetFps, BallCount Balls);
+    // The capacity probe's result per backend and the machine benchmark, saved per machine in Saved/Balls.
+    MachineProfile& GetMachineProfile() { return Profile; }
     // A forced orientation resizes the window on desktop (portrait: 90% of the display height at 9:16; landscape:
     // 1440 x 900); where it cannot, the layout letterboxes instead.
     void ApplyOrientation();
@@ -73,8 +67,8 @@ public:
     EBallsGraphics GetGraphicsQuality() const { return GraphicsQuality; }
     void SetGraphicsQuality(EBallsGraphics Quality);
     FBallsGameplay* GetGameplay() const { return Gameplay.Get(); }
-    const FBallsFrameTimings& GetFrameTimings() const { return FrameTimings; }
-    const FBallsFrameSample& GetLatestSample() const { return LatestSample; }
+    const FrameTimings& GetFrameTimings() const { return Frames; }
+    const FrameSample& GetLatestSample() const { return Frames.latest(); }
     // The assets folder (levels, fonts, the scoring machine's benchmark record).
     std::filesystem::path AssetRoot() const;
     std::filesystem::path LevelDirectory(GameMode Mode) const;
@@ -92,17 +86,22 @@ public:
     bool IsBenchmarkSettled() const { return bBenchmarkSettled; }
     FString GetBenchmarkWinnerLabel() const;
 
-    // "Launch options and automation": one handler for every control API path, called on the game thread.
-    // OutBody is JSON; OutCode is the HTTP status (200 on success).
+    // "Launch options and automation": the core's control API handler, called on the game thread. OutBody is
+    // JSON; OutCode is the HTTP status (200 on success).
     void HandleControl(const FString& Path, const TMap<FString, FString>& Query, FString& OutBody, int32& OutCode);
-    FString GetScreenName() const;
+    // The routes only Unreal has (console variables, graphics quality), for the control server to bind.
+    static TArray<FString> OwnControlPaths();
+    std::string_view GetScreenName() const;
 
 private:
     enum class EScreen { MainMenu, LevelSelect, Gameplay, MapEditor, Settings, Benchmark };
 
     void SetScreen(EScreen Screen, TSharedRef<SWidget> Content);
     void RecordFrame(float DeltaSeconds);
-    FString BuildControlStateJson() const;
+    // What the core's control API may do to this front end.
+    struct FControlBridge;
+    std::optional<ControlResponse> HandleOwnControl(const ControlRequest& Request);
+    TSharedPtr<FControlBridge> ControlBridge;
 
     UWorld* World = nullptr;
     TSharedPtr<SBallsRoot> Root;
@@ -119,9 +118,9 @@ private:
     bool bOrientationApplied = false;
     TWeakPtr<SBallsLevelSelect> LevelSelect;
     FBallsToast Toast;
-    FBallsFrameTimings FrameTimings;
-    FBallsFrameSample LatestSample;
-    FBallsMachineBenchmark Benchmark;
+    FrameTimings Frames;
+    MachineProfile Profile;
+    FBallsMachineBenchmark Benchmark{Profile};
     bool bBenchmarkSettled = false;
     bool bBenchmarkReturnToSettings = false;
     double BenchmarkSettledAt = 0.0;

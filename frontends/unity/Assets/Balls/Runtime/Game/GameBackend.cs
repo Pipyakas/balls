@@ -131,7 +131,17 @@ namespace Balls.Game
         public virtual bool HasMachineLimit => false;
         public virtual ulong MachineLimit => 0;
         public virtual bool BallCollisions => false;
-        public virtual void SetBallCollisions(bool enabled) { }
+        /// <summary>
+        /// Applies the Ball collisions setting. Returns the core's change (0 none, 1 switching to Scalar, 2 Scalar not
+        /// offered) so the caller can show its toast; backends without collisions report no change.
+        /// </summary>
+        public virtual int SetBallCollisions(bool enabled) => 0;
+
+        /// <summary>A change SetBallCollisions reported late (a session on the physics thread), or 0.</summary>
+        public virtual int TakeCollisionsChange() => 0;
+
+        /// <summary>Physics frames a second when the physics runs on its own thread, or -1 when it runs in Update.</summary>
+        public virtual double PhysicsThreadFps => -1.0;
         public virtual void CancelProbe() { }
         public virtual void UseMachineLimit(ulong limit) { }
 

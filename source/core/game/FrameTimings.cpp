@@ -1,4 +1,4 @@
-#include "app/FrameTimings.h"
+#include "game/FrameTimings.h"
 
 #include <algorithm>
 
@@ -22,15 +22,18 @@ void FrameTimings::record(const FrameSample& sample) {
     worstWorkMs = 0.0;
     for (const FrameSample& entry : window) {
         total.frameMs += entry.frameMs;
+        total.workMs += entry.workMs;
         total.cpuMs += entry.cpuMs;
+        total.renderMs += entry.renderMs;
         total.gpuMs += entry.gpuMs;
         total.presentMs += entry.presentMs;
         total.presented += entry.presented;
-        total.presentWaitMs += entry.presentWaitMs;
+        total.waitMs += entry.waitMs;
         worstFrameMs = std::max(worstFrameMs, entry.frameMs);
-        worstWorkMs = std::max(worstWorkMs, entry.workMs());
+        worstWorkMs = std::max(worstWorkMs, entry.workMs);
     }
     const double count = static_cast<double>(window.size());
-    averaged = {total.frameMs / count, total.cpuMs / count, total.gpuMs / count, total.presentMs / count,
-                total.presented / count, total.presentWaitMs / count};
+    averaged = {total.frameMs / count,   total.workMs / count,    total.cpuMs / count,
+                total.renderMs / count,  total.gpuMs / count,     total.presentMs / count,
+                total.presented / count, total.waitMs / count};
 }

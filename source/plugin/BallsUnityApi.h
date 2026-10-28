@@ -8,7 +8,7 @@
 
 #include <stdint.h>
 
-#define BALLS_UNITY_ABI_VERSION 1
+#define BALLS_UNITY_ABI_VERSION 2
 
 #if defined(_WIN32)
 #define BALLS_API __declspec(dllexport)
@@ -58,6 +58,20 @@ enum {
     BALLS_COLOR_INDIGO = 5,
     BALLS_COLOR_VIOLET = 6,
     BALLS_COLOR_COUNT = 7,
+};
+
+// Mirrors BallCollisionsChange: what turning ball collisions on did.
+enum {
+    BALLS_COLLISIONS_UNCHANGED = 0,
+    BALLS_COLLISIONS_SWITCHING_TO_SCALAR = 1,
+    BALLS_COLLISIONS_SCALAR_NOT_OFFERED = 2,
+};
+
+// Mirrors LevelDiskState: whether the level in play still matches its files.
+enum {
+    BALLS_DISK_UNCHANGED = 0,
+    BALLS_DISK_CHANGED = 1,
+    BALLS_DISK_REMOVED = 2,
 };
 
 enum {
@@ -185,11 +199,83 @@ typedef struct BallsBenchmarkRow {
     double ballStepsPerSecond;
     double progress;         // 0..1 while running
     char failure[256];
+    double estimatedBalls;   // balls this backend holds at 60 FPS, once done
+    char result[128];        // the game's result text, empty while waiting or running
 } BallsBenchmarkRow;
 
+// The core's rolling one-second frame statistics, as the debug gadget shows them.
+typedef struct BallsFrameStats {
+    double framesPerSecond;
+    double worstFpsLastSecond;
+    double workFramesPerSecond;
+    double worstWorkFpsLastSecond;
+    double frameMs;  // averages over the window
+    double workMs;
+    double gpuMs;
+} BallsFrameStats;
+
 typedef struct BallsSession BallsSession;
-typedef struct BallsEditor BallsEditor;
+typedef struct BallsFrameTimings BallsFrameTimings;
 typedef struct BallsBenchmark BallsBenchmark;
+typedef struct BallsProfile BallsProfile;
+
+// What the core's control API needs from the host for one request; the pointers only have to live for the call.
+typedef struct BallsControlContext {
+    const char* renderer;
+    const char* screen;          // main-menu, level-select, gameplay, editor, settings, benchmark
+    int32_t windowWidth;
+    int32_t windowHeight;
+    int32_t preferredBackend;    // BALLS_BACKEND_*
+    int32_t vsync;
+    const char* toast;           // the toast on screen, or empty
+    const char* extraFields;     // more /state fields as "name":value pairs joined by commas, or empty
+    const char* screenDetails;   // /state "details" JSON outside gameplay, or empty
+    BallsFrameTimings* frames;
+    BallsSettings settings;
+    // The game in play; session is null outside gameplay.
+    BallsSession* session;
+    int32_t mode;
+    const char* levelName;
+    const char* loadError;
+    int32_t diskState;           // BALLS_DISK_*
+    int32_t paused;
+    int32_t probeTargetFps;
+    // The benchmark screen's run, or null; the stored record comes from profile.
+    BallsBenchmark* benchmark;
+    BallsProfile* profile;
+} BallsControlContext;
+
+// What a request asks the host to do after balls_control_handle returns, in order.
+enum {
+    BALLS_CONTROL_NONE = 0,
+    BALLS_CONTROL_SCREENSHOT = 1,         // text: the path; the host answers the request itself once it is written
+    BALLS_CONTROL_PLAY = 2,               // mode, text: the level name
+    BALLS_CONTROL_MAIN_MENU = 3,
+    BALLS_CONTROL_LEVEL_SELECT = 4,       // mode
+    BALLS_CONTROL_EDITOR = 5,             // mode, text: the level name or empty for a new level
+    BALLS_CONTROL_QUIT = 6,
+    BALLS_CONTROL_APPLY_SETTINGS = 7,     // settings, value: the default backend or -1
+    BALLS_CONTROL_OPEN_SETTINGS = 8,
+    BALLS_CONTROL_SET_VSYNC = 9,          // value: 1 on, 0 off
+    BALLS_CONTROL_RUN_BENCHMARK = 10,
+    BALLS_CONTROL_SKIP_BENCHMARK = 11,
+    BALLS_CONTROL_CONTINUE_BENCHMARK = 12,
+    BALLS_CONTROL_SET_PAUSED = 13,        // value: 1 paused, 0 running
+    BALLS_CONTROL_RESTART = 14,
+    BALLS_CONTROL_START_PROBE = 15,       // value: the target FPS
+};
+
+typedef struct BallsControlAction {
+    int32_t kind;
+    int32_t mode;
+    int32_t value;
+    char text[1024];
+    BallsSettings settings;
+} BallsControlAction;
+
+typedef struct BallsControl BallsControl;
+typedef struct BallsEditor BallsEditor;
+typedef struct BallsLevelWatcher BallsLevelWatcher;
 
 // --- Process-wide --------------------------------------------------------------------------------------------
 
@@ -255,11 +341,24 @@ BALLS_API int32_t balls_default_hybrid_picks(BallsPick* picks, int32_t capacity)
 // "AVX2 (CPU) + CUDA (RTX 2060)" for menus, and the backend those picks run as.
 BALLS_API int32_t balls_picks_label(const BallsPick* picks, int32_t count, char* buffer, int32_t size);
 BALLS_API int32_t balls_kind_for_picks(const BallsPick* picks, int32_t count);
+// The Settings default backend as the settings file stores it: the kind's name, or Hybrid as its device picks
+// ("AVX2@cpu+CUDA@gpu0"), so a multi-device choice survives a restart.
+BALLS_API int32_t balls_backend_stored_name(int32_t kind, char* buffer, int32_t size);
+// Reads that value back, making stored picks the process-wide picks. -1 when it names nothing usable here.
+BALLS_API int32_t balls_backend_parse_saved(const char* text);
 
 // --- Levels and settings -------------------------------------------------------------------------------------
 
 // Fills up to capacity entries and returns how many levels the directory holds.
 BALLS_API int32_t balls_levels_find(const char* directory, BallsLevelInfo* levels, int32_t capacity);
+
+// The core's LevelWatcher over a level's file pair. poll checks the files at most every 250 ms and returns a
+// BALLS_DISK_* state; Changed stays until mark_loaded (or a new watcher).
+BALLS_API BallsLevelWatcher* balls_level_watcher_create(const char* levelDirectory, const char* levelName);
+BALLS_API void balls_level_watcher_destroy(BallsLevelWatcher* watcher);
+BALLS_API int32_t balls_level_watcher_poll(BallsLevelWatcher* watcher);
+BALLS_API void balls_level_watcher_mark_loaded(BallsLevelWatcher* watcher);
+BALLS_API int32_t balls_level_disk_notice(int32_t state, char* buffer, int32_t size);
 
 // One level pair the importer was given: what happened to it and the toast line that names it.
 typedef struct BallsImportResult {
@@ -284,6 +383,19 @@ BALLS_API int32_t balls_settings_save(const char* path, const BallsSettings* set
 
 BALLS_API BallsSession* balls_session_create(int32_t mode, const char* levelDirectory, const char* levelName,
                                              int32_t backend);
+// The same session run by the core's SessionRunner: physics on its own thread, commands posted to it and every read
+// answered from the latest view it published, so a long physics step never holds up a rendered frame. Every
+// balls_session_* call works on it; balls_session_update hands over the frame instead of stepping, and reads change
+// only at the next update.
+BALLS_API BallsSession* balls_session_create_threaded(int32_t mode, const char* levelDirectory, const char* levelName,
+                                                      int32_t backend);
+BALLS_API int32_t balls_session_threaded(const BallsSession* session);
+// A threaded session reports what turning ball collisions on did a frame or two later: the next BALLS_COLLISIONS_*
+// change, or 0 when there is none. A session on the caller's thread returns the change from set_ball_collisions.
+BALLS_API int32_t balls_session_take_collisions_change(BallsSession* session);
+// How long the physics thread took for its last frame and how many it completes a second; 0 on the caller's thread.
+BALLS_API double balls_session_physics_frame_ms(const BallsSession* session);
+BALLS_API double balls_session_physics_fps(const BallsSession* session);
 BALLS_API void balls_session_destroy(BallsSession* session);
 
 // Re-reads a level from disk. Returns 0 on success.
@@ -331,7 +443,10 @@ BALLS_API void balls_session_set_visibility_grid(BallsSession* session, int32_t 
 BALLS_API void balls_set_compute_gpu_preference(const char* preference);
 BALLS_API int32_t balls_compute_gpu_preference(char* buffer, int32_t size);
 
-BALLS_API void balls_session_set_ball_collisions(BallsSession* session, int32_t enabled);
+// Applies the Ball collisions setting; requests Scalar when collisions need it and it is offered. Returns a
+// BALLS_COLLISIONS_* value; balls_ball_collisions_message gives the toast for it.
+BALLS_API int32_t balls_session_set_ball_collisions(BallsSession* session, int32_t enabled);
+BALLS_API int32_t balls_ball_collisions_message(int32_t change, char* buffer, int32_t size);
 BALLS_API int32_t balls_session_ball_collisions(const BallsSession* session);
 BALLS_API int32_t balls_session_launch_balls(BallsSession* session, int32_t color, uint64_t count);
 
@@ -363,6 +478,44 @@ BALLS_API int32_t balls_benchmark_finished(const BallsBenchmark* benchmark);
 BALLS_API int32_t balls_benchmark_rows(BallsBenchmark* benchmark, BallsBenchmarkRow* rows, int32_t capacity);
 // The winner's kind, or -1 while nothing has finished.
 BALLS_API int32_t balls_benchmark_winner(BallsBenchmark* benchmark);
+
+// --- Control API -----------------------------------------------------------------------------------------------
+
+// The game's HTTP control API answered by the core, for a host that brings its own transport. levelDirectories are the
+// Normal and Performance level folders, for /play and /editor.
+BALLS_API BallsControl* balls_control_create(const char* normalLevels, const char* performanceLevels);
+BALLS_API void balls_control_destroy(BallsControl* control);
+// Answers one request target ("/play?mode=normal&level=DA_FirstLevel"). Returns the HTTP status with the JSON body in
+// json; 0 when the answer waits for the host (a screenshot); -1 when the path is not the core's, for the host's own
+// routes. jsonLength gets the body's full length, which can exceed size. Gameplay commands are applied to the
+// context's session before this returns; what the host has to do itself is queued for balls_control_take_action.
+BALLS_API int32_t balls_control_handle(BallsControl* control, const BallsControlContext* context, const char* target,
+                                       char* json, int32_t size, int32_t* jsonLength);
+// The next queued action, or 0 when there is none.
+BALLS_API int32_t balls_control_take_action(BallsControl* control, BallsControlAction* action);
+
+// --- Frame timings -------------------------------------------------------------------------------------------
+
+// workMs is the frame without waits for the display; pass frameMs when the host cannot tell them apart.
+BALLS_API BallsFrameTimings* balls_frame_timings_create(void);
+BALLS_API void balls_frame_timings_destroy(BallsFrameTimings* timings);
+BALLS_API void balls_frame_timings_record(BallsFrameTimings* timings, double frameMs, double workMs, double gpuMs);
+BALLS_API void balls_frame_timings_stats(const BallsFrameTimings* timings, BallsFrameStats* stats);
+
+// --- Machine profile -----------------------------------------------------------------------------------------
+
+// The core's MachineProfile over a folder (machine.txt, benchmark.txt), loaded on open. It also reads the limit lines
+// of the machine-profile.txt older Unity builds wrote there.
+BALLS_API BallsProfile* balls_profile_open(const char* directory);
+BALLS_API void balls_profile_close(BallsProfile* profile);
+// 1 with the capacity probe's result for the backend, 0 when it was never probed here.
+BALLS_API int32_t balls_profile_ball_limit(const BallsProfile* profile, int32_t kind, double* targetFps, uint64_t* balls);
+BALLS_API void balls_profile_remember_ball_limit(BallsProfile* profile, int32_t kind, double targetFps, uint64_t balls);
+// 1 with the best finished benchmark speed of the backend in the stored record, 0 when there is none.
+BALLS_API int32_t balls_profile_benchmark_score(const BallsProfile* profile, int32_t kind, double* ballStepsPerSecond);
+// Stores the benchmark's results, winner and this machine's fingerprint as the profile's record.
+BALLS_API void balls_profile_remember_benchmark(BallsProfile* profile, BallsBenchmark* benchmark, int32_t complete,
+                                                const char* gameVersion);
 
 // --- Editor --------------------------------------------------------------------------------------------------
 

@@ -142,12 +142,12 @@ namespace Balls.App.Screens
                     bool available = BallsNative.BackendAvailable(kind);
                     bool selected = App.DefaultBackendKind == kind;
                     string detail = !available ? BallsNative.BackendTextCached(kind, false)
-                        : App.Profile.TryScore(BackendNames[kind], out double score) ? $"{score / 1e6:N0} M ball-steps/s"
+                        : App.Profile.TryScore(kind, out double score) ? $"{score / 1e6:N0} M ball-steps/s"
                         : BallsNative.BackendTextCached(kind, true);
                     if (widgets.OptionRow(new Rect(content.x, y, content.width, 34f), BackendNames[kind], selected,
                             available, detail) && available)
                     {
-                        settings.DefaultBackend = BackendNames[kind];
+                        settings.DefaultBackend = BallsNative.StoredBackendName(kind);
                         Apply(settings);
                     }
                     y += 38f;
@@ -161,13 +161,10 @@ namespace Balls.App.Screens
 
                 y = SharedControls.DrawDevicePicks(App, widgets, content, y, App.DefaultBackendKind, picks =>
                 {
-                    // A single pick is stored by its backend name. Two or more run for this session only: storing
-                    // them needs the picks text through the C ABI, which the core consolidation branch is adding.
-                    if (picks.Count == 1)
-                    {
-                        settings.DefaultBackend = BallsNative.BackendName(picks[0].kind);
-                    }
-                    App.SetBackend(BallsNative.KindForPicks(picks));
+                    // Saved as the core stores it: a kind's name, or Hybrid as its picks, so they come back on restart.
+                    int kind = BallsNative.KindForPicks(picks);
+                    settings.DefaultBackend = BallsNative.StoredBackendName(kind);
+                    App.SetBackend(kind);
                     Apply(settings);
                 });
                 measuredHeight = Mathf.Max(730f, y - content.y + 24f);
