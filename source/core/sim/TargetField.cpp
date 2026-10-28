@@ -1,5 +1,11 @@
 #include "sim/TargetField.h"
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
+
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -9,6 +15,22 @@ namespace {
 constexpr int32_t noTarget = -1;
 constexpr int32_t paddingCell = -2;
 constexpr int asyncCellThreshold = 1 << 16;
+
+// Rebuilds run beside the frame; on a big board their seven flood fills took every core for a hundred milliseconds
+// and starved the physics threads (a 149 ms Hybrid CPU step). They run at the lowest priority, restored after, since
+// std::async may hand the same pooled thread to other work.
+class LowestPriority {
+public:
+#if defined(_WIN32)
+    LowestPriority() : previous(GetThreadPriority(GetCurrentThread())) {
+        SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_LOWEST);
+    }
+    ~LowestPriority() { SetThreadPriority(GetCurrentThread(), previous); }
+
+private:
+    int previous;
+#endif
+};
 
 // A rebuild that changed more than this share of the cells is sent whole.
 constexpr size_t wholeUploadDivisor = 8;
@@ -67,6 +89,7 @@ void TargetField::discardPendingRebuilds() {
 
 void TargetField::launch(BoardCopy board) {
     pending = std::async(std::launch::async, [copy = std::move(board), previous = targets] {
+        const LowestPriority background;
         return computeChanges(copy, previous);
     });
 }
@@ -114,6 +137,7 @@ std::vector<int32_t> TargetField::compute(const BoardCopy& board, bool parallelC
     for (int colorIndex = 0; colorIndex < ballColorCount; ++colorIndex) {
         int32_t* colorTargets = result.data() + static_cast<size_t>(colorIndex) * cellCount;
         colors[colorIndex] = std::async(std::launch::async, [&board, colorIndex, colorTargets] {
+            const LowestPriority background;
             floodColor(board, colorIndex, colorTargets);
         });
     }
