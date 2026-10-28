@@ -9,6 +9,7 @@ from pathlib import Path
 
 MULTIPLIER_INDEX = {1: 0, 10: 1, 100: 2, 1000: 3, 10000: 4}
 MAX_SPAWN_RATE_INDEX = 5
+UNLIMITED_BALLS_INDEX = 4
 
 
 def call(port, path):
@@ -77,6 +78,7 @@ def run(arguments):
                     print(f"{backend:7} unavailable", flush=True)
                     break
                 call(arguments.port, f"/rate?index={MAX_SPAWN_RATE_INDEX}")
+                call(arguments.port, f"/limit?index={UNLIMITED_BALLS_INDEX}")
                 call(arguments.port, f"/multiplier?index={MULTIPLIER_INDEX[multiplier]}")
                 call(arguments.port, "/start")
                 wait_until_spawned(arguments.port)

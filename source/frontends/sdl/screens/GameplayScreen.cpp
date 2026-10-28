@@ -125,15 +125,12 @@ void GameplayScreen::loadSession() {
     }
     loadError.clear();
     session = std::make_unique<GameSession>(mode, std::move(*level), app.preferredBackend());
-    applyRememberedMachineLimit();
+    applyDefaultBallLimit();
 }
 
-void GameplayScreen::applyRememberedMachineLimit() {
-    if (mode != GameMode::Performance) {
-        return;
-    }
-    if (const auto limit = app.machineProfile().ballLimit(session->backend())) {
-        session->useMachineBallLimit(limit->balls);
+void GameplayScreen::applyDefaultBallLimit() {
+    if (mode == GameMode::Performance) {
+        useAutoBallLimit();
     }
 }
 
@@ -410,7 +407,7 @@ void GameplayScreen::drawBackendList(Rect area, BackendKind selected) {
         const bool pressed =
             ui::button({area.x, cursor, area.width, controlRowHeight}, label, available, selected == kind);
         if (pressed && available && session->switchBackend(kind)) {
-            applyRememberedMachineLimit();
+            applyDefaultBallLimit();
         }
         cursor += controlRowHeight + controlGap;
     }
@@ -816,6 +813,7 @@ std::optional<ControlResponse> GameplayScreen::handleControl(const ControlReques
         return done;
     }
     if (path == "/limit") {
+        session->cancelCapacityProbe();
         session->selectBallLimit(request.integer("index").value_or(session->ballLimitIndex()));
         return done;
     }
@@ -828,7 +826,7 @@ std::optional<ControlResponse> GameplayScreen::handleControl(const ControlReques
         if (!kind || !session->switchBackend(*kind)) {
             return ControlResponse::error(409, "backend unknown or unavailable");
         }
-        applyRememberedMachineLimit();
+        applyDefaultBallLimit();
         return done;
     }
     if (path == "/pause") {

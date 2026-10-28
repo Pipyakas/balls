@@ -46,7 +46,7 @@ private:
     void handleLauncherClick(const GameplayLayout& layout);
     void showToast(std::string text, bool isError);
     void openNextLevel();
-    void applyRememberedMachineLimit();
+    void applyDefaultBallLimit();
     void rememberFinishedProbe();
     void useAutoBallLimit();
     void startProbe();
