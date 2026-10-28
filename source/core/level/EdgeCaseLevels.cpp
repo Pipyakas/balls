@@ -1,5 +1,6 @@
 #include "level/EdgeCaseLevels.h"
 
+#include <algorithm>
 #include <array>
 #include <format>
 #include <random>
@@ -25,6 +26,7 @@ constexpr int cageHeight = 5;
 constexpr int launcherColumns = 7;
 constexpr int launcherRows = 4;
 constexpr int ballsPerLauncher = 10'000;
+constexpr long long levelFileHitsPerColour = 1'500'000'000;
 constexpr unsigned layoutSeed = 20261028u;
 
 struct LayoutBuilder {
@@ -136,14 +138,31 @@ BrickLayout generateEdgeLayout(EdgeLayout layout, EdgeBoardSize size) {
     return bricks;
 }
 
+// A level file keeps the game's rule that the launchers hold enough balls to clear the board, and counts per colour
+// fit in an int: tough bricks get as many hits as that allows (still far more than a session lands), and each
+// colour's launchers carry its hit total.
 LevelData generateEdgeLevel(EdgeLayout layout, EdgeBoardSize size) {
     LevelData level;
     level.name = edgeCaseName(layout, size);
     level.bricks = generateEdgeLayout(layout, size);
+    std::array<long long, ballColorCount> toughBricks{};
+    for (const BrickType& type : level.bricks.types) {
+        toughBricks[toIndex(type.color)] += type.hits == toughBrickHits ? 1 : 0;
+    }
+    const long long mostTough = *std::max_element(toughBricks.begin(), toughBricks.end());
+    const int toughHits = mostTough > 0 ? static_cast<int>(std::min<long long>(toughBrickHits, levelFileHitsPerColour / mostTough))
+                                        : toughBrickHits;
+    for (BrickType& type : level.bricks.types) {
+        type.hits = type.hits == toughBrickHits ? toughHits : type.hits;
+    }
+    const ColorTally hits = countBrickHitsByColor(level.bricks);
+    constexpr int launchersPerColour = launcherColumns * launcherRows / ballColorCount;
     level.launchers.columns = launcherColumns;
     level.launchers.visibleRows = launcherRows;
     for (int slot = 0; slot < launcherColumns * launcherRows; ++slot) {
-        level.launchers.slots.push_back(Launcher{ballColorFromIndex(slot % ballColorCount), ballsPerLauncher});
+        const int colour = slot % ballColorCount;
+        const int share = (hits[colour] + launchersPerColour - 1) / launchersPerColour;
+        level.launchers.slots.push_back(Launcher{ballColorFromIndex(colour), std::max(share, ballsPerLauncher)});
     }
     return level;
 }

@@ -1,6 +1,7 @@
 #include "level/EdgeCaseLevels.h"
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
+#include "level/LevelWriter.h"
 #include "sim/BackendBenchmark.h"
 #include "sim/BackendFactory.h"
 #include "sim/EdgeCaseSweep.h"
@@ -47,6 +48,7 @@ struct BenchOptions {
     double edgeCaseSeconds = 40.0;
     std::filesystem::path edgeOutput;
     int traceFrames = 0;
+    std::filesystem::path edgeLevelDirectory;
 };
 
 std::vector<size_t> parseCounts(const char* text) {
@@ -128,6 +130,9 @@ BenchOptions parseOptions(int argumentCount, char** arguments) {
         } else if (argument == "--case-seconds") {
             options.edgeCaseSeconds = std::atof(value);
             ++i;
+        } else if (argument == "--write-edge-levels") {
+            options.edgeLevelDirectory = value;
+            ++i;
         } else if (argument == "--trace-frames") {
             options.traceFrames = std::atoi(value);
             ++i;
@@ -187,6 +192,28 @@ int runAccuracy(const BenchOptions& options, const BrickLayout& level) {
 
 bool listed(const std::string& list, const std::string& name) {
     return list == "all" || (',' + list + ',').find(',' + name + ',') != std::string::npos;
+}
+
+// Saves the generated boards as level files, so the game lists them under Performance.
+int writeEdgeLevels(const BenchOptions& options) {
+    for (const EdgeBoardSize size : edgeBoardSizes()) {
+        if (!listed(options.edgeSizes, std::format("{}x{}", size.width, size.height))) {
+            continue;
+        }
+        for (const EdgeLayout layout : allEdgeLayouts()) {
+            if (!listed(options.edgeLayouts, edgeLayoutName(layout))) {
+                continue;
+            }
+            const LevelData level = generateEdgeLevel(layout, size);
+            const Result<void> saved = saveLevel(level, levelFilesFor(options.edgeLevelDirectory, level.name));
+            if (!saved) {
+                std::fprintf(stderr, "%s: %s\n", level.name.c_str(), saved.error().c_str());
+                return 1;
+            }
+            std::printf("wrote %s\n", level.name.c_str());
+        }
+    }
+    return 0;
 }
 
 // One generated board, one backend, one ball count: every frame's time and live balls, to find where spikes come from.
@@ -533,6 +560,9 @@ int main(int argumentCount, char** arguments) {
         std::printf("board: %s\n", onLevel ? options.levelName.c_str() : "empty");
         runRoofline(options, rooflineLevel ? &rooflineLevel->bricks : nullptr);
         return 0;
+    }
+    if (!options.edgeLevelDirectory.empty()) {
+        return writeEdgeLevels(options);
     }
     if (options.edgeCases) {
         return options.traceFrames > 0 ? traceEdgeCases(options) : runEdgeCases(options);

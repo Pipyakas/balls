@@ -1,0 +1,284 @@
+[Board]
+Width 16
+Height 20
+PlayableHeight 20
+
+[Layout]
+0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15
+16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31
+32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47
+48 49 50 51 52 53 54 55 56 57 58 59 60 61 62 63
+64 65 66 67 68 69 70 71 72 73 74 75 76 77 78 79
+80 81 82 83 84 85 86 87 88 89 90 91 92 93 94 95
+96 97 98 99 100 101 102 103 104 105 106 107 108 109 110 111
+112 113 114 115 116 117 118 119 120 121 122 123 124 125 126 127
+128 129 130 131 132 133 134 135 136 137 138 139 140 141 142 143
+144 145 146 147 148 149 150 151 152 153 154 155 156 157 158 159
+160 161 162 163 164 165 166 167 168 169 170 171 172 173 174 175
+176 177 178 179 180 181 182 183 184 185 186 187 188 189 190 191
+192 193 194 195 196 197 198 199 200 201 202 203 204 205 206 207
+208 209 210 211 212 213 214 215 216 217 218 219 220 221 222 223
+224 225 226 227 228 229 230 231 232 233 234 235 236 237 238 239
+240 241 242 243 244 245 246 247 248 249 250 251 252 253 254 255
+-1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+-1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+-1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+-1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1 -1
+
+[BrickTypes]
+0 Indigo 1
+1 Orange 1
+2 Orange 1
+3 Yellow 1
+4 Violet 1
+5 Blue 1
+6 Indigo 1
+7 Red 1
+8 Yellow 1
+9 Orange 1
+10 Green 1
+11 Yellow 1
+12 Blue 1
+13 Yellow 1
+14 Orange 1
+15 Orange 1
+16 Green 1
+17 Violet 1
+18 Blue 1
+19 Green 1
+20 Yellow 1
+21 Indigo 1
+22 Blue 1
+23 Green 1
+24 Orange 1
+25 Violet 1
+26 Green 1
+27 Yellow 1
+28 Green 1
+29 Indigo 1
+30 Orange 1
+31 Blue 1
+32 Yellow 1
+33 Indigo 1
+34 Green 1
+35 Yellow 1
+36 Green 1
+37 Orange 1
+38 Yellow 1
+39 Orange 1
+40 Orange 1
+41 Violet 1
+42 Green 1
+43 Orange 1
+44 Orange 1
+45 Violet 1
+46 Violet 1
+47 Indigo 1
+48 Indigo 1
+49 Red 1
+50 Green 1
+51 Indigo 1
+52 Green 1
+53 Yellow 1
+54 Orange 1
+55 Orange 1
+56 Red 1
+57 Yellow 1
+58 Orange 1
+59 Orange 1
+60 Green 1
+61 Green 1
+62 Blue 1
+63 Red 1
+64 Blue 1
+65 Green 1
+66 Indigo 1
+67 Red 1
+68 Yellow 1
+69 Red 1
+70 Red 1
+71 Red 1
+72 Orange 1
+73 Indigo 1
+74 Violet 1
+75 Indigo 1
+76 Red 1
+77 Indigo 1
+78 Green 1
+79 Orange 1
+80 Orange 1
+81 Yellow 1
+82 Green 1
+83 Red 1
+84 Blue 1
+85 Blue 1
+86 Blue 1
+87 Violet 1
+88 Violet 1
+89 Red 1
+90 Violet 1
+91 Green 1
+92 Orange 1
+93 Orange 1
+94 Indigo 1
+95 Blue 1
+96 Green 1
+97 Green 1
+98 Indigo 1
+99 Indigo 1
+100 Yellow 1
+101 Indigo 1
+102 Violet 1
+103 Orange 1
+104 Green 1
+105 Orange 1
+106 Indigo 1
+107 Green 1
+108 Indigo 1
+109 Violet 1
+110 Red 1
+111 Blue 1
+112 Yellow 1
+113 Red 1
+114 Blue 1
+115 Blue 1
+116 Violet 1
+117 Yellow 1
+118 Violet 1
+119 Indigo 1
+120 Green 1
+121 Blue 1
+122 Green 1
+123 Green 1
+124 Red 1
+125 Yellow 1
+126 Yellow 1
+127 Orange 1
+128 Green 1
+129 Orange 1
+130 Violet 1
+131 Orange 1
+132 Blue 1
+133 Yellow 1
+134 Blue 1
+135 Indigo 1
+136 Yellow 1
+137 Violet 1
+138 Yellow 1
+139 Indigo 1
+140 Green 1
+141 Green 1
+142 Red 1
+143 Blue 1
+144 Red 1
+145 Green 1
+146 Blue 1
+147 Indigo 1
+148 Yellow 1
+149 Yellow 1
+150 Orange 1
+151 Red 1
+152 Green 1
+153 Green 1
+154 Green 1
+155 Blue 1
+156 Blue 1
+157 Yellow 1
+158 Violet 1
+159 Indigo 1
+160 Blue 1
+161 Indigo 1
+162 Red 1
+163 Green 1
+164 Blue 1
+165 Violet 1
+166 Green 1
+167 Orange 1
+168 Blue 1
+169 Indigo 1
+170 Blue 1
+171 Blue 1
+172 Green 1
+173 Green 1
+174 Red 1
+175 Orange 1
+176 Red 1
+177 Red 1
+178 Orange 1
+179 Violet 1
+180 Violet 1
+181 Orange 1
+182 Orange 1
+183 Indigo 1
+184 Violet 1
+185 Blue 1
+186 Red 1
+187 Orange 1
+188 Indigo 1
+189 Blue 1
+190 Red 1
+191 Yellow 1
+192 Red 1
+193 Orange 1
+194 Green 1
+195 Green 1
+196 Yellow 1
+197 Red 1
+198 Indigo 1
+199 Green 1
+200 Indigo 1
+201 Yellow 1
+202 Indigo 1
+203 Orange 1
+204 Indigo 1
+205 Orange 1
+206 Red 1
+207 Yellow 1
+208 Yellow 1
+209 Violet 1
+210 Red 1
+211 Green 1
+212 Red 1
+213 Red 1
+214 Blue 1
+215 Blue 1
+216 Indigo 1
+217 Indigo 1
+218 Violet 1
+219 Yellow 1
+220 Orange 1
+221 Green 1
+222 Blue 1
+223 Red 1
+224 Green 1
+225 Indigo 1
+226 Indigo 1
+227 Blue 1
+228 Blue 1
+229 Blue 1
+230 Yellow 1
+231 Violet 1
+232 Violet 1
+233 Yellow 1
+234 Orange 1
+235 Violet 1
+236 Blue 1
+237 Green 1
+238 Yellow 1
+239 Orange 1
+240 Red 1
+241 Blue 1
+242 Orange 1
+243 Yellow 1
+244 Green 1
+245 Violet 1
+246 Indigo 1
+247 Indigo 1
+248 Blue 1
+249 Blue 1
+250 Red 1
+251 Blue 1
+252 Blue 1
+253 Blue 1
+254 Red 1
+255 Yellow 1
