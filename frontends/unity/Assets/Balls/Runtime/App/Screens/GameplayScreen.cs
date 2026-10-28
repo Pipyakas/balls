@@ -20,7 +20,6 @@ namespace Balls.App.Screens
         private const float LauncherMaxSize = 110f;
         private const float LauncherGapShare = 0.18f;
         private const float GadgetPadding = 12f;
-        private const float PortraitDebugHeight = 48f;
         private const float LauncherBackendHeight = 24f + BallsNative.BackendCount * 38f + 12f;
         private const float LauncherHeaderHeight = 24f;
         private const float BrickLabelShare = 0.55f;
@@ -298,6 +297,9 @@ namespace Balls.App.Screens
             hasLayout = true;
             interactionScroll = Vector2.zero;
             debugScroll = Vector2.zero;
+            Debug.Log($"balls: layout for {UnityEngine.Screen.width}x{UnityEngine.Screen.height} px, units {width:0}x{height:0} " +
+                      $"scale {App.Theme.Scale:0.###}: board {layout.BoardRect} cell {layout.CellSize:0.#} " +
+                      $"main {layout.Main} inter {layout.Interaction} debug {layout.Debug}");
         }
 
         /// <summary>
@@ -315,38 +317,6 @@ namespace Balls.App.Screens
             if (camera == null || layout.CellSize <= 0f)
             {
                 return;
-            }
-            if (layout.Portrait)
-            {
-                float frameW = lastLayoutWidth;
-                float frameH = lastLayoutHeight;
-                float margin = 16f;
-                float headerHeight = 44f;
-                float debugHeight = PortraitDebugHeight;
-                float gadgetGap = 8f;
-                int launcherColumns = Mathf.Max(1, board.launcherColumns);
-                int launcherRows = Mathf.Max(1, board.launcherVisibleRows);
-                float launcherCell = Mathf.Min(240f, (frameW - margin * 2f - (launcherColumns - 1) * 10f) / launcherColumns);
-                float launcherAreaHeight = launcherRows * launcherCell + (launcherRows - 1) * 10f;
-                float contentHeight = headerHeight + debugHeight + gadgetGap + board.rows * 18f + gadgetGap + launcherAreaHeight;
-                float scale = Mathf.Min(1f, (frameH - margin * 2f) / contentHeight);
-                float cell = Mathf.Min((frameW - 2f * margin - 20f) / board.columns,
-                    (frameH - 2f * margin - headerHeight - debugHeight - 2f * gadgetGap - launcherAreaHeight) / board.rows);
-                cell = Mathf.Max(0.5f, cell * scale);
-                float boardW = board.columns * cell + 20f;
-                float boardH = board.rows * cell + 20f;
-                launcherCell = Mathf.Min(launcherCell * scale, 240f);
-                launcherAreaHeight = launcherRows * launcherCell + (launcherRows - 1) * 10f;
-                float groupH = headerHeight + debugHeight + gadgetGap + boardH + gadgetGap + launcherAreaHeight;
-                float groupY = Mathf.Max(margin, (frameH - groupH) * 0.5f);
-                float boardY = groupY + headerHeight + debugHeight + gadgetGap;
-                float boardX = (frameW - boardW) * 0.5f;
-                Rect boardRect = new Rect(boardX, boardY, boardW, boardH);
-                Rect interaction = new Rect(margin, boardY + boardH + gadgetGap, frameW - margin * 2f, launcherAreaHeight);
-                Rect debug = new Rect(margin, groupY + headerHeight, frameW - margin * 2f, debugHeight);
-                layout.SetPortraitRects(new Rect(margin, groupY, frameW - margin * 2f, headerHeight),
-                    new Rect(boardX, boardY, boardW, boardH), interaction, debug, boardRect,
-                    new Vector2(boardX + 10f, boardY + 10f), cell);
             }
             UiTheme theme = App.Theme;
             float cellSize = layout.CellSize;
@@ -450,8 +420,10 @@ namespace Balls.App.Screens
                 float gap = 10f;
                 float columns = Mathf.Max(1, board.launcherColumns);
                 float rows = Mathf.Max(1, board.launcherVisibleRows);
-                float maxSize = Mathf.Min(240f, area.width / columns);
-                float size = Mathf.Min(maxSize, area.height / rows);
+                float fit = Mathf.Min((area.width - (columns - 1f) * gap) / columns,
+                    (area.height - (rows - 1f) * gap) / rows);
+                float preferred = Mathf.Clamp(area.width * 0.19f, 120f, 240f);
+                float size = Mathf.Min(preferred, fit);
                 float contentWidth = columns * size + (columns - 1f) * gap;
                 float startX = area.x + Mathf.Max(0f, (area.width - contentWidth) * 0.5f);
                 float totalHeight = rows * size + (rows - 1f) * gap;
@@ -764,8 +736,8 @@ namespace Balls.App.Screens
         {
             Widgets widgets = App.Widgets;
             Rect area = layout.Debug;
-            const int columns = 4;
-            float cellWidth = area.width / columns;
+            // One row of eight, label above value, inside the core's 48-high strip: two rows cannot fit at the
+            // narrowest portrait width without the labels running into the values.
             string[] labels = { "FPS", "Min", "Frame", "GPU", "Balls", "Bricks", "Launch", "Backend" };
             string[] values =
             {
@@ -773,16 +745,14 @@ namespace Balls.App.Screens
                 $"{stats.liveBalls:N0}", $"{board.aliveBricks:N0}", $"{session.launcherRemaining:N0}",
                 BallsNative.BackendName(session.backend),
             };
+            float cellWidth = area.width / labels.Length;
             for (int index = 0; index < labels.Length; ++index)
             {
-                int row = index / columns;
-                int column = index % columns;
-                Rect cell = new Rect(area.x + column * cellWidth, area.y + row * (PortraitDebugHeight / 2f),
-                    cellWidth, PortraitDebugHeight / 2f);
-                widgets.Label(new Rect(cell.x, cell.y, cell.width, 17f), labels[index], TypeSizes.Small,
+                Rect cell = new Rect(area.x + index * cellWidth, area.y, cellWidth, area.height);
+                widgets.Label(new Rect(cell.x, cell.y, cell.width, 14f), labels[index], TypeSizes.Tiny,
                     Palette.TextMuted, TextAnchor.MiddleCenter);
-                widgets.Label(new Rect(cell.x, cell.y + 16f, cell.width, cell.height - 16f), values[index],
-                    TypeSizes.Label, labels[index] == "FPS" && stats.fps < 60f ? Palette.Danger : Palette.Text,
+                widgets.Label(new Rect(cell.x, cell.y + 13f, cell.width, cell.height - 13f), values[index],
+                    TypeSizes.Value, labels[index] == "FPS" && stats.fps < 60f ? Palette.Danger : Palette.Text,
                     TextAnchor.MiddleCenter, true);
             }
         }
