@@ -145,7 +145,8 @@ void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& f
     writer.row("Balls", withThousands(balls));
     writer.row("Bricks", withThousands(bricks));
     writer.row("Launchers", withThousands(launchers));
-    writer.row("Waiting to spawn", withThousands(session.spawner().pendingBalls()));
+    writer.row("Waiting to spawn", withThousands(session.spawner().pendingBalls() + session.queuedLaunches()));
+    writer.row("Spawn allowance / frame", withThousands(session.spawnPacer().allowance()));
     if (session.mode() == GameMode::Performance) {
         const std::string resolvedLimit =
             session.machineBallLimit() ? std::format("Auto {}", withThousands(*session.machineBallLimit()))

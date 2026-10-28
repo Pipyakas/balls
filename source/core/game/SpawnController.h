@@ -10,7 +10,8 @@ class SpawnController {
 public:
     void enqueue(BallColor color, BallCount count);
     void setBallsPerSecond(float rate) { ballsPerSecond = rate; }
-    void update(float deltaTime, Simulation& simulation, BallCount capacityLeft);
+    // Returns how many balls it launched; frameAllowance caps them however fast the rate is.
+    BallCount update(float deltaTime, Simulation& simulation, BallCount capacityLeft, BallCount frameAllowance);
     void clear();
 
     BallCount pendingBalls() const { return pending; }

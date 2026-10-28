@@ -100,11 +100,15 @@ void Simulation::scatterBalls(BallColor color, BallCount requested) {
     statistics.totalBallsSpawned += count;
 }
 
-void Simulation::trimBallsTo(BallCount limit) {
+void Simulation::flushPendingSpawns() {
     if (!pendingSpawns.empty()) {
         physics->addBalls(pendingSpawns);
         pendingSpawns.clear();
     }
+}
+
+void Simulation::trimBallsTo(BallCount limit) {
+    flushPendingSpawns();
     if (physics->ballCount() <= limit) {
         return;
     }
@@ -204,10 +208,7 @@ void Simulation::resolveHits() {
 }
 
 void Simulation::tick(int substeps) {
-    if (!pendingSpawns.empty()) {
-        physics->addBalls(pendingSpawns);
-        pendingSpawns.clear();
-    }
+    flushPendingSpawns();
     syncBoardIfChanged();
     hits.clear();
     physics->step(stepParams(substeps), hits);

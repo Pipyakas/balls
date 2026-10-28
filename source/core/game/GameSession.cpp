@@ -3,6 +3,7 @@
 #include "common/BallColor.h"
 
 #include <algorithm>
+#include <chrono>
 
 GameSession::GameSession(GameMode mode, LevelData level, BackendKind backend)
     : gameMode(mode), levelData(std::move(level)), backendKind(backend),
@@ -17,6 +18,8 @@ void GameSession::restart() {
     physicsSimulation.load(levelData.bricks);
     launcherQueue.load(levelData.launchers);
     spawnController.clear();
+    pacer.reset();
+    launchBacklog = 0;
     spawnController.setBallsPerSecond(gameMode == GameMode::Normal ? normalModeSpawnRate
                                                                    : static_cast<float>(spawnRateOptions[selectedSpawnRate]));
     sessionState = gameMode == GameMode::Normal ? SessionState::Running : SessionState::Ready;
@@ -66,16 +69,21 @@ void GameSession::startCapacityProbe(double targetFps) {
     pumpCapacityProbe();
 }
 
-void GameSession::cancelCapacityProbe() { probe.cancel(); }
+void GameSession::cancelCapacityProbe() {
+    probe.cancel();
+    launchBacklog = 0;
+}
 
 void GameSession::reportFrameSeconds(double frameSeconds, double workSeconds) {
     latestFrameSeconds = frameSeconds;
     latestWorkSeconds = workSeconds;
+    pacer.reportFrame(frameSeconds, physicsSimulation.liveBallCount());
     pumpCapacityProbe();
 }
 
 void GameSession::pumpCapacityProbe() {
-    if (!probe.isActive() || gameMode != GameMode::Performance || latestFrameSeconds <= 0.0) {
+    // The probe measures only once its last addition is all on the board.
+    if (!probe.isActive() || gameMode != GameMode::Performance || latestFrameSeconds <= 0.0 || launchBacklog > 0) {
         return;
     }
     const BallCount addition = probe.update(latestFrameSeconds, latestWorkSeconds, physicsSimulation.liveBallCount(),
@@ -87,7 +95,7 @@ void GameSession::pumpCapacityProbe() {
         useMachineBallLimit(probe.bestPassingCount());
         return;
     }
-    launchAcrossColors(addition);
+    launchBacklog += addition;
 }
 
 // Probe and fill balls come out of the launch point like any released ball. Scattering them over the board put
@@ -106,7 +114,30 @@ void GameSession::fillWithBalls(BallCount count) {
     probe.cancel();
     useMachineBallLimit(count);
     const BallCount live = physicsSimulation.liveBallCount();
-    launchAcrossColors(count > live ? count - live : 0);
+    launchBacklog = count > live ? count - live : 0;
+}
+
+// Launchers, the probe and fills all go through the pacer, so the frame that releases a million balls costs about
+// what the frame before it did.
+void GameSession::releasePacedSpawns(float deltaTime) {
+    using Clock = std::chrono::steady_clock;
+    const Clock::time_point start = Clock::now();
+    const BallCount allowance = pacer.allowance();
+    const BallCount fromBacklog = std::min(launchBacklog, allowance);
+    launchAcrossColors(fromBacklog);
+    launchBacklog -= fromBacklog;
+    if (physicsSimulation.ballRoom() == 0) {
+        launchBacklog = 0;
+    }
+    BallCount launched = fromBacklog;
+    if (sessionState == SessionState::Running) {
+        const BallCount limit = gameMode == GameMode::Performance ? ballLimit() : unlimitedBalls;
+        launched += spawnController.update(deltaTime, physicsSimulation,
+                                           remainingCapacity(limit, physicsSimulation.liveBallCount()),
+                                           allowance - fromBacklog);
+    }
+    physicsSimulation.flushPendingSpawns();
+    pacer.recordSpawn(launched, std::chrono::duration<double>(Clock::now() - start).count());
 }
 
 void GameSession::selectSpawnRate(int optionIndex) {
@@ -151,9 +182,8 @@ void GameSession::update(float deltaTime) {
                 releaseLauncher(*launcher);
             }
         }
-        const BallCount limit = gameMode == GameMode::Performance ? ballLimit() : unlimitedBalls;
-        spawnController.update(deltaTime, physicsSimulation, remainingCapacity(limit, physicsSimulation.liveBallCount()));
     }
+    releasePacedSpawns(deltaTime);
     if (sessionState != SessionState::Ready) {
         physicsSimulation.advance(deltaTime);
         recoverFromBackendFault();

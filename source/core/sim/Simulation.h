@@ -39,6 +39,7 @@ public:
     void launchBalls(BallColor color, BallCount count);
     void scatterBalls(BallColor color, BallCount count);
     void trimBallsTo(BallCount limit);
+    void flushPendingSpawns();
     void advance(float frameSeconds);
     void tick(int substeps = 1);
     void animate(float frameSeconds) { brickBoard.animate(frameSeconds); }

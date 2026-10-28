@@ -4,6 +4,7 @@
 #include "game/GameMode.h"
 #include "game/LauncherQueue.h"
 #include "game/SpawnController.h"
+#include "game/SpawnPacer.h"
 #include "level/LevelData.h"
 #include "sim/BackendFactory.h"
 #include "sim/Simulation.h"
@@ -48,6 +49,8 @@ public:
     const Simulation& simulation() const { return physicsSimulation; }
     const LauncherQueue& launchers() const { return launcherQueue; }
     const SpawnController& spawner() const { return spawnController; }
+    const SpawnPacer& spawnPacer() const { return pacer; }
+    BallCount queuedLaunches() const { return launchBacklog; }
     BackendKind backend() const { return backendKind; }
     const CapacityProbe& capacityProbe() const { return probe; }
     int spawnRateIndex() const { return selectedSpawnRate; }
@@ -63,6 +66,7 @@ private:
     void releaseLauncher(const Launcher& launcher);
     void recoverFromBackendFault();
     void pumpCapacityProbe();
+    void releasePacedSpawns(float deltaTime);
 
     GameMode gameMode;
     LevelData levelData;
@@ -70,6 +74,8 @@ private:
     Simulation physicsSimulation;
     LauncherQueue launcherQueue;
     SpawnController spawnController;
+    SpawnPacer pacer;
+    BallCount launchBacklog = 0;
     SessionState sessionState = SessionState::Ready;
     int selectedSpawnRate = 2;
     int selectedMultiplier = 0;

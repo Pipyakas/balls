@@ -4,12 +4,6 @@
 
 #include <algorithm>
 
-namespace {
-
-constexpr BallCount maxBallsPerFrame = 1 << 20;
-
-}
-
 void SpawnController::enqueue(BallColor color, BallCount count) {
     if (count == 0) {
         return;
@@ -24,15 +18,17 @@ void SpawnController::clear() {
     budget = 0.0;
 }
 
-void SpawnController::update(float deltaTime, Simulation& simulation, BallCount capacityLeft) {
+BallCount SpawnController::update(float deltaTime, Simulation& simulation, BallCount capacityLeft,
+                                  BallCount frameAllowance) {
     if (streams.empty()) {
         budget = 0.0;
-        return;
+        return 0;
     }
     const bool unlimited = ballsPerSecond <= 0.0f;
-    budget = unlimited ? static_cast<double>(maxBallsPerFrame) : budget + static_cast<double>(ballsPerSecond) * deltaTime;
-    BallCount allowance = std::min({static_cast<BallCount>(budget), maxBallsPerFrame, capacityLeft});
+    budget = unlimited ? static_cast<double>(frameAllowance) : budget + static_cast<double>(ballsPerSecond) * deltaTime;
+    BallCount allowance = std::min({static_cast<BallCount>(budget), frameAllowance, capacityLeft});
     budget -= static_cast<double>(allowance);
+    const BallCount launched = allowance;
     while (allowance > 0 && !streams.empty()) {
         Stream& stream = streams.front();
         const BallCount released = std::min(allowance, stream.remaining);
@@ -47,4 +43,5 @@ void SpawnController::update(float deltaTime, Simulation& simulation, BallCount 
     if (unlimited || streams.empty()) {
         budget = 0.0;
     }
+    return launched - allowance;
 }

@@ -4,6 +4,7 @@
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
 
+#include <cmath>
 #include <filesystem>
 
 namespace {
@@ -61,4 +62,39 @@ TEST_CASE("performance session waits for one click then releases automatically")
         session.update(1.0f / 60.0f);
     }
     EXPECT(session.simulation().stats().totalBallsSpawned > 0);
+}
+
+TEST_CASE("spawn pacer caps a frame's additions by what making them costs") {
+    SpawnPacer pacer;
+    constexpr double secondsPerBall = 100e-9;
+    constexpr BallCount batch = 1'000'000;
+    for (int frame = 0; frame < 60; ++frame) {
+        pacer.recordSpawn(batch, secondsPerBall * static_cast<double>(batch));
+    }
+    const double expected = pacedFrameSeconds * spawnShareOfFrame / secondsPerBall;
+    EXPECT(std::abs(static_cast<double>(pacer.allowance()) - expected) < expected * 0.01);
+}
+
+TEST_CASE("spawn pacer lets frame work grow only a few percent per frame") {
+    SpawnPacer pacer;
+    constexpr double frameWork = 0.010;
+    constexpr BallCount live = 1'000'000;
+    pacer.reportFrame(frameWork, live);
+    const double expected = frameWork * workGrowthPerFrame / (frameWork / static_cast<double>(live));
+    EXPECT(std::abs(static_cast<double>(pacer.allowance()) - expected) < expected * 0.01);
+}
+
+TEST_CASE("a large fill reaches the board over several frames, not in one") {
+    GameSession session(GameMode::Performance, loadSample("performance", "DA_1000Bricks"), BackendKind::Scalar);
+    constexpr BallCount fill = 200'000;
+    session.fillWithBalls(fill);
+    session.reportFrameSeconds(0.004, 0.004);
+    session.update(1.0f / 60.0f);
+    EXPECT(session.simulation().liveBallCount() < fill);
+    for (int frame = 0; frame < 600 && session.queuedLaunches() > 0; ++frame) {
+        session.reportFrameSeconds(0.004, 0.004);
+        session.update(1.0f / 60.0f);
+    }
+    EXPECT(session.queuedLaunches() == 0);
+    EXPECT(session.simulation().stats().totalBallsSpawned == fill);
 }

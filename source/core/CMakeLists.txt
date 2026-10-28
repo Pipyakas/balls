@@ -19,6 +19,7 @@ add_library(balls_core STATIC
     game/CapacityProbe.cpp
     game/LauncherQueue.cpp
     game/SpawnController.cpp
+    game/SpawnPacer.cpp
     game/GameSession.cpp
     game/Settings.cpp
     ui/GameplayLayout.cpp

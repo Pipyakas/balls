@@ -772,7 +772,7 @@ std::string GameplayScreen::stateJson() const {
         mode == GameMode::Normal ? "normal" : "performance", jsonEscape(files.name), diskNotice(),
         stateNames[static_cast<int>(session->state())], paused, backendKindName(session->backend()),
         jsonEscape(session->lastBackendFault()), stats.ballCount, simulation.board().aliveBrickCount(),
-        launchers.launcherCount(), session->spawner().pendingBalls(), stats.totalBallsSpawned,
+        launchers.launcherCount(), session->spawner().pendingBalls() + session->queuedLaunches(), stats.totalBallsSpawned,
         stats.totalHits, stats.lastFramePhysicsMs, simulation.backend().deviceStepMs(), stats.ticksLastFrame,
         spawnRateOptions[session->spawnRateIndex()], ballMultiplierOptions[session->ballMultiplierIndex()],
         session->ballLimit(), session->elapsedSeconds(), probePhaseName(probe.phase()), probe.targetFps(),
