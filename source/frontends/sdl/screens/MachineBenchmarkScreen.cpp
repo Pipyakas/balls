@@ -29,22 +29,6 @@ constexpr double ballStepsPerMillion = 1e6;
 // Without vsync (hidden or automated runs) the UI loop would spin and take a core from the CPU candidates.
 constexpr auto idleWhileMeasuring = std::chrono::milliseconds(12);
 
-std::string_view stateName(CandidateStatus status) {
-    switch (status) {
-    case CandidateStatus::Pending:
-        return "pending";
-    case CandidateStatus::Running:
-        return "running";
-    case CandidateStatus::Done:
-        return "done";
-    case CandidateStatus::Failed:
-        return "failed";
-    case CandidateStatus::Unavailable:
-        return "unavailable";
-    }
-    return "pending";
-}
-
 std::string resultText(const CandidateResult& result) {
     switch (result.status) {
     case CandidateStatus::Done:
@@ -76,24 +60,6 @@ std::optional<BrickLayout> benchmarkLevel(std::string& error) {
     return std::move(level->bricks);
 }
 
-}
-
-std::string benchmarkJson(std::string_view state, std::span<const CandidateResult> results,
-                          const std::optional<BenchmarkCandidate>& winner) {
-    std::string candidates;
-    for (const CandidateResult& result : results) {
-        candidates += std::format(
-            "{}{{\"backend\":\"{}\",\"picks\":\"{}\",\"label\":\"{}\",\"computeGpu\":\"{}\",\"status\":\"{}\","
-            "\"ballStepsPerSecond\":{:.0f},\"estimatedBalls\":{:.0f},\"ballCapacity\":{:.0f},\"progress\":{:.2f},"
-            "\"failure\":\"{}\"}}",
-            candidates.empty() ? "" : ",", backendKindName(result.candidate.kind), jsonEscape(result.candidate.picks),
-            jsonEscape(result.candidate.label), jsonEscape(result.candidate.computeGpu),
-            stateName(result.status), result.ballStepsPerSecond, result.estimatedBalls, result.ballCapacity,
-            result.progress, jsonEscape(result.failure));
-    }
-    const std::string winnerJson =
-        winner ? std::format("\"{}\"", jsonEscape(winner->label)) : std::string("null");
-    return std::format("{{\"state\":\"{}\",\"winner\":{},\"results\":[{}]}}", state, winnerJson, candidates);
 }
 
 MachineBenchmarkScreen::MachineBenchmarkScreen(App& app, HardwareFingerprint machine)
@@ -191,10 +157,9 @@ void MachineBenchmarkScreen::draw() {
     }
 }
 
-std::string MachineBenchmarkScreen::stateJson() const {
-    const std::vector<CandidateResult> results = winner ? finalResults : benchmark ? benchmark->results()
-                                                                                   : std::vector<CandidateResult>{};
-    return benchmarkJson(winner ? "done" : "running", results, winner);
+ControlBenchmarkState MachineBenchmarkScreen::controlState() const {
+    return {winner ? "done" : "running",
+            winner ? finalResults : benchmark ? benchmark->results() : std::vector<CandidateResult>{}, winner};
 }
 
 std::optional<ControlResponse> MachineBenchmarkScreen::handleControl(const ControlRequest& request) {

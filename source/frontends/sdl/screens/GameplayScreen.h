@@ -16,7 +16,7 @@
 
 class App;
 
-class GameplayScreen final : public Screen {
+class GameplayScreen final : public Screen, public ControlGame {
 public:
     GameplayScreen(App& app, GameMode mode, LevelFiles files);
 
@@ -24,10 +24,23 @@ public:
     void draw() override;
     std::string_view name() const override { return "gameplay"; }
     bool drawsFrameTimings() const override { return true; }
-    std::string stateJson() const override;
     std::optional<ControlResponse> handleControl(const ControlRequest& request) override;
+    ControlGame* controlGame() override { return this; }
     void refreshSettings();
     void openSettingsOverlay();
+
+    // ControlGame
+    GameMode gameMode() const override { return mode; }
+    std::string levelName() const override { return files.name; }
+    std::string levelLoadError() const override { return loadError; }
+    LevelDiskState diskState() const override { return watcher.diskState(); }
+    std::shared_ptr<const SessionView> sessionView() override { return runner ? runner->view() : nullptr; }
+    void post(std::function<void(GameSession&)> command) override;
+    bool isPaused() const override { return paused; }
+    void setPaused(bool pause) override { paused = pause; }
+    void restart() override { restartLevel(); }
+    int capacityProbeTargetFps() const override { return probeTargetFps; }
+    void startCapacityProbe(int targetFps) override;
 
 private:
     struct Toast {

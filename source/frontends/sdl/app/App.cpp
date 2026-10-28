@@ -683,42 +683,99 @@ std::string adapterNamesJson(const std::vector<GpuAdapterInfo>& adapters) {
 
 } // namespace
 
-std::string App::stateJson() const {
-    const FrameSample& sample = timings.average();
-    return std::format(
-        "{{\"ok\":true,\"frontend\":\"sdl\",\"renderer\":\"{}\",\"screen\":\"{}\",\"window\":[{},{}],"
-        "\"fps\":{:.1f},\"minFps\":{:.1f},\"workFps\":{:.1f},\"minWorkFps\":{:.1f},\"shownFps\":{:.1f},\"frameMs\":{:.3f},\"cpuMs\":{:.3f},\"gpuMs\":{:.3f},"
-        "\"presentMs\":{:.3f},\"preferredBackend\":\"{}\",\"computeGpu\":\"{}\",\"vsync\":{},\"toast\":\"{}\","
-        "\"renderAdapters\":{},\"computeAdapters\":{},\"details\":{}}}",
-        jsonEscape(renderer->deviceDescription()), currentScreen->name(), gfx::screenWidth(),
-        gfx::screenHeight(), timings.framesPerSecond(), timings.worstFpsLastSecond(),
-        timings.workFramesPerSecond(), timings.worstWorkFpsLastSecond(), timings.shownFramesPerSecond(),
-        sample.frameMs,
-        sample.cpuMs, sample.gpuMs, sample.presentMs, backendKindName(backendChoice),
-        jsonEscape(backendStatus(BackendKind::Vulkan).detail), isVsyncEnabled(),
-        jsonEscape(toast.secondsLeft > 0.0f ? toast.text : std::string{}), adapterNamesJson(renderAdapterList),
-        adapterNamesJson(computeAdapterList), currentScreen->stateJson());
-}
+// What the core's control API may do to SDL. It runs on the main thread, from ControlServer::pump.
+struct App::ControlBridge final : ControlHost {
+    App& app;
+
+    explicit ControlBridge(App& owner) : app(owner) {}
+
+    ControlFrontEndState frontEndState() const override {
+        ControlFrontEndState state;
+        state.frontEnd = "sdl";
+        state.renderer = app.renderer->deviceDescription();
+        state.screen = app.currentScreen->name();
+        state.windowWidth = gfx::screenWidth();
+        state.windowHeight = gfx::screenHeight();
+        state.frames = &app.timings;
+        state.preferredBackend = app.backendChoice;
+        state.vsync = app.isVsyncEnabled();
+        state.toast = app.toast.secondsLeft > 0.0f ? app.toast.text : std::string{};
+        state.extraFields = std::format("\"computeGpu\":\"{}\",\"renderAdapters\":{},\"computeAdapters\":{}",
+                                        jsonEscape(backendStatus(BackendKind::Vulkan).detail),
+                                        adapterNamesJson(app.renderAdapterList), adapterNamesJson(app.computeAdapterList));
+        state.screenDetails = app.currentScreen->stateJson();
+        return state;
+    }
+    ControlGame* game() override { return app.currentScreen->controlGame(); }
+    std::filesystem::path levelDirectory(GameMode mode) const override { return ::levelDirectory(mode); }
+
+    std::optional<ControlResponse> takeScreenshot(const std::string& path) override {
+        app.screenshotPath = screenshotFileFor(path);
+        app.renderer->requestScreenshot(app.screenshotPath);
+        app.screenshotPending = true;
+        return std::nullopt;
+    }
+    void play(GameMode mode, const LevelFiles& level) override { app.startGame(mode, level); }
+    void showMainMenu() override { app.showMainMenu(); }
+    bool showLevelSelect(GameMode mode) override {
+        app.showLevelSelect(mode);
+        return true;
+    }
+    bool openEditor(GameMode mode, const std::optional<LevelFiles>& level) override {
+        app.openEditor(mode, level);
+        return true;
+    }
+    void quit() override { app.quit(); }
+
+    const Settings& settings() const override { return app.currentSettings; }
+    void applySettings(const Settings& settings, std::optional<BackendKind> defaultBackend) override {
+        app.applySettings(settings, defaultBackend);
+    }
+    void openSettings() override {
+        app.applyPendingScreen();
+        if (auto* gameplay = dynamic_cast<GameplayScreen*>(app.currentScreen.get())) {
+            gameplay->openSettingsOverlay();
+        } else if (dynamic_cast<SettingsScreen*>(app.currentScreen.get()) == nullptr) {
+            app.showSettings();
+        }
+    }
+    void setVsync(bool enabled) override { app.setVsync(enabled); }
+
+    ControlBenchmarkState benchmarkState() const override {
+        if (const auto* screen = dynamic_cast<const MachineBenchmarkScreen*>(app.currentScreen.get())) {
+            return screen->controlState();
+        }
+        const std::optional<BenchmarkRecord>& stored = app.profile.benchmark();
+        if (!stored) {
+            return {};
+        }
+        return {stored->complete ? "done" : "skipped", stored->results, stored->winner};
+    }
+    void runBenchmark() override { app.showMachineBenchmark(); }
+    bool skipBenchmark() override { return app.currentScreen->handleControl({"/benchmark/skip", {}}).has_value(); }
+    bool continueFromBenchmark() override {
+        return app.currentScreen->handleControl({"/benchmark/continue", {}}).has_value();
+    }
+
+    std::optional<ControlResponse> handleOwnRoute(const ControlRequest& request) override {
+        return app.handleOwnControl(request);
+    }
+};
 
 std::optional<ControlResponse> App::handleControl(const ControlRequest& request) {
-    const std::string& path = request.path;
-    if (path == "/state") {
-        return ControlResponse::ok(stateJson());
+    if (!controlBridge) {
+        controlBridge = std::make_shared<ControlBridge>(*this);
     }
+    return handleControlRequest(*controlBridge, request);
+}
+
+// The routes only SDL has: renderer and window controls, level import and the frame hitch probe.
+std::optional<ControlResponse> App::handleOwnControl(const ControlRequest& request) {
+    const std::string& path = request.path;
     if (path == "/hitch") {
         const double longest = longestFrameIntervalMs;
         longestFrameIntervalMs = 0.0;
         return ControlResponse::ok(std::format("{{\"ok\":true,\"longestFrameMs\":{:.2f}}}", longest));
-    }
-    if (path == "/screenshot") {
-        const std::string requested = request.text("path").value_or("");
-        if (requested.empty()) {
-            return ControlResponse::error(400, "missing path");
-        }
-        screenshotPath = screenshotFileFor(requested);
-        renderer->requestScreenshot(screenshotPath);
-        screenshotPending = true;
-        return std::nullopt;
     }
     if (path == "/import") {
         std::vector<std::filesystem::path> paths;
@@ -740,7 +797,7 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
         const std::string wantedRenderer = request.text("renderer").value_or(activeRenderer);
         const std::string wantedApi = request.text("api").value_or(activeGraphicsApi);
         requestRenderer(wantedRenderer, wantedApi);
-        return ControlResponse::ok("{\"ok\":true}");
+        return ControlResponse::ok();
     }
     if (path == "/render-gpu") {
         const auto index = request.integer("index");
@@ -748,92 +805,7 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
             return ControlResponse::error(400, "index must name an adapter from /state renderAdapters");
         }
         requestRenderAdapter(static_cast<int>(*index));
-        return ControlResponse::ok("{\"ok\":true}");
-    }
-    if (path == "/quit") {
-        quit();
-        return ControlResponse::ok("{\"ok\":true}");
-    }
-    if (path == "/benchmark") {
-        if (request.integer("run").value_or(0) != 0) {
-            showMachineBenchmark();
-            return ControlResponse::ok("{\"ok\":true}");
-        }
-        return ControlResponse::ok(benchmarkStateJson());
-    }
-    if (path == "/menu") {
-        showMainMenu();
-        return ControlResponse::ok("{\"ok\":true}");
-    }
-    if (path == "/settings") {
-        Settings next = currentSettings;
-        if (const auto collisions = request.integer("collisions")) {
-            next.ballCollisions = *collisions != 0;
-        }
-        if (const auto layout = request.text("layout")) {
-            if (const auto orientation = parseOrientation(*layout)) {
-                next.layout = *orientation;
-            } else {
-                return ControlResponse::error(400, "layout must be auto, landscape or portrait");
-            }
-        }
-        if (const auto vsync = request.integer("vsync")) {
-            next.vsync = *vsync != 0;
-        }
-        if (const auto advanced = request.integer("advanced")) {
-            next.advancedSettings = *advanced != 0;
-        }
-        if (const auto renderer = request.text("renderer")) {
-            next.renderer = normalizeRendererName(*renderer);
-        }
-        if (const auto api = request.text("graphicsApi")) {
-            next.graphicsApi = normalizeGraphicsApiName(*api);
-        } else if (const auto api = request.text("api")) {
-            next.graphicsApi = normalizeGraphicsApiName(*api);
-        }
-        std::optional<BackendKind> backend;
-        if (const auto name = request.text("backend")) {
-            backend = parseBackendKind(*name);
-            if (!backend || !isBackendAvailable(*backend)) {
-                return ControlResponse::error(400, std::format("backend {} is not available", *name));
-            }
-        }
-        const bool open = request.integer("open").value_or(0) != 0;
-        applySettings(next, backend);
-        if (open && currentScreen) {
-            applyPendingScreen();
-            if (auto* gameplay = dynamic_cast<GameplayScreen*>(currentScreen.get())) {
-                gameplay->openSettingsOverlay();
-            } else if (dynamic_cast<SettingsScreen*>(currentScreen.get()) == nullptr) {
-                showSettings();
-            }
-        }
-        return ControlResponse::ok(settingsJson());
-    }
-    const std::optional<GameMode> mode = parseGameMode(request.text("mode").value_or("normal"));
-    if (path == "/levels" || path == "/play" || path == "/editor") {
-        if (!mode) {
-            return ControlResponse::error(400, "mode must be normal or performance");
-        }
-        const std::string levelName = request.text("level").value_or("");
-        const std::optional<LevelFiles> level =
-            levelName.empty() ? std::nullopt : findLevel(*mode, levelName);
-        if (path == "/levels") {
-            showLevelSelect(*mode);
-        } else if (path == "/editor") {
-            openEditor(*mode, level);
-        } else if (!level) {
-            return ControlResponse::error(404,
-                                          std::format("no level '{}' in {} mode", levelName,
-                                                      *mode == GameMode::Normal ? "normal" : "performance"));
-        } else {
-            startGame(*mode, *level);
-        }
-        return ControlResponse::ok("{\"ok\":true}");
-    }
-    if (path == "/vsync") {
-        setVsync(request.integer("on").value_or(isVsyncEnabled() ? 0 : 1) != 0);
-        return ControlResponse::ok(std::format("{{\"ok\":true,\"vsync\":{}}}", isVsyncEnabled()));
+        return ControlResponse::ok();
     }
     if (path == "/window") {
         int width = 0;
@@ -842,13 +814,9 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
         width = request.integer("width").value_or(width);
         height = request.integer("height").value_or(height);
         SDL_SetWindowSize(window, std::max(width, minimumWindowWidth), std::max(height, minimumWindowHeight));
-        return ControlResponse::ok("{\"ok\":true}");
+        return ControlResponse::ok();
     }
-    if (auto response = currentScreen->handleControl(request)) {
-        return *response;
-    }
-    return ControlResponse::error(
-        404, std::format("unknown command {} on screen {}", path, currentScreen->name()));
+    return currentScreen->handleControl(request);
 }
 
 void App::showMainMenu() {
@@ -871,17 +839,6 @@ void App::adoptBenchmarkWinner(const BenchmarkCandidate& winner) {
     backendChoice = winner.kind;
     currentSettings.defaultBackend = storedBackendName(winner.kind);
     static_cast<void>(saveSettings(settingsFilePath(), currentSettings));
-}
-
-std::string App::benchmarkStateJson() const {
-    if (currentScreen && currentScreen->name() == "benchmark") {
-        return currentScreen->stateJson();
-    }
-    const std::optional<BenchmarkRecord>& stored = profile.benchmark();
-    if (!stored) {
-        return benchmarkJson("none", {}, std::nullopt);
-    }
-    return benchmarkJson(stored->complete ? "done" : "skipped", stored->results, stored->winner);
 }
 
 void App::showSettings() {
@@ -911,15 +868,6 @@ void App::applySettings(const Settings& settings, std::optional<BackendKind> bac
 void App::setAdvancedSettingsOpen(bool open) {
     currentSettings.advancedSettings = open;
     static_cast<void>(saveSettings(settingsFilePath(), currentSettings));
-}
-
-std::string App::settingsJson() const {
-    return std::format(
-        "{{\"ballCollisions\":{},\"layout\":\"{}\",\"vsync\":{},\"defaultBackend\":\"{}\",\"renderer\":\"{}\","
-        "\"graphicsApi\":\"{}\",\"advancedSettings\":{}}}",
-        currentSettings.ballCollisions, orientationName(currentSettings.layout), currentSettings.vsync,
-        jsonEscape(currentSettings.defaultBackend), normalizeRendererName(currentSettings.renderer),
-        normalizeGraphicsApiName(currentSettings.graphicsApi), currentSettings.advancedSettings);
 }
 
 void App::notifySettingsConsumers() {

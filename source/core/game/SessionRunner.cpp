@@ -72,6 +72,41 @@ std::shared_ptr<const BrickBoard> boardFor(const Simulation& simulation, const s
     return std::make_shared<const BrickBoard>(board);
 }
 
+// Everything but the board and the balls, which the physics thread shares and recycles between views.
+void describeSessionState(const GameSession& session, SessionView& view) {
+    const Simulation& simulation = session.simulation();
+    view.mode = session.mode();
+    view.state = session.state();
+    view.elapsedSeconds = session.elapsedSeconds();
+    view.launchers = session.launchers();
+    view.pendingSpawn = session.spawner().pendingBalls();
+    view.autoReleasing = session.isAutoReleasing();
+    view.spawnRateIndex = session.spawnRateIndex();
+    view.ballMultiplierIndex = session.ballMultiplierIndex();
+    view.ballLimitIndex = session.ballLimitIndex();
+    view.ballLimit = session.ballLimit();
+    view.usingMachineLimit = session.isUsingMachineBallLimit();
+    view.machineLimit = session.machineBallLimit();
+    view.probe = session.capacityProbe();
+    view.backend = session.backend();
+    view.pendingBackend = session.pendingBackend();
+    view.refilling = session.ballsLeftToRefill();
+    view.backendFault = session.lastBackendFault();
+    view.deviceStepMs = simulation.backend().deviceStepMs();
+    if (const auto* hybrid = dynamic_cast<const HybridBackend*>(&simulation.backend())) {
+        view.hybrid = HybridSplit{hybrid->cpuBallCount(), hybrid->ballCount(), hybrid->cpuStepMs(), hybrid->gpuStepMs()};
+    } else {
+        view.hybrid.reset();
+    }
+    view.collisionsRequested = simulation.ballCollisionsRequested();
+    view.collisionsActive = simulation.ballCollisionsActive();
+    view.stats = simulation.stats();
+    view.liveBalls = simulation.liveBallCount();
+    view.launchX = simulation.launchX();
+    view.launchY = simulation.launchY();
+    view.ballRadius = simulation.tuning().ballRadius;
+}
+
 // The last field size the backend reported, kept across frames: the grid is sized from it, and a size that changed
 // from frame to frame would make the backend rebuild its grid every frame.
 struct FieldSize {
@@ -102,38 +137,9 @@ void captureBalls(Simulation& simulation, float slotCells, FieldSize& field, Bal
 
 void fillView(GameSession& session, SessionView& view, const SessionView* previous, uint64_t& boardRevision,
               float slotCells, FieldSize& field) {
+    describeSessionState(session, view);
     Simulation& simulation = session.simulation();
-    view.mode = session.mode();
-    view.state = session.state();
-    view.elapsedSeconds = session.elapsedSeconds();
-    view.launchers = session.launchers();
-    view.pendingSpawn = session.spawner().pendingBalls();
-    view.autoReleasing = session.isAutoReleasing();
-    view.spawnRateIndex = session.spawnRateIndex();
-    view.ballMultiplierIndex = session.ballMultiplierIndex();
-    view.ballLimitIndex = session.ballLimitIndex();
-    view.ballLimit = session.ballLimit();
-    view.usingMachineLimit = session.isUsingMachineBallLimit();
-    view.machineLimit = session.machineBallLimit();
-    view.probe = session.capacityProbe();
-    view.backend = session.backend();
-    view.pendingBackend = session.pendingBackend();
-    view.refilling = session.ballsLeftToRefill();
-    view.backendFault = session.lastBackendFault();
-    view.deviceStepMs = simulation.backend().deviceStepMs();
-    if (const auto* hybrid = dynamic_cast<const HybridBackend*>(&simulation.backend())) {
-        view.hybrid = HybridSplit{hybrid->cpuBallCount(), hybrid->ballCount(), hybrid->cpuStepMs(), hybrid->gpuStepMs()};
-    } else {
-        view.hybrid.reset();
-    }
-    view.collisionsRequested = simulation.ballCollisionsRequested();
-    view.collisionsActive = simulation.ballCollisionsActive();
-    view.stats = simulation.stats();
-    view.liveBalls = simulation.liveBallCount();
     view.board = boardFor(simulation, previous ? previous->board : nullptr, boardRevision);
-    view.launchX = simulation.launchX();
-    view.launchY = simulation.launchY();
-    view.ballRadius = simulation.tuning().ballRadius;
     captureBalls(simulation, slotCells, field, view.balls);
 }
 
@@ -287,6 +293,11 @@ void SessionRunner::setBallCollisions(bool enabled) {
 std::vector<SessionEvent> SessionRunner::takeEvents() {
     std::lock_guard lock(shared->mutex);
     return std::exchange(shared->events, {});
+}
+
+void describeSession(const GameSession& session, SessionView& view) {
+    describeSessionState(session, view);
+    view.board = std::make_shared<const BrickBoard>(session.simulation().board());
 }
 
 bool SessionRunner::waitForStoppedRunners(std::chrono::milliseconds timeout) {

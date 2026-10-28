@@ -25,46 +25,6 @@ int parseInteger(std::string_view text, int fallback) {
 
 }
 
-std::optional<GameMode> parseGameMode(std::string_view text) {
-    const std::string name = lowercase(text);
-    if (name == "normal") {
-        return GameMode::Normal;
-    }
-    if (name == "performance" || name == "perf") {
-        return GameMode::Performance;
-    }
-    return std::nullopt;
-}
-
-namespace {
-
-std::optional<BackendKind> applyStoredBackend(const std::optional<StoredBackend>& stored) {
-    if (!stored) {
-        return std::nullopt;
-    }
-    if (!stored->picks.empty()) {
-        if (!backendPicksProblem(stored->picks).empty()) {
-            return std::nullopt;
-        }
-        setBackendPicks(stored->picks);
-        refreshBackendStatuses();
-    }
-    return stored->kind;
-}
-
-}
-
-std::optional<BackendKind> parseBackendKind(std::string_view text) {
-    if (text.find('@') != std::string_view::npos) {
-        return applyStoredBackend(parseStoredBackend(text));
-    }
-    return backendKindFromName(text);
-}
-
-std::optional<BackendKind> parseSavedBackendKind(std::string_view text) {
-    return applyStoredBackend(parseStoredBackend(text));
-}
-
 LaunchOptions parseLaunchOptions(int argumentCount, char** arguments) {
     LaunchOptions options;
     if (const char* rendererEnvironment = std::getenv("BALLS_RENDERER")) {

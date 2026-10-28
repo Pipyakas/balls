@@ -829,140 +829,26 @@ void GameplayScreen::draw() {
     drawToast();
 }
 
-std::string GameplayScreen::stateJson() const {
-    if (!runner) {
-        return std::format("{{\"loadError\":\"{}\"}}", jsonEscape(loadError));
+void GameplayScreen::post(std::function<void(GameSession&)> command) {
+    if (runner) {
+        runner->post(std::move(command));
     }
-    const std::shared_ptr<const SessionView> view = runner->view();
-    if (!view) {
-        return "{\"loading\":true}";
-    }
-    const SimulationStats& stats = view->stats;
-    std::string ballsByColor;
-    for (int color = 0; color < ballColorCount; ++color) {
-        ballsByColor += std::format("{}\"{}\":{}", color == 0 ? "" : ",",
-                                    ballColorName(ballColorFromIndex(color)), stats.ballsByColor[color]);
-    }
-    std::string launcherColumns;
-    const LauncherQueue& launchers = view->launchers;
-    for (int column = 0; column < launchers.columnCount(); ++column) {
-        launcherColumns += column == 0 ? "[" : ",[";
-        for (int row = 0; row < launchers.visibleRows(); ++row) {
-            const QueuedLauncher* queued = launchers.visible(column, row);
-            if (!queued) {
-                break;
-            }
-            launcherColumns += std::format("{}{{\"color\":\"{}\",\"balls\":{}}}", row == 0 ? "" : ",",
-                                           ballColorName(queued->launcher.color), queued->launcher.ballCount);
-        }
-        launcherColumns += "]";
-    }
-    constexpr std::array<const char*, 3> stateNames{"ready", "running", "won"};
-    const CapacityProbe& probe = view->probe;
-    return std::format(
-        "{{\"mode\":\"{}\",\"level\":\"{}\",\"diskNotice\":\"{}\",\"state\":\"{}\",\"paused\":{},\"backend\":\"{}\",\"pendingBackend\":\"{}\",\"refilling\":{},\"backendFault\":\"{}\","
-        "\"balls\":{},\"bricks\":{},\"launchersLeft\":{},\"pendingSpawn\":{},\"spawned\":{},\"hits\":{},"
-        "\"physicsMs\":{:.3f},\"kernelMs\":{:.3f},\"ticks\":{},\"spawnRate\":{},\"multiplier\":{},"
-        "\"ballLimit\":{},\"elapsed\":{:.2f},\"physicsFps\":{:.1f},\"physicsFrameMs\":{:.3f},"
-        "\"probe\":{{\"phase\":\"{}\",\"target\":{:.0f},\"fps\":{:.1f},\"best\":{}}},"
-        "\"ballsByColor\":{{{}}},\"launchers\":[{}]}}",
-        mode == GameMode::Normal ? "normal" : "performance", jsonEscape(files.name), levelDiskNotice(watcher.diskState()),
-        stateNames[static_cast<int>(view->state)], paused, backendKindName(view->backend),
-        view->pendingBackend ? backendKindName(*view->pendingBackend) : std::string_view{},
-        view->refilling, jsonEscape(view->backendFault), stats.ballCount, view->board->aliveBrickCount(),
-        launchers.launcherCount(), view->pendingSpawn, stats.totalBallsSpawned,
-        stats.totalHits, stats.lastFramePhysicsMs, view->deviceStepMs, stats.ticksLastFrame,
-        spawnRateOptions[view->spawnRateIndex], ballMultiplierOptions[view->ballMultiplierIndex],
-        view->ballLimit, view->elapsedSeconds, view->physicsFramesPerSecond, view->physicsFrameMs,
-        probePhaseName(probe.phase()), probe.targetFps(),
-        probe.lastFps(), probe.bestPassingCount(), ballsByColor, launcherColumns);
 }
 
+void GameplayScreen::startCapacityProbe(int targetFps) {
+    probeTargetFps = targetFps;
+    startProbe();
+}
+
+// The shared gameplay routes are the core's; the compute GPU list is SDL's own.
 std::optional<ControlResponse> GameplayScreen::handleControl(const ControlRequest& request) {
-    if (!runner) {
+    if (request.path != "/compute-gpu" || !runner) {
         return std::nullopt;
     }
-    if (!view) {
-        view = runner->view();
+    const auto index = request.integer("index");
+    if (!index || *index < 0 || *index >= static_cast<long long>(app.computeAdapters().size())) {
+        return ControlResponse::error(400, "index must name a Vulkan adapter");
     }
-    if (!view) {
-        return ControlResponse::error(409, "the level is still loading");
-    }
-    const std::string& path = request.path;
-    const ControlResponse done = ControlResponse::ok("{\"ok\":true}");
-    if (path == "/launch") {
-        const int column = static_cast<int>(request.integer("column").value_or(0));
-        const int row = static_cast<int>(request.integer("row").value_or(0));
-        if (!view->launchers.visible(column, row) || view->state == SessionState::Won) {
-            return ControlResponse::error(409, "no launcher there or game not running");
-        }
-        runner->post([column, row](GameSession& session) { session.chooseLauncher(column, row); });
-        return done;
-    }
-    if (path == "/start") {
-        runner->post([](GameSession& session) { session.startAutoRelease(); });
-        return done;
-    }
-    if (path == "/probe") {
-        if (request.integer("cancel").value_or(0) != 0) {
-            runner->post([](GameSession& session) { session.cancelCapacityProbe(); });
-        } else {
-            probeTargetFps = std::clamp(request.integer("fps").value_or(probeTargetFps),
-                                        minimumProbeTargetFps, maximumProbeTargetFps);
-            startProbe();
-        }
-        return done;
-    }
-    if (path == "/rate") {
-        const int index = static_cast<int>(request.integer("index").value_or(view->spawnRateIndex));
-        runner->post([index](GameSession& session) { session.selectSpawnRate(index); });
-        return done;
-    }
-    if (path == "/fill") {
-        const auto count = static_cast<BallCount>(std::max<long long>(request.integer("count").value_or(0), 0));
-        runner->post([count](GameSession& session) { session.fillWithBalls(count); });
-        return done;
-    }
-    if (path == "/limit") {
-        const int index = static_cast<int>(request.integer("index").value_or(view->ballLimitIndex));
-        runner->post([index](GameSession& session) {
-            session.cancelCapacityProbe();
-            session.selectBallLimit(index);
-        });
-        return done;
-    }
-    if (path == "/multiplier") {
-        const int index = static_cast<int>(request.integer("index").value_or(view->ballMultiplierIndex));
-        runner->post([index](GameSession& session) { session.selectBallMultiplier(index); });
-        return done;
-    }
-    if (path == "/backend") {
-        const auto kind = parseBackendKind(request.text("kind").value_or(""));
-        if (!kind || !isBackendAvailable(*kind)) {
-            return ControlResponse::error(409, "backend unknown or unavailable");
-        }
-        runner->post([kind = *kind](GameSession& session) { session.requestBackend(kind); });
-        return done;
-    }
-    if (path == "/pause") {
-        paused = true;
-        return done;
-    }
-    if (path == "/resume") {
-        paused = false;
-        return done;
-    }
-    if (path == "/compute-gpu") {
-        const auto index = request.integer("index");
-        if (!index || *index < 0 || *index >= static_cast<long long>(app.computeAdapters().size())) {
-            return ControlResponse::error(400, "index must name a Vulkan adapter");
-        }
-        selectComputeAdapter(static_cast<int>(*index));
-        return done;
-    }
-    if (path == "/restart") {
-        restartLevel();
-        return done;
-    }
-    return std::nullopt;
+    selectComputeAdapter(static_cast<int>(*index));
+    return ControlResponse::ok();
 }

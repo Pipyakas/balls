@@ -56,68 +56,6 @@ void wakeBlockedAccept(NativeSocket socket) {
 constexpr auto responseTimeout = std::chrono::seconds(10);
 constexpr size_t maximumRequestBytes = 16 * 1024;
 
-int hexValue(char character) {
-    if (character >= '0' && character <= '9') {
-        return character - '0';
-    }
-    if (character >= 'a' && character <= 'f') {
-        return character - 'a' + 10;
-    }
-    if (character >= 'A' && character <= 'F') {
-        return character - 'A' + 10;
-    }
-    return -1;
-}
-
-std::string urlDecode(std::string_view text) {
-    std::string decoded;
-    for (size_t i = 0; i < text.size(); ++i) {
-        if (text[i] == '+') {
-            decoded += ' ';
-        } else if (text[i] == '%' && i + 2 < text.size() && hexValue(text[i + 1]) >= 0 && hexValue(text[i + 2]) >= 0) {
-            decoded += static_cast<char>(hexValue(text[i + 1]) * 16 + hexValue(text[i + 2]));
-            i += 2;
-        } else {
-            decoded += text[i];
-        }
-    }
-    return decoded;
-}
-
-ControlRequest parseTarget(std::string_view target) {
-    ControlRequest request;
-    const size_t queryStart = target.find('?');
-    request.path = urlDecode(target.substr(0, queryStart));
-    if (queryStart == std::string_view::npos) {
-        return request;
-    }
-    std::string_view query = target.substr(queryStart + 1);
-    while (!query.empty()) {
-        const size_t separator = query.find('&');
-        const std::string_view pair = query.substr(0, separator);
-        const size_t equals = pair.find('=');
-        request.query[urlDecode(pair.substr(0, equals))] =
-            equals == std::string_view::npos ? std::string() : urlDecode(pair.substr(equals + 1));
-        query = separator == std::string_view::npos ? std::string_view() : query.substr(separator + 1);
-    }
-    return request;
-}
-
-std::string_view statusText(int status) {
-    switch (status) {
-    case 200:
-        return "OK";
-    case 400:
-        return "Bad Request";
-    case 404:
-        return "Not Found";
-    case 409:
-        return "Conflict";
-    default:
-        return "Error";
-    }
-}
-
 void sendAll(NativeSocket socket, const std::string& data) {
     size_t sent = 0;
     while (sent < data.size()) {
@@ -204,7 +142,7 @@ void ControlServer::serveClient(uintptr_t clientHandle) {
     if (methodEnd == std::string::npos || targetEnd == std::string::npos) {
         return;
     }
-    PendingCommand command{parseTarget(std::string_view(request).substr(methodEnd + 1, targetEnd - methodEnd - 1)), {}};
+    PendingCommand command{parseControlTarget(std::string_view(request).substr(methodEnd + 1, targetEnd - methodEnd - 1)), {}};
     std::future<ControlResponse> future = command.response.get_future();
     {
         std::lock_guard lock(queueMutex);
@@ -213,9 +151,7 @@ void ControlServer::serveClient(uintptr_t clientHandle) {
     ControlResponse response = future.wait_for(responseTimeout) == std::future_status::ready
                                    ? future.get()
                                    : ControlResponse::error(504, "game did not answer in time");
-    sendAll(client, std::format("HTTP/1.1 {} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n"
-                                "Connection: close\r\n\r\n{}",
-                                response.status, statusText(response.status), response.json.size(), response.json));
+    sendAll(client, httpResponseText(response));
 }
 
 void ControlServer::pump(const Handler& handler) {

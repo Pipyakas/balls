@@ -104,7 +104,6 @@ set(BALLS_SDL_SOURCES
     app/Paths.cpp
     app/LaunchOptions.cpp
     app/PreferenceDirectory.cpp
-    control/ControlProtocol.cpp
     control/ControlServer.cpp
     render/RendererFactory.cpp
     render/BallView.cpp

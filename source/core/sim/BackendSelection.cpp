@@ -312,3 +312,32 @@ std::string storedBackendName(BackendKind kind) {
     }
     return kind == BackendKind::Hybrid ? formatBackendPicks(hybridPicks()) : std::string(backendKindName(kind));
 }
+
+namespace {
+
+std::optional<BackendKind> applyStoredBackend(const std::optional<StoredBackend>& stored) {
+    if (!stored) {
+        return std::nullopt;
+    }
+    if (!stored->picks.empty()) {
+        if (!backendPicksProblem(stored->picks).empty()) {
+            return std::nullopt;
+        }
+        setBackendPicks(stored->picks);
+        refreshBackendStatuses();
+    }
+    return stored->kind;
+}
+
+} // namespace
+
+std::optional<BackendKind> parseBackendKind(std::string_view text) {
+    if (text.find('@') != std::string_view::npos) {
+        return applyStoredBackend(parseStoredBackend(text));
+    }
+    return backendKindFromName(text);
+}
+
+std::optional<BackendKind> parseSavedBackendKind(std::string_view text) {
+    return applyStoredBackend(parseStoredBackend(text));
+}
