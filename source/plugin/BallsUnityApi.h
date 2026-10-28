@@ -155,6 +155,7 @@ typedef struct BallsSettings {
     int32_t ballCollisions;
     int32_t orientation;
     int32_t vsync;
+    int32_t advancedSettings;  // whether the control gadget shows its Advanced Settings section
     char defaultBackend[64];
 } BallsSettings;
 
@@ -240,6 +241,49 @@ BALLS_API int32_t balls_backend_reason(int32_t kind, char* buffer, int32_t size)
 BALLS_API int32_t balls_backend_detail(int32_t kind, char* buffer, int32_t size);
 BALLS_API int32_t balls_fastest_cpu_backend(void);
 
+// One physical device the physics can run on, the CPU first (see sim/DeviceInventory.h). ``type`` is the core's
+// PhysicsDeviceType: 0 CPU, 1 discrete GPU, 2 integrated GPU, 3 other GPU, 4 NPU. A -1 device index means that
+// plugin cannot run on it.
+typedef struct BallsDeviceInfo {
+    char id[32];
+    char name[256];
+    int32_t type;
+    uint64_t memoryBytes;
+    int32_t vulkanDevice;
+    int32_t cudaDevice;
+} BallsDeviceInfo;
+
+// Fills up to ``capacity`` devices and returns how many were written, or the total with a null pointer. The list is
+// built once per process: the plugins open their drivers to answer, so calling this from OnGUI every frame is cheap
+// but the first call is not.
+BALLS_API int32_t balls_devices_find(BallsDeviceInfo* devices, int32_t capacity);
+// The adapter the Vulkan physics plugin runs on: "auto" (default), an index, "integrated"/"discrete", or a name
+// substring; ignored by backends with no adapter choice.
+BALLS_API int32_t balls_compute_gpu(char* buffer, int32_t size);
+BALLS_API int32_t balls_set_compute_gpu(const char* preference);
+
+// Which backend runs on which device: the game's Devices rows. One pick runs that backend alone on that device, two
+// or more run the composer (Hybrid) with one part per pick, and a device takes at most one pick.
+typedef struct BallsPick {
+    char device[32];  // PhysicalDevice::id, "cpu" or "gpu0"...
+    int32_t kind;
+} BallsPick;
+
+// The configured picks, which may be empty. Returns how many there are, writing at most ``capacity``.
+BALLS_API int32_t balls_picks_get(BallsPick* picks, int32_t capacity);
+// What the device rows should show while ``runningKind`` is the active backend (the picks that describe it, else the
+// picks Hybrid would compose or the kind's default device).
+BALLS_API int32_t balls_picks_display(int32_t runningKind, BallsPick* picks, int32_t capacity);
+// Replaces the picks. Returns 1 when they can run here; 0 otherwise, with the reason in ``problem``.
+BALLS_API int32_t balls_picks_set(const BallsPick* picks, int32_t count, char* problem, int32_t problemSize);
+// The kinds a device row offers, fastest first; Scalar only where nothing faster runs.
+BALLS_API int32_t balls_pickable_kinds(const char* device, int32_t* kinds, int32_t capacity);
+// The picks Hybrid uses when none are configured: the CPU and every discrete GPU.
+BALLS_API int32_t balls_default_hybrid_picks(BallsPick* picks, int32_t capacity);
+// "AVX2 (CPU) + CUDA (RTX 2060)" for menus, and the backend those picks run as.
+BALLS_API int32_t balls_picks_label(const BallsPick* picks, int32_t count, char* buffer, int32_t size);
+BALLS_API int32_t balls_kind_for_picks(const BallsPick* picks, int32_t count);
+
 // --- Levels and settings -------------------------------------------------------------------------------------
 
 // Fills up to capacity entries and returns how many levels the directory holds.
@@ -252,6 +296,22 @@ BALLS_API void balls_level_watcher_destroy(BallsLevelWatcher* watcher);
 BALLS_API int32_t balls_level_watcher_poll(BallsLevelWatcher* watcher);
 BALLS_API void balls_level_watcher_mark_loaded(BallsLevelWatcher* watcher);
 BALLS_API int32_t balls_level_disk_notice(int32_t state, char* buffer, int32_t size);
+
+// One level pair the importer was given: what happened to it and the toast line that names it.
+typedef struct BallsImportResult {
+    int32_t status;  // 0 imported, 1 replaced an existing level, 2 failed
+    char name[128];
+    char message[256];
+    int32_t hasWarning;
+} BallsImportResult;
+
+// Copies level pairs into a mode's level folder. ``picked`` may hold either file of a pair or a folder of pairs;
+// the partner is found next to the picked file by name, and a pair is parsed before it is copied, so a broken file
+// never lands in the folder. Returns how many results there were, writing at most ``capacity`` of them, and the
+// toast-ready summary into ``summary``.
+BALLS_API int32_t balls_levels_import(int32_t mode, const char* destination, const char* const* picked,
+                                      int32_t pickedCount, BallsImportResult* results, int32_t capacity,
+                                      char* summary, int32_t summarySize);
 
 BALLS_API int32_t balls_settings_load(const char* path, BallsSettings* settings);
 BALLS_API int32_t balls_settings_save(const char* path, const BallsSettings* settings);

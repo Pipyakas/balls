@@ -54,14 +54,13 @@ namespace Balls.App.Screens
 
             DrawDrifters(theme, width, height);
 
-            widgets.Label(new Rect(0f, height * 0.16f, width, 90f), "COLOR BLAST", TypeSizes.Display,
+            // The game's title is BALLS alone, 72 in the accent colour and centred, as SDL draws it.
+            widgets.Label(new Rect(0f, height * 0.16f, width, 90f), "BALLS", TypeSizes.Title,
                 Palette.Accent, TextAnchor.MiddleCenter, true);
-            widgets.Label(new Rect(0f, height * 0.16f + 84f, width, 64f), "BALLS", 50,
-                Palette.Text, TextAnchor.MiddleCenter, true);
 
             float columnWidth = Mathf.Min(ButtonWidth, width - 48f);
             float x = (width - columnWidth) * 0.5f;
-            float y = height * 0.16f + 190f;
+            float y = height * 0.16f + 130f;
 
             if (widgets.Button(new Rect(x, y, columnWidth, ButtonHeight), "Normal Mode"))
             {

@@ -21,6 +21,7 @@ namespace Balls.Ui
             BallCollisions = native.ballCollisions != 0;
             Orientation = native.orientation;
             Vsync = native.vsync != 0;
+            AdvancedSettings = native.advancedSettings != 0;
             DefaultBackend = native.DefaultBackend;
         }
 
@@ -29,6 +30,9 @@ namespace Balls.Ui
         public int Orientation { get; set; }
 
         public bool Vsync { get; set; }
+
+        /// <summary>Whether the control gadget's Advanced Settings section is open; the debug gadget hides rows with it.</summary>
+        public bool AdvancedSettings { get; set; }
 
         public string DefaultBackend { get; set; } = "";
 
@@ -62,6 +66,7 @@ namespace Balls.Ui
                 ballCollisions = BallCollisions ? 1 : 0,
                 orientation = Orientation,
                 vsync = Vsync ? 1 : 0,
+                advancedSettings = AdvancedSettings ? 1 : 0,
                 defaultBackend = new byte[64],
             };
             byte[] name = Encoding.UTF8.GetBytes(DefaultBackend ?? "");

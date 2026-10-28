@@ -16,6 +16,9 @@ option(BALLS_STATIC_CRT "Link the static MSVC runtime (physics plugins need the 
 # take 19 s to rebuild instead of 5. Renamed from BALLS_LTO so existing build trees drop their cached ON.
 option(BALLS_WHOLE_PROGRAM_OPTIMIZATION "Enable whole-program optimization (/GL /LTCG)" OFF)
 set(BALLS_CUDA_SDK_DIR "${CMAKE_SOURCE_DIR}/.deps/cuda/sdk" CACHE PATH "Directory with CUDA include/ and bin/ (scripts/FetchCudaSdk.ps1)")
+option(BALLS_ENABLE_ROCM "Build the ROCm physics backend (needs HSA headers and an amdgcn clang)" ON)
+set(BALLS_ROCM_SDK_DIR "${CMAKE_SOURCE_DIR}/.deps/rocm" CACHE PATH "Directory with ROCm HSA include/ (scripts/FetchRocmSdk.sh)")
+set(BALLS_ROCM_CLANG "/usr/lib64/rocm/llvm/bin/clang" CACHE PATH "amdgcn-capable clang for ROCm code objects")
 
 if(BALLS_STATIC_CRT)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -42,10 +45,12 @@ if(MSVC)
         set(BALLS_LINK_OPTIMIZE $<$<CONFIG:Release,RelWithDebInfo>:/LTCG>)
     endif()
     set(BALLS_AVX2_FLAGS /arch:AVX2)
+    set(BALLS_AVX512_FLAGS /arch:AVX512)
 else()
     set(BALLS_WARNINGS -Wall -Wextra -Wpedantic)
     set(BALLS_OPTIMIZE $<$<CONFIG:Release,RelWithDebInfo>:-O3 -ffast-math>)
     set(BALLS_AVX2_FLAGS -mavx2 -mfma)
+    set(BALLS_AVX512_FLAGS -mavx512f -mavx512bw -mavx512dq -mavx512vl -mavx512vbmi2 -mavx512vpopcntdq -mfma -mbmi2 -mtune=znver4)
 endif()
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)

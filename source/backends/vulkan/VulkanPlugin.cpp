@@ -1,4 +1,5 @@
 #include "vulkan/VulkanBackend.h"
+#include "vulkan/VulkanMultiBackend.h"
 
 #define VULKAN_HPP_DISPATCH_LOADER_DYNAMIC 1
 #include <vulkan/vulkan.hpp>
@@ -20,6 +21,7 @@ constexpr std::string_view vulkanName = "Vulkan";
 constexpr const char* unknownKind = "unknown backend";
 
 bool isVulkanKind(const char* kindName) { return std::string_view(kindName ? kindName : "") == vulkanName; }
+bool isVulkanMultiKind(const char* kindName) { return std::string_view(kindName ? kindName : "") == "VulkanMulti"; }
 
 // Every device the plugin opened, by its index in computeAdapters(), plus the shared instance. A device is kept
 // while a backend uses it and released by ballsReleaseIdleDevice once nothing does.
@@ -149,13 +151,42 @@ BALLS_PLUGIN_EXPORT void ballsReleaseIdleDevice() { releaseIdleDevices(); }
 
 BALLS_PLUGIN_EXPORT const char* ballsBackendUnavailableReason(const char* kindName) {
     static std::string reason;
-    reason = isVulkanKind(kindName) ? deviceFailure(currentDefaultDevice()) : std::string(unknownKind);
+    if (isVulkanKind(kindName)) {
+        reason = deviceFailure(currentDefaultDevice());
+    } else if (isVulkanMultiKind(kindName)) {
+        const auto& adapters = computeAdapters();
+        if (adapters.size() < 2) {
+            reason = "need at least two usable Vulkan compute adapters";
+        } else {
+            // Discrete preferred; ensure at least two are usable (already) and openable.
+            reason.clear();
+            // Try opening the first two usable adapters.
+            std::string error;
+            auto first = deviceAt(0, error);
+            if (!first) {
+                reason = error;
+            } else {
+                auto second = deviceAt(adapters.size() >= 2 ? 1 : 0, error);
+                if (!second) {
+                    reason = error;
+                }
+            }
+        }
+    } else {
+        reason = unknownKind;
+    }
     return reason.c_str();
 }
 
 BALLS_PLUGIN_EXPORT const char* ballsBackendDetail(const char* kindName) {
     static std::string detail;
-    detail = isVulkanKind(kindName) ? deviceDetail(currentDefaultDevice()) : std::string{};
+    if (isVulkanKind(kindName)) {
+        detail = deviceDetail(currentDefaultDevice());
+    } else if (isVulkanMultiKind(kindName)) {
+        detail = std::format("VulkanMulti over {} adapters", computeAdapters().size());
+    } else {
+        detail.clear();
+    }
     return detail.c_str();
 }
 
@@ -168,7 +199,39 @@ BALLS_PLUGIN_EXPORT PhysicsBackend* ballsCreateBackendOnDevice(const char* kindN
     return computeDevice ? new VulkanBackend(std::move(computeDevice)) : nullptr;
 }
 
+BALLS_PLUGIN_EXPORT PhysicsBackend* ballsCreateBackendOnDevices(const char* kindName, const int* devices, int count) {
+    if (!isVulkanMultiKind(kindName) || !devices || count < 2) {
+        return nullptr;
+    }
+    std::vector<std::shared_ptr<VulkanComputeDevice>> opened;
+    for (int i = 0; i < count; ++i) {
+        std::string error;
+        auto device = deviceAt(devices[i], error);
+        if (!device) {
+            return nullptr;
+        }
+        opened.push_back(device);
+    }
+    return new VulkanMultiBackend(std::move(opened));
+}
+
 BALLS_PLUGIN_EXPORT PhysicsBackend* ballsCreateBackend(const char* kindName) {
+    if (isVulkanMultiKind(kindName)) {
+        // Default device set: all discrete adapters, or all usable adapters when fewer than two are discrete.
+        std::vector<int> chosen;
+        for (size_t i = 0; i < computeAdapters().size(); ++i) {
+            if (computeAdapters()[i].kind == GpuKind::Discrete) {
+                chosen.push_back(static_cast<int>(i));
+            }
+        }
+        if (chosen.size() < 2) {
+            chosen.clear();
+            for (size_t i = 0; i < computeAdapters().size(); ++i) {
+                chosen.push_back(static_cast<int>(i));
+            }
+        }
+        return ballsCreateBackendOnDevices(kindName, chosen.data(), static_cast<int>(chosen.size()));
+    }
     return ballsCreateBackendOnDevice(kindName, currentDefaultDevice());
 }
 

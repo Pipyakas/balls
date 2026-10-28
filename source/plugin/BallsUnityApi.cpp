@@ -6,16 +6,20 @@
 #include "game/GameSession.h"
 #include "game/MachineProfile.h"
 #include "game/Settings.h"
+#include "level/LevelImporter.h"
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
 #include "level/LevelWatcher.h"
 #include "level/LevelWriter.h"
 #include "sim/BackendBenchmark.h"
 #include "sim/BackendFactory.h"
+#include "sim/BackendSelection.h"
+#include "sim/DeviceInventory.h"
 #include "sim/Simulation.h"
 #include "ui/GameplayLayout.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cstring>
 #include <memory>
@@ -240,6 +244,140 @@ int32_t balls_fastest_cpu_backend(void) {
     return fromBackendKind(fastestAvailableCpuBackend());
 }
 
+int32_t balls_devices_find(BallsDeviceInfo* devices, int32_t capacity) {
+    // physicalDevices() opens the GPU drivers on its first call, so it is asked once per process and cached there.
+    const std::vector<PhysicalDevice>& found = physicalDevices();
+    const int32_t count = static_cast<int32_t>(found.size());
+    if (devices == nullptr) {
+        return count;
+    }
+    const int32_t written = std::min(count, std::max(capacity, 0));
+    for (int32_t index = 0; index < written; ++index) {
+        const PhysicalDevice& device = found[static_cast<size_t>(index)];
+        BallsDeviceInfo& out = devices[index];
+        std::memset(&out, 0, sizeof out);
+        copyName(device.id, out.id, sizeof out.id);
+        copyName(device.name, out.name, sizeof out.name);
+        out.type = static_cast<int32_t>(device.type);
+        out.memoryBytes = device.memoryBytes;
+        out.vulkanDevice = -1;
+        out.cudaDevice = -1;
+        if (const DeviceBackendOption* option = device.option(BackendKind::Vulkan)) {
+            out.vulkanDevice = option->pluginDevice;
+        }
+        if (const DeviceBackendOption* option = device.option(BackendKind::Cuda)) {
+            out.cudaDevice = option->pluginDevice;
+        }
+    }
+    return written;
+}
+
+namespace {
+
+std::vector<BackendPick> toPicks(const BallsPick* picks, int32_t count) {
+    std::vector<BackendPick> found;
+    if (picks == nullptr) {
+        return found;
+    }
+    found.reserve(static_cast<size_t>(std::max(count, 0)));
+    for (int32_t index = 0; index < count; ++index) {
+        found.push_back(BackendPick{toBackendKind(picks[index].kind), picks[index].device});
+    }
+    return found;
+}
+
+int32_t writePicks(std::span<const BackendPick> picks, BallsPick* out, int32_t capacity) {
+    const int32_t count = static_cast<int32_t>(picks.size());
+    if (out == nullptr) {
+        return count;
+    }
+    const int32_t written = std::min(count, std::max(capacity, 0));
+    for (int32_t index = 0; index < written; ++index) {
+        BallsPick& pick = out[index];
+        std::memset(&pick, 0, sizeof pick);
+        copyName(picks[static_cast<size_t>(index)].device, pick.device, sizeof pick.device);
+        pick.kind = fromBackendKind(picks[static_cast<size_t>(index)].kind);
+    }
+    return written;
+}
+
+}  // namespace
+
+int32_t balls_picks_get(BallsPick* picks, int32_t capacity) {
+    return writePicks(backendPicks(), picks, capacity);
+}
+
+int32_t balls_picks_display(int32_t runningKind, BallsPick* picks, int32_t capacity) {
+    return writePicks(displayedPicks(toBackendKind(runningKind)), picks, capacity);
+}
+
+int32_t balls_picks_set(const BallsPick* picks, int32_t count, char* problem, int32_t problemSize) {
+    const std::vector<BackendPick> wanted = toPicks(picks, count);
+    const std::string why = backendPicksProblem(wanted);
+    if (!why.empty()) {
+        writeText(why, problem, problemSize);
+        return 0;
+    }
+    setBackendPicks(wanted);
+    writeText(std::string_view{}, problem, problemSize);
+    return 1;
+}
+
+int32_t balls_pickable_kinds(const char* device, int32_t* kinds, int32_t capacity) {
+    const PhysicalDevice* found = device == nullptr ? nullptr : findPhysicalDevice(device);
+    if (found == nullptr) {
+        return 0;
+    }
+    const std::vector<BackendKind> offered = pickableKinds(*found);
+    const int32_t count = static_cast<int32_t>(offered.size());
+    if (kinds == nullptr) {
+        return count;
+    }
+    const int32_t written = std::min(count, std::max(capacity, 0));
+    for (int32_t index = 0; index < written; ++index) {
+        kinds[index] = fromBackendKind(offered[static_cast<size_t>(index)]);
+    }
+    return written;
+}
+
+int32_t balls_default_hybrid_picks(BallsPick* picks, int32_t capacity) {
+    return writePicks(defaultHybridPicks(), picks, capacity);
+}
+
+int32_t balls_picks_label(const BallsPick* picks, int32_t count, char* buffer, int32_t size) {
+    return writeText(backendPicksLabel(toPicks(picks, count)), buffer, size);
+}
+
+int32_t balls_kind_for_picks(const BallsPick* picks, int32_t count) {
+    return fromBackendKind(kindForPicks(toPicks(picks, count)));
+}
+
+int32_t balls_compute_gpu(char* buffer, int32_t size) {
+    return writeText(computeGpuPreference(), buffer, size);
+}
+
+int32_t balls_set_compute_gpu(const char* preference) {
+    if (preference == nullptr) {
+        return 0;
+    }
+    // The core takes "auto", "integrated"/"discrete", an adapter index or a name, and ignores what it cannot match;
+    // answer the host for it, so a typo is told rather than silently leaving the old adapter in place.
+    const std::string wanted(preference);
+    std::string lowered;
+    lowered.reserve(wanted.size());
+    for (char letter : wanted) {
+        lowered.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(letter))));
+    }
+    const bool automatic = lowered.empty() || lowered == "auto" || lowered == "integrated" || lowered == "discrete";
+    const bool numeric = !lowered.empty() &&
+                         std::all_of(lowered.begin(), lowered.end(), [](char letter) { return letter >= '0' && letter <= '9'; });
+    if (!automatic && !numeric && findPhysicalDevice(wanted) == nullptr) {
+        return 0;
+    }
+    setComputeGpuPreference(wanted);
+    return 1;
+}
+
 int32_t balls_levels_find(const char* directory, BallsLevelInfo* levels, int32_t capacity) {
     if (directory == nullptr) {
         setError("level directory is required");
@@ -262,6 +400,39 @@ int32_t balls_levels_find(const char* directory, BallsLevelInfo* levels, int32_t
     return count;
 }
 
+int32_t balls_levels_import(int32_t mode, const char* destination, const char* const* picked, int32_t pickedCount,
+                            BallsImportResult* results, int32_t capacity, char* summary, int32_t summarySize) {
+    if (destination == nullptr || picked == nullptr || pickedCount <= 0) {
+        setError("a destination folder and at least one picked file are required");
+        return 0;
+    }
+    std::vector<std::filesystem::path> paths;
+    paths.reserve(static_cast<size_t>(pickedCount));
+    for (int32_t index = 0; index < pickedCount; ++index) {
+        if (picked[index] != nullptr) {
+            paths.emplace_back(picked[index]);
+        }
+    }
+    const GameMode gameMode = mode == BALLS_MODE_PERFORMANCE ? GameMode::Performance : GameMode::Normal;
+    const LevelImportReport report = importLevels(paths, std::filesystem::path(destination), gameMode);
+    if (results != nullptr) {
+        const int32_t written = std::min(static_cast<int32_t>(report.results.size()), std::max(capacity, 0));
+        for (int32_t index = 0; index < written; ++index) {
+            const LevelImportResult& source = report.results[static_cast<size_t>(index)];
+            BallsImportResult& out = results[index];
+            std::memset(&out, 0, sizeof out);
+            out.status = source.status == LevelImportResult::Status::Imported ? 0
+                         : source.status == LevelImportResult::Status::Replaced ? 1
+                                                                                : 2;
+            copyName(source.name, out.name, sizeof out.name);
+            copyName(source.message, out.message, sizeof out.message);
+            out.hasWarning = source.hasWarning ? 1 : 0;
+        }
+    }
+    writeText(report.summary(), summary, summarySize);
+    return static_cast<int32_t>(report.results.size());
+}
+
 int32_t balls_settings_load(const char* path, BallsSettings* settings) {
     if (path == nullptr || settings == nullptr) {
         return -1;
@@ -269,6 +440,7 @@ int32_t balls_settings_load(const char* path, BallsSettings* settings) {
     const Settings loaded = loadSettings(std::filesystem::path(path));
     settings->ballCollisions = loaded.ballCollisions ? 1 : 0;
     settings->vsync = loaded.vsync ? 1 : 0;
+    settings->advancedSettings = loaded.advancedSettings ? 1 : 0;
     settings->orientation = loaded.layout == LayoutOrientation::Landscape  ? BALLS_ORIENTATION_LANDSCAPE
                             : loaded.layout == LayoutOrientation::Portrait ? BALLS_ORIENTATION_PORTRAIT
                                                                            : BALLS_ORIENTATION_AUTO;
@@ -283,6 +455,7 @@ int32_t balls_settings_save(const char* path, const BallsSettings* settings) {
     Settings outgoing;
     outgoing.ballCollisions = settings->ballCollisions != 0;
     outgoing.vsync = settings->vsync != 0;
+    outgoing.advancedSettings = settings->advancedSettings != 0;
     outgoing.layout = settings->orientation == BALLS_ORIENTATION_LANDSCAPE  ? LayoutOrientation::Landscape
                       : settings->orientation == BALLS_ORIENTATION_PORTRAIT ? LayoutOrientation::Portrait
                                                                            : LayoutOrientation::Auto;
