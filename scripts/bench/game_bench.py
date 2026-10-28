@@ -106,7 +106,7 @@ def run(arguments):
 
 def main():
     parser = argparse.ArgumentParser(description="Headless in-game performance benchmark over the control API")
-    parser.add_argument("--exe", default="build/bin/Release/ColorBlastBalls.exe")
+    parser.add_argument("--exe", default="build/bin/Release/balls.exe")
     parser.add_argument("--port", type=int, default=7781)
     parser.add_argument("--level", default="DA_1000Bricks")
     parser.add_argument("--backends", nargs="+", default=["avx2", "cuda", "scalar"])

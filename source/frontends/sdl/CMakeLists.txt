@@ -93,7 +93,7 @@ target_link_libraries(balls_imgui PUBLIC ${BALLS_SDL3_LINK_TARGET})
 if(ANDROID)
     set(BALLS_SDL_TARGET main)
 else()
-    set(BALLS_SDL_TARGET ColorBlastBalls)
+    set(BALLS_SDL_TARGET balls)
 endif()
 
 set(BALLS_SDL_SOURCES
@@ -180,26 +180,26 @@ else()
 endif()
 
 if(BALLS_WITH_NVRHI AND NOT BALLS_RENDERER STREQUAL "nvrhi")
-    target_sources(ColorBlastBalls PRIVATE
+    target_sources(balls PRIVATE
         render/nvrhi/NvrhiRenderer.cpp
         render/nvrhi/GraphicsDevice.cpp
         render/nvrhi/VulkanDevice.cpp
         render/nvrhi/ImguiNvrhi.cpp
         render/nvrhi/ShaderBytecode.cpp)
-    target_compile_definitions(ColorBlastBalls PRIVATE BALLS_WITH_NVRHI)
+    target_compile_definitions(balls PRIVATE BALLS_WITH_NVRHI)
     if(MSVC)
-        target_link_libraries(ColorBlastBalls PRIVATE nvrhi nvrhi_vk)
+        target_link_libraries(balls PRIVATE nvrhi nvrhi_vk)
     else()
-        target_link_libraries(ColorBlastBalls PRIVATE $<LINK_GROUP:RESCAN,nvrhi,nvrhi_vk>)
+        target_link_libraries(balls PRIVATE $<LINK_GROUP:RESCAN,nvrhi,nvrhi_vk>)
     endif()
     if(TARGET Vulkan::Headers)
-        target_link_libraries(ColorBlastBalls PRIVATE Vulkan::Headers)
+        target_link_libraries(balls PRIVATE Vulkan::Headers)
     else()
-        target_link_libraries(ColorBlastBalls PRIVATE Vulkan-Headers)
+        target_link_libraries(balls PRIVATE Vulkan-Headers)
     endif()
     if(WIN32)
-        target_sources(ColorBlastBalls PRIVATE render/nvrhi/D3d12Device.cpp)
-        target_link_libraries(ColorBlastBalls PRIVATE nvrhi_d3d12 dxgi d3d12)
+        target_sources(balls PRIVATE render/nvrhi/D3d12Device.cpp)
+        target_link_libraries(balls PRIVATE nvrhi_d3d12 dxgi d3d12)
     endif()
 endif()
 

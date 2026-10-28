@@ -5,7 +5,7 @@
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-binary="$root/dist/linux-sdl/ColorBlastBalls"
+binary="$root/dist/linux-sdl/balls"
 
 if [ ! -x "$binary" ]; then
     echo "Not built yet: $binary" >&2

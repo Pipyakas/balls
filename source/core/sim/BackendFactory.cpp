@@ -38,7 +38,7 @@ constexpr std::string_view cudaPluginFile = "libballs_physics_cuda.so";
 constexpr std::string_view vulkanPluginFile = "libballs_physics_vulkan.so";
 constexpr bool usesShadowCopies = false;
 #endif
-constexpr std::string_view shadowFolder = "ColorBlastBalls/physics-plugins";
+constexpr std::string_view shadowFolder = "balls/physics-plugins";
 
 struct PluginModule {
     using ReleaseIdleDeviceFunction = void (*)();

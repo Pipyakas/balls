@@ -1,5 +1,5 @@
 param(
-    [string]$BinaryPath = "build-wt/bin/Release/ColorBlastBalls.exe",
+    [string]$BinaryPath = "build-wt/bin/Release/balls.exe",
     [string[]]$Renderers = @("nvrhi", "webgpu"),
     [string[]]$Apis = @("d3d12", "vulkan"),
     [string]$Gpu = "auto",
@@ -13,10 +13,10 @@ param(
 $ErrorActionPreference = "Stop"
 
 if (-not (Test-Path $BinaryPath)) {
-    if (Test-Path "build/webgpu/bin/Release/ColorBlastBalls.exe") {
-        $BinaryPath = "build/webgpu/bin/Release/ColorBlastBalls.exe"
-    } elseif (Test-Path "build-wt/bin/Release/ColorBlastBalls.exe") {
-        $BinaryPath = "build-wt/bin/Release/ColorBlastBalls.exe"
+    if (Test-Path "build/webgpu/bin/Release/balls.exe") {
+        $BinaryPath = "build/webgpu/bin/Release/balls.exe"
+    } elseif (Test-Path "build-wt/bin/Release/balls.exe") {
+        $BinaryPath = "build-wt/bin/Release/balls.exe"
     } else {
         Write-Error "Binary not found at '$BinaryPath'."
         exit 1

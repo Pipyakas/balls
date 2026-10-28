@@ -20,7 +20,7 @@ SDL_AppResult SDL_AppInit(void** appState, int argumentCount, char** arguments) 
     SDL_SetLogOutputFunction(logOutput, nullptr);
 #endif
     // The identifier matches the Android applicationId, so a log or a crash report names the same app everywhere.
-    SDL_SetAppMetadata("Balls", "0.1.0", "com.the company.colorblastballs.sdl");
+    SDL_SetAppMetadata("Balls", "0.1.0", "io.github.pipyakas.balls.sdl");
     // An empty orientation list leaves the device free to rotate: the manifest asks for landscape, and the
     // portrait layout only appears once the activity itself follows the sensor.
     SDL_SetHint(SDL_HINT_ORIENTATIONS, "");

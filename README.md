@@ -41,8 +41,8 @@ running from that `dist` folder first.
 
 | Script | Output |
 |---|---|
-| `build-win32-sdl.bat` | `dist\win32-sdl\ColorBlastBalls.exe` |
-| `build-linux-sdl.sh` | `dist/linux-sdl/ColorBlastBalls` |
+| `build-win32-sdl.bat` | `dist\win32-sdl\balls.exe` |
+| `build-linux-sdl.sh` | `dist/linux-sdl/balls` |
 
 The UE front end and the Android package are built on their own machines; they add
 `build-win32-ue.bat` / `build-android-sdl.sh` in the same pattern, writing to `dist\win32-ue\` and
@@ -54,7 +54,7 @@ The tests, benchmarks and tools below use the Windows CMake tree directly:
 pwsh scripts/FetchCudaSdk.ps1
 cmake -S . -B build/win32 -G "Visual Studio 17 2022" -A x64
 cmake --build build/win32 --config Release --parallel
-build/win32/bin/Release/ColorBlastBalls.exe
+build/win32/bin/Release/balls.exe
 ```
 
 ### Linux and macOS
@@ -132,7 +132,7 @@ cmake --build build/win32 --config Release --target balls_physics_cuda
 ```
 
 Every time a backend is selected the game loads a fresh shadow copy of its DLL from
-`%TEMP%\ColorBlastBalls\physics-plugins`, so a plugin can be rebuilt while the game runs and
+`%TEMP%\balls\physics-plugins`, so a plugin can be rebuilt while the game runs and
 picked up with F1-F4 (or `/backend?kind=cuda` on the control API). Plugins only see
 `source/core/sim/PhysicsBackend.h` and `source/core/sim/kernels/BallStepCore.h`. The build uses the shared MSVC
 runtime and copies its DLLs next to the executable.

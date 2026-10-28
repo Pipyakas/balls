@@ -13,14 +13,14 @@ fi
 if [ ! -f "$build_dir/CMakeCache.txt" ]; then
     cmake -S . -B "$build_dir" "${generator[@]}" -DCMAKE_BUILD_TYPE=Release -DBALLS_FRONTEND=sdl
 fi
-cmake --build "$build_dir" --parallel --target ColorBlastBalls
+cmake --build "$build_dir" --parallel --target balls
 
-pkill -f "$(pwd)/$dist_dir/ColorBlastBalls" 2>/dev/null || true
+pkill -f "$(pwd)/$dist_dir/balls" 2>/dev/null || true
 mkdir -p "$dist_dir"
-cp "$build_dir/bin/ColorBlastBalls" "$dist_dir/"
+cp "$build_dir/bin/balls" "$dist_dir/"
 cp "$build_dir"/bin/*.so "$dist_dir/" 2>/dev/null || true
 rm -rf "$dist_dir/assets"
 cp -r "$build_dir/bin/assets" "$dist_dir/assets"
 
 echo
-echo "Built: $(pwd)/$dist_dir/ColorBlastBalls"
+echo "Built: $(pwd)/$dist_dir/balls"

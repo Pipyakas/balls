@@ -3,10 +3,10 @@ plugins {
 }
 
 android {
-    namespace = "com.the company.colorblastballs.sdl"
+    namespace = "io.github.pipyakas.balls.sdl"
     compileSdkVersion 35
     defaultConfig {
-        applicationId "com.the company.colorblastballs.sdl"
+        applicationId "io.github.pipyakas.balls.sdl"
         minSdkVersion 26
         ndkVersion "27.2.12479018"
         targetSdkVersion 35

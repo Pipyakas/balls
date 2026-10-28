@@ -18,23 +18,26 @@ if not exist ".deps\cuda\sdk\include\nvrtc.h" (
     if errorlevel 1 echo CUDA SDK fetch failed - building with CPU backends only.
 )
 
-if not exist "%BUILD_DIR%\CMakeCache.txt" (
+rem Configuring every time keeps the Visual Studio solution in step with renamed projects and targets.
+if exist "%BUILD_DIR%\CMakeCache.txt" (
+    cmake -S . -B "%BUILD_DIR%" >nul
+) else (
     cmake -S . -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A x64 -DBALLS_FRONTEND=sdl
-    if errorlevel 1 goto :failed
 )
+if errorlevel 1 goto :failed
 
-cmake --build "%BUILD_DIR%" --config Release --parallel --target ColorBlastBalls
+cmake --build "%BUILD_DIR%" --config Release --parallel --target balls
 if errorlevel 1 goto :failed
 
 if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
-powershell -NoProfile -Command "Get-Process ColorBlastBalls -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq '%DIST_DIR%\ColorBlastBalls.exe' } | Stop-Process -Force; Start-Sleep -Milliseconds 300"
-copy /y "%BIN_DIR%\ColorBlastBalls.exe" "%DIST_DIR%\" >nul || goto :failed
+powershell -NoProfile -Command "Get-Process balls -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq '%DIST_DIR%\balls.exe' } | Stop-Process -Force; Start-Sleep -Milliseconds 300"
+copy /y "%BIN_DIR%\balls.exe" "%DIST_DIR%\" >nul || goto :failed
 copy /y "%BIN_DIR%\*.dll" "%DIST_DIR%\" >nul || goto :failed
 robocopy "%BIN_DIR%\assets" "%DIST_DIR%\assets" /mir /njh /njs /nfl /ndl /np >nul
 if errorlevel 8 goto :failed
 
 echo.
-echo Built: %DIST_DIR%\ColorBlastBalls.exe
+echo Built: %DIST_DIR%\balls.exe
 if defined WAIT_AT_END pause
 exit /b 0
 

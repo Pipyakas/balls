@@ -54,7 +54,7 @@ def probe_backend(port, level, backend, timeout_seconds, steady_seconds, target_
 
 def main():
     parser = argparse.ArgumentParser(description="Run the in-game capacity probe per backend, headless")
-    parser.add_argument("--exe", default="build/win32/bin/Release/ColorBlastBalls.exe")
+    parser.add_argument("--exe", default="build/win32/bin/Release/balls.exe")
     parser.add_argument("--port", type=int, default=7782)
     parser.add_argument("--level", default="DA_1000Bricks")
     parser.add_argument("--backends", nargs="+", default=["cuda", "avx2"])

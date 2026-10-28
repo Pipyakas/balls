@@ -12,7 +12,6 @@
 
 namespace {
 
-constexpr const char* applicationName = "ColorBlastBalls";
 constexpr const char* profileFileName = "machine.txt";
 constexpr const char* benchmarkFileName = "benchmark.txt";
 

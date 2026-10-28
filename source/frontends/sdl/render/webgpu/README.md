@@ -81,11 +81,11 @@ For single-renderer builds, `BALLS_RENDERER` remains available:
 
 ### Build Metrics
 - **Binary Sizes**:
-  - `ColorBlastBalls.exe` (dual-renderer, Release): 4,060,672 bytes (~3.87 MB)
+  - `balls.exe` (dual-renderer, Release): 4,060,672 bytes (~3.87 MB)
   - `wgpu_native.dll`: 7,791,616 bytes (~7.43 MB)
 - **Build Times** (on a Ryzen 9 6900HS / RTX 3070, MSVC 18 2026):
   - Incremental rebuild of WebGPU renderer: ~2.5 seconds
-  - Full link of `ColorBlastBalls`: ~4.8 seconds
+  - Full link of `balls`: ~4.8 seconds
 - **Test Suite**:
   - `balls_tests.exe`: 42 tests, 0 failed (passes all tests)
 
