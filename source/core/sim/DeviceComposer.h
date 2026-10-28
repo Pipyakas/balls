@@ -118,6 +118,7 @@ private:
     double budgetMsTotal = 0.0;
     size_t ballsMoved = 0;
     size_t movingSteps = 0;
+    int stepsSinceMove = 0;
     size_t budgetSteps = 0;
     std::vector<uint32_t> merged;
     CompactBalls movedBalls;

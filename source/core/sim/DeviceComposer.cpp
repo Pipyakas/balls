@@ -8,7 +8,11 @@
 
 namespace {
 
-constexpr double rebalanceTolerance = 0.02;
+// Moving balls costs a round trip through the host and leaves the receiving GPU's balls unsorted, so once the
+// shares have settled a part has to be 10% off its target, and moves are spaced out.
+constexpr double settlingRebalanceTolerance = 0.02;
+constexpr double settledRebalanceTolerance = 0.1;
+constexpr int settledMoveCooldownSteps = 30;
 constexpr size_t maximumBallsMovedPerStep = 1u << 22;
 constexpr double minimumShare = 0.01;
 constexpr double shareSmoothing = 0.1;
@@ -162,6 +166,12 @@ void DeviceComposer::addBalls(std::span<const BallSpawn> spawns) {
 }
 
 void DeviceComposer::rebalance() {
+    const bool settled = shareMeasurements >= settlingMeasurements;
+    if (settled && stepsSinceMove < settledMoveCooldownSteps) {
+        ++stepsSinceMove;
+        return;
+    }
+    const double rebalanceTolerance = settled ? settledRebalanceTolerance : settlingRebalanceTolerance;
     const size_t movedBefore = ballsMoved;
     for (size_t move = 0; move + 1 < parts.size(); ++move) {
         const std::vector<size_t> targets = targetCounts(ballCount());
@@ -204,7 +214,10 @@ void DeviceComposer::rebalance() {
         }
         destination.addBalls(source.takeTail(moved));
     }
-    movingSteps += ballsMoved != movedBefore ? 1 : 0;
+    if (ballsMoved != movedBefore) {
+        ++movingSteps;
+        stepsSinceMove = 0;
+    }
 }
 
 // Each measured part's share becomes its throughput over the measured parts' total, smoothed; parts with too few
