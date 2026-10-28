@@ -456,11 +456,11 @@ LaneStepResult stepLanes(LaneState& state, const LaneConstants& k, const BoardVi
                                   : _mm512_i32gather_epi32(cellIndex, board.nearBrickCells, 4);
     // Only lanes near a brick look at cells, and a lane whose neighbour offset is zero would only revisit its home
     // cell, which can never be strictly closer; skipping those lanes keeps the result and saves the gathers.
-    const __mmask16 near = _mm512_test_epi32_mask(nearBrick, nearBrick);
-    if (near != 0) {
-        const __mmask16 awayColumn = _mm512_mask_test_epi32_mask(near, neighborColumn, neighborColumn);
-        const __mmask16 awayRow = _mm512_mask_test_epi32_mask(near, neighborRow, neighborRow);
-        considerCell(best, board.paddedCells, x, y, column, row, near, k);
+    const __mmask16 nearLanes = _mm512_test_epi32_mask(nearBrick, nearBrick);
+    if (nearLanes != 0) {
+        const __mmask16 awayColumn = _mm512_mask_test_epi32_mask(nearLanes, neighborColumn, neighborColumn);
+        const __mmask16 awayRow = _mm512_mask_test_epi32_mask(nearLanes, neighborRow, neighborRow);
+        considerCell(best, board.paddedCells, x, y, column, row, nearLanes, k);
         if (awayColumn != 0) {
             considerCell(best, board.paddedCells, x, y, otherColumn, row, awayColumn, k);
         }
