@@ -301,8 +301,9 @@ void GameplayScreen::update(float deltaTime) {
     rememberFinishedProbe();
 }
 
-// One physics frame per UI frame at most. The view drawn this frame was taken above, so commands posted while
-// drawing show from the next view on.
+// The physics thread keeps its own pace; this hands it the pause state, the UI's frame timings for the capacity probe
+// and the visibility slot size. The view drawn this frame was taken above, so commands posted while drawing show
+// from a later view.
 void GameplayScreen::tickPhysics(const GameplayLayout& layout) {
     const FrameSample& lastFrame = app.frameTimings().latest();
     PhysicsFrameInput input;

@@ -31,8 +31,8 @@ struct SessionEvent {
 
 // Runs a GameSession on its own thread so that nothing the simulation does, from a slow physics step to building a
 // backend, can hold up a UI frame. The UI posts commands, which run at the start of the next physics frame, and
-// draws the latest SessionView. The physics thread runs at most one frame per UI frame, so when it keeps up the two
-// work in lockstep, one frame apart and overlapping; when it cannot, the UI keeps drawing the latest view.
+// draws the latest SessionView. The two are not synchronised: the physics thread keeps its own pace of one frame
+// per simulation tick, and the UI draws whichever tick is newest at its own frame rate.
 class SessionRunner {
 public:
     using Command = std::function<void(GameSession&)>;
@@ -44,7 +44,7 @@ public:
     SessionRunner& operator=(const SessionRunner&) = delete;
 
     void post(Command command);
-    // Called once per UI frame; lets the physics thread run its next frame.
+    // Called once per UI frame with what the physics thread needs from the UI; it does not wait for or wake it.
     void tick(const PhysicsFrameInput& input);
     // Null until the physics thread has built the session.
     std::shared_ptr<const SessionView> view() const;

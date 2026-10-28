@@ -37,7 +37,6 @@ struct SessionRunner::Shared {
     std::mutex mutex;
     std::condition_variable wake;
     bool stopping = false;
-    bool tickPending = false;
     PhysicsFrameInput input;
     std::vector<Command> commands;
     std::vector<SessionEvent> events;
@@ -149,6 +148,9 @@ void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, Le
     double framesPerSecond = 0.0;
     double lastWorkSeconds = 0.0;
     bool wasPaused = false;
+    bool probing = false;
+    const auto tickPeriod = std::chrono::duration_cast<Clock::duration>(
+        std::chrono::duration<double>(session->simulation().tuning().tickSeconds));
     for (;;) {
         std::vector<SessionRunner::Command> commands;
         PhysicsFrameInput input;
@@ -156,13 +158,16 @@ void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, Le
         std::shared_ptr<const SessionView> previous;
         {
             std::unique_lock lock(shared->mutex);
-            if (frameNumber > 0) {
-                shared->wake.wait(lock, [&] { return shared->stopping || shared->tickPending; });
+            // One frame per simulation tick: more would step nothing and only republish the same state. A command
+            // wakes the thread at once. While the capacity probe runs, frames follow each other unpaced, so the
+            // probe measures what the physics thread can do rather than the tick rate.
+            if (frameNumber > 0 && !probing) {
+                shared->wake.wait_until(lock, lastUpdate + tickPeriod,
+                                        [&] { return shared->stopping || !shared->commands.empty(); });
             }
             if (shared->stopping) {
                 break;
             }
-            shared->tickPending = false;
             commands.swap(shared->commands);
             input = shared->input;
             previous = shared->latest;
@@ -188,6 +193,7 @@ void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, Le
             session->update(static_cast<float>(frameSeconds));
         }
         wasPaused = input.paused;
+        probing = session->capacityProbe().isActive();
         fillView(*session, *view, previous.get(), boardRevision, input.visibilitySlotCells, field);
         const Clock::time_point workEnd = Clock::now();
         lastWorkSeconds = secondsBetween(workStart, workEnd);
@@ -235,17 +241,16 @@ SessionRunner::~SessionRunner() {
 }
 
 void SessionRunner::post(Command command) {
-    std::lock_guard lock(shared->mutex);
-    shared->commands.push_back(std::move(command));
+    {
+        std::lock_guard lock(shared->mutex);
+        shared->commands.push_back(std::move(command));
+    }
+    shared->wake.notify_one();
 }
 
 void SessionRunner::tick(const PhysicsFrameInput& input) {
-    {
-        std::lock_guard lock(shared->mutex);
-        shared->input = input;
-        shared->tickPending = true;
-    }
-    shared->wake.notify_one();
+    std::lock_guard lock(shared->mutex);
+    shared->input = input;
 }
 
 std::shared_ptr<const SessionView> SessionRunner::view() const {
