@@ -66,6 +66,7 @@ namespace Balls.App
                 }
                 BallsNative.balls_set_plugin_directory(PluginDirectory());
                 app.LoadSettings();
+                app.ApplyOrientation();
                 app.ApplyLaunchOptions(System.Environment.GetCommandLineArgs());
                 Debug.Log($"balls: plugin directory {PluginDirectory()}, ABI {version}");
             }

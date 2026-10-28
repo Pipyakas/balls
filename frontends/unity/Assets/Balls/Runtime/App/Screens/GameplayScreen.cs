@@ -18,6 +18,12 @@ namespace Balls.App.Screens
         private const float LauncherMaxSize = 110f;
         private const float LauncherGapShare = 0.18f;
         private const float GadgetPadding = 12f;
+        private const float PortraitDebugHeight = 48f;
+        private const float LauncherBackendHeight = 24f + BallsNative.BackendCount * 38f + 12f;
+        private const float LauncherHeaderHeight = 24f;
+        private const float ProbeContentHeight = 204f;
+        private const float SpawnContentHeight = 158f;
+        private const float GpuChoicesHeight = 84f;
         private const int LauncherBallsPerLauncher = 1;
 
         private CoreLayout layout;
@@ -26,10 +32,15 @@ namespace Balls.App.Screens
         private int layoutColumns;
         private int layoutRows;
         private int layoutLaunchers;
+        private int layoutLauncherColumns;
+        private int layoutOrientation = -1;
+        private float lastLayoutWidth = -1f;
+        private float lastLayoutHeight = -1f;
 
         private bool paused;
         private bool settingsOpen;
         private bool wonShown;
+        public bool Paused => paused || settingsOpen || wonShown;
         private int probeTargetFps = 60;
         private int spawnRateIndex;
         private int multiplierIndex;
@@ -46,6 +57,9 @@ namespace Balls.App.Screens
             settingsOpen = false;
             wonShown = false;
             hasLayout = false;
+            layoutOrientation = -1;
+            lastLayoutWidth = -1f;
+            lastLayoutHeight = -1f;
             interactionScroll = Vector2.zero;
             debugScroll = Vector2.zero;
             probeTargetFps = 60;
@@ -82,6 +96,10 @@ namespace Balls.App.Screens
             RefitCamera(board);
 
             DrawHeader(session, board);
+            if (layout.Portrait)
+            {
+                DrawPortraitDebugStrip(board, session, stats);
+            }
 
             if (session.mode == BallsApp.PerformanceMode)
             {
@@ -91,7 +109,10 @@ namespace Balls.App.Screens
             {
                 DrawLauncherGadget(board, session);
             }
-            DrawDebugGadget(board, session, stats);
+            if (!layout.Portrait)
+            {
+                DrawDebugGadget(board, session, stats);
+            }
 
             if (session.state == BallsNative.StateWon && App.Mode == BallsApp.NormalMode)
             {
@@ -159,17 +180,27 @@ namespace Balls.App.Screens
         private void EnsureLayout(BoardInfoData board)
         {
             int launcherRows = Mathf.Max(1, board.launcherVisibleRows);
+            int launcherColumns = Mathf.Max(1, board.launcherColumns);
+            int orientation = App.Settings?.Orientation ?? SettingsData.OrientationAuto;
+            float width = App.Theme.UnitsWidth;
+            float height = App.Theme.UnitsHeight;
             if (hasLayout && layoutColumns == board.columns && layoutRows == board.rows &&
-                layoutLaunchers == launcherRows)
+                layoutLaunchers == launcherRows && layoutLauncherColumns == launcherColumns && layoutOrientation == orientation &&
+                Mathf.Approximately(lastLayoutWidth, width) && Mathf.Approximately(lastLayoutHeight, height))
             {
                 return;
             }
-            layout = CoreLayout.Compute(App.Theme.UnitsWidth, App.Theme.UnitsHeight, board.columns, board.rows,
-                App.Settings?.Orientation ?? SettingsData.OrientationAuto, launcherRows);
+            layout = CoreLayout.Compute(width, height, board.columns, board.rows, orientation, launcherRows);
             layoutColumns = board.columns;
             layoutRows = board.rows;
             layoutLaunchers = launcherRows;
+            layoutLauncherColumns = launcherColumns;
+            layoutOrientation = orientation;
+            lastLayoutWidth = width;
+            lastLayoutHeight = height;
             hasLayout = true;
+            interactionScroll = Vector2.zero;
+            debugScroll = Vector2.zero;
         }
 
         /// <summary>
@@ -188,17 +219,49 @@ namespace Balls.App.Screens
             {
                 return;
             }
+            if (layout.Portrait)
+            {
+                float frameW = lastLayoutWidth;
+                float frameH = lastLayoutHeight;
+                float margin = 16f;
+                float headerHeight = 44f;
+                float debugHeight = PortraitDebugHeight;
+                float gadgetGap = 8f;
+                int launcherColumns = Mathf.Max(1, board.launcherColumns);
+                int launcherRows = Mathf.Max(1, board.launcherVisibleRows);
+                float launcherCell = Mathf.Min(240f, (frameW - margin * 2f - (launcherColumns - 1) * 10f) / launcherColumns);
+                float launcherAreaHeight = launcherRows * launcherCell + (launcherRows - 1) * 10f;
+                float contentHeight = headerHeight + debugHeight + gadgetGap + board.rows * 18f + gadgetGap + launcherAreaHeight;
+                float scale = Mathf.Min(1f, (frameH - margin * 2f) / contentHeight);
+                float cell = Mathf.Min((frameW - 2f * margin - 20f) / board.columns,
+                    (frameH - 2f * margin - headerHeight - debugHeight - 2f * gadgetGap - launcherAreaHeight) / board.rows);
+                cell = Mathf.Max(0.5f, cell * scale);
+                float boardW = board.columns * cell + 20f;
+                float boardH = board.rows * cell + 20f;
+                launcherCell = Mathf.Min(launcherCell * scale, 240f);
+                launcherAreaHeight = launcherRows * launcherCell + (launcherRows - 1) * 10f;
+                float groupH = headerHeight + debugHeight + gadgetGap + boardH + gadgetGap + launcherAreaHeight;
+                float groupY = Mathf.Max(margin, (frameH - groupH) * 0.5f);
+                float boardY = groupY + headerHeight + debugHeight + gadgetGap;
+                float boardX = (frameW - boardW) * 0.5f;
+                Rect boardRect = new Rect(boardX, boardY, boardW, boardH);
+                Rect interaction = new Rect(margin, boardY + boardH + gadgetGap, frameW - margin * 2f, launcherAreaHeight);
+                Rect debug = new Rect(margin, groupY + headerHeight, frameW - margin * 2f, debugHeight);
+                layout.SetPortraitRects(new Rect(margin, groupY, frameW - margin * 2f, headerHeight),
+                    new Rect(boardX, boardY, boardW, boardH), interaction, debug, boardRect,
+                    new Vector2(boardX + 10f, boardY + 10f), cell);
+            }
             UiTheme theme = App.Theme;
-            float cell = layout.CellSize;
-            Rect boardRect = layout.BoardRect;
+            float cellSize = layout.CellSize;
+            Rect worldBoardRect = layout.BoardRect;
             // One world cell is `cell` layout units, so the window is this many cells tall.
-            float windowCells = theme.UnitsHeight / cell;
+            float windowCells = theme.UnitsHeight / cellSize;
             camera.orthographic = true;
             camera.orthographicSize = windowCells * 0.5f;
             camera.rect = new Rect(0f, 0f, 1f, 1f);
             camera.transform.position = new Vector3(
-                theme.UnitsWidth / (2f * cell) - boardRect.x / cell,
-                (boardRect.y + boardRect.height) / cell - windowCells * 0.5f,
+                theme.UnitsWidth / (2f * cellSize) - worldBoardRect.x / cellSize,
+                (worldBoardRect.y + worldBoardRect.height) / cellSize - windowCells * 0.5f,
                 -10f);
             camera.transform.rotation = Quaternion.identity;
             camera.clearFlags = CameraClearFlags.SolidColor;
@@ -213,14 +276,58 @@ namespace Balls.App.Screens
             Widgets widgets = App.Widgets;
             Rect header = layout.Header;
             string modeName = session.mode == BallsApp.PerformanceMode ? "Performance" : "Normal";
-            GUI.Label(App.Theme.Units(header.x, header.y, header.width - 120f, header.height),
+            float pauseWidth = 104f;
+            int titleSize = layout.Portrait ? TypeSizes.Small : TypeSizes.Header;
+            GUI.Label(App.Theme.Units(header.x, header.y, header.width - pauseWidth - 12f, header.height),
                 $"{modeName} · {App.LevelName}",
-                App.Theme.TextStyle(TypeSizes.Header, Palette.Text, false, TextAnchor.MiddleLeft, true));
+                App.Theme.TextStyle(titleSize, Palette.Text, false, TextAnchor.MiddleLeft, true));
 
-            Rect pauseButton = new Rect(header.xMax - 104f, header.y + (header.height - 36f) * 0.5f, 104f, 36f);
+            Rect pauseButton = new Rect(header.xMax - pauseWidth, header.y + (header.height - 36f) * 0.5f, pauseWidth, 36f);
             if (widgets.AccentButton(pauseButton, paused ? "Resume" : "Pause", paused, TypeSizes.Value))
             {
                 paused = !paused;
+            }
+        }
+
+        private void DrawPortraitLauncherRows(Widgets widgets, BoardInfoData board, SessionInfo session, Rect area)
+        {
+            if (session.launcherRemaining <= 0)
+            {
+                widgets.Muted(area, "All launchers released", TypeSizes.Medium, TextAnchor.MiddleCenter);
+                return;
+            }
+            if (!App.TryReadLaunchers(out NativeArray<LauncherElement> launchers, out _))
+            {
+                return;
+            }
+            try
+            {
+                float gap = 10f;
+                float columns = Mathf.Max(1, board.launcherColumns);
+                float rows = Mathf.Max(1, board.launcherVisibleRows);
+                float maxSize = Mathf.Min(240f, area.width / columns);
+                float size = Mathf.Min(maxSize, area.height / rows);
+                float contentWidth = columns * size + (columns - 1f) * gap;
+                float startX = area.x + Mathf.Max(0f, (area.width - contentWidth) * 0.5f);
+                float totalHeight = rows * size + (rows - 1f) * gap;
+                float startY = area.y + Mathf.Max(0f, (area.height - totalHeight) * 0.5f);
+                for (int row = 0; row < board.launcherVisibleRows; ++row)
+                {
+                    for (int column = 0; column < board.launcherColumns; ++column)
+                    {
+                        int index = row * board.launcherColumns + column;
+                        if (index >= launchers.Length || !launchers[index].present)
+                        {
+                            continue;
+                        }
+                        Rect slot = new Rect(startX + column * (size + gap), startY + row * (size + gap), size, size);
+                        DrawLauncherSlot(widgets, launchers[index], slot, row == 0);
+                    }
+                }
+            }
+            finally
+            {
+                launchers.Dispose();
             }
         }
 
@@ -229,8 +336,19 @@ namespace Balls.App.Screens
             Widgets widgets = App.Widgets;
             Rect gadget = layout.Interaction;
             Rect inner = widgets.Gadget(gadget, null);
-            widgets.Label(new Rect(inner.x, inner.y, inner.width, 24f), "Launchers", TypeSizes.Value, Palette.Accent, TextAnchor.UpperLeft, true);
-            Rect grid = new Rect(inner.x, inner.y + 30f, inner.width, inner.height - 30f);
+            if (layout.Portrait)
+            {
+                DrawPortraitLauncherRows(widgets, board, session, new Rect(inner.x, inner.y, inner.width, inner.height));
+                return;
+            }
+            Rect physics = new Rect(inner.x, inner.yMax - LauncherBackendHeight, inner.width, LauncherBackendHeight);
+            DrawBackendChoices(widgets, session, physics);
+
+            float launcherRegionHeight = inner.height - LauncherBackendHeight - 8f;
+            widgets.Label(new Rect(inner.x, inner.y, inner.width, LauncherHeaderHeight), "Launchers",
+                TypeSizes.Value, Palette.Accent, TextAnchor.UpperLeft, true);
+            Rect grid = new Rect(inner.x, inner.y + LauncherHeaderHeight + 6f, inner.width,
+                Mathf.Max(0f, launcherRegionHeight - LauncherHeaderHeight - 6f));
 
             if (session.launcherRemaining <= 0)
             {
@@ -298,88 +416,174 @@ namespace Balls.App.Screens
             GameBackend backend = SessionSystem.Current?.Backend;
             Rect gadget = layout.Interaction;
             Rect inner = widgets.Gadget(gadget, null);
-
-            float contentHeight = 470f;
+            bool compactLayout = inner.width < 310f;
+            float physicsHeight = 24f + AvailableBackendCount() * 38f;
+            float gpuHeight = GpuChoicesHeight;
+            float contentHeight = 52f + ProbeContentHeight + SpawnContentHeight +
+                                  (compactLayout ? physicsHeight + gpuHeight : Mathf.Max(physicsHeight, gpuHeight)) + 48f;
             float y = 0f;
             widgets.ScrollColumn(inner, contentHeight, ref interactionScroll, content =>
             {
                 y = content.y;
-                if (session.launcherRemaining > 0 && !IsAutoReleasing(session))
+                bool compact = compactLayout;
+                float physicsHeight = 24f + AvailableBackendCount() * 38f;
+                float gpuHeight = GpuChoicesHeight;
+                y += DrawReleaseAndProbe(widgets, backend, session, content, y);
+                y += DrawSpawnControls(widgets, backend, content, y);
+                if (compact)
                 {
-                    if (widgets.AccentButton(new Rect(content.x, y, content.width, 52f), "Start", true, TypeSizes.Medium))
-                    {
-                        BallsInput.RequestAutoRelease();
-                    }
+                    Rect physicsGroup = new Rect(content.x, y, content.width, physicsHeight);
+                    DrawBackendChoices(widgets, session, physicsGroup);
+                    y += physicsHeight + 12f;
+                    Rect gpuGroup = new Rect(content.x, y, content.width, gpuHeight);
+                    DrawGpuChoices(widgets, gpuGroup);
+                    y += gpuHeight;
                 }
                 else
                 {
-                    widgets.Label(new Rect(content.x, y, content.width, 52f),
-                        $"Auto releasing — {session.launcherRemaining} launchers left", TypeSizes.Label,
-                        Palette.TextMuted, TextAnchor.MiddleLeft);
-                }
-                y += 62f;
-
-                widgets.Label(new Rect(content.x, y, content.width, 22f), "Capacity probe", TypeSizes.Small,
-                    Palette.Accent, TextAnchor.UpperLeft, true);
-                y += 26f;
-                if (widgets.Stepper(new Rect(content.x, y, content.width, 36f), "Target FPS", ref probeTargetFps, 10, 1000, out _))
-                {
-                    if (backend != null)
-                    {
-                        backend.StartProbe(probeTargetFps);
-                    }
-                }
-                y += 42f;
-                string probeText = backend == null ? "" :
-                    backend.ProbeActive ? $"Probing… {backend.ProbeBest:N0} balls, {(int)backend.ProbeFps} fps"
-                    : backend.ProbeBest > 0 ? $"Max @{(int)backend.ProbeTargetFps} FPS: {backend.ProbeBest:N0}"
-                    : $"Target {(int)backend.ProbeTargetFps} FPS";
-                if (widgets.Button(new Rect(content.x, y, content.width, 40f), "Find max balls", TypeSizes.Label))
-                {
-                    backend?.StartProbe(probeTargetFps);
-                }
-                widgets.Muted(new Rect(content.x, y + 44f, content.width, 22f), probeText, TypeSizes.Small);
-                y += 74f;
-
-                widgets.Label(new Rect(content.x, y, content.width, 22f), "Spawn", TypeSizes.Small, Palette.Accent, TextAnchor.UpperLeft, true);
-                y += 24f;
-                if (widgets.Dropdown("spawnrate", new Rect(content.x, y, content.width, 34f), spawnRateOptions, ref spawnRateIndex))
-                {
-                    backend?.SelectSpawnRate(spawnRateIndex);
-                }
-                y += 42f;
-                if (widgets.Dropdown("multiplier", new Rect(content.x, y, content.width, 34f), multiplierOptions, ref multiplierIndex))
-                {
-                    backend?.SelectBallMultiplier(multiplierIndex);
-                }
-                y += 42f;
-                if (widgets.Dropdown("balllimit", new Rect(content.x, y, content.width, 34f), limitOptions, ref limitIndex))
-                {
-                    backend?.SelectBallLimit(limitIndex);
-                }
-                y += 50f;
-
-                widgets.Label(new Rect(content.x, y, content.width, 22f), "Physics", TypeSizes.Small, Palette.Accent, TextAnchor.UpperLeft, true);
-                y += 24f;
-                for (int kind = 0; kind < BallsNative.BackendCount; ++kind)
-                {
-                    if (kind == BallsNative.BackendHybrid && BallsNative.balls_backend_available(kind) == 0)
-                    {
-                        continue;
-                    }
-                    bool available = BallsNative.balls_backend_available(kind) != 0;
-                    string detail = available ? BallsNative.BackendText(kind, true) : BallsNative.BackendText(kind, false);
-                    if (widgets.OptionRow(new Rect(content.x, y, content.width, 34f), BallsNative.BackendName(kind),
-                            session.backend == kind, available, detail) && available)
-                    {
-                        App.SwitchBackend(kind);
-                    }
-                    y += 38f;
+                    float choiceWidth = Mathf.Min(190f, (content.width - 8f) * 0.5f);
+                    Rect physicsGroup = new Rect(content.x, y, choiceWidth, physicsHeight);
+                    DrawBackendChoices(widgets, session, physicsGroup);
+                    Rect gpuGroup = new Rect(physicsGroup.xMax + 8f, y, content.width - choiceWidth - 8f, gpuHeight);
+                    DrawGpuChoices(widgets, gpuGroup);
+                    y += Mathf.Max(physicsHeight, gpuHeight);
                 }
             });
         }
 
+        private float DrawReleaseAndProbe(Widgets widgets, GameBackend backend, SessionInfo session, Rect content, float y)
+        {
+            if (session.launcherRemaining > 0 && !IsAutoReleasing(session))
+            {
+                if (widgets.AccentButton(new Rect(content.x, y, content.width, 52f), "Start", true, TypeSizes.Medium))
+                {
+                    BallsInput.RequestAutoRelease();
+                }
+            }
+            else
+            {
+                widgets.Label(new Rect(content.x, y, content.width, 52f),
+                    $"Auto releasing — {session.launcherRemaining} launchers left", TypeSizes.Label,
+                    Palette.TextMuted, TextAnchor.MiddleLeft);
+            }
+            y += 62f;
+
+            widgets.Label(new Rect(content.x, y, content.width, 22f), "Capacity probe", TypeSizes.Small,
+                Palette.Accent, TextAnchor.UpperLeft, true);
+            y += 26f;
+            if (widgets.Stepper(new Rect(content.x, y, content.width, 36f), "Target FPS", ref probeTargetFps, 10, 1000, out _))
+            {
+                backend?.StartProbe(probeTargetFps);
+            }
+            y += 42f;
+            string probeText = backend == null ? "" :
+                backend.ProbeActive ? $"Probing… {backend.ProbeBest:N0} balls, {(int)backend.ProbeFps} fps"
+                : backend.ProbeBest > 0 ? $"Max @{(int)backend.ProbeTargetFps} FPS: {backend.ProbeBest:N0}"
+                : $"Target {(int)backend.ProbeTargetFps} FPS";
+            if (widgets.Button(new Rect(content.x, y, content.width, 40f), "Find max balls", TypeSizes.Label))
+            {
+                backend?.StartProbe(probeTargetFps);
+            }
+            widgets.Muted(new Rect(content.x, y + 44f, content.width, 22f), probeText, TypeSizes.Small);
+            return ProbeContentHeight;
+        }
+
+        private float DrawSpawnControls(Widgets widgets, GameBackend backend, Rect content, float y)
+        {
+            widgets.Label(new Rect(content.x, y, content.width, 22f), "Spawn", TypeSizes.Small, Palette.Accent,
+                TextAnchor.UpperLeft, true);
+            y += 24f;
+            if (widgets.Dropdown("spawnrate", new Rect(content.x, y, content.width, 34f), spawnRateOptions, ref spawnRateIndex))
+            {
+                backend?.SelectSpawnRate(spawnRateIndex);
+            }
+            y += 42f;
+            if (widgets.Dropdown("multiplier", new Rect(content.x, y, content.width, 34f), multiplierOptions, ref multiplierIndex))
+            {
+                backend?.SelectBallMultiplier(multiplierIndex);
+            }
+            y += 42f;
+            if (widgets.Dropdown("balllimit", new Rect(content.x, y, content.width, 34f), limitOptions, ref limitIndex))
+            {
+                backend?.SelectBallLimit(limitIndex);
+            }
+            return SpawnContentHeight;
+        }
+
+        private void DrawBackendChoices(Widgets widgets, SessionInfo session, Rect area)
+        {
+            widgets.Label(new Rect(area.x, area.y, area.width, 22f), "Physics", TypeSizes.Small,
+                Palette.Accent, TextAnchor.UpperLeft, true);
+            float y = area.y + 24f;
+            for (int kind = 0; kind < BallsNative.BackendCount; ++kind)
+            {
+                if (kind == BallsNative.BackendHybrid && BallsNative.balls_backend_available(kind) == 0)
+                {
+                    continue;
+                }
+                bool available = BallsNative.balls_backend_available(kind) != 0;
+                string detail = available ? BallsNative.BackendText(kind, true) : BallsNative.BackendText(kind, false);
+                if (widgets.OptionRow(new Rect(area.x, y, area.width, 34f), BallsNative.BackendName(kind),
+                        session.backend == kind, available, detail) && available)
+                {
+                    App.SwitchBackend(kind);
+                }
+                y += 38f;
+            }
+        }
+
+        private static void DrawGpuChoices(Widgets widgets, Rect area)
+        {
+            widgets.Label(new Rect(area.x, area.y, area.width, 22f), "Render GPU", TypeSizes.Small,
+                Palette.Accent, TextAnchor.UpperLeft, true);
+            widgets.Muted(new Rect(area.x, area.y + 22f, area.width, 18f), "Automatic", TypeSizes.Small);
+            widgets.Label(new Rect(area.x, area.y + 40f, area.width, 22f), "Compute GPU (Vulkan)", TypeSizes.Small,
+                Palette.Accent, TextAnchor.UpperLeft, true);
+            widgets.Muted(new Rect(area.x, area.y + 62f, area.width, 18f), "Automatic", TypeSizes.Small);
+        }
+
+        private int AvailableBackendCount()
+        {
+            int count = 0;
+            for (int kind = 0; kind < BallsNative.BackendCount; ++kind)
+            {
+                if (kind == BallsNative.BackendHybrid && BallsNative.balls_backend_available(kind) == 0)
+                {
+                    continue;
+                }
+                count++;
+            }
+            return count;
+        }
+
         private static bool IsAutoReleasing(SessionInfo session) => session.state == BallsNative.StateRunning;
+
+        private void DrawPortraitDebugStrip(BoardInfoData board, SessionInfo session, SessionStatsData stats)
+        {
+            Widgets widgets = App.Widgets;
+            Rect area = layout.Debug;
+            const int columns = 4;
+            float cellWidth = area.width / columns;
+            string[] labels = { "FPS", "Min", "Frame", "GPU", "Balls", "Bricks", "Launch", "Backend" };
+            string[] values =
+            {
+                $"{stats.fps:F0}", $"{stats.frameMinFps:F0}", $"{stats.frameMs:F1}", "—",
+                $"{stats.liveBalls:N0}", $"{board.aliveBricks:N0}", $"{session.launcherRemaining:N0}",
+                BallsNative.BackendName(session.backend),
+            };
+            for (int index = 0; index < labels.Length; ++index)
+            {
+                int row = index / columns;
+                int column = index % columns;
+                Rect cell = new Rect(area.x + column * cellWidth, area.y + row * (PortraitDebugHeight / 2f),
+                    cellWidth, PortraitDebugHeight / 2f);
+                widgets.Label(new Rect(cell.x, cell.y, cell.width, 17f), labels[index], TypeSizes.Small,
+                    Palette.TextMuted, TextAnchor.MiddleCenter);
+                widgets.Label(new Rect(cell.x, cell.y + 16f, cell.width, cell.height - 16f), values[index],
+                    TypeSizes.Label, labels[index] == "FPS" && stats.fps < 60f ? Palette.Danger : Palette.Text,
+                    TextAnchor.MiddleCenter, true);
+            }
+        }
 
         private void DrawDebugGadget(BoardInfoData board, SessionInfo session, SessionStatsData stats)
         {

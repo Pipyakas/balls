@@ -207,6 +207,43 @@ namespace Balls.App
             return true;
         }
 
+        public void ApplyOrientation()
+        {
+            if (Settings == null)
+            {
+                return;
+            }
+            if (Application.isMobilePlatform)
+            {
+                UnityEngine.Screen.orientation = Settings.Orientation switch
+                {
+                    SettingsData.OrientationLandscape => UnityEngine.ScreenOrientation.LandscapeLeft,
+                    SettingsData.OrientationPortrait => UnityEngine.ScreenOrientation.Portrait,
+                    _ => UnityEngine.ScreenOrientation.AutoRotation,
+                };
+            }
+#if UNITY_STANDALONE
+            else if (!UnityEngine.Screen.fullScreen && (Settings.Orientation == SettingsData.OrientationLandscape ||
+                                                        Settings.Orientation == SettingsData.OrientationPortrait))
+            {
+                var resolution = UnityEngine.Screen.currentResolution;
+                int width = Settings.Orientation == SettingsData.OrientationPortrait
+                    ? Mathf.RoundToInt(resolution.height * 9f / 16f)
+                    : 1440;
+                int height = Settings.Orientation == SettingsData.OrientationPortrait
+                    ? resolution.height * 9 / 10
+                    : 900;
+                UnityEngine.Screen.SetResolution(width, height, false);
+            }
+#else
+            else if (Settings.Orientation == SettingsData.OrientationLandscape ||
+                     Settings.Orientation == SettingsData.OrientationPortrait)
+            {
+                Toast("Forced window orientation is unsupported on this platform", true);
+            }
+#endif
+        }
+
         public string SettingsPath => Path.Combine(Application.persistentDataPath, "balls-settings.txt");
 
         /// <summary>Reads the session's singletons, or reports that there is none.</summary>

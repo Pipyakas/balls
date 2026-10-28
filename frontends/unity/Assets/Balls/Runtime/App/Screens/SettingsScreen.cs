@@ -103,6 +103,7 @@ namespace Balls.App.Screens
                             settings.Orientation == option))
                     {
                         settings.Orientation = option;
+                        App.ApplyOrientation();
                         Apply(settings);
                     }
                     y += 38f;

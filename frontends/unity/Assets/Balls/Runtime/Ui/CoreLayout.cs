@@ -25,6 +25,19 @@ namespace Balls.Ui
 
         public bool Portrait { get; private set; }
 
+        public void SetPortraitRects(Rect header, Rect main, Rect interaction, Rect debug, Rect boardRect,
+            Vector2 boardOrigin, float cellSize)
+        {
+            Header = header;
+            Main = main;
+            Interaction = interaction;
+            Debug = debug;
+            BoardRect = boardRect;
+            BoardOrigin = boardOrigin;
+            CellSize = cellSize;
+            Portrait = true;
+        }
+
         public static CoreLayout Compute(float width, float height, int columns, int rows, int orientation, int launcherRows)
         {
             BallsNative.balls_compute_layout(width, height, Mathf.Max(1, columns), Mathf.Max(1, rows), orientation,
