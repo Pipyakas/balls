@@ -2,6 +2,7 @@
 
 #include "app/LaunchOptions.h"
 #include "app/PreferenceDirectory.h"
+#include "sim/BackendSelection.h"
 
 #include <SDL3/SDL_filesystem.h>
 #include <SDL3/SDL_stdinc.h>
@@ -31,8 +32,8 @@ void MachineProfile::load() {
     double targetFps = 0.0;
     BallCount limit = 0;
     while (file >> backendName >> targetFps >> limit) {
-        if (const auto kind = parseBackendKind(backendName)) {
-            ballLimits[*kind] = {targetFps, limit};
+        if (const auto stored = parseStoredBackend(backendName)) {
+            ballLimits[stored->kind] = {targetFps, limit};
         }
     }
     std::ifstream benchmarkFile(benchmarkFilePath());
@@ -46,7 +47,7 @@ void MachineProfile::save() const {
     std::filesystem::create_directories(filePath().parent_path(), error);
     std::ofstream file(filePath(), std::ios::trunc);
     for (const auto& [kind, limit] : ballLimits) {
-        file << backendKindName(kind) << ' ' << limit.targetFps << ' ' << limit.balls << '\n';
+        file << storedBackendName(kind) << ' ' << limit.targetFps << ' ' << limit.balls << '\n';
     }
 }
 

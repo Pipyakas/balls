@@ -1,7 +1,11 @@
 #include <nvrtc.h>
 
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#else
+#include <dlfcn.h>
+#endif
 
 #include <cstdio>
 #include <filesystem>
@@ -25,7 +29,11 @@ constexpr KernelImage kernelImages[] = {
     {5, 0, true},  {6, 0, true},  {7, 0, true},  {7, 5, true},  {8, 0, true},
     {8, 6, true},  {8, 9, true},  {7, 5, false}, {5, 0, false},
 };
+#if defined(_WIN32)
 constexpr const char* nvrtcLibraryName = "nvrtc64_120_0.dll";
+#else
+constexpr const char* nvrtcLibraryName = "libnvrtc.so.12";
+#endif
 
 struct NvrtcApi {
     decltype(&::nvrtcGetErrorString) getErrorString = nullptr;
@@ -41,15 +49,29 @@ struct NvrtcApi {
 };
 
 template <typename Function>
-bool loadSymbol(HMODULE library, const char* name, Function& target) {
-    target = reinterpret_cast<Function>(reinterpret_cast<void*>(GetProcAddress(library, name)));
+bool loadSymbol(void* library, const char* name, Function& target) {
+#if defined(_WIN32)
+    target = reinterpret_cast<Function>(reinterpret_cast<void*>(GetProcAddress(static_cast<HMODULE>(library), name)));
+#else
+    target = reinterpret_cast<Function>(dlsym(library, name));
+#endif
     return target != nullptr;
 }
 
 bool loadNvrtc(NvrtcApi& api) {
-    HMODULE library = LoadLibraryA(nvrtcLibraryName);
+#if defined(_WIN32)
+    void* library = LoadLibraryA(nvrtcLibraryName);
+#else
+    void* library = dlopen(nvrtcLibraryName, RTLD_NOW | RTLD_LOCAL);
+#endif
     if (!library) {
+#if defined(_WIN32)
         std::cerr << "cannot load " << nvrtcLibraryName << " (run scripts/FetchCudaSdk.ps1)\n";
+#else
+        const char* reason = dlerror();
+        std::cerr << "cannot load " << nvrtcLibraryName << ": " << (reason ? reason : "unknown error")
+                  << " (run scripts/FetchCudaSdk.sh)\n";
+#endif
         return false;
     }
     return loadSymbol(library, "nvrtcGetErrorString", api.getErrorString) &&

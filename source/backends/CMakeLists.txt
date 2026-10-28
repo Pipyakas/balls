@@ -30,7 +30,7 @@ if(BALLS_ENABLE_CUDA AND EXISTS "${BALLS_CUDA_SDK_DIR}/include/nvrtc.h")
     set(BALLS_KERNEL_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/BallKernelImages.h")
     add_custom_command(
         OUTPUT "${BALLS_KERNEL_HEADER}"
-        COMMAND ${CMAKE_COMMAND} -E env "PATH=${BALLS_CUDA_SDK_DIR}/bin"
+        COMMAND ${CMAKE_COMMAND} -E env "PATH=${BALLS_CUDA_SDK_DIR}/bin" "LD_LIBRARY_PATH=${BALLS_CUDA_SDK_DIR}/lib"
                 $<TARGET_FILE:balls_ptxgen> "${BALLS_KERNEL_HEADER}" ${BALLS_KERNEL_SOURCES}
         DEPENDS balls_ptxgen ${BALLS_KERNEL_SOURCES}
         COMMENT "Compiling CUDA kernels to SASS and PTX with NVRTC")

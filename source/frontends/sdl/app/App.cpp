@@ -13,6 +13,7 @@
 #include "screens/MachineBenchmarkScreen.h"
 #include "screens/MainMenuScreen.h"
 #include "screens/SettingsScreen.h"
+#include "sim/BackendSelection.h"
 #include "sim/BackendWorker.h"
 #include "ui/Painter.h"
 #include "ui/Widgets.h"
@@ -142,7 +143,7 @@ BackendKind startupBackend(std::optional<BackendKind> commandLine, std::string_v
     if (commandLine && isBackendAvailable(*commandLine)) {
         return *commandLine;
     }
-    if (const auto saved = parseBackendKind(settingsDefault); saved && isBackendAvailable(*saved) && isBackendSelectable(*saved)) {
+    if (const auto saved = parseSavedBackendKind(settingsDefault); saved && isBackendAvailable(*saved) && isBackendSelectable(*saved)) {
         return *saved;
     }
     if (const auto target = targetMachineWinner();
@@ -794,7 +795,7 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
         std::optional<BackendKind> backend;
         if (const auto name = request.text("backend")) {
             backend = parseBackendKind(*name);
-            if (!backend || !backendStatus(*backend).available) {
+            if (!backend || !isBackendAvailable(*backend)) {
                 return ControlResponse::error(400, std::format("backend {} is not available", *name));
             }
         }
@@ -860,11 +861,16 @@ void App::showMachineBenchmark() {
 }
 
 void App::adoptBenchmarkWinner(const BenchmarkCandidate& winner) {
+    const std::vector<BackendPick> previousPicks = backendPicks();
+    setBackendPicks(winner.picks.empty() ? std::vector<BackendPick>{}
+                                         : parseBackendPicks(winner.picks).value_or(std::vector<BackendPick>{}));
     if (!isBackendAvailable(winner.kind)) {
+        setBackendPicks(previousPicks);
         return;
     }
+    refreshBackendStatuses();
     backendChoice = winner.kind;
-    currentSettings.defaultBackend = std::string(backendKindName(winner.kind));
+    currentSettings.defaultBackend = storedBackendName(winner.kind);
     static_cast<void>(saveSettings(settingsFilePath(), currentSettings));
 }
 
@@ -891,7 +897,7 @@ void App::applySettings(const Settings& settings, std::optional<BackendKind> bac
     currentSettings = settings;
     if (backend) {
         backendChoice = *backend;
-        currentSettings.defaultBackend = std::string(backendKindName(*backend));
+        currentSettings.defaultBackend = storedBackendName(*backend);
     }
     static_cast<void>(saveSettings(settingsFilePath(), currentSettings));
     setVsync(settings.vsync);

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -37,6 +38,14 @@ struct GpuAdapterInfo {
     bool atomicFloat = false;
     bool hasGraphicsQueue = false;
     bool hasComputeQueue = false;
+    // Vulkan's deviceUUID, which CUDA reports for the same GPU (cuDeviceGetUuid); how one physical GPU is matched
+    // across APIs. D3D12 has no UUID and leaves hasUuid false.
+    std::array<uint8_t, 16> uuid{};
+    bool hasUuid = false;
+    // PCI location when VK_EXT_pci_bus_info is present, -1 otherwise; orders GPUs the same way in every API.
+    int pciDomain = -1;
+    int pciBus = -1;
+    int pciDevice = -1;
 
     bool usableForCompute() const { return hasComputeQueue && kind != GpuKind::Software; }
     // Software rasterizers (WARP, lavapipe) can render: on a machine whose GPU is busy with physics that is a real

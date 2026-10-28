@@ -1,5 +1,6 @@
 #include "sim/BackendFactory.h"
 
+#include "sim/BackendSelection.h"
 #include "sim/HybridBackend.h"
 
 #include <algorithm>
@@ -19,6 +20,11 @@ const char* ballsBackendUnavailableReason(const char* kindName);
 const char* ballsBackendDetail(const char* kindName);
 PhysicsBackend* ballsCreateBackend(const char* kindName);
 void ballsDestroyBackend(PhysicsBackend* backend);
+int ballsDeviceCount(const char* kindName);
+int ballsDeviceInfo(const char* kindName, int device, PhysicsDeviceInfo* info);
+const char* ballsDeviceUnavailableReason(const char* kindName, int device);
+const char* ballsDeviceDetail(const char* kindName, int device);
+PhysicsBackend* ballsCreateBackendOnDevice(const char* kindName, int device);
 }
 #endif
 
@@ -47,7 +53,12 @@ struct PluginModule {
 
     std::shared_ptr<DynamicLibrary> library;
     CreateBackendFunction create = nullptr;
+    CreateBackendOnDeviceFunction createOnDevice = nullptr;
     DestroyBackendFunction destroy = nullptr;
+    DeviceCountFunction deviceCount = nullptr;
+    DeviceInfoFunction deviceInfo = nullptr;
+    DeviceTextFunction deviceUnavailableReason = nullptr;
+    DeviceTextFunction deviceDetail = nullptr;
     BackendTextFunction unavailableReason = nullptr;
     BackendTextFunction detail = nullptr;
     MeasureRooflineFunction measureRoofline = nullptr;
@@ -113,6 +124,11 @@ std::shared_ptr<PluginModule> loadPlugin(std::string_view fileName, bool freshCo
         module->destroy = ballsDestroyBackend;
         module->unavailableReason = ballsBackendUnavailableReason;
         module->detail = ballsBackendDetail;
+        module->createOnDevice = ballsCreateBackendOnDevice;
+        module->deviceCount = ballsDeviceCount;
+        module->deviceInfo = ballsDeviceInfo;
+        module->deviceUnavailableReason = ballsDeviceUnavailableReason;
+        module->deviceDetail = ballsDeviceDetail;
         if (ballsPhysicsInterfaceVersion() != physicsPluginInterfaceVersion) {
             module->error = std::format("static CPU backend interface mismatch");
         }
@@ -135,23 +151,30 @@ std::shared_ptr<PluginModule> loadPlugin(std::string_view fileName, bool freshCo
                           library.resolve("ballsCreateBackend", module->create) &&
                           library.resolve("ballsDestroyBackend", module->destroy) &&
                           library.resolve("ballsBackendUnavailableReason", module->unavailableReason) &&
-                          library.resolve("ballsBackendDetail", module->detail);
+                          library.resolve("ballsBackendDetail", module->detail) &&
+                          library.resolve("ballsCreateBackendOnDevice", module->createOnDevice) &&
+                          library.resolve("ballsDeviceCount", module->deviceCount) &&
+                          library.resolve("ballsDeviceInfo", module->deviceInfo) &&
+                          library.resolve("ballsDeviceUnavailableReason", module->deviceUnavailableReason) &&
+                          library.resolve("ballsDeviceDetail", module->deviceDetail);
     library.resolve("ballsMeasureRoofline", module->measureRoofline);
     library.resolve("ballsStreamedBytesPerBall", module->streamedBytes);
     library.resolve("ballsSetComputeGpu", module->setComputeGpu);
     library.resolve("ballsReleaseIdleDevice", module->releaseIdleDevice);
-    if (!complete) {
-        module->error = std::format("{} is missing plugin entry points", fileName);
-    } else if (interfaceVersion() != physicsPluginInterfaceVersion) {
+    if (interfaceVersion && interfaceVersion() != physicsPluginInterfaceVersion) {
         module->error = std::format("{} was built for plugin interface {} (expected {})", fileName, interfaceVersion(),
                                     physicsPluginInterfaceVersion);
+    } else if (!complete) {
+        module->error = std::format("{} is missing plugin entry points", fileName);
     }
     return module;
 }
 
 const PluginModule& queryPlugin(BackendKind kind) {
     static std::mutex mutex;
-    static std::map<std::string_view, std::shared_ptr<PluginModule>> cache;
+    // Never destroyed: unloading a GPU plugin from a static destructor at exit closes its devices after the
+    // drivers' own exit handlers ran, which crashes (seen with RADV and NVIDIA together).
+    static auto& cache = *new std::map<std::string_view, std::shared_ptr<PluginModule>>();
     std::lock_guard lock(mutex);
     const std::string_view fileName = backendPluginFileName(kind);
     auto& module = cache[fileName];
@@ -177,6 +200,8 @@ std::string_view backendKindName(BackendKind kind) {
         return "CUDA+AVX2";
     case BackendKind::Vulkan:
         return "Vulkan";
+    case BackendKind::Hybrid:
+        return "Hybrid";
     }
     return "?";
 }
@@ -196,11 +221,7 @@ std::string normalizedKindName(std::string_view name) {
 }
 
 std::optional<BackendKind> backendKindFromName(std::string_view name) {
-    constexpr std::string_view legacyCudaAvx2Name = "hybrid";
     const std::string wanted = normalizedKindName(name);
-    if (wanted == legacyCudaAvx2Name) {
-        return BackendKind::CudaAvx2;
-    }
     const auto match = std::ranges::find_if(
         allBackendKinds, [&](BackendKind kind) { return normalizedKindName(backendKindName(kind)) == wanted; });
     return match == allBackendKinds.end() ? std::nullopt : std::optional(*match);
@@ -218,7 +239,28 @@ std::string_view backendPluginFileName(BackendKind kind) {
 
 bool isBackendAvailable(BackendKind kind) { return backendUnavailableReason(kind).empty(); }
 
+namespace {
+
+// The plugin device a picked kind runs on, or nullopt when the kind is not picked and runs on its plugin's default.
+std::optional<int> pickedPluginDevice(BackendKind kind) {
+    const std::vector<BackendPick> picks = backendPicks();
+    if (std::ranges::none_of(picks, [kind](const BackendPick& pick) { return pick.kind == kind; })) {
+        return std::nullopt;
+    }
+    return pluginDeviceFor(kind);
+}
+
+}
+
 std::string backendUnavailableReason(BackendKind kind) {
+    if (kind == BackendKind::Hybrid) {
+        const std::vector<BackendPick> picks = hybridPicks();
+        return picks.size() < 2 ? std::string("Hybrid needs two or more devices with a usable backend")
+                                : backendPicksProblem(picks);
+    }
+    if (const std::optional<int> device = pickedPluginDevice(kind)) {
+        return backendUnavailableReasonOnDevice(kind, *device);
+    }
     if (kind == BackendKind::CudaAvx2) {
         const std::string gpuReason = backendUnavailableReason(BackendKind::Cuda);
         return gpuReason.empty() ? backendUnavailableReason(BackendKind::Avx2) : gpuReason;
@@ -232,6 +274,12 @@ std::string backendUnavailableReason(BackendKind kind) {
 }
 
 std::string backendDetail(BackendKind kind) {
+    if (kind == BackendKind::Hybrid) {
+        return backendPicksLabel(hybridPicks());
+    }
+    if (const std::optional<int> device = pickedPluginDevice(kind)) {
+        return backendDetailOnDevice(kind, *device);
+    }
     if (kind == BackendKind::CudaAvx2) {
         return std::format("{} + {}", backendDetail(BackendKind::Cuda), backendDetail(BackendKind::Avx2));
     }
@@ -244,6 +292,13 @@ std::string backendDetail(BackendKind kind) {
 }
 
 BackendHandle createBackend(BackendKind kind) {
+    if (kind == BackendKind::Hybrid) {
+        const std::vector<BackendPick> picks = hybridPicks();
+        return picks.size() < 2 ? BackendHandle(nullptr, BackendRelease{}) : createComposedBackend(picks);
+    }
+    if (const std::optional<int> device = pickedPluginDevice(kind)) {
+        return createBackendOnDevice(kind, *device);
+    }
     if (kind == BackendKind::CudaAvx2) {
         return HybridBackend::create(createBackend(BackendKind::Cuda), createBackend(BackendKind::Avx2));
     }
@@ -255,6 +310,57 @@ BackendHandle createBackend(BackendKind kind) {
         return BackendHandle(nullptr, BackendRelease{});
     }
     PhysicsBackend* backend = plugin->create(kindArgument(kind).c_str());
+    return BackendHandle(backend, BackendRelease{plugin->destroy, plugin->library});
+}
+
+std::vector<PhysicsDeviceInfo> backendDevices(BackendKind kind) {
+    std::vector<PhysicsDeviceInfo> devices;
+    if (kind == BackendKind::CudaAvx2 || kind == BackendKind::Hybrid) {
+        return devices;
+    }
+    const PluginModule& plugin = queryPlugin(kind);
+    if (!plugin.error.empty()) {
+        return devices;
+    }
+    const std::string name = kindArgument(kind);
+    const int count = plugin.deviceCount(name.c_str());
+    for (int device = 0; device < count; ++device) {
+        PhysicsDeviceInfo info;
+        if (plugin.deviceInfo(name.c_str(), device, &info) != 0) {
+            info.name[sizeof(info.name) - 1] = 0;
+            devices.push_back(info);
+        }
+    }
+    return devices;
+}
+
+std::string backendUnavailableReasonOnDevice(BackendKind kind, int device) {
+    if (kind == BackendKind::CudaAvx2 || kind == BackendKind::Hybrid) {
+        return "not a single-device backend";
+    }
+    const PluginModule& plugin = queryPlugin(kind);
+    return plugin.error.empty() ? std::string(plugin.deviceUnavailableReason(kindArgument(kind).c_str(), device))
+                                : plugin.error;
+}
+
+std::string backendDetailOnDevice(BackendKind kind, int device) {
+    if (kind == BackendKind::CudaAvx2 || kind == BackendKind::Hybrid) {
+        return {};
+    }
+    const PluginModule& plugin = queryPlugin(kind);
+    return plugin.error.empty() ? std::string(plugin.deviceDetail(kindArgument(kind).c_str(), device)) : std::string{};
+}
+
+BackendHandle createBackendOnDevice(BackendKind kind, int device) {
+    if (kind == BackendKind::CudaAvx2 || kind == BackendKind::Hybrid) {
+        return BackendHandle(nullptr, BackendRelease{});
+    }
+    const std::shared_ptr<PluginModule> plugin = loadPlugin(backendPluginFileName(kind), true);
+    const std::string name = kindArgument(kind);
+    if (!plugin->error.empty() || std::string_view(plugin->deviceUnavailableReason(name.c_str(), device)) != "") {
+        return BackendHandle(nullptr, BackendRelease{});
+    }
+    PhysicsBackend* backend = plugin->createOnDevice(name.c_str(), device);
     return BackendHandle(backend, BackendRelease{plugin->destroy, plugin->library});
 }
 

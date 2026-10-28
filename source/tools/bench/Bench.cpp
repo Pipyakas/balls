@@ -6,6 +6,9 @@
 #include "level/LevelWriter.h"
 #include "sim/BackendBenchmark.h"
 #include "sim/BackendFactory.h"
+#include "sim/BackendSelection.h"
+#include "sim/DeviceComposer.h"
+#include "sim/DeviceInventory.h"
 #include "sim/EdgeCaseSweep.h"
 #include "sim/HybridBackend.h"
 #include "sim/PhysicsAccuracy.h"
@@ -30,16 +33,49 @@
 #include <fstream>
 #include <numbers>
 #include <random>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
 
 namespace {
 
+// One backend to measure: a kind, or a set of device picks ("AVX2@cpu+CUDA@gpu0") that runs as one kind.
+struct BenchTarget {
+    BackendKind kind = BackendKind::Scalar;
+    std::vector<BackendPick> picks;
+};
+
+std::vector<BenchTarget> allTargets() {
+    std::vector<BenchTarget> targets;
+    for (const BackendKind kind : allBackendKinds) {
+        targets.push_back({kind, {}});
+    }
+    return targets;
+}
+
+// Makes the target's picks the process-wide ones, so createBackend(kind) builds exactly this target.
+BackendKind applyTarget(const BenchTarget& target) {
+    setBackendPicks(target.picks);
+    return target.kind;
+}
+
+// "CUDA", or the picks a composed or device-pinned run used: "Hybrid[AVX2@cpu+CUDA@gpu0]".
+std::string targetLabel(BackendKind kind) {
+    const std::vector<BackendPick> picks = backendPicks();
+    if (kind == BackendKind::Hybrid) {
+        return "Hybrid[" + formatBackendPicks(hybridPicks()) + "]";
+    }
+    if (!picks.empty()) {
+        return formatBackendPicks(picks);
+    }
+    return std::string(backendKindName(kind));
+}
+
 struct BenchOptions {
     std::filesystem::path levelDirectory = "data/assets/levels/performance";
     std::string levelName = "DA_1000Bricks";
-    std::vector<BackendKind> backends{allBackendKinds.begin(), allBackendKinds.end()};
+    std::vector<BenchTarget> backends = allTargets();
     std::vector<size_t> ballCounts{2000, 20000, 200000, 1000000};
     int ticks = 240;
     bool fullSimulation = false;
@@ -61,6 +97,8 @@ struct BenchOptions {
     bool drawing = true;
     double targetFps = 60.0;
     std::filesystem::path edgeLevelDirectory;
+    bool listDevices = false;
+    bool visibilityGrid = false;
 };
 
 std::vector<size_t> parseCounts(const char* text) {
@@ -73,22 +111,29 @@ std::vector<size_t> parseCounts(const char* text) {
     return counts;
 }
 
-std::vector<BackendKind> parseBackends(const std::string& text) {
-    std::vector<BackendKind> kinds;
-    std::string loweredText = text;
-    for (char& c : loweredText) {
-        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    }
-    for (BackendKind kind : allBackendKinds) {
-        std::string name(backendKindName(kind));
-        for (char& c : name) {
-            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+// Comma-separated: "all", kind names ("cuda", "cuda+avx2", "hybrid") or device picks ("avx2@cpu+vulkan@gpu1").
+std::vector<BenchTarget> parseBackends(const std::string& text) {
+    std::vector<BenchTarget> targets;
+    std::stringstream stream(text);
+    std::string item;
+    while (std::getline(stream, item, ',')) {
+        if (item == "all") {
+            const std::vector<BenchTarget> all = allTargets();
+            targets.insert(targets.end(), all.begin(), all.end());
+        } else if (item.find('@') != std::string::npos) {
+            if (auto picks = parseBackendPicks(item)) {
+                const BackendKind kind = kindForPicks(*picks);
+                targets.push_back({kind, std::move(*picks)});
+            } else {
+                std::fprintf(stderr, "unknown device picks '%s' (see --devices)\n", item.c_str());
+            }
+        } else if (const auto kind = backendKindFromName(item)) {
+            targets.push_back({*kind, {}});
+        } else {
+            std::fprintf(stderr, "unknown backend '%s'\n", item.c_str());
         }
-        if (loweredText == "all" || loweredText.find(name) != std::string::npos) {
-            kinds.push_back(kind);
-        }
     }
-    return kinds;
+    return targets;
 }
 
 BenchOptions parseOptions(int argumentCount, char** arguments) {
@@ -159,12 +204,29 @@ BenchOptions parseOptions(int argumentCount, char** arguments) {
         } else if (argument == "--out") {
             options.edgeOutput = value;
             ++i;
+        } else if (argument == "--grid") {
+            options.visibilityGrid = true;
+        } else if (argument == "--devices") {
+            options.listDevices = true;
         }
     }
     return options;
 }
 
 BrickLayout emptyBoard(int width, int rows);
+
+void listPhysicalDevices() {
+    for (const PhysicalDevice& device : physicalDevices()) {
+        std::printf("%-5s %s%s%s\n", device.id.c_str(), device.name.c_str(), device.hasUuid ? "  uuid " : "",
+                    device.hasUuid ? uuidText(device.uuid).c_str() : "");
+        for (const DeviceBackendOption& option : device.backends) {
+            const std::string reason = backendUnavailableReasonOnDevice(option.kind, option.pluginDevice);
+            const std::string detail = reason.empty() ? backendDetailOnDevice(option.kind, option.pluginDevice) : reason;
+            std::printf("      %-7s #%d %s %s\n", std::string(backendKindName(option.kind)).c_str(), option.pluginDevice,
+                        reason.empty() ? "ok  " : "MISS", detail.c_str());
+        }
+    }
+}
 
 // Every backend against ReferenceBackend on the same scenarios: an empty box (positions compared ball by ball) and
 // the level with balls launched as in a game and scattered as the probe used to (curves and invariants).
@@ -198,16 +260,17 @@ int runAccuracy(const BenchOptions& options, const BrickLayout& level) {
         const AccuracyRun finer = runAccuracyScenario(createReferenceBackend(finerSubStep), scenario);
         std::printf("   %s   <- noise floor: reference at half the sub-step\n",
                     describeAccuracy("Ref/2", compareToReference(finer, reference)).c_str());
-        for (BackendKind kind : options.backends) {
+        for (const BenchTarget& target : options.backends) {
+            const BackendKind kind = applyTarget(target);
             if (!isBackendAvailable(kind)) {
                 continue;
             }
             const AccuracyRun run = runAccuracyScenario(createBackend(kind), scenario);
             if (!run.fault.empty()) {
-                std::printf("   %-9s fault: %s\n", std::string(backendKindName(kind)).c_str(), run.fault.c_str());
+                std::printf("   %-9s fault: %s\n", targetLabel(kind).c_str(), run.fault.c_str());
                 continue;
             }
-            std::printf("   %s\n", describeAccuracy(backendKindName(kind), compareToReference(run, reference)).c_str());
+            std::printf("   %s\n", describeAccuracy(targetLabel(kind), compareToReference(run, reference)).c_str());
             std::string hitsCurve;
             for (size_t i = 0; i < std::min(run.samples.size(), reference.samples.size()); ++i) {
                 hitsCurve += std::format(" {:+d}", static_cast<long long>(run.samples[i].hits) -
@@ -272,7 +335,8 @@ int traceEdgeCases(const BenchOptions& options) {
             if (!listed(options.edgeLayouts, edgeLayoutName(layout))) {
                 continue;
             }
-            for (BackendKind kind : options.backends) {
+            for (const BenchTarget& target : options.backends) {
+                const BackendKind kind = applyTarget(target);
                 BackendHandle backend = createBackend(kind);
                 if (!backend) {
                     continue;
@@ -343,12 +407,13 @@ int runEdgeCases(const BenchOptions& options) {
             }
             const std::string name = edgeCaseName(layout, size);
             const BrickLayout bricks = generateEdgeLayout(layout, size);
-            for (BackendKind kind : options.backends) {
+            for (const BenchTarget& target : options.backends) {
+                const BackendKind kind = applyTarget(target);
                 if (!isBackendAvailable(kind)) {
                     continue;
                 }
                 const EdgeSweepResult result = sweepEdgeCase(bricks, kind, settings);
-                const std::string backendName(backendKindName(kind));
+                const std::string backendName = targetLabel(kind);
                 std::printf("%-28s %-7s ~%-7s at %.0f FPS  (filled %s at %.1f ms, settled %.1f ms, worst frame %.1f ms, "
                             "%s launched)  bricks %d  launch %.0f ns/ball  stop: %s  %.0f s\n",
                             name.c_str(), backendName.c_str(), shortBallCount(result.ballsAtBudget).c_str(),
@@ -422,9 +487,30 @@ std::vector<BallSpawn> scatterBalls(const BrickBoard& board, size_t count, float
     return balls;
 }
 
-void runRawStep(const BrickLayout& layout, BackendKind kind, size_t ballCount, int ticks, bool collisions) {
+void printComposerParts(const DeviceComposer& composer) {
+    for (size_t part = 0; part < composer.partCount(); ++part) {
+        std::printf("        %-12s share %5.1f%%  balls %10zu  step %7.3f ms\n", composer.partLabel(part).c_str(),
+                    100.0 * static_cast<double>(composer.partBallCount(part)) /
+                        static_cast<double>(std::max<size_t>(composer.ballCount(), 1)),
+                    composer.partBallCount(part), composer.partStepMs(part));
+        if (composer.partParked(part)) {
+            std::printf("        %-12s parked: slower composed than without it\n", composer.partLabel(part).c_str());
+        }
+    }
+    std::printf("        brick budgets %.3f ms per step on average, %zu balls moved in %zu steps\n",
+                composer.averageBrickBudgetMs(), composer.movedBallCount(), composer.movingStepCount());
+}
+
+void runRawStep(const BrickLayout& layout, BackendKind kind, size_t ballCount, int ticks, bool collisions,
+                bool visibilityGrid) {
     Simulation simulation(createBackend(kind));
     simulation.load(layout);
+    if (visibilityGrid) {
+        const float slotSize = simulation.tuning().ballRadius * visibilitySlotsPerRadius;
+        simulation.backend().setVisibilityGrid(
+            visibilitySlots(static_cast<float>(simulation.board().columns()), slotSize),
+            visibilitySlots(static_cast<float>(simulation.board().rows()), slotSize));
+    }
     simulation.setBallCollisions(collisions);
     PhysicsBackend& backend = simulation.backend();
     const auto balls = scatterBalls(simulation.board(), ballCount, simulation.tuning().ballSpeed);
@@ -451,8 +537,11 @@ void runRawStep(const BrickLayout& layout, BackendKind kind, size_t ballCount, i
     const double msPerTick = seconds * 1000.0 / ticks;
     const double ballStepsPerSecond = static_cast<double>(ballCount) * ticks / seconds;
     std::printf("%-7s collisions=%d balls=%9zu  %8.3f ms/tick  %8.1f M ball-steps/s  %s/tick=%zu\n",
-                std::string(backendKindName(kind)).c_str(), collisions ? 1 : 0, ballCount, msPerTick,
+                targetLabel(kind).c_str(), collisions ? 1 : 0, ballCount, msPerTick,
                 ballStepsPerSecond / 1e6, resolvesOnDevice ? "kills" : "hits", eventTotal / static_cast<size_t>(ticks));
+    if (const auto* composer = dynamic_cast<const DeviceComposer*>(&backend)) {
+        printComposerParts(*composer);
+    }
 }
 
 void runFullSimulation(const BrickLayout& layout, BackendKind kind, size_t ballCount, int ticks,
@@ -470,9 +559,12 @@ void runFullSimulation(const BrickLayout& layout, BackendKind kind, size_t ballC
     }
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     std::printf("%-7s collisions=%d full balls=%9zu  %8.3f ms/tick  remaining balls=%zu bricks=%d\n",
-                std::string(backendKindName(kind)).c_str(), collisions ? 1 : 0, ballCount,
+                targetLabel(kind).c_str(), collisions ? 1 : 0, ballCount,
                 seconds * 1000.0 / ticks, simulation.backend().ballCount(),
                 simulation.board().aliveBrickCount());
+    if (const auto* composer = dynamic_cast<const DeviceComposer*>(&simulation.backend())) {
+        printComposerParts(*composer);
+    }
 }
 
 void runScatteredSimulation(const BrickLayout& layout, BackendKind kind, size_t ballCount, int ticks,
@@ -496,13 +588,16 @@ void runScatteredSimulation(const BrickLayout& layout, BackendKind kind, size_t 
     const double seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
     std::printf(
         "%-7s collisions=%d scatter balls=%9zu  %8.3f ms/tick  %8.1f M ball-steps/s  bricks %d -> %d\n",
-        std::string(backendKindName(kind)).c_str(), collisions ? 1 : 0, ballCount, seconds * 1000.0 / ticks,
+        targetLabel(kind).c_str(), collisions ? 1 : 0, ballCount, seconds * 1000.0 / ticks,
         static_cast<double>(ballCount) * ticks / seconds / 1e6, bricksBefore,
         simulation.board().aliveBrickCount());
     if (const auto* hybrid = dynamic_cast<const HybridBackend*>(&simulation.backend())) {
         std::printf("        cpu share %5.1f%%  cpu step %6.3f ms  gpu step %6.3f ms\n",
                     100.0 * static_cast<double>(hybrid->cpuBallCount()) / static_cast<double>(hybrid->ballCount()),
                     hybrid->cpuStepMs(), hybrid->gpuStepMs());
+    }
+    if (const auto* composer = dynamic_cast<const DeviceComposer*>(&simulation.backend())) {
+        printComposerParts(*composer);
     }
 }
 
@@ -611,6 +706,10 @@ int main(int argumentCount, char** arguments) {
     }
 #endif
     const BenchOptions options = parseOptions(argumentCount, arguments);
+    if (options.listDevices) {
+        listPhysicalDevices();
+        return 0;
+    }
     if (environmentNumber("BALLS_PIN_LATENCY_THREADS", 0) != 0) {
         preferPerformanceCores();
     }
@@ -644,9 +743,10 @@ int main(int argumentCount, char** arguments) {
     if (options.accuracy) {
         return runAccuracy(options, level->bricks);
     }
-    for (BackendKind kind : options.backends) {
+    for (const BenchTarget& target : options.backends) {
+        const BackendKind kind = applyTarget(target);
         if (!isBackendAvailable(kind)) {
-            std::printf("%-7s unavailable: %s\n", std::string(backendKindName(kind)).c_str(),
+            std::printf("%-7s unavailable: %s\n", targetLabel(kind).c_str(),
                         backendUnavailableReason(kind).c_str());
             continue;
         }
@@ -657,7 +757,7 @@ int main(int argumentCount, char** arguments) {
             } else if (options.fullSimulation) {
                 runFullSimulation(level->bricks, kind, count, options.ticks, options.collisions);
             } else {
-                runRawStep(level->bricks, kind, count, options.ticks, options.collisions);
+                runRawStep(level->bricks, kind, count, options.ticks, options.collisions, options.visibilityGrid);
             }
         }
     }

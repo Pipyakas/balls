@@ -46,6 +46,9 @@ public:
         cursor += lineHeight;
     }
 
+    // How tall everything written so far is, padding included: what the gadget scrolls over.
+    float contentHeight() const { return cursor - area.y + padding; }
+
 private:
     Rect area;
     float cursor;
@@ -68,26 +71,14 @@ Color fpsColor(float fps) {
     return fps >= targetFps ? palette::success : palette::danger;
 }
 
-int debugRowCount(const SessionView& session, bool showBackend) {
-    constexpr int backendRows = 2;
-    constexpr int physicsRateRows = 1;
-    int rows = 12 + physicsRateRows - (showBackend ? 0 : backendRows);
-    if (showBackend && session.deviceStepMs > 0.0) {
-        rows += 1;
-    }
-    if (showBackend && session.hybrid) {
-        rows += 2;
-    }
-    rows += 5;
-    return rows;
-}
-
 } // namespace
 
 void drawDebugPanel(Rect area, const SessionView& session, const FrameTimings& frames, DebugPanelState& state,
                     bool showBackend, std::string_view deviceDescription) {
     ui::drawPanel(area, palette::panel, 0.03f);
-    const float contentHeight = debugContentHeight(session, showBackend);
+    // The rows depend on the backend, the probe and the Advanced Settings section, so the gadget scrolls over the
+    // height it measured while drawing the previous frame rather than an estimate that drifts as rows are added.
+    const float contentHeight = std::max(state.contentHeight, area.height);
     float visibleHeight = 0.0f;
     ui::scrollFrame(area, state.scroll, contentHeight, visibleHeight);
     const Rect inner{area.x, area.y - state.scroll, area.width, contentHeight};
@@ -136,10 +127,12 @@ void drawDebugPanel(Rect area, const SessionView& session, const FrameTimings& f
             writer.row("Device", detail);
         }
     }
-    const bool collisionsWanted = session.collisionsRequested;
-    const bool collisionsOn = session.collisionsActive;
-    writer.row("Ball collisions", collisionsWanted ? (collisionsOn ? "On" : "On (unsupported)") : "Off",
-               collisionsWanted && !collisionsOn ? palette::danger : palette::text);
+    if (showBackend) {
+        const bool collisionsWanted = session.collisionsRequested;
+        const bool collisionsOn = session.collisionsActive;
+        writer.row("Ball collisions", collisionsWanted ? (collisionsOn ? "On" : "On (unsupported)") : "Off",
+                   collisionsWanted && !collisionsOn ? palette::danger : palette::text);
+    }
 
     writer.heading("Objects");
     const BallCount balls = stats.ballCount;
@@ -166,6 +159,7 @@ void drawDebugPanel(Rect area, const SessionView& session, const FrameTimings& f
         writer.heading("Backend fault");
         writer.row("Fell back to CPU", "", palette::danger);
     }
+    state.contentHeight = writer.contentHeight();
     ui::scrollHints(area, state.scroll, contentHeight, palette::panel);
     gfx::endClip();
 }
@@ -232,13 +226,4 @@ void drawPortraitDebugStrip(Rect area, const SessionView& session, const FrameTi
         itemX += widths[index] + gap;
     }
     gfx::endClip();
-}
-
-float debugContentHeight(const SessionView& session, bool showBackend) {
-    constexpr float twoLineHeight = 22.0f + 26.0f;
-    constexpr float headingHeight = 6.0f + 30.0f;
-    constexpr float topPadding = 16.0f;
-    constexpr int headingCount = 3;
-    return static_cast<float>(debugRowCount(session, showBackend)) * twoLineHeight +
-           static_cast<float>(headingCount) * headingHeight + topPadding + 7.0f * 26.0f;
 }

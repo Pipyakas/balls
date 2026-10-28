@@ -8,6 +8,7 @@
 #include "render/BoardRenderer.h"
 #include "render/LauncherRenderer.h"
 #include "render/Palette.h"
+#include "screens/DevicePicker.h"
 #include "screens/SettingsPanel.h"
 #include "sim/BackendWorker.h"
 #include "ui/Widgets.h"
@@ -30,12 +31,16 @@ constexpr float overlayWidth = 420.0f;
 constexpr float overlayButtonHeight = 60.0f;
 constexpr float controlRowHeight = 44.0f;
 constexpr float controlGap = 10.0f;
+constexpr DevicePickerStyle gameplayDevicePicker{controlRowHeight, controlGap, 0.3f, 18.0f};
 constexpr float groupLabelHeight = 26.0f;
 constexpr float groupGap = 14.0f;
 constexpr float minimumControlColumnWidth = 220.0f;
 constexpr float controlColumnGap = 16.0f;
 constexpr float probeStatusHeight = 28.0f;
 constexpr float advancedHeaderHeight = 40.0f;
+constexpr float collisionsHintSize = 15.0f;
+constexpr float collisionsHintHeight = 40.0f;
+constexpr float collisionsGroupHeight = controlRowHeight + controlGap + collisionsHintHeight;
 constexpr float probeStatusSize = 17.0f;
 
 float listHeight(size_t rows) {
@@ -443,6 +448,18 @@ void GameplayScreen::drawAdapterList(Rect area, const std::vector<GpuAdapterInfo
     }
 }
 
+// Changing a device's backend switches the running game to the kind the picks make (Hybrid, or one backend).
+void GameplayScreen::drawDevicePicker(Rect area) {
+    const BackendKind shown = view->pendingBackend.value_or(view->backend);
+    if (const auto changed = ::drawDevicePicker(area, displayedPicks(shown), gameplayDevicePicker)) {
+        setBackendPicks(*changed);
+        refreshBackendStatuses();
+        const BackendKind kind = kindForPicks(*changed);
+        runner->post([kind](GameSession& session) { session.requestBackend(kind); });
+        showToast("Physics on " + backendPicksLabel(*changed), false);
+    }
+}
+
 void GameplayScreen::drawBackendList(Rect area, BackendKind selected) {
     float cursor = area.y;
     for (BackendKind kind : selectableBackends()) {
@@ -461,6 +478,33 @@ void GameplayScreen::drawBackendList(Rect area, BackendKind selected) {
             runner->post([kind](GameSession& session) { session.requestBackend(kind); });
         }
         cursor += controlRowHeight + controlGap;
+    }
+}
+
+// Off / On, saved with the settings like before; collisions need the Scalar backend, so On is disabled where Scalar
+// is not offered.
+void GameplayScreen::drawBallCollisions(Rect area) {
+    const bool enabled = app.settings().ballCollisions;
+    const bool possible = isBackendSelectable(BackendKind::Scalar);
+    const Rect buttons{area.x, area.y, area.width, controlRowHeight};
+    bool wanted = enabled;
+    if (ui::button(ui::columnSlice(buttons, 0, 2, controlGap), "Off", true, !enabled)) {
+        wanted = false;
+    }
+    if (ui::button(ui::columnSlice(buttons, 1, 2, controlGap), "On", possible, enabled)) {
+        wanted = true;
+    }
+    const float hintY = area.y + controlRowHeight + controlGap;
+    const float lineHeight = collisionsHintHeight * 0.5f;
+    ui::drawTextInRect("Testing only - the game rules have balls", {area.x, hintY, area.width, lineHeight},
+                       collisionsHintSize, palette::textMuted, ui::Align::Left);
+    ui::drawTextInRect(possible ? "pass through each other." : "pass through each other. Needs Scalar, not offered here.",
+                       {area.x, hintY + lineHeight, area.width, lineHeight}, collisionsHintSize, palette::textMuted,
+                       ui::Align::Left);
+    if (wanted != enabled) {
+        Settings next = app.settings();
+        next.ballCollisions = wanted;
+        app.applySettings(next);
     }
 }
 
@@ -597,6 +641,7 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
     if (advancedOpen) {
         const float backendHeight = (controlRowHeight + controlGap) * selectableBackends().size() - controlGap;
         drawBackendList(group("Physics", backendHeight), view->backend);
+        drawDevicePicker(group("Devices", devicePickerHeight(gameplayDevicePicker)));
         if (const std::vector<int> choices = renderAdapterChoices(); !choices.empty()) {
             drawAdapterList(group("Render GPU", listHeight(choices.size())), app.renderAdapters(), choices,
                             app.renderAdapterIndex(), false);
@@ -606,6 +651,12 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
                             choices, selectGpuAdapter(app.computeAdapters(), computeGpuPreference(), GpuRole::Compute),
                             true);
         }
+        // Last, across both columns: a testing aid outside the game rules.
+        const float collisionsY = std::max(columnCursors[0], columnCursors[1]);
+        ui::drawText("Ball collisions", {inner.x, collisionsY}, 20.0f, palette::textMuted);
+        drawBallCollisions({inner.x, collisionsY + groupLabelHeight, contentWidth, collisionsGroupHeight});
+        const float collisionsEnd = collisionsY + groupLabelHeight + collisionsGroupHeight + groupGap;
+        columnCursors = {collisionsEnd, collisionsEnd};
     }
     performanceControlsHeight = std::max(columnCursors[0], columnCursors[1]) - top - groupGap;
     ui::scrollHints(inner, controlsScroll, performanceControlsHeight, palette::panel);
@@ -616,7 +667,9 @@ float GameplayScreen::normalContentHeight() const {
     const float launcherHeight = 320.0f;
     const float advancedHeight = app.settings().advancedSettings
                                      ? groupGap + groupLabelHeight +
-                                           (controlRowHeight + controlGap) * selectableBackends().size() - controlGap
+                                           (controlRowHeight + controlGap) * selectableBackends().size() - controlGap +
+                                           groupGap + groupLabelHeight + devicePickerHeight(gameplayDevicePicker) +
+                                           groupGap + groupLabelHeight + collisionsGroupHeight
                                      : 0.0f;
     return launcherHeight + groupGap + advancedHeaderHeight + advancedHeight;
 }
@@ -692,9 +745,16 @@ void GameplayScreen::drawNormalControls(Rect area) {
     if (advancedOpen) {
         ui::drawText("Physics", {inner.x, cursor}, 20.0f, palette::textMuted);
         cursor += groupLabelHeight;
-        drawBackendList(
-            {inner.x, cursor, width, (controlRowHeight + controlGap) * selectableBackends().size() - controlGap},
-            view->backend);
+        const float backendHeight = (controlRowHeight + controlGap) * selectableBackends().size() - controlGap;
+        drawBackendList({inner.x, cursor, width, backendHeight}, view->backend);
+        cursor += backendHeight + groupGap;
+        ui::drawText("Ball collisions", {inner.x, cursor}, 20.0f, palette::textMuted);
+        cursor += groupLabelHeight;
+        drawBallCollisions({inner.x, cursor, width, collisionsGroupHeight});
+        cursor += collisionsGroupHeight + groupGap;
+        ui::drawText("Devices", {inner.x, cursor}, 20.0f, palette::textMuted);
+        cursor += groupLabelHeight;
+        drawDevicePicker({inner.x, cursor, width, devicePickerHeight(gameplayDevicePicker)});
     }
     ui::scrollHints(inner, normalScroll, normalContentHeight(), palette::panel);
     gfx::endClip();
@@ -916,7 +976,7 @@ std::optional<ControlResponse> GameplayScreen::handleControl(const ControlReques
     }
     if (path == "/backend") {
         const auto kind = parseBackendKind(request.text("kind").value_or(""));
-        if (!kind || !backendStatus(*kind).available) {
+        if (!kind || !isBackendAvailable(*kind)) {
             return ControlResponse::error(409, "backend unknown or unavailable");
         }
         runner->post([kind = *kind](GameSession& session) { session.requestBackend(kind); });

@@ -18,7 +18,26 @@
 #define BALLS_PLUGIN_EXPORT extern "C" __attribute__((visibility("default")))
 #endif
 
-inline constexpr int physicsPluginInterfaceVersion = 3;
+inline constexpr int physicsPluginInterfaceVersion = 4;
+
+// One physical device a plugin can run a backend kind on, listed in the plugin's own order (the index that
+// ballsCreateBackendOnDevice takes). Plain data, so it crosses the C boundary. The host matches one GPU across
+// plugins by its UUID, which CUDA (cuDeviceGetUuid) and Vulkan (VkPhysicalDeviceIDProperties) report alike.
+enum class PhysicsDeviceType : int32_t { Cpu, DiscreteGpu, IntegratedGpu, OtherGpu, Npu };
+
+inline constexpr size_t physicsDeviceNameBytes = 256;
+inline constexpr size_t physicsDeviceUuidBytes = 16;
+
+struct PhysicsDeviceInfo {
+    char name[physicsDeviceNameBytes] = {};
+    uint8_t uuid[physicsDeviceUuidBytes] = {};
+    int32_t hasUuid = 0;
+    PhysicsDeviceType type = PhysicsDeviceType::Cpu;
+    int32_t pciDomain = -1;
+    int32_t pciBus = -1;
+    int32_t pciDevice = -1;
+    uint64_t memoryBytes = 0;
+};
 
 struct BallSpawn {
     float x = 0.0f;
@@ -131,6 +150,9 @@ public:
     virtual std::string_view faultMessage() const { return {}; }
     virtual bool resolvesHitsOnDevice() const { return false; }
     virtual DeviceHitResults deviceHitResults() const { return {}; }
+    // Replaces only the device's brick hit counts, for the current board (one entry per brick). The device composer
+    // gives each device-resolving part its own budget of hits per brick this way; see DeviceComposer.
+    virtual void uploadBrickHits(std::span<const int32_t>) {}
     virtual bool shareRenderBuffer(unsigned int, size_t) { return false; }
     virtual void setVisibilityGrid(int, int) {}
     // Optional ball-vs-ball collisions, a testing aid outside the game rules. Backends that do not
@@ -151,6 +173,10 @@ public:
 };
 
 using CreateBackendFunction = PhysicsBackend* (*)(const char* kindName);
+using DeviceCountFunction = int (*)(const char* kindName);
+using DeviceInfoFunction = int (*)(const char* kindName, int device, PhysicsDeviceInfo* info);
+using DeviceTextFunction = const char* (*)(const char* kindName, int device);
+using CreateBackendOnDeviceFunction = PhysicsBackend* (*)(const char* kindName, int device);
 using DestroyBackendFunction = void (*)(PhysicsBackend* backend);
 using BackendTextFunction = const char* (*)(const char* kindName);
 using SetComputeGpuFunction = void (*)(const char* preference);

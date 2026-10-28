@@ -1,6 +1,7 @@
 #include "screens/SettingsPanel.h"
 
 #include "render/Palette.h"
+#include "screens/DevicePicker.h"
 #include "sim/BackendFactory.h"
 #include "sim/BackendWorker.h"
 #include "ui/Widgets.h"
@@ -26,10 +27,12 @@ constexpr float backHeight = 56.0f;
 constexpr float scoreInset = 16.0f;
 constexpr float runBenchmarkWidth = 240.0f;
 constexpr double ballStepsPerMillion = 1e6;
+constexpr DevicePickerStyle devicePickerStyle{optionHeight, optionGap, 0.34f, hintSize};
 
 std::string benchmarkScore(std::span<const CandidateResult> scores, BackendKind kind) {
+    const std::string shown = kind == BackendKind::Hybrid ? formatBackendPicks(displayedPicks(kind)) : std::string{};
     const auto found = std::ranges::find_if(scores, [&](const CandidateResult& result) {
-        return result.candidate.kind == kind;
+        return result.candidate.kind == kind && result.candidate.picks == shown;
     });
     if (found == scores.end()) {
         return {};
@@ -78,13 +81,13 @@ constexpr float blockHeight = sectionHeight + optionHeight + hintGap + hintHeigh
 float settingsContentHeight() {
     float height = panelPadding * 2.0f;
     height += titleHeight + blockGap;
-    height += sectionHeight + sectionHeight + optionHeight + hintGap + hintHeight + hintHeight + blockGap;
     height += blockHeight;
     height += sectionHeight + blockHeight;
     height += blockHeight;
     height += blockHeight;
     height += sectionHeight + sectionHeight + (optionHeight + optionGap) * selectableBackends().size() -
               optionGap + blockGap - optionGap;
+    height += sectionHeight + devicePickerHeight(devicePickerStyle) + hintGap + hintHeight * 2.0f + blockGap;
     height += sectionHeight + blockHeight;
     height += blockHeight;
     height += blockHeight;
@@ -106,31 +109,6 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
 
     ui::drawTextInRect("Settings", {innerX, cursor, innerWidth, titleHeight}, titleSize, palette::text);
     cursor += titleHeight + blockGap;
-
-    ui::drawText("Gameplay", {innerX, cursor}, sectionSize, palette::textMuted);
-    cursor += sectionHeight;
-    ui::drawText("Ball collisions", {innerX, cursor}, sectionSize, palette::text);
-    cursor += sectionHeight;
-    const Rect collisionOptions{innerX, cursor, innerWidth, optionHeight};
-    const bool collisionsPossible = isBackendSelectable(BackendKind::Scalar);
-    if (ui::button(ui::columnSlice(collisionOptions, 0, 2, optionGap), "Off", true,
-                   !current.ballCollisions) &&
-        current.ballCollisions) {
-        edit.settings.ballCollisions = false;
-        edit.changed = true;
-    }
-    if (ui::button(ui::columnSlice(collisionOptions, 1, 2, optionGap), "On", collisionsPossible, current.ballCollisions) &&
-        !current.ballCollisions) {
-        edit.settings.ballCollisions = true;
-        edit.changed = true;
-    }
-    cursor += optionHeight + hintGap;
-    ui::drawText("Testing only - the game rules have balls", {innerX, cursor}, hintSize,
-                 palette::textMuted);
-    cursor += hintHeight;
-    ui::drawText(collisionsPossible ? "pass through each other." : "pass through each other. Needs Scalar, not offered here.",
-                 {innerX, cursor}, hintSize, palette::textMuted);
-    cursor += hintHeight + blockGap;
 
     ui::drawText("Layout", {innerX, cursor}, sectionSize, palette::textMuted);
     cursor += sectionHeight;
@@ -236,6 +214,24 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
         cursor += optionHeight + optionGap;
     }
     cursor += blockGap - optionGap;
+
+    ui::drawText("Devices", {innerX, cursor}, sectionSize, palette::text);
+    cursor += sectionHeight;
+    const std::vector<BackendPick> picks = displayedPicks(selectedBackend);
+    if (const auto changed = drawDevicePicker({innerX, cursor, innerWidth, devicePickerHeight(devicePickerStyle)},
+                                              picks, devicePickerStyle)) {
+        setBackendPicks(*changed);
+        refreshBackendStatuses();
+        edit.backend = kindForPicks(*changed);
+        edit.changed = true;
+    }
+    cursor += devicePickerHeight(devicePickerStyle) + hintGap;
+    ui::drawText("One backend per device. Two or more devices run as Hybrid,", {innerX, cursor}, hintSize,
+                 palette::textMuted);
+    cursor += hintHeight;
+    ui::drawText("splitting the balls between them; one runs that backend alone.", {innerX, cursor}, hintSize,
+                 palette::textMuted);
+    cursor += hintHeight + blockGap;
 
     ui::drawText("Advanced", {innerX, cursor}, sectionSize, palette::textMuted);
     cursor += sectionHeight;
