@@ -11,6 +11,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <vector>
 
 // One backend being built off the frame. The session that asked keeps it and polls it at the start of each update;
 // the worker fills it in. A build nobody wants any more is abandoned, and the worker destroys what it produces.
@@ -65,4 +66,8 @@ struct BackendStatus {
 };
 
 BackendStatus backendStatus(BackendKind kind);
+// The backends the game offers and picks from. Scalar is the one-thread fallback and the only backend with ball
+// collisions, so it is left out whenever any other backend is available.
+std::vector<BackendKind> selectableBackends();
+bool isBackendSelectable(BackendKind kind);
 void refreshBackendStatuses();
