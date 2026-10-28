@@ -126,6 +126,9 @@ void HybridBackend::step(const StepParams& params, std::vector<BallHit>& hits) {
     stepGridHeight = gridHeight;
     const size_t cpuCount = cpu->ballCount();
     const size_t gpuCount = gpu->ballCount();
+    cpu->setRenderSampleShare(cpuCount + gpuCount > 0
+                                  ? static_cast<double>(cpuCount) / static_cast<double>(cpuCount + gpuCount)
+                                  : 1.0);
     cpuHits.clear();
     unusedHits.clear();
     std::future<double> cpuStep;

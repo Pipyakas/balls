@@ -8,6 +8,19 @@ std::optional<std::string> ControlRequest::text(std::string_view key) const {
     return it == query.end() ? std::nullopt : std::optional<std::string>(it->second);
 }
 
+std::optional<unsigned long long> ControlRequest::count(std::string_view key) const {
+    const auto value = text(key);
+    if (!value) {
+        return std::nullopt;
+    }
+    unsigned long long result = 0;
+    const auto [end, error] = std::from_chars(value->data(), value->data() + value->size(), result);
+    if (error != std::errc{} || end != value->data() + value->size()) {
+        return std::nullopt;
+    }
+    return result;
+}
+
 std::optional<int> ControlRequest::integer(std::string_view key) const {
     const auto value = text(key);
     if (!value) {

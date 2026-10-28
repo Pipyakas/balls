@@ -14,6 +14,7 @@ public:
     void step(const StepParams& params, std::vector<BallHit>& hits) override;
     void setVisibilityGrid(int width, int height) override;
     void addBalls(std::span<const BallSpawn> spawns) override;
+    void setRenderSampleShare(double share) override { store.renderSampleShare = share; }
     void shareCoresWithGpu() override;
     bool takeCompactTail(size_t count, CompactBalls& balls) override {
         materializeFreeFlight();

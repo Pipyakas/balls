@@ -10,6 +10,8 @@ struct ControlRequest {
 
     std::optional<std::string> text(std::string_view key) const;
     std::optional<int> integer(std::string_view key) const;
+    // Ball counts reach the billions, past what integer() holds.
+    std::optional<unsigned long long> count(std::string_view key) const;
 };
 
 struct ControlResponse {

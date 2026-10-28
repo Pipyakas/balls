@@ -31,6 +31,7 @@ struct CompactBallStore {
     int gridWidth = 0;
     int gridHeight = 0;
     bool gridFilled = false;
+    double renderSampleShare = 1.0;
     uint32_t bidderMask = 0;
     uint32_t frameSeed = 0;
     size_t count = 0;

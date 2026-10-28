@@ -809,8 +809,7 @@ std::optional<ControlResponse> GameplayScreen::handleControl(const ControlReques
         return done;
     }
     if (path == "/fill") {
-        session->fillWithBalls(
-            static_cast<BallCount>(std::max<long long>(request.integer("count").value_or(0), 0)));
+        session->fillWithBalls(static_cast<BallCount>(request.count("count").value_or(0)));
         return done;
     }
     if (path == "/limit") {

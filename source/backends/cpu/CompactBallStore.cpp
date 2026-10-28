@@ -9,9 +9,10 @@ namespace {
 constexpr size_t biddersPerSlot = 8;
 constexpr uint32_t largestBidderMask = 0x3FFFFFFFu;
 
-uint32_t bidderMaskFor(size_t balls, size_t cells) {
+uint32_t bidderMaskFor(size_t balls, size_t cells, double share) {
+    const double wanted = std::max(static_cast<double>(cells * biddersPerSlot) * share, 1.0);
     uint32_t mask = 0;
-    while (mask < largestBidderMask && (static_cast<size_t>(mask) + 1) * 2 * cells * biddersPerSlot <= balls) {
+    while (mask < largestBidderMask && (static_cast<double>(mask) + 1.0) * 2.0 * wanted <= static_cast<double>(balls)) {
         mask = mask * 2 + 1;
     }
     return mask;
@@ -182,7 +183,7 @@ bool CompactBallStore::prepareGrid() {
     if (gridFilled) {
         packed = SimdVector<uint32_t>{};
         grid.assign(cells, emptyRenderSlot);
-        bidderMask = bidderMaskFor(count, cells);
+        bidderMask = bidderMaskFor(count, cells, renderSampleShare);
         ++frameSeed;
     }
     if (!gridFilled && !tracksPacked()) {

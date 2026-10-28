@@ -131,6 +131,9 @@ public:
     virtual void shareCoresWithGpu() {}
     virtual bool takeCompactTail(size_t, CompactBalls&) { return false; }
     virtual bool addCompact(const CompactBalls&) { return false; }
+    // The share of the visibility grid this backend's balls have to fill. Hybrid draws the CPU's balls over the GPU's
+    // full grid, so the CPU side samples only in proportion to the balls it holds.
+    virtual void setRenderSampleShare(double) {}
 };
 
 using CreateBackendFunction = PhysicsBackend* (*)(const char* kindName);
