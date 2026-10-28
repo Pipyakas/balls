@@ -205,4 +205,54 @@ namespace Balls.Native
         public double workMs;
         public double gpuMs;
     }
+
+    /// <summary>Mirrors BallsControlContext: what the core's control API reads for one request.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct NativeControlContext
+    {
+        [MarshalAs(UnmanagedType.LPUTF8Str)] public string renderer;
+        [MarshalAs(UnmanagedType.LPUTF8Str)] public string screen;
+        public int windowWidth;
+        public int windowHeight;
+        public int preferredBackend;
+        public int vsync;
+        [MarshalAs(UnmanagedType.LPUTF8Str)] public string toast;
+        [MarshalAs(UnmanagedType.LPUTF8Str)] public string extraFields;
+        [MarshalAs(UnmanagedType.LPUTF8Str)] public string screenDetails;
+        public IntPtr frames;
+        public NativeSettings settings;
+        public IntPtr session;
+        public int mode;
+        [MarshalAs(UnmanagedType.LPUTF8Str)] public string levelName;
+        [MarshalAs(UnmanagedType.LPUTF8Str)] public string loadError;
+        public int diskState;
+        public int paused;
+        public int probeTargetFps;
+        public IntPtr benchmark;
+        public IntPtr profile;
+    }
+
+    /// <summary>Mirrors BallsControlAction: something a control request asks the front end to do.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct NativeControlAction
+    {
+        public int kind;
+        public int mode;
+        public int value;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 1024)] public byte[] text;
+        public NativeSettings settings;
+
+        public string Text
+        {
+            get
+            {
+                if (text == null)
+                {
+                    return string.Empty;
+                }
+                int length = Array.IndexOf(text, (byte)0);
+                return System.Text.Encoding.UTF8.GetString(text, 0, length < 0 ? text.Length : length);
+            }
+        }
+    }
 }

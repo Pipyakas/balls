@@ -213,10 +213,66 @@ typedef struct BallsFrameStats {
 } BallsFrameStats;
 
 typedef struct BallsSession BallsSession;
-typedef struct BallsEditor BallsEditor;
+typedef struct BallsFrameTimings BallsFrameTimings;
 typedef struct BallsBenchmark BallsBenchmark;
 typedef struct BallsProfile BallsProfile;
-typedef struct BallsFrameTimings BallsFrameTimings;
+
+// What the core's control API needs from the host for one request; the pointers only have to live for the call.
+typedef struct BallsControlContext {
+    const char* renderer;
+    const char* screen;          // main-menu, level-select, gameplay, editor, settings, benchmark
+    int32_t windowWidth;
+    int32_t windowHeight;
+    int32_t preferredBackend;    // BALLS_BACKEND_*
+    int32_t vsync;
+    const char* toast;           // the toast on screen, or empty
+    const char* extraFields;     // more /state fields as "name":value pairs joined by commas, or empty
+    const char* screenDetails;   // /state "details" JSON outside gameplay, or empty
+    BallsFrameTimings* frames;
+    BallsSettings settings;
+    // The game in play; session is null outside gameplay.
+    BallsSession* session;
+    int32_t mode;
+    const char* levelName;
+    const char* loadError;
+    int32_t diskState;           // BALLS_DISK_*
+    int32_t paused;
+    int32_t probeTargetFps;
+    // The benchmark screen's run, or null; the stored record comes from profile.
+    BallsBenchmark* benchmark;
+    BallsProfile* profile;
+} BallsControlContext;
+
+// What a request asks the host to do after balls_control_handle returns, in order.
+enum {
+    BALLS_CONTROL_NONE = 0,
+    BALLS_CONTROL_SCREENSHOT = 1,         // text: the path; the host answers the request itself once it is written
+    BALLS_CONTROL_PLAY = 2,               // mode, text: the level name
+    BALLS_CONTROL_MAIN_MENU = 3,
+    BALLS_CONTROL_LEVEL_SELECT = 4,       // mode
+    BALLS_CONTROL_EDITOR = 5,             // mode, text: the level name or empty for a new level
+    BALLS_CONTROL_QUIT = 6,
+    BALLS_CONTROL_APPLY_SETTINGS = 7,     // settings, value: the default backend or -1
+    BALLS_CONTROL_OPEN_SETTINGS = 8,
+    BALLS_CONTROL_SET_VSYNC = 9,          // value: 1 on, 0 off
+    BALLS_CONTROL_RUN_BENCHMARK = 10,
+    BALLS_CONTROL_SKIP_BENCHMARK = 11,
+    BALLS_CONTROL_CONTINUE_BENCHMARK = 12,
+    BALLS_CONTROL_SET_PAUSED = 13,        // value: 1 paused, 0 running
+    BALLS_CONTROL_RESTART = 14,
+    BALLS_CONTROL_START_PROBE = 15,       // value: the target FPS
+};
+
+typedef struct BallsControlAction {
+    int32_t kind;
+    int32_t mode;
+    int32_t value;
+    char text[1024];
+    BallsSettings settings;
+} BallsControlAction;
+
+typedef struct BallsControl BallsControl;
+typedef struct BallsEditor BallsEditor;
 typedef struct BallsLevelWatcher BallsLevelWatcher;
 
 // --- Process-wide --------------------------------------------------------------------------------------------
@@ -402,6 +458,21 @@ BALLS_API int32_t balls_benchmark_finished(const BallsBenchmark* benchmark);
 BALLS_API int32_t balls_benchmark_rows(BallsBenchmark* benchmark, BallsBenchmarkRow* rows, int32_t capacity);
 // The winner's kind, or -1 while nothing has finished.
 BALLS_API int32_t balls_benchmark_winner(BallsBenchmark* benchmark);
+
+// --- Control API -----------------------------------------------------------------------------------------------
+
+// The game's HTTP control API answered by the core, for a host that brings its own transport. levelDirectories are the
+// Normal and Performance level folders, for /play and /editor.
+BALLS_API BallsControl* balls_control_create(const char* normalLevels, const char* performanceLevels);
+BALLS_API void balls_control_destroy(BallsControl* control);
+// Answers one request target ("/play?mode=normal&level=DA_FirstLevel"). Returns the HTTP status with the JSON body in
+// json; 0 when the answer waits for the host (a screenshot); -1 when the path is not the core's, for the host's own
+// routes. jsonLength gets the body's full length, which can exceed size. Gameplay commands are applied to the
+// context's session before this returns; what the host has to do itself is queued for balls_control_take_action.
+BALLS_API int32_t balls_control_handle(BallsControl* control, const BallsControlContext* context, const char* target,
+                                       char* json, int32_t size, int32_t* jsonLength);
+// The next queued action, or 0 when there is none.
+BALLS_API int32_t balls_control_take_action(BallsControl* control, BallsControlAction* action);
 
 // --- Frame timings -------------------------------------------------------------------------------------------
 

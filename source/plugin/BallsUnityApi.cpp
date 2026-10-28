@@ -2,6 +2,7 @@
 
 #include "common/BallColor.h"
 #include "editor/LevelEditor.h"
+#include "control/ControlApi.h"
 #include "game/FrameTimings.h"
 #include "game/GameSession.h"
 #include "game/MachineProfile.h"
@@ -87,6 +88,28 @@ int32_t fromBackendKind(BackendKind kind) {
     }
 }
 
+void fromCoreSettings(const Settings& from, BallsSettings& to) {
+    to.ballCollisions = from.ballCollisions ? 1 : 0;
+    to.vsync = from.vsync ? 1 : 0;
+    to.advancedSettings = from.advancedSettings ? 1 : 0;
+    to.orientation = from.layout == LayoutOrientation::Landscape  ? BALLS_ORIENTATION_LANDSCAPE
+                     : from.layout == LayoutOrientation::Portrait ? BALLS_ORIENTATION_PORTRAIT
+                                                                  : BALLS_ORIENTATION_AUTO;
+    copyName(from.defaultBackend, to.defaultBackend, sizeof(to.defaultBackend));
+}
+
+Settings toCoreSettings(const BallsSettings& from) {
+    Settings to;
+    to.ballCollisions = from.ballCollisions != 0;
+    to.vsync = from.vsync != 0;
+    to.advancedSettings = from.advancedSettings != 0;
+    to.layout = from.orientation == BALLS_ORIENTATION_LANDSCAPE  ? LayoutOrientation::Landscape
+                : from.orientation == BALLS_ORIENTATION_PORTRAIT ? LayoutOrientation::Portrait
+                                                                : LayoutOrientation::Auto;
+    to.defaultBackend = std::string(from.defaultBackend, strnlen(from.defaultBackend, sizeof(from.defaultBackend)));
+    return to;
+}
+
 std::optional<LevelData> loadLevelOrReport(const char* directory, const char* name) {
     if (directory == nullptr || name == nullptr) {
         setError("level directory and name are required");
@@ -164,6 +187,131 @@ struct BallsEditor {
     std::string levelDirectory;
     std::string levelName = "Untitled";
     mutable EditorValidation validation;
+};
+
+// The control API's host for Unity: what the core reads comes from the context Unity passes with each request, and
+// what Unity has to do itself is queued as actions, since the C ABI has no callbacks.
+struct BallsControl final : ControlHost {
+    struct Game final : ControlGame {
+        BallsControl& owner;
+        explicit Game(BallsControl& control) : owner(control) {}
+
+        const BallsControlContext& context() const { return *owner.context; }
+        GameMode gameMode() const override { return context().mode == BALLS_MODE_PERFORMANCE ? GameMode::Performance : GameMode::Normal; }
+        std::string levelName() const override { return context().levelName ? context().levelName : ""; }
+        std::string levelLoadError() const override { return context().loadError ? context().loadError : ""; }
+        LevelDiskState diskState() const override {
+            return context().diskState == BALLS_DISK_CHANGED   ? LevelDiskState::Changed
+                   : context().diskState == BALLS_DISK_REMOVED ? LevelDiskState::Removed
+                                                               : LevelDiskState::Unchanged;
+        }
+        std::shared_ptr<const SessionView> sessionView() override {
+            if (context().session == nullptr) {
+                return nullptr;
+            }
+            auto view = std::make_shared<SessionView>();
+            describeSession(*context().session->game, *view);
+            return view;
+        }
+        void post(std::function<void(GameSession&)> command) override {
+            if (context().session != nullptr) {
+                command(*context().session->game);
+            }
+        }
+        bool isPaused() const override { return context().paused != 0; }
+        void setPaused(bool paused) override { owner.queue({BALLS_CONTROL_SET_PAUSED, 0, paused ? 1 : 0}); }
+        void restart() override { owner.queue({BALLS_CONTROL_RESTART}); }
+        int capacityProbeTargetFps() const override { return context().probeTargetFps; }
+        void startCapacityProbe(int targetFps) override { owner.queue({BALLS_CONTROL_START_PROBE, 0, targetFps}); }
+    };
+
+    std::filesystem::path normalLevels;
+    std::filesystem::path performanceLevels;
+    const BallsControlContext* context = nullptr;
+    Settings currentSettings;
+    Game gameInPlay{*this};
+    std::vector<BallsControlAction> actions;
+
+    void queue(BallsControlAction action, std::string_view text = {}) {
+        copyName(std::string(text), action.text, sizeof(action.text));
+        actions.push_back(action);
+    }
+    static int32_t modeOf(GameMode mode) { return mode == GameMode::Performance ? BALLS_MODE_PERFORMANCE : BALLS_MODE_NORMAL; }
+    static std::string textOf(const char* text) { return text != nullptr ? text : ""; }
+
+    ControlFrontEndState frontEndState() const override {
+        ControlFrontEndState state;
+        state.frontEnd = "unity";
+        state.renderer = textOf(context->renderer);
+        state.screen = context->screen != nullptr ? context->screen : "main-menu";
+        state.windowWidth = context->windowWidth;
+        state.windowHeight = context->windowHeight;
+        state.frames = context->frames != nullptr ? &context->frames->timings : nullptr;
+        state.preferredBackend = toBackendKind(context->preferredBackend);
+        state.vsync = context->vsync != 0;
+        state.toast = textOf(context->toast);
+        state.extraFields = textOf(context->extraFields);
+        state.screenDetails = textOf(context->screenDetails);
+        return state;
+    }
+    ControlGame* game() override {
+        return context->session != nullptr || (context->loadError != nullptr && *context->loadError != 0) ? &gameInPlay : nullptr;
+    }
+    std::filesystem::path levelDirectory(GameMode mode) const override {
+        return mode == GameMode::Performance ? performanceLevels : normalLevels;
+    }
+
+    std::optional<ControlResponse> takeScreenshot(const std::string& path) override {
+        queue({BALLS_CONTROL_SCREENSHOT}, path);
+        return std::nullopt;
+    }
+    void play(GameMode mode, const LevelFiles& level) override { queue({BALLS_CONTROL_PLAY, modeOf(mode)}, level.name); }
+    void showMainMenu() override { queue({BALLS_CONTROL_MAIN_MENU}); }
+    bool showLevelSelect(GameMode mode) override {
+        queue({BALLS_CONTROL_LEVEL_SELECT, modeOf(mode)});
+        return true;
+    }
+    bool openEditor(GameMode mode, const std::optional<LevelFiles>& level) override {
+        queue({BALLS_CONTROL_EDITOR, modeOf(mode)}, level ? level->name : std::string());
+        return true;
+    }
+    void quit() override { queue({BALLS_CONTROL_QUIT}); }
+
+    const Settings& settings() const override { return currentSettings; }
+    void applySettings(const Settings& next, std::optional<BackendKind> defaultBackend) override {
+        currentSettings = next;
+        BallsControlAction action{BALLS_CONTROL_APPLY_SETTINGS, 0, defaultBackend ? fromBackendKind(*defaultBackend) : -1};
+        fromCoreSettings(next, action.settings);
+        queue(action);
+    }
+    void openSettings() override { queue({BALLS_CONTROL_OPEN_SETTINGS}); }
+    void setVsync(bool enabled) override { queue({BALLS_CONTROL_SET_VSYNC, 0, enabled ? 1 : 0}); }
+
+    ControlBenchmarkState benchmarkState() const override {
+        if (context->benchmark != nullptr && context->benchmark->run != nullptr) {
+            context->benchmark->refresh();
+            const bool finished = context->benchmark->run->finished();
+            ControlBenchmarkState state{finished ? "done" : "running", context->benchmark->results, std::nullopt};
+            if (finished) {
+                state.winner = chooseDefaultBackend(state.results, [](BackendKind kind) { return isBackendAvailable(kind); });
+            }
+            return state;
+        }
+        if (context->profile == nullptr || !context->profile->profile.benchmark()) {
+            return {};
+        }
+        const BenchmarkRecord& record = *context->profile->profile.benchmark();
+        return {record.complete ? "done" : "skipped", record.results, record.winner};
+    }
+    void runBenchmark() override { queue({BALLS_CONTROL_RUN_BENCHMARK}); }
+    bool skipBenchmark() override {
+        queue({BALLS_CONTROL_SKIP_BENCHMARK});
+        return true;
+    }
+    bool continueFromBenchmark() override {
+        queue({BALLS_CONTROL_CONTINUE_BENCHMARK});
+        return true;
+    }
 };
 
 extern "C" {
@@ -437,14 +585,7 @@ int32_t balls_settings_load(const char* path, BallsSettings* settings) {
     if (path == nullptr || settings == nullptr) {
         return -1;
     }
-    const Settings loaded = loadSettings(std::filesystem::path(path));
-    settings->ballCollisions = loaded.ballCollisions ? 1 : 0;
-    settings->vsync = loaded.vsync ? 1 : 0;
-    settings->advancedSettings = loaded.advancedSettings ? 1 : 0;
-    settings->orientation = loaded.layout == LayoutOrientation::Landscape  ? BALLS_ORIENTATION_LANDSCAPE
-                            : loaded.layout == LayoutOrientation::Portrait ? BALLS_ORIENTATION_PORTRAIT
-                                                                           : BALLS_ORIENTATION_AUTO;
-    copyName(loaded.defaultBackend, settings->defaultBackend, sizeof(settings->defaultBackend));
+    fromCoreSettings(loadSettings(std::filesystem::path(path)), *settings);
     return 0;
 }
 
@@ -452,15 +593,7 @@ int32_t balls_settings_save(const char* path, const BallsSettings* settings) {
     if (path == nullptr || settings == nullptr) {
         return -1;
     }
-    Settings outgoing;
-    outgoing.ballCollisions = settings->ballCollisions != 0;
-    outgoing.vsync = settings->vsync != 0;
-    outgoing.advancedSettings = settings->advancedSettings != 0;
-    outgoing.layout = settings->orientation == BALLS_ORIENTATION_LANDSCAPE  ? LayoutOrientation::Landscape
-                      : settings->orientation == BALLS_ORIENTATION_PORTRAIT ? LayoutOrientation::Portrait
-                                                                           : LayoutOrientation::Auto;
-    outgoing.defaultBackend = settings->defaultBackend;
-    const Result<void> saved = saveSettings(std::filesystem::path(path), outgoing);
+    const Result<void> saved = saveSettings(std::filesystem::path(path), toCoreSettings(*settings));
     if (!saved) {
         setError(saved.error());
         return -1;
@@ -948,6 +1081,53 @@ int32_t balls_benchmark_winner(BallsBenchmark* benchmark) {
     const BenchmarkCandidate winner = chooseDefaultBackend(
         benchmark->results, [](BackendKind kind) { return isBackendAvailable(kind); });
     return fromBackendKind(winner.kind);
+}
+
+BallsControl* balls_control_create(const char* normalLevels, const char* performanceLevels) {
+    auto control = std::make_unique<BallsControl>();
+    control->normalLevels = std::filesystem::path(normalLevels != nullptr ? normalLevels : "");
+    control->performanceLevels = std::filesystem::path(performanceLevels != nullptr ? performanceLevels : "");
+    return control.release();
+}
+
+void balls_control_destroy(BallsControl* control) {
+    delete control;
+}
+
+int32_t balls_control_handle(BallsControl* control, const BallsControlContext* context, const char* target, char* json,
+                             int32_t size, int32_t* jsonLength) {
+    if (control == nullptr || context == nullptr || target == nullptr) {
+        return 400;
+    }
+    control->context = context;
+    control->currentSettings = toCoreSettings(context->settings);
+    const ControlRequest request = parseControlTarget(target);
+    const bool known = std::ranges::find(controlApiPaths(), std::string_view(request.path)) != controlApiPaths().end();
+    std::optional<ControlResponse> response;
+    if (known) {
+        response = handleControlRequest(*control, request);
+    }
+    control->context = nullptr;
+    if (!known) {
+        return -1;
+    }
+    if (!response) {
+        return 0;
+    }
+    if (jsonLength != nullptr) {
+        *jsonLength = static_cast<int32_t>(response->json.size());
+    }
+    writeText(response->json, json, size);
+    return response->status;
+}
+
+int32_t balls_control_take_action(BallsControl* control, BallsControlAction* action) {
+    if (control == nullptr || action == nullptr || control->actions.empty()) {
+        return 0;
+    }
+    *action = control->actions.front();
+    control->actions.erase(control->actions.begin());
+    return action->kind;
 }
 
 BallsLevelWatcher* balls_level_watcher_create(const char* levelDirectory, const char* levelName) {

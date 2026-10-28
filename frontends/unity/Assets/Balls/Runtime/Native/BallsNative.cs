@@ -415,6 +415,32 @@ namespace Balls.Native
 
         [DllImport(Library)] public static extern int balls_benchmark_winner(IntPtr benchmark);
 
+        public const int ControlNone = 0;
+        public const int ControlScreenshot = 1;
+        public const int ControlPlay = 2;
+        public const int ControlMainMenu = 3;
+        public const int ControlLevelSelect = 4;
+        public const int ControlEditor = 5;
+        public const int ControlQuit = 6;
+        public const int ControlApplySettings = 7;
+        public const int ControlOpenSettings = 8;
+        public const int ControlSetVsync = 9;
+        public const int ControlRunBenchmark = 10;
+        public const int ControlSkipBenchmark = 11;
+        public const int ControlContinueBenchmark = 12;
+        public const int ControlSetPaused = 13;
+        public const int ControlRestart = 14;
+        public const int ControlStartProbe = 15;
+
+        [DllImport(Library)] public static extern IntPtr balls_control_create([MarshalAs(UnmanagedType.LPUTF8Str)] string normalLevels, [MarshalAs(UnmanagedType.LPUTF8Str)] string performanceLevels);
+
+        [DllImport(Library)] public static extern void balls_control_destroy(IntPtr control);
+
+        /// <summary>The HTTP status with the JSON in <paramref name="json"/>; 0 when the host answers later (a screenshot); -1 for a path the core does not own.</summary>
+        [DllImport(Library)] public static extern int balls_control_handle(IntPtr control, ref NativeControlContext context, [MarshalAs(UnmanagedType.LPUTF8Str)] string target, byte[] json, int size, out int jsonLength);
+
+        [DllImport(Library)] public static extern int balls_control_take_action(IntPtr control, out NativeControlAction action);
+
         [DllImport(Library)] public static extern IntPtr balls_level_watcher_create([MarshalAs(UnmanagedType.LPUTF8Str)] string levelDirectory, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelName);
 
         [DllImport(Library)] public static extern void balls_level_watcher_destroy(IntPtr watcher);
