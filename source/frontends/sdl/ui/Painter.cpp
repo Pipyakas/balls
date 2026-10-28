@@ -103,6 +103,13 @@ void fillTriangle(Vec2 first, Vec2 second, Vec2 third, Color color) {
     layer().AddTriangleFilled({first.x, first.y}, {second.x, second.y}, {third.x, third.y}, packColor(color));
 }
 
+void fillGradient(Rect rect, Color start, Color end, bool horizontal) {
+    const ImU32 first = packColor(start);
+    const ImU32 last = packColor(end);
+    layer().AddRectFilledMultiColor({rect.x, rect.y}, {rect.x + rect.width, rect.y + rect.height}, first,
+                                    horizontal ? last : first, last, horizontal ? first : last);
+}
+
 void drawLine(Vec2 start, Vec2 end, float thickness, Color color) {
     layer().AddLine({start.x, start.y}, {end.x, end.y}, packColor(color), thickness);
 }

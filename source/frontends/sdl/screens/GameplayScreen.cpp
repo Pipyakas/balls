@@ -33,7 +33,6 @@ constexpr float groupLabelHeight = 26.0f;
 constexpr float groupGap = 14.0f;
 constexpr float minimumControlColumnWidth = 220.0f;
 constexpr float controlColumnGap = 16.0f;
-constexpr float scrollbarGutter = 10.0f;
 constexpr float probeStatusHeight = 28.0f;
 constexpr float probeStatusSize = 17.0f;
 
@@ -445,7 +444,7 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
     ui::scrollFrame(inner, controlsScroll, performanceControlsHeight, visibleHeight);
     gfx::beginClip(inner);
     const float top = inner.y - controlsScroll;
-    const float contentWidth = inner.width - scrollbarGutter;
+    const float contentWidth = inner.width;
     const int columnCount = contentWidth >= minimumControlColumnWidth * 2.0f + controlColumnGap ? 2 : 1;
     const float columnWidth = (contentWidth - controlColumnGap * static_cast<float>(columnCount - 1)) /
                               static_cast<float>(columnCount);
@@ -547,6 +546,7 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
                         true);
     }
     performanceControlsHeight = std::max(columnCursors[0], columnCursors[1]) - top - groupGap;
+    ui::scrollHints(inner, controlsScroll, performanceControlsHeight, palette::panel);
     gfx::endClip();
 }
 
@@ -558,7 +558,6 @@ float GameplayScreen::normalContentHeight() const {
 
 void GameplayScreen::drawPortraitLauncherRow(Rect area) {
     constexpr float wheelStep = 40.0f;
-    constexpr float barHeight = 4.0f;
     const Rect inner = ui::shrink(area, 12.0f);
     const LauncherGridLayout grid = computePortraitLauncherGrid(inner, session->launchers().columnCount(),
                                                                 session->launchers().visibleRows());
@@ -587,13 +586,8 @@ void GameplayScreen::drawPortraitLauncherRow(Rect area) {
     if (session->launchers().isEmpty()) {
         ui::drawTextInRect("All launchers released", inner, 26.0f, palette::textMuted);
     }
+    ui::horizontalScrollHints(inner, portraitLauncherScroll, rowWidth, palette::panel);
     gfx::endClip();
-    const float overflow = rowWidth - inner.width;
-    if (overflow > 0.0f) {
-        const float barWidth = std::max(24.0f, inner.width * inner.width / rowWidth);
-        const float barX = inner.x + portraitLauncherScroll / overflow * (inner.width - barWidth);
-        gfx::fillRect({barX, inner.y + inner.height - barHeight, barWidth, barHeight}, palette::frame);
-    }
 }
 
 void GameplayScreen::drawInteractionSection(const GameplayLayout& layout) {
@@ -614,7 +608,7 @@ void GameplayScreen::drawNormalControls(Rect area) {
     float visibleHeight = 0.0f;
     ui::scrollFrame(inner, normalScroll, normalContentHeight(), visibleHeight);
     gfx::beginClip(inner);
-    const float width = inner.width - scrollbarGutter;
+    const float width = inner.width;
     float cursor = inner.y - normalScroll;
     const Rect launcherArea{inner.x, cursor, width, 320.0f};
     const LauncherGridLayout grid =
@@ -630,6 +624,7 @@ void GameplayScreen::drawNormalControls(Rect area) {
     drawBackendList(
         {inner.x, cursor, width, (controlRowHeight + controlGap) * allBackendKinds.size() - controlGap},
         session->backend());
+    ui::scrollHints(inner, normalScroll, normalContentHeight(), palette::panel);
     gfx::endClip();
 }
 

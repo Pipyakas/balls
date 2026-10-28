@@ -233,6 +233,8 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
     if (ui::button({innerX, cursor, innerWidth, backHeight}, "Back")) {
         edit.backPressed = true;
     }
+    // Kept clear of the panel's rounded corners, which the fade would square off.
+    ui::scrollHints({innerX, inner.y, innerWidth, inner.height}, scroll, settingsContentHeight(), palette::panel);
     gfx::endClip();
     return edit;
 }

@@ -375,6 +375,7 @@ void MapEditorScreen::drawToolPanel(Rect area) {
     ui::drawTextInRect("Shift+R-click delete row", nextControl(area, cursor, 22.0f), 16.0f, palette::textMuted,
                        ui::Align::Left);
     toolsContentHeight = cursor - contentTop;
+    ui::scrollHints(area, toolsScroll, toolsContentHeight, palette::panel);
     gfx::endClip();
 }
 
@@ -459,6 +460,7 @@ void MapEditorScreen::drawPropertyPanel(Rect area) {
         }
     }
     propertiesContentHeight = cursor - contentTop;
+    ui::scrollHints(area, propertiesScroll, propertiesContentHeight, palette::panel);
     gfx::endClip();
 }
 

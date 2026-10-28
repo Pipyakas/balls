@@ -33,6 +33,10 @@ bool button(Rect rect, std::string_view label, bool enabled = true, bool selecte
 bool stepper(Rect rect, std::string_view label, int& value, int minimum, int maximum, int step = 1);
 bool dropdown(Rect rect, std::string_view current, bool& open);
 void scrollFrame(Rect area, float& scroll, float contentHeight, float& visibleHeight);
+// Instead of scrollbars, an edge with more content beyond it fades into the gadget's background under a faded
+// arrow pointing that way. Draw them after the content, inside its clip.
+void scrollHints(Rect area, float scroll, float contentHeight, Color background);
+void horizontalScrollHints(Rect area, float scroll, float contentWidth, Color background);
 bool textField(Rect rect, std::string& text, bool& focused, size_t maximumLength);
 bool isHovered(Rect rect);
 bool isClicked(Rect rect);

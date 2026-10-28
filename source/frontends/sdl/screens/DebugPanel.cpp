@@ -162,6 +162,7 @@ void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& f
         writer.heading("Backend fault");
         writer.row("Fell back to CPU", "", palette::danger);
     }
+    ui::scrollHints(area, state.scroll, contentHeight, palette::panel);
     gfx::endClip();
 }
 

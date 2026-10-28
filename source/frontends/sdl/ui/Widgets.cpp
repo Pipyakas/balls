@@ -8,6 +8,66 @@
 namespace {
 
 constexpr float buttonTextPadding = 12.0f;
+constexpr float scrollHintDepth = 40.0f;
+constexpr float scrollHintSideInset = 6.0f;
+constexpr float scrollHintEdgeInset = 2.0f;
+constexpr float scrollArrowHalfWidth = 10.0f;
+constexpr float scrollArrowHalfHeight = 5.0f;
+constexpr float scrollArrowAlpha = 0.55f;
+// Less than a pixel of overflow left is rounding, not more content.
+constexpr float scrollHintThreshold = 0.5f;
+
+enum class Edge { Top, Bottom, Left, Right };
+
+// The band runs from the gadget's background at the edge to transparent inward, so the content fades out under the
+// arrow. Triangles are wound clockwise on screen, which ImGui needs to anti-alias them.
+void drawScrollHint(Rect area, Edge edge, Color background) {
+    const Color clear = gfx::fade(background, 0.0f);
+    const Color arrow = gfx::fade(palette::text, scrollArrowAlpha);
+    const bool vertical = edge == Edge::Top || edge == Edge::Bottom;
+    const float depth = std::min(scrollHintDepth, (vertical ? area.height : area.width) * 0.5f);
+    const float centerX = area.x + area.width * 0.5f;
+    const float centerY = area.y + area.height * 0.5f;
+    switch (edge) {
+    case Edge::Top: {
+        const Rect band{area.x + scrollHintSideInset, area.y + scrollHintEdgeInset,
+                        area.width - scrollHintSideInset * 2.0f, depth};
+        gfx::fillGradient(band, background, clear, false);
+        const float y = band.y + depth * 0.4f;
+        gfx::fillTriangle({centerX, y - scrollArrowHalfHeight}, {centerX + scrollArrowHalfWidth, y + scrollArrowHalfHeight},
+                          {centerX - scrollArrowHalfWidth, y + scrollArrowHalfHeight}, arrow);
+        break;
+    }
+    case Edge::Bottom: {
+        const Rect band{area.x + scrollHintSideInset, area.y + area.height - scrollHintEdgeInset - depth,
+                        area.width - scrollHintSideInset * 2.0f, depth};
+        gfx::fillGradient(band, clear, background, false);
+        const float y = band.y + depth * 0.6f;
+        gfx::fillTriangle({centerX - scrollArrowHalfWidth, y - scrollArrowHalfHeight},
+                          {centerX + scrollArrowHalfWidth, y - scrollArrowHalfHeight}, {centerX, y + scrollArrowHalfHeight},
+                          arrow);
+        break;
+    }
+    case Edge::Left: {
+        const Rect band{area.x + scrollHintEdgeInset, area.y + scrollHintSideInset, depth,
+                        area.height - scrollHintSideInset * 2.0f};
+        gfx::fillGradient(band, background, clear, true);
+        const float x = band.x + depth * 0.4f;
+        gfx::fillTriangle({x - scrollArrowHalfHeight, centerY}, {x + scrollArrowHalfHeight, centerY - scrollArrowHalfWidth},
+                          {x + scrollArrowHalfHeight, centerY + scrollArrowHalfWidth}, arrow);
+        break;
+    }
+    case Edge::Right: {
+        const Rect band{area.x + area.width - scrollHintEdgeInset - depth, area.y + scrollHintSideInset, depth,
+                        area.height - scrollHintSideInset * 2.0f};
+        gfx::fillGradient(band, clear, background, true);
+        const float x = band.x + depth * 0.6f;
+        gfx::fillTriangle({x + scrollArrowHalfHeight, centerY}, {x - scrollArrowHalfHeight, centerY + scrollArrowHalfWidth},
+                          {x - scrollArrowHalfHeight, centerY - scrollArrowHalfWidth}, arrow);
+        break;
+    }
+    }
+}
 
 }
 
@@ -139,7 +199,6 @@ bool dropdown(Rect rect, std::string_view current, bool& open) {
 
 void scrollFrame(Rect area, float& scroll, float contentHeight, float& visibleHeight) {
     constexpr float wheelStep = 40.0f;
-    constexpr float barWidth = 4.0f;
     visibleHeight = area.height;
     const float overflow = contentHeight - area.height;
     if (overflow <= 0.0f) {
@@ -150,9 +209,24 @@ void scrollFrame(Rect area, float& scroll, float contentHeight, float& visibleHe
         scroll += input::wheelMove() * wheelStep * -1.0f;
     }
     scroll = std::clamp(scroll, 0.0f, overflow);
-    const float barHeight = std::max(24.0f, area.height * area.height / contentHeight);
-    const float barY = area.y + scroll / overflow * (area.height - barHeight);
-    gfx::fillRect({area.x + area.width - barWidth, barY, barWidth, barHeight}, palette::frame);
+}
+
+void scrollHints(Rect area, float scroll, float contentHeight, Color background) {
+    if (scroll > scrollHintThreshold) {
+        drawScrollHint(area, Edge::Top, background);
+    }
+    if (contentHeight - area.height - scroll > scrollHintThreshold) {
+        drawScrollHint(area, Edge::Bottom, background);
+    }
+}
+
+void horizontalScrollHints(Rect area, float scroll, float contentWidth, Color background) {
+    if (scroll > scrollHintThreshold) {
+        drawScrollHint(area, Edge::Left, background);
+    }
+    if (contentWidth - area.width - scroll > scrollHintThreshold) {
+        drawScrollHint(area, Edge::Right, background);
+    }
 }
 
 bool textField(Rect rect, std::string& text, bool& focused, size_t maximumLength) {
