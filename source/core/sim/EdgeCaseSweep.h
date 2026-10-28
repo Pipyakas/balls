@@ -15,6 +15,8 @@ struct EdgeSweepSettings {
     double caseSeconds = 40.0;
     double settleTravels = 1.5;
     double longestSettleSeconds = 20.0;
+    double refillBelowBudget = 0.85;
+    double refillSettleSeconds = 3.0;
     float screenWidth = 1920.0f;
     float screenHeight = 1080.0f;
 };
