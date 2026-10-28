@@ -83,9 +83,11 @@ std::string benchmarkJson(std::string_view state, std::span<const CandidateResul
     std::string candidates;
     for (const CandidateResult& result : results) {
         candidates += std::format(
-            "{}{{\"backend\":\"{}\",\"computeGpu\":\"{}\",\"status\":\"{}\",\"ballStepsPerSecond\":{:.0f},"
-            "\"estimatedBalls\":{:.0f},\"ballCapacity\":{:.0f},\"progress\":{:.2f},\"failure\":\"{}\"}}",
-            candidates.empty() ? "" : ",", backendKindName(result.candidate.kind), jsonEscape(result.candidate.computeGpu),
+            "{}{{\"backend\":\"{}\",\"picks\":\"{}\",\"label\":\"{}\",\"computeGpu\":\"{}\",\"status\":\"{}\","
+            "\"ballStepsPerSecond\":{:.0f},\"estimatedBalls\":{:.0f},\"ballCapacity\":{:.0f},\"progress\":{:.2f},"
+            "\"failure\":\"{}\"}}",
+            candidates.empty() ? "" : ",", backendKindName(result.candidate.kind), jsonEscape(result.candidate.picks),
+            jsonEscape(result.candidate.label), jsonEscape(result.candidate.computeGpu),
             stateName(result.status), result.ballStepsPerSecond, result.estimatedBalls, result.ballCapacity,
             result.progress, jsonEscape(result.failure));
     }

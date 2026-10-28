@@ -56,6 +56,7 @@ DeviceComposer::DeviceComposer(std::vector<PartSpec> specs, Tuning tuning) : set
         part.resolvesOnDevice = spec.backend->resolvesHitsOnDevice();
         part.share = std::max(spec.initialWeight, minimumShare) / totalWeight;
         part.label = std::move(spec.label);
+        part.memoryCapacity = spec.memoryCapacity;
         part.backend = std::move(spec.backend);
         deviceParts += part.resolvesOnDevice ? 1 : 0;
         parts.push_back(std::move(part));
@@ -86,10 +87,15 @@ size_t DeviceComposer::ballCount() const {
     return total;
 }
 
+size_t DeviceComposer::partCapacity(const Part& part) const {
+    const size_t limit = part.backend->ballCapacityLimit();
+    return limit == std::numeric_limits<size_t>::max() && part.memoryCapacity > 0 ? part.memoryCapacity : limit;
+}
+
 size_t DeviceComposer::ballCapacityLimit() const {
     size_t limit = 0;
     for (const Part& part : parts) {
-        limit = saturatingAdd(limit, part.backend->ballCapacityLimit());
+        limit = saturatingAdd(limit, partCapacity(part));
     }
     return limit;
 }
@@ -126,7 +132,7 @@ void DeviceComposer::addBalls(std::span<const BallSpawn> spawns) {
     const std::vector<size_t> targets = targetCounts(ballCount() + spawns.size());
     std::vector<size_t> room(parts.size());
     for (size_t index = 0; index < parts.size(); ++index) {
-        const size_t limit = parts[index].backend->ballCapacityLimit();
+        const size_t limit = partCapacity(parts[index]);
         const size_t count = parts[index].backend->ballCount();
         room[index] = limit > count ? limit - count : 0;
     }
@@ -182,7 +188,7 @@ void DeviceComposer::rebalance() {
         }
         PhysicsBackend& source = *parts[donor].backend;
         PhysicsBackend& destination = *parts[receiver].backend;
-        const size_t limit = destination.ballCapacityLimit();
+        const size_t limit = partCapacity(parts[receiver]);
         const size_t room = limit > destination.ballCount() ? limit - destination.ballCount() : 0;
         const size_t moved = std::min({excess, deficit, maximumBallsMovedPerStep, room});
         if (moved == 0) {

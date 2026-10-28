@@ -93,6 +93,7 @@ namespace {
 struct StatusCache {
     std::mutex mutex;
     std::map<BackendKind, BackendStatus> statuses;
+    std::map<std::pair<BackendKind, int>, BackendStatus> deviceStatuses;
 };
 
 StatusCache& statusCache() {
@@ -121,6 +122,23 @@ BackendStatus backendStatus(BackendKind kind) {
     BackendStatus status = queryStatus(kind);
     std::lock_guard lock(cache.mutex);
     return cache.statuses.try_emplace(kind, std::move(status)).first->second;
+}
+
+BackendStatus deviceBackendStatus(BackendKind kind, int pluginDevice) {
+    StatusCache& cache = statusCache();
+    const std::pair key{kind, pluginDevice};
+    {
+        std::lock_guard lock(cache.mutex);
+        if (const auto found = cache.deviceStatuses.find(key); found != cache.deviceStatuses.end()) {
+            return found->second;
+        }
+    }
+    BackendStatus status;
+    status.unavailableReason = backendUnavailableReasonOnDevice(kind, pluginDevice);
+    status.available = status.unavailableReason.empty();
+    status.detail = status.available ? backendDetailOnDevice(kind, pluginDevice) : std::string{};
+    std::lock_guard lock(cache.mutex);
+    return cache.deviceStatuses.try_emplace(key, std::move(status)).first->second;
 }
 
 std::vector<BackendKind> selectableBackends() {

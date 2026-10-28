@@ -31,6 +31,9 @@ struct BenchmarkCandidate {
     BackendKind kind = BackendKind::Scalar;
     std::string computeGpu;  // compute adapter preference for backends that take one; empty otherwise
     std::string label;
+    // Device picks ("AVX2@cpu+CUDA@gpu0", formatBackendPicks) the candidate runs with; empty runs the kind on its
+    // default device.
+    std::string picks;
 
     bool operator==(const BenchmarkCandidate&) const = default;
 };
@@ -58,7 +61,8 @@ struct BenchmarkRecord {
     bool complete = false;
 };
 
-// Every backend kind, in the order the Settings list shows them.
+// Every selectable kind on its default device, every other device each kind can run on, and Hybrid over every
+// set of two or more devices (each running its fastest available backend).
 std::vector<BenchmarkCandidate> benchmarkCandidates();
 
 bool benchmarkNeeded(const std::optional<BenchmarkRecord>& stored, const HardwareFingerprint& current);

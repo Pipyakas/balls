@@ -1,5 +1,8 @@
 #include "app/LaunchOptions.h"
 
+#include "sim/BackendSelection.h"
+#include "sim/BackendWorker.h"
+
 #include <algorithm>
 #include <cctype>
 #include <charconv>
@@ -33,7 +36,34 @@ std::optional<GameMode> parseGameMode(std::string_view text) {
     return std::nullopt;
 }
 
-std::optional<BackendKind> parseBackendKind(std::string_view text) { return backendKindFromName(text); }
+namespace {
+
+std::optional<BackendKind> applyStoredBackend(const std::optional<StoredBackend>& stored) {
+    if (!stored) {
+        return std::nullopt;
+    }
+    if (!stored->picks.empty()) {
+        if (!backendPicksProblem(stored->picks).empty()) {
+            return std::nullopt;
+        }
+        setBackendPicks(stored->picks);
+        refreshBackendStatuses();
+    }
+    return stored->kind;
+}
+
+}
+
+std::optional<BackendKind> parseBackendKind(std::string_view text) {
+    if (text.find('@') != std::string_view::npos) {
+        return applyStoredBackend(parseStoredBackend(text));
+    }
+    return backendKindFromName(text);
+}
+
+std::optional<BackendKind> parseSavedBackendKind(std::string_view text) {
+    return applyStoredBackend(parseStoredBackend(text));
+}
 
 LaunchOptions parseLaunchOptions(int argumentCount, char** arguments) {
     LaunchOptions options;

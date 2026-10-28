@@ -8,6 +8,8 @@
 #include <string_view>
 #include <vector>
 
+struct PhysicalDevice;
+
 // Which backend runs on which physical device. One pick runs that backend alone on that device; two or more run
 // the device composer (BackendKind::Hybrid) with one part per pick. Each device takes at most one pick.
 //
@@ -46,6 +48,16 @@ std::vector<BackendPick> hybridPicks();
 int pluginDeviceFor(BackendKind kind);
 
 BackendHandle createComposedBackend(std::span<const BackendPick> picks);
+
+// What a per-device picker shows while `running` is the active kind: the configured picks if they describe it,
+// otherwise the picks Hybrid would compose or the single kind on its default device.
+std::vector<BackendPick> displayedPicks(BackendKind running);
+// The kinds a device row offers, fastest first. Like selectableBackends, Scalar is offered on the CPU only when
+// nothing faster runs there.
+std::vector<BackendKind> pickableKinds(const PhysicalDevice& device);
+// `current` with `device` running `kind`, or with the device left out when kind is empty.
+std::vector<BackendPick> withDevicePick(std::span<const BackendPick> current, std::string_view device,
+                                        std::optional<BackendKind> kind);
 
 // Settings and saved profiles store the composer by its picks ("AVX2@cpu+CUDA@gpu0"), never as "Hybrid": that
 // word in a saved file predates the composer and meant the CUDA+AVX2 pair.

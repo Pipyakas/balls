@@ -1,5 +1,6 @@
 #include "sim/BackendSelection.h"
 
+#include "sim/BackendWorker.h"
 #include "sim/DeviceComposer.h"
 #include "sim/DeviceInventory.h"
 
@@ -17,6 +18,8 @@ constexpr double cpuPartWeight = 0.1;
 constexpr double integratedGpuPartWeight = 0.2;
 constexpr double vulkanPartWeight = 0.8;
 constexpr double cudaPartWeight = 1.0;
+// Device memory per ball a GPU backend needs at most (two 8-byte state copies), for memoryCapacity.
+constexpr uint64_t gpuBytesPerBall = 16;
 
 std::mutex& picksMutex() {
     static std::mutex mutex;
@@ -43,7 +46,7 @@ std::string shortDeviceName(const PhysicalDevice& device) {
         return "CPU";
     }
     std::string name = device.name;
-    for (const std::string_view noise : {"NVIDIA ", "GeForce ", "AMD ", "Radeon(TM) ", "Radeon ", "(TM)", "Intel(R) "}) {
+    for (const std::string_view noise : {"NVIDIA ", "GeForce ", "AMD ", "(TM)", "(R)"}) {
         if (const size_t found = name.find(noise); found != std::string::npos) {
             name.erase(found, noise.size());
         }
@@ -203,12 +206,73 @@ BackendHandle createComposedBackend(std::span<const BackendPick> picks) {
             return BackendHandle(nullptr, BackendRelease{});
         }
         parts.push_back({std::move(backend), std::format("{}@{}", backendKindName(pick.kind), device.id),
-                         partWeight(pick.kind, device)});
+                         partWeight(pick.kind, device), static_cast<size_t>(device.memoryBytes / gpuBytesPerBall)});
     }
     if (parts.size() == 1) {
         return std::move(parts.front().backend);
     }
     return DeviceComposer::create(std::move(parts));
+}
+
+std::vector<BackendPick> displayedPicks(BackendKind running) {
+    std::vector<BackendPick> picks = backendPicks();
+    if (!picks.empty() && kindForPicks(picks) == running) {
+        return picks;
+    }
+    if (running == BackendKind::Hybrid) {
+        return hybridPicks();
+    }
+    if (running == BackendKind::CudaAvx2) {
+        return {};
+    }
+    for (const BackendPick& pick : picks) {
+        if (pick.kind == running) {
+            return {pick};
+        }
+    }
+    const PhysicalDevice* device = defaultDeviceFor(running);
+    return device ? std::vector<BackendPick>{{running, device->id}} : std::vector<BackendPick>{};
+}
+
+std::vector<BackendKind> pickableKinds(const PhysicalDevice& device) {
+    std::vector<BackendKind> kinds;
+    bool fasterCpuKind = false;
+    for (const DeviceBackendOption& option : device.backends) {
+        if (option.kind != BackendKind::Scalar && deviceBackendStatus(option.kind, option.pluginDevice).available) {
+            fasterCpuKind = fasterCpuKind || device.type == PhysicsDeviceType::Cpu;
+        }
+    }
+    for (const DeviceBackendOption& option : device.backends) {
+        if (option.kind != BackendKind::Scalar || !fasterCpuKind) {
+            kinds.push_back(option.kind);
+        }
+    }
+    return kinds;
+}
+
+std::vector<BackendPick> withDevicePick(std::span<const BackendPick> current, std::string_view device,
+                                        std::optional<BackendKind> kind) {
+    std::vector<BackendPick> picks;
+    bool placed = false;
+    for (const BackendPick& pick : current) {
+        if (pick.device != device) {
+            picks.push_back(pick);
+        } else if (kind) {
+            picks.push_back({*kind, pick.device});
+            placed = true;
+        }
+    }
+    if (kind && !placed) {
+        picks.push_back({*kind, std::string(device)});
+    }
+    // Keep device order stable (cpu, gpu0, gpu1, ...), whatever order the player clicked in.
+    const std::vector<PhysicalDevice>& devices = physicalDevices();
+    const auto rank = [&](const BackendPick& pick) {
+        const auto found = std::ranges::find(devices, pick.device, &PhysicalDevice::id);
+        return found - devices.begin();
+    };
+    std::ranges::stable_sort(picks, {}, rank);
+    return picks;
 }
 
 std::optional<StoredBackend> parseStoredBackend(std::string_view text) {
@@ -235,5 +299,12 @@ std::optional<StoredBackend> parseStoredBackend(std::string_view text) {
 }
 
 std::string storedBackendName(BackendKind kind) {
+    if (kind == BackendKind::CudaAvx2) {
+        return std::string(backendKindName(kind));
+    }
+    const std::vector<BackendPick> picks = backendPicks();
+    if (!picks.empty() && kindForPicks(picks) == kind) {
+        return formatBackendPicks(picks);
+    }
     return kind == BackendKind::Hybrid ? formatBackendPicks(hybridPicks()) : std::string(backendKindName(kind));
 }

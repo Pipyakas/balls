@@ -33,6 +33,9 @@ public:
         std::string label;
         // Starting guess at relative throughput, until timings replace it (a GPU 1, the CPU about 0.1).
         double initialWeight = 1.0;
+        // Balls the device's memory holds, for a backend that reports no limit of its own (Vulkan); 0 trusts
+        // ballCapacityLimit. Without it one unlimited part makes the whole composer look unlimited.
+        size_t memoryCapacity = 0;
     };
 
     using Tuning = DeviceComposerTuning;
@@ -72,6 +75,7 @@ private:
     struct Part {
         BackendHandle backend;
         std::string label;
+        size_t memoryCapacity = 0;
         bool resolvesOnDevice = false;
         bool parked = false;
         double share = 0.0;
@@ -88,6 +92,7 @@ private:
     void splitBrickBudgets();
     void mergeDeviceHits();
     void overlay(const BallSnapshot& balls, uint32_t replaceBelow, uint32_t salt);
+    size_t partCapacity(const Part& part) const;
     size_t gridCellCount() const { return static_cast<size_t>(stepGridWidth) * static_cast<size_t>(stepGridHeight); }
 
     Tuning settings;
