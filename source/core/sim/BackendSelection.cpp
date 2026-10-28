@@ -15,7 +15,9 @@ namespace {
 constexpr char pickSeparator = '+';
 constexpr char deviceSeparator = '@';
 constexpr std::string_view legacyCudaAvx2Name = "hybrid";
-constexpr double cpuPartWeight = 0.1;
+// Starting shares only; measured throughput takes over within a few steps. A CPU steps about a twentieth of a
+// discrete GPU's balls, and starting it with too many makes its first steps slow for every part.
+constexpr double cpuPartWeight = 0.05;
 constexpr double integratedGpuPartWeight = 0.2;
 constexpr double vulkanPartWeight = 0.8;
 constexpr double cudaPartWeight = 1.0;
@@ -266,6 +268,7 @@ BackendHandle createComposedBackend(std::span<const BackendPick> picks) {
         if (pick.kind == BackendKind::VulkanMulti) {
             std::vector<int> pluginDevices;
             size_t memoryBytes = 0;
+            double weight = 0.0;
             const std::vector<std::string> claimed = claimedDevices(pick);
             for (const std::string& token : claimed) {
                 const PhysicalDevice* device = findPhysicalDevice(token);
@@ -274,14 +277,14 @@ BackendHandle createComposedBackend(std::span<const BackendPick> picks) {
                 }
                 pluginDevices.push_back(device->option(BackendKind::Vulkan)->pluginDevice);
                 memoryBytes += device->memoryBytes;
+                weight += partWeight(BackendKind::Vulkan, *device);
             }
             BackendHandle backend = createBackendOnDevices(BackendKind::VulkanMulti, pluginDevices.data(),
                                                           static_cast<int>(pluginDevices.size()));
             if (!backend) {
                 return BackendHandle(nullptr, BackendRelease{});
             }
-            const PhysicalDevice& firstDevice = *findPhysicalDevice(claimed.front());
-            parts.push_back({std::move(backend), std::string("VulkanMulti"), partWeight(BackendKind::Vulkan, firstDevice),
+            parts.push_back({std::move(backend), std::string("VulkanMulti"), weight,
                               memoryBytes > 0 ? memoryBytes / gpuBytesPerBall : size_t{0}});
             continue;
         }

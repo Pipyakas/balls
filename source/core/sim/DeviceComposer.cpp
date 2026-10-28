@@ -19,7 +19,7 @@ constexpr double shareSmoothing = 0.1;
 constexpr double settlingSmoothing = 0.35;
 constexpr int settlingMeasurements = 24;
 constexpr double slotSelectionRange = 4294967296.0;
-// A part is parked once the composed step has been this much slower than the lead part alone would be, for this
+// A part is parked once the composed step has been this much slower than the other parts alone would be, for this
 // many settled steps in a row: a CPU or small GPU whose fixed cost per step exceeds what its share saves.
 constexpr double parkMargin = 0.03;
 constexpr int parkAfterSteps = 60;
@@ -254,40 +254,52 @@ void DeviceComposer::updateShares() {
     }
 }
 
+// An outer composer moving balls in or out (this composer is then one of its parts) makes the next steps slow for
+// reasons no part is to blame for, so the comparison that parks a part starts over.
+void DeviceComposer::restartParkWatch() {
+    losingSteps = 0;
+    wallEwma = 0.0;
+    soloEwma = 0.0;
+}
+
 // Equal step times are the best split only while every part's time shrinks with its share. A part with a large
 // fixed cost per step (thread wake-ups, a whole visibility grid to fill, a driver round trip) can make the
-// composed step slower than the lead part would be on its own; such a part is parked: its balls move away and it
-// stops stepping. Compared on smoothed times, once the shares have settled.
+// composed step slower than the other parts would be without it; such a part is parked: its balls move away and it
+// stops stepping. The composed step is compared with what the other parts would take for all the balls without
+// the slowest one, on smoothed times, once the shares have settled.
 void DeviceComposer::parkLosingParts(double wallMs) {
     if (!settings.parkLosingParts || shareMeasurements < settlingMeasurements) {
         return;
     }
-    const auto lead = std::ranges::max_element(parts, {}, &Part::share);
+    // The candidate is the slowest stepping part; the others would take its balls at their measured speeds.
     size_t stepped = 0;
-    for (const Part& part : parts) {
-        stepped += part.steppedBalls;
-    }
-    if (lead->steppedBalls < settings.minimumBallsToMeasure || lead->lastMs <= 0.0) {
-        return;
-    }
-    const double soloMs = lead->lastMs * static_cast<double>(stepped) / static_cast<double>(lead->steppedBalls);
-    wallEwma = wallEwma <= 0.0 ? wallMs : wallEwma + wallSmoothing * (wallMs - wallEwma);
-    soloEwma = soloEwma <= 0.0 ? soloMs : soloEwma + wallSmoothing * (soloMs - soloEwma);
-    losingSteps = wallEwma > soloEwma * (1.0 + parkMargin) ? losingSteps + 1 : 0;
-    if (losingSteps < parkAfterSteps) {
-        return;
-    }
+    double totalSpeed = 0.0;
     Part* slowest = nullptr;
+    size_t stepping = 0;
     for (Part& part : parts) {
-        if (&part == &*lead || part.parked || part.lastMs <= 0.0) {
+        stepped += part.steppedBalls;
+        if (part.parked || part.steppedBalls < settings.minimumBallsToMeasure || part.lastMs <= 0.0) {
             continue;
         }
+        ++stepping;
         const double speed = static_cast<double>(part.steppedBalls) / part.lastMs;
+        totalSpeed += speed;
         if (!slowest || speed < static_cast<double>(slowest->steppedBalls) / slowest->lastMs) {
             slowest = &part;
         }
     }
-    if (!slowest) {
+    if (!slowest || stepping < 2) {
+        return;
+    }
+    const double othersSpeed = totalSpeed - static_cast<double>(slowest->steppedBalls) / slowest->lastMs;
+    if (othersSpeed <= 0.0) {
+        return;
+    }
+    const double withoutMs = static_cast<double>(stepped) / othersSpeed;
+    wallEwma = wallEwma <= 0.0 ? wallMs : wallEwma + wallSmoothing * (wallMs - wallEwma);
+    soloEwma = soloEwma <= 0.0 ? withoutMs : soloEwma + wallSmoothing * (withoutMs - soloEwma);
+    losingSteps = wallEwma > soloEwma * (1.0 + parkMargin) ? losingSteps + 1 : 0;
+    if (losingSteps < parkAfterSteps) {
         return;
     }
     slowest->parked = true;
@@ -523,6 +535,11 @@ void DeviceComposer::overlay(const BallSnapshot& balls, uint32_t replaceBelow, u
 // Every part fills the same visibility grid. Part k wins an occupied slot with probability (its balls) / (balls of
 // parts 0..k), which leaves each slot showing any part's ball in proportion to how many balls that part has.
 BallSnapshot DeviceComposer::snapshot() {
+    // With the other parts parked or empty, one part holds every ball and its snapshot is already the merge.
+    if (std::ranges::count_if(parts, [](const Part& part) { return part.backend->ballCount() > 0; }) == 1) {
+        return std::ranges::find_if(parts, [](const Part& part) { return part.backend->ballCount() > 0; })
+            ->backend->snapshot();
+    }
     std::vector<BallSnapshot> snapshots;
     snapshots.reserve(parts.size());
     bool anyGrid = false;
@@ -578,6 +595,7 @@ std::vector<BallSpawn> DeviceComposer::exportBalls() {
 }
 
 std::vector<BallSpawn> DeviceComposer::takeTail(size_t count) {
+    restartParkWatch();
     std::vector<BallSpawn> balls;
     for (size_t index = parts.size(); index-- > 0 && balls.size() < count;) {
         const std::vector<BallSpawn> partBalls = parts[index].backend->takeTail(count - balls.size());
@@ -587,6 +605,7 @@ std::vector<BallSpawn> DeviceComposer::takeTail(size_t count) {
 }
 
 bool DeviceComposer::takeCompactTail(size_t count, CompactBalls& taken) {
+    restartParkWatch();
     size_t remaining = std::min(count, ballCount());
     std::vector<uint32_t> positions;
     std::vector<uint32_t> states;
@@ -609,6 +628,7 @@ bool DeviceComposer::takeCompactTail(size_t count, CompactBalls& taken) {
 }
 
 bool DeviceComposer::addCompact(const CompactBalls& added) {
+    restartParkWatch();
     const size_t addedCount = std::min(added.position.size(), added.state.size());
     if (addedCount == 0) {
         return true;

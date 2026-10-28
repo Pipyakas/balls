@@ -70,6 +70,7 @@ public:
     const std::string& partLabel(size_t part) const { return parts[part].label; }
     size_t partBallCount(size_t part) const { return parts[part].backend->ballCount(); }
     double partStepMs(size_t part) const { return parts[part].lastMs; }
+    const PhysicsBackend& partBackend(size_t part) const { return *parts[part].backend; }
     double partShare(size_t part) const { return parts[part].share; }
     bool partParked(size_t part) const { return parts[part].parked; }
     // Host time this step spent splitting and merging brick hit budgets (0 with fewer than two device parts).
@@ -98,6 +99,7 @@ protected:
     void rebalance();
     void updateShares();
     void parkLosingParts(double wallMs);
+    void restartParkWatch();
     void splitBrickBudgets();
     void mergeDeviceHits();
     void overlay(const BallSnapshot& balls, uint32_t replaceBelow, uint32_t salt);

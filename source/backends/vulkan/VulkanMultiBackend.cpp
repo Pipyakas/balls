@@ -26,7 +26,6 @@ std::vector<DeviceComposer::PartSpec> VulkanMultiBackend::makeParts(
 
 void VulkanMultiBackend::step(const StepParams& params, std::vector<BallHit>& hits) {
     using Clock = std::chrono::steady_clock;
-    const Clock::time_point stepStart = Clock::now();
 
     if (!params.freeFlight) {
         rebalance();
@@ -69,8 +68,13 @@ void VulkanMultiBackend::step(const StepParams& params, std::vector<BallHit>& hi
 
     if (!params.freeFlight) {
         updateShares();
-        const double wallSoFar = std::chrono::duration<double, std::milli>(Clock::now() - stepStart).count();
-        parkLosingParts(wallSoFar);
+        // Part times here are GPU kernel times, so the composed step is judged by the slowest kernel too: the
+        // host's readback and merging would cost the same with one device fewer.
+        double slowestKernelMs = 0.0;
+        for (const Part& part : parts) {
+            slowestKernelMs = std::max(slowestKernelMs, part.lastMs);
+        }
+        parkLosingParts(slowestKernelMs);
     }
     if (deviceParts >= 2) {
         const Clock::time_point start = Clock::now();
