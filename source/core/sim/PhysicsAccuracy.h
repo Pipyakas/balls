@@ -26,6 +26,8 @@ struct AccuracyScenario {
     int sampleEveryFrames = 60;
     // The game's visibility grid; without it no backend lets balls fly freely, so stepping itself is measured.
     bool visibilityGrid = true;
+    // Off as with the board drawing turned off in the game: no grid, no render copy, free flight without drawing.
+    bool drawing = true;
 };
 
 struct AccuracySample {

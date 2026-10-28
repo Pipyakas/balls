@@ -57,6 +57,8 @@ struct BenchOptions {
     std::filesystem::path edgeOutput;
     int traceFrames = 0;
     BallCount traceSpawnTo = 0;
+    bool drawing = true;
+    double targetFps = 60.0;
     std::filesystem::path edgeLevelDirectory;
 };
 
@@ -145,6 +147,11 @@ BenchOptions parseOptions(int argumentCount, char** arguments) {
         } else if (argument == "--trace-spawn-to") {
             options.traceSpawnTo = std::strtoull(value, nullptr, 10);
             ++i;
+        } else if (argument == "--no-draw") {
+            options.drawing = false;
+        } else if (argument == "--target-fps") {
+            options.targetFps = std::atof(value);
+            ++i;
         } else if (argument == "--trace-frames") {
             options.traceFrames = std::atoi(value);
             ++i;
@@ -169,6 +176,9 @@ int runAccuracy(const BenchOptions& options, const BrickLayout& level) {
         {"empty box", emptyBoard(level.width, level.playableHeight), boxBalls, false, boxFrames},
         {"empty box, stepped", emptyBoard(level.width, level.playableHeight), boxBalls, false, boxFrames, 2, 60, false},
         {"level, launched", level, levelBalls, true, levelFrames},
+        {"empty box, not drawn", emptyBoard(level.width, level.playableHeight), boxBalls, false, boxFrames, 2, 60, true,
+         false},
+        {"level, launched, not drawn", level, levelBalls, true, levelFrames, 2, 60, true, false},
     };
     for (const AccuracyScenario& scenario : scenarios) {
         std::printf("== %s: %zu balls, %d frames\n", scenario.name.c_str(), scenario.balls, scenario.frames);
@@ -262,7 +272,9 @@ int traceEdgeCases(const BenchOptions& options) {
                 }
                 Simulation simulation(std::move(backend));
                 simulation.load(generateEdgeLayout(layout, size));
-                useGameVisibilityGrid(simulation);
+                EdgeSweepSettings traceSettings;
+                traceSettings.drawing = options.drawing;
+                useGameVisibilityGrid(simulation, traceSettings);
                 const size_t balls = options.ballCounts.empty() ? size_t{1} << 22 : options.ballCounts.front();
                 for (const BallColor color : allBallColors) {
                     simulation.launchBalls(color, static_cast<BallCount>(balls / ballColorCount));
@@ -306,6 +318,8 @@ int traceEdgeCases(const BenchOptions& options) {
 int runEdgeCases(const BenchOptions& options) {
     EdgeSweepSettings settings;
     settings.caseSeconds = options.edgeCaseSeconds;
+    settings.drawing = options.drawing;
+    settings.targetFps = options.targetFps;
     std::ofstream output;
     if (!options.edgeOutput.empty()) {
         output.open(options.edgeOutput, std::ios::binary);

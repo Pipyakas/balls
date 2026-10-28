@@ -145,6 +145,9 @@ public:
     // full grid, so the CPU side samples only in proportion to the balls it holds.
     virtual void setRenderSampleShare(double) {}
     virtual bool acceptsSparseBoardUpdates() const { return false; }
+    // Off when nothing will draw the balls: backends then skip the visibility grid and render copy entirely, and
+    // balls in free flight cost nothing per frame.
+    virtual void setDrawing(bool) {}
 };
 
 using CreateBackendFunction = PhysicsBackend* (*)(const char* kindName);

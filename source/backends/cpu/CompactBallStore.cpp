@@ -46,7 +46,7 @@ bool CompactBallStore::resize(size_t newCount) {
         return false;
     }
     count = newCount;
-    if (!gridFilled) {
+    if (!gridFilled && drawing) {
         packed.resize(padded, 0);
     }
     return true;

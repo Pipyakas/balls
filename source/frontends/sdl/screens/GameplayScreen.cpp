@@ -323,6 +323,12 @@ void GameplayScreen::drawHeader(const GameplayLayout& layout) {
 void GameplayScreen::drawMainSection(const GameplayLayout& layout) {
     gfx::sceneRect(layout.mainSection, palette::backgroundDeep, mainSectionCornerRadius);
     const Simulation& simulation = session->simulation();
+    session->simulation().backend().setDrawing(app.settings().drawBoard);
+    if (!app.settings().drawBoard) {
+        ui::drawTextInRect("Board drawing off - physics only (Settings > Advanced)", layout.mainSection, 18.0f,
+                           palette::textMuted, ui::Align::Center);
+        return;
+    }
     drawBoardBackground(simulation.board(), layout.board);
     gfx::beginClip(layout.boardRect);
     drawBricks(simulation.board(), layout.board);

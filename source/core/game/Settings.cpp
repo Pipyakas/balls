@@ -13,6 +13,7 @@ namespace {
 constexpr std::string_view collisionsKey = "ballCollisions";
 constexpr std::string_view layoutKey = "layout";
 constexpr std::string_view vsyncKey = "vsync";
+constexpr std::string_view drawBoardKey = "drawBoard";
 constexpr std::string_view defaultBackendKey = "defaultBackend";
 constexpr std::string_view rendererKey = "renderer";
 constexpr std::string_view graphicsApiKey = "graphicsApi";
@@ -92,10 +93,11 @@ std::string normalizeGraphicsApiName(std::string_view api) {
 }
 
 std::string serializeSettings(const Settings& settings) {
-    return std::format("{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n",
+    return std::format("{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n",
                        collisionsKey, settings.ballCollisions ? "on" : "off",
                        layoutKey, orientationName(settings.layout),
                        vsyncKey, settings.vsync ? "on" : "off",
+                       drawBoardKey, settings.drawBoard ? "on" : "off",
                        defaultBackendKey, settings.defaultBackend,
                        rendererKey, normalizeRendererName(settings.renderer),
                        graphicsApiKey, normalizeGraphicsApiName(settings.graphicsApi));
@@ -121,6 +123,8 @@ Settings parseSettings(std::string_view text) {
             settings.layout = parseOrientation(value).value_or(settings.layout);
         } else if (key == vsyncKey) {
             settings.vsync = parseFlag(value).value_or(settings.vsync);
+        } else if (key == drawBoardKey) {
+            settings.drawBoard = parseFlag(value).value_or(settings.drawBoard);
         } else if (key == defaultBackendKey) {
             settings.defaultBackend = std::string(value);
         } else if (key == rendererKey) {

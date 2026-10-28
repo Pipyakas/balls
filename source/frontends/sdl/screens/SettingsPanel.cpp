@@ -84,6 +84,7 @@ float settingsContentHeight() {
     height += blockHeight;
     height += sectionHeight + sectionHeight + (optionHeight + optionGap) * allBackendKinds.size() -
               optionGap + blockGap - optionGap;
+    height += sectionHeight + blockHeight;
     height += backHeight;
     return height;
 }
@@ -229,6 +230,26 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
         cursor += optionHeight + optionGap;
     }
     cursor += blockGap - optionGap;
+
+    ui::drawText("Advanced", {innerX, cursor}, sectionSize, palette::textMuted);
+    cursor += sectionHeight;
+    ui::drawText("Draw the board", {innerX, cursor}, sectionSize, palette::text);
+    cursor += sectionHeight;
+    const Rect drawOptions{innerX, cursor, innerWidth, optionHeight};
+    if (ui::button(ui::columnSlice(drawOptions, 0, 2, optionGap), "Off", true, !current.drawBoard) &&
+        current.drawBoard) {
+        edit.settings.drawBoard = false;
+        edit.changed = true;
+    }
+    if (ui::button(ui::columnSlice(drawOptions, 1, 2, optionGap), "On", true, current.drawBoard) &&
+        !current.drawBoard) {
+        edit.settings.drawBoard = true;
+        edit.changed = true;
+    }
+    cursor += optionHeight + hintGap;
+    ui::drawText("Off runs the physics with nothing drawn, to measure it alone.", {innerX, cursor}, hintSize,
+                 palette::textMuted);
+    cursor += hintHeight + blockGap;
 
     if (ui::button({innerX, cursor, innerWidth, backHeight}, "Back")) {
         edit.backPressed = true;

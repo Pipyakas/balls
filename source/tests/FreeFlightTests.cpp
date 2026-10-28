@@ -144,9 +144,14 @@ TEST_CASE("every optimized backend stays within accuracy bounds of the naive ref
     box.height = 1;
     box.playableHeight = fieldRows;
     box.cellIds.assign(static_cast<size_t>(fieldColumns), emptyBrickId);
-    for (const bool grid : {true, false}) {
+    struct Drawn {
+        bool grid;
+        bool drawing;
+    };
+    for (const Drawn drawn : {Drawn{true, true}, Drawn{false, true}, Drawn{true, false}}) {
         AccuracyScenario scenario{"empty box", box, boxBalls, false, boxFrames};
-        scenario.visibilityGrid = grid;
+        scenario.visibilityGrid = drawn.grid;
+        scenario.drawing = drawn.drawing;
         const AccuracyRun reference = runAccuracyScenario(createReferenceBackend(), scenario);
         for (const BackendKind kind : allBackendKinds) {
             if (!isBackendAvailable(kind)) {

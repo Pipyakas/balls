@@ -42,6 +42,7 @@ public:
     std::string_view faultMessage() const override { return fault; }
     bool resolvesHitsOnDevice() const override { return true; }
     bool acceptsSparseBoardUpdates() const override { return true; }
+    void setDrawing(bool enabled) override { drawing = enabled; }
     DeviceHitResults deviceHitResults() const override;
     bool shareRenderBuffer(unsigned int openGlBuffer, size_t capacityBytes) override;
     void setVisibilityGrid(int width, int height) override;
@@ -144,6 +145,7 @@ private:
     size_t sortedCapacity = 0;
     // Where the driver can map memory onto reserved addresses, the ball and sort arrays grow in place.
     bool growInPlace = false;
+    bool drawing = true;
     // Launched balls are encoded into pinned memory and copied without waiting for the step still running on the GPU;
     // the event marks when the staging memory may be written again.
     uint32_t* staging = nullptr;

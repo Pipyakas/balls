@@ -19,6 +19,7 @@ struct EdgeSweepSettings {
     double refillSettleSeconds = 3.0;
     float screenWidth = 1920.0f;
     float screenHeight = 1080.0f;
+    bool drawing = true;
 };
 
 struct EdgeSweepResult {

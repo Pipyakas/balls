@@ -55,6 +55,7 @@ AccuracyRun runAccuracyScenario(BackendHandle backend, const AccuracyScenario& s
     Simulation simulation(std::move(backend));
     simulation.load(scenario.level);
     const float slotSize = simulation.tuning().ballRadius * visibilitySlotsPerRadius;
+    simulation.backend().setDrawing(scenario.drawing);
     if (scenario.visibilityGrid) {
         simulation.backend().setVisibilityGrid(
             std::min(visibilitySlots(static_cast<float>(simulation.board().columns()), slotSize), visibilitySlotsCap),

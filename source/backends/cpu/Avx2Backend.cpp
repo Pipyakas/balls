@@ -272,6 +272,14 @@ void Avx2Backend::addBalls(std::span<const BallSpawn> spawns) {
     });
 }
 
+void Avx2Backend::setDrawing(bool drawing) {
+    store.drawing = drawing;
+    if (!drawing) {
+        store.gridFilled = false;
+        store.packed = SimdVector<uint32_t>{};
+    }
+}
+
 void Avx2Backend::setVisibilityGrid(int width, int height) {
     store.gridWidth = std::max(width, 0);
     store.gridHeight = std::max(height, 0);
@@ -473,7 +481,11 @@ void Avx2Backend::step(const StepParams& params, std::vector<BallHit>& hits) {
     store.speed = params.speed;
     // Free flight only pays off when the visibility grid limits a frame to the sampled balls: placing every ball
     // from the closed form costs more than the SIMD step, so without a grid the balls keep being stepped.
-    const bool gridded = store.prepareGrid();
+    const bool gridded = store.drawing && store.prepareGrid();
+    if (params.freeFlight && !store.drawing) {
+        store.freeze(params.tick);
+        return;
+    }
     if (params.freeFlight && gridded) {
         store.freeze(params.tick);
         constexpr size_t samplesPerTask = 64;
@@ -774,7 +786,7 @@ void Avx2Backend::stepRange(const StepParams& params, size_t begin, size_t end, 
     const LaneConstants k(params, cells.sentinelBrick(), cells.nearRowsEnd);
     uint32_t* const positions = store.position.data();
     uint32_t* const states = store.state.data();
-    uint32_t* const packedPositions = store.packed.data();
+    uint32_t* const packedPositions = store.drawing ? store.packed.data() : nullptr;
     const size_t validCount = store.count;
     const GridTarget grid(store);
     const __m256 allLanes = _mm256_castsi256_ps(k.minusOneInt);
@@ -819,7 +831,7 @@ void Avx2Backend::stepRange(const StepParams& params, size_t begin, size_t end, 
             if (bidding != 0) {
                 grid.place(packed, bidding);
             }
-        } else {
+        } else if (packedPositions) {
             _mm256_stream_si256(reinterpret_cast<__m256i*>(packedPositions + i), packed);
         }
 

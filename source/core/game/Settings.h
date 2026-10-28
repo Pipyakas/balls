@@ -16,6 +16,8 @@ struct Settings {
     bool ballCollisions = false;
     LayoutOrientation layout = LayoutOrientation::Auto;
     bool vsync = false;
+    // Off skips drawing the board and its balls, so the physics can be measured on its own.
+    bool drawBoard = true;
     // A physics backend name (see backendKindName); empty lets the front end pick. The machine benchmark writes its
     // winner here, and the player can override it from the Settings page.
     std::string defaultBackend;

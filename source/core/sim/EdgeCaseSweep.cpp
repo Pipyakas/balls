@@ -119,6 +119,7 @@ void useGameVisibilityGrid(Simulation& simulation, const EdgeSweepSettings& sett
     const float cellPixels = std::min(settings.screenWidth / columns, settings.screenHeight / rows);
     const float slotSize = visibilitySlotSize(simulation.tuning().ballRadius, cellPixels);
     simulation.backend().setVisibilityGrid(visibilitySlots(columns, slotSize), visibilitySlots(rows, slotSize));
+    simulation.backend().setDrawing(settings.drawing);
 }
 
 // Launching costs a frame more than the balls it adds will once they fly, so a fill can stop over budget while the

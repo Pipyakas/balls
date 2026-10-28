@@ -28,6 +28,10 @@ public:
     }
     DeviceHitResults deviceHitResults() const override { return gpu->deviceHitResults(); }
     void setVisibilityGrid(int width, int height) override;
+    void setDrawing(bool drawing) override {
+        gpu->setDrawing(drawing);
+        cpu->setDrawing(drawing);
+    }
     double deviceStepMs() const override { return gpu->deviceStepMs(); }
 
     size_t cpuBallCount() const { return cpu->ballCount(); }

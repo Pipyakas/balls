@@ -635,6 +635,10 @@ void CudaBackend::renderFreeFlight(const StepParams& params) {
         freeFlightEpoch = params.tick;
         releaseSortBuffers();
     }
+    if (!drawing) {
+        lastStepKernelMs = 0.0;
+        return;
+    }
     const auto& api = driver.api();
     if (stepStarted) {
         api.eventRecord(stepStarted, nullptr);
@@ -720,12 +724,17 @@ void CudaBackend::step(const StepParams& params, std::vector<BallHit>&) {
     CUdeviceptr hitsLeftPointer = brickHitsLeft.pointer;
     CUdeviceptr killedPointer = killedIndices.pointer;
     CUdeviceptr countersPointer = counters.pointer;
-    DeviceVisibilityGridArgument grid{0, gridWidth, gridHeight, 0.0f, 0.0f, 0, 0};
-    if (!prepareVisibilityGrid(grid)) {
-        ensurePackedCapacity(count);
+    DeviceVisibilityGridArgument grid{0, 0, 0, 0.0f, 0.0f, 0, 0};
+    if (drawing) {
+        grid.width = gridWidth;
+        grid.height = gridHeight;
+        if (!prepareVisibilityGrid(grid)) {
+            ensurePackedCapacity(count);
+        }
     }
     unsigned int killedCapacityArgument = killedCapacity;
-    unsigned int packedCapacityArgument = static_cast<unsigned int>(std::min<size_t>(packedCapacity, 0xFFFFFFFFu));
+    unsigned int packedCapacityArgument =
+        drawing ? static_cast<unsigned int>(std::min<size_t>(packedCapacity, 0xFFFFFFFFu)) : 0u;
     DeviceSortedOutput sorted{};
     void* arguments[] = {&balls,           &ballCountArgument, &cellWordsPointer, &targetCellsPointer,
                          &stepArgument,    &hitsLeftPointer,   &killedPointer,    &killedCapacityArgument,
