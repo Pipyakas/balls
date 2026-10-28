@@ -8,6 +8,7 @@
 #include "game/Settings.h"
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
+#include "level/LevelWatcher.h"
 #include "level/LevelWriter.h"
 #include "sim/BackendBenchmark.h"
 #include "sim/BackendFactory.h"
@@ -15,6 +16,7 @@
 #include "ui/GameplayLayout.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstring>
 #include <memory>
 #include <optional>
@@ -128,6 +130,22 @@ struct BallsBenchmark {
 
     void refresh() { results = run != nullptr ? run->results() : std::vector<CandidateResult>{}; }
 };
+
+struct BallsLevelWatcher {
+    LevelWatcher watcher;
+};
+
+int32_t fromDiskState(LevelDiskState state) {
+    switch (state) {
+    case LevelDiskState::Changed:
+        return BALLS_DISK_CHANGED;
+    case LevelDiskState::Removed:
+        return BALLS_DISK_REMOVED;
+    case LevelDiskState::Unchanged:
+        break;
+    }
+    return BALLS_DISK_UNCHANGED;
+}
 
 struct BallsFrameTimings {
     FrameTimings timings;
@@ -757,6 +775,41 @@ int32_t balls_benchmark_winner(BallsBenchmark* benchmark) {
     const BenchmarkCandidate winner = chooseDefaultBackend(
         benchmark->results, [](BackendKind kind) { return isBackendAvailable(kind); });
     return fromBackendKind(winner.kind);
+}
+
+BallsLevelWatcher* balls_level_watcher_create(const char* levelDirectory, const char* levelName) {
+    if (levelDirectory == nullptr || levelName == nullptr) {
+        setError("level directory and name are required");
+        return nullptr;
+    }
+    auto watcher = std::make_unique<BallsLevelWatcher>();
+    watcher->watcher.watch(levelFilesFor(std::filesystem::path(levelDirectory), levelName));
+    return watcher.release();
+}
+
+void balls_level_watcher_destroy(BallsLevelWatcher* watcher) {
+    delete watcher;
+}
+
+int32_t balls_level_watcher_poll(BallsLevelWatcher* watcher) {
+    if (watcher == nullptr) {
+        return BALLS_DISK_UNCHANGED;
+    }
+    watcher->watcher.pollChanged(std::chrono::steady_clock::now());
+    return fromDiskState(watcher->watcher.diskState());
+}
+
+void balls_level_watcher_mark_loaded(BallsLevelWatcher* watcher) {
+    if (watcher != nullptr) {
+        watcher->watcher.markLoaded();
+    }
+}
+
+int32_t balls_level_disk_notice(int32_t state, char* buffer, int32_t size) {
+    const LevelDiskState kind = state == BALLS_DISK_CHANGED   ? LevelDiskState::Changed
+                                : state == BALLS_DISK_REMOVED ? LevelDiskState::Removed
+                                                              : LevelDiskState::Unchanged;
+    return writeText(levelDiskNotice(kind), buffer, size);
 }
 
 BallsFrameTimings* balls_frame_timings_create(void) {

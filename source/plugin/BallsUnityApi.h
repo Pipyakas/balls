@@ -67,6 +67,13 @@ enum {
     BALLS_COLLISIONS_SCALAR_NOT_OFFERED = 2,
 };
 
+// Mirrors LevelDiskState: whether the level in play still matches its files.
+enum {
+    BALLS_DISK_UNCHANGED = 0,
+    BALLS_DISK_CHANGED = 1,
+    BALLS_DISK_REMOVED = 2,
+};
+
 enum {
     BALLS_ORIENTATION_AUTO = 0,
     BALLS_ORIENTATION_LANDSCAPE = 1,
@@ -209,6 +216,7 @@ typedef struct BallsEditor BallsEditor;
 typedef struct BallsBenchmark BallsBenchmark;
 typedef struct BallsProfile BallsProfile;
 typedef struct BallsFrameTimings BallsFrameTimings;
+typedef struct BallsLevelWatcher BallsLevelWatcher;
 
 // --- Process-wide --------------------------------------------------------------------------------------------
 
@@ -236,6 +244,14 @@ BALLS_API int32_t balls_fastest_cpu_backend(void);
 
 // Fills up to capacity entries and returns how many levels the directory holds.
 BALLS_API int32_t balls_levels_find(const char* directory, BallsLevelInfo* levels, int32_t capacity);
+
+// The core's LevelWatcher over a level's file pair. poll checks the files at most every 250 ms and returns a
+// BALLS_DISK_* state; Changed stays until mark_loaded (or a new watcher).
+BALLS_API BallsLevelWatcher* balls_level_watcher_create(const char* levelDirectory, const char* levelName);
+BALLS_API void balls_level_watcher_destroy(BallsLevelWatcher* watcher);
+BALLS_API int32_t balls_level_watcher_poll(BallsLevelWatcher* watcher);
+BALLS_API void balls_level_watcher_mark_loaded(BallsLevelWatcher* watcher);
+BALLS_API int32_t balls_level_disk_notice(int32_t state, char* buffer, int32_t size);
 
 BALLS_API int32_t balls_settings_load(const char* path, BallsSettings* settings);
 BALLS_API int32_t balls_settings_save(const char* path, const BallsSettings* settings);

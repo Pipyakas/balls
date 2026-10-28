@@ -36,14 +36,8 @@ private:
         bool isError = false;
     };
 
-    // What happened to the level's files since this session loaded them. The level in play is never swapped
-    // mid-game; the header says so and Restart picks the new files up.
-    enum class DiskState { Unchanged, Changed, Removed };
-
     void loadSession();
-    void noticeDiskChange();
     void restartLevel();
-    std::string_view diskNotice() const;
     void handleLauncherClick(const GameplayLayout& layout);
     void showToast(std::string text, bool isError);
     void openNextLevel();
@@ -82,8 +76,9 @@ private:
     std::unique_ptr<SessionRunner> runner;
     std::shared_ptr<const SessionView> view;
     std::string loadError;
+    // The level in play is never swapped mid-game: the watcher's disk state puts a notice in the header and Restart
+    // picks the new files up.
     LevelWatcher watcher;
-    DiskState diskState = DiskState::Unchanged;
     Toast toast;
     bool paused = false;
     bool settingsOpen = false;

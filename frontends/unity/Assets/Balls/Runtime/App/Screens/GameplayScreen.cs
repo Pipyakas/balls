@@ -384,12 +384,7 @@ namespace Balls.App.Screens
             string modeName = session.mode == BallsApp.PerformanceMode ? "Performance" : "Normal";
             float pauseWidth = 104f;
             int titleSize = layout.Portrait ? TypeSizes.Small : TypeSizes.Header;
-            string notice = watcher.Poll() switch
-            {
-                LevelWatcher.State.Changed => "Map changed on disk - Restart to load it",
-                LevelWatcher.State.Removed => "Map removed from disk - Restart unavailable",
-                _ => null,
-            };
+            string notice = LevelWatcher.Notice(watcher.Poll());
             float titleHeight = notice == null ? header.height : header.height * 0.55f;
             GUI.Label(App.Theme.Units(header.x, header.y, header.width - pauseWidth - 12f, titleHeight),
                 $"{modeName} · {App.LevelName}",

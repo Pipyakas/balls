@@ -90,20 +90,9 @@ FString FBallsGameplay::GetProbeStatus() const {
     return FString();
 }
 
-void FBallsGameplay::OnFilesChanged() {
-    if (!Session) {
-        // The load-error screen retries by itself whenever the files change again.
-        ReloadFromDisk();
-        return;
-    }
-    std::error_code Error;
-    const bool bGone = !std::filesystem::exists(Files.bricksPath, Error) || !std::filesystem::exists(Files.launchersPath, Error);
-    MapNotice = bGone ? EMapNotice::Removed : EMapNotice::Changed;
-}
-
 // Loads the files as they are now: a parse failure drops to the load-error screen instead of keeping the old game.
 void FBallsGameplay::ReloadFromDisk() {
-    MapNotice = EMapNotice::None;
+    Watcher.markLoaded();
     Result<LevelData> Level = loadLevel(Files);
     if (!Level) {
         Session.reset();
@@ -130,8 +119,9 @@ bool FBallsGameplay::IsWon() const {
 }
 
 void FBallsGameplay::Tick(float DeltaSeconds, double FrameSeconds, double WorkSeconds) {
-    if (Watcher.pollChanged(std::chrono::steady_clock::now())) {
-        OnFilesChanged();
+    // With a game running the change only shows as the watcher's disk state; the load-error screen retries at once.
+    if (Watcher.pollChanged(std::chrono::steady_clock::now()) && !Session) {
+        ReloadFromDisk();
     }
     if (!Session || bPaused) {
         return;
@@ -234,11 +224,11 @@ void FBallsGameplay::SwitchBackend(BackendKind Kind) {
 }
 
 void FBallsGameplay::Restart() {
-    if (MapNotice == EMapNotice::Removed) {
+    if (Watcher.diskState() == LevelDiskState::Removed) {
         App.ShowLevelSelect(Mode);
         return;
     }
-    if (MapNotice == EMapNotice::Changed) {
+    if (Watcher.diskState() == LevelDiskState::Changed) {
         ReloadFromDisk();
         return;
     }

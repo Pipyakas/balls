@@ -111,7 +111,7 @@ void GameplayScreen::refreshSettings() {
 }
 
 void GameplayScreen::loadSession() {
-    diskState = DiskState::Unchanged;
+    watcher.markLoaded();
     auto level = loadLevel(files);
     if (!level) {
         runner.reset();
@@ -182,32 +182,15 @@ void GameplayScreen::rememberFinishedProbe() {
     }
 }
 
-void GameplayScreen::noticeDiskChange() {
-    const bool present = std::filesystem::exists(files.bricksPath) && std::filesystem::exists(files.launchersPath);
-    diskState = present ? DiskState::Changed : DiskState::Removed;
-}
-
 void GameplayScreen::restartLevel() {
     paused = false;
-    if (diskState == DiskState::Removed) {
+    if (watcher.diskState() == LevelDiskState::Removed) {
         app.showLevelSelect(mode);
-    } else if (diskState == DiskState::Changed) {
+    } else if (watcher.diskState() == LevelDiskState::Changed) {
         loadSession();
     } else {
         runner->post([](GameSession& session) { session.restart(); });
     }
-}
-
-std::string_view GameplayScreen::diskNotice() const {
-    switch (diskState) {
-    case DiskState::Changed:
-        return "Map changed on disk - Restart to load it";
-    case DiskState::Removed:
-        return "Map removed from disk - Restart unavailable";
-    case DiskState::Unchanged:
-        break;
-    }
-    return {};
 }
 
 void GameplayScreen::showToast(std::string text, bool isError) {
@@ -271,12 +254,9 @@ void GameplayScreen::handleLauncherClick(const GameplayLayout& layout) {
 
 void GameplayScreen::update(float deltaTime) {
     toast.secondsLeft = std::max(0.0f, toast.secondsLeft - deltaTime);
-    if (watcher.pollChanged(std::chrono::steady_clock::now())) {
-        if (runner) {
-            noticeDiskChange();
-        } else {
-            loadSession();
-        }
+    // With a game running the change only shows as the watcher's disk state; the load-error screen retries at once.
+    if (watcher.pollChanged(std::chrono::steady_clock::now()) && !runner) {
+        loadSession();
     }
     if (!runner) {
         if (input::keyPressed(SDL_SCANCODE_ESCAPE)) {
@@ -336,7 +316,7 @@ void GameplayScreen::drawHeader(const GameplayLayout& layout) {
     } else {
         const char* modeName = mode == GameMode::Normal ? "Normal" : "Performance";
         const std::string title = std::format("{} - {}", modeName, files.name);
-        const std::string_view notice = diskNotice();
+        const std::string_view notice = levelDiskNotice(watcher.diskState());
         const Rect titleRect{header.x + titleInset, header.y, header.width - titleInset * 2.0f, header.height};
         if (notice.empty()) {
             ui::drawScrollingText(title, titleRect, 22.0f, palette::text);
@@ -886,7 +866,7 @@ std::string GameplayScreen::stateJson() const {
         "\"ballLimit\":{},\"elapsed\":{:.2f},\"physicsFps\":{:.1f},\"physicsFrameMs\":{:.3f},"
         "\"probe\":{{\"phase\":\"{}\",\"target\":{:.0f},\"fps\":{:.1f},\"best\":{}}},"
         "\"ballsByColor\":{{{}}},\"launchers\":[{}]}}",
-        mode == GameMode::Normal ? "normal" : "performance", jsonEscape(files.name), diskNotice(),
+        mode == GameMode::Normal ? "normal" : "performance", jsonEscape(files.name), levelDiskNotice(watcher.diskState()),
         stateNames[static_cast<int>(view->state)], paused, backendKindName(view->backend),
         view->pendingBackend ? backendKindName(*view->pendingBackend) : std::string_view{},
         view->refilling, jsonEscape(view->backendFault), stats.ballCount, view->board->aliveBrickCount(),

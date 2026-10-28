@@ -469,16 +469,7 @@ private:
         return Area;
     }
 
-    FString MapNoticeText() const {
-        switch (Gameplay->GetMapNotice()) {
-        case FBallsGameplay::EMapNotice::Changed:
-            return TEXT("Map changed on disk - Restart to load it.");
-        case FBallsGameplay::EMapNotice::Removed:
-            return TEXT("Map removed from disk - Restart unavailable");
-        default:
-            return FString();
-        }
-    }
+    FString MapNoticeText() const { return BallsText::FromUtf8(levelDiskNotice(Gameplay->GetDiskState())); }
 
     // The board frame is the gadget color around the 3D board: four strips, so the board stays visible.
     void PaintBoardFrame(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,

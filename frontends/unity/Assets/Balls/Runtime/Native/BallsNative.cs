@@ -30,6 +30,10 @@ namespace Balls.Native
 
         public const int ColorCount = 7;
 
+        public const int DiskUnchanged = 0;
+        public const int DiskChanged = 1;
+        public const int DiskRemoved = 2;
+
         public const uint RenderCoordinateMask = 0x3FFFu;
         public const int RenderCoordinateBits = 14;
         public const int RenderColorShift = 28;
@@ -172,6 +176,16 @@ namespace Balls.Native
 
         [DllImport(Library)] public static extern int balls_benchmark_winner(IntPtr benchmark);
 
+        [DllImport(Library)] public static extern IntPtr balls_level_watcher_create([MarshalAs(UnmanagedType.LPUTF8Str)] string levelDirectory, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelName);
+
+        [DllImport(Library)] public static extern void balls_level_watcher_destroy(IntPtr watcher);
+
+        [DllImport(Library)] public static extern int balls_level_watcher_poll(IntPtr watcher);
+
+        [DllImport(Library)] public static extern void balls_level_watcher_mark_loaded(IntPtr watcher);
+
+        [DllImport(Library)] public static extern int balls_level_disk_notice(int state, byte[] buffer, int size);
+
         [DllImport(Library)] public static extern IntPtr balls_frame_timings_create();
 
         [DllImport(Library)] public static extern void balls_frame_timings_destroy(IntPtr timings);
@@ -281,6 +295,14 @@ namespace Balls.Native
                 BackendNames[kind] = name;
             }
             return name;
+        }
+
+        /// <summary>The core's header notice for a level disk state, or an empty string when the files match.</summary>
+        public static string LevelDiskNotice(int state)
+        {
+            var buffer = new byte[256];
+            int length = balls_level_disk_notice(state, buffer, buffer.Length);
+            return length > 0 ? System.Text.Encoding.UTF8.GetString(buffer, 0, length) : string.Empty;
         }
 
         /// <summary>The core's toast for what turning ball collisions on did, or an empty string for no change.</summary>
