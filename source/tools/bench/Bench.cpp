@@ -1,3 +1,4 @@
+#include "game/SpawnPacer.h"
 #include "level/EdgeCaseLevels.h"
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
@@ -48,6 +49,7 @@ struct BenchOptions {
     double edgeCaseSeconds = 40.0;
     std::filesystem::path edgeOutput;
     int traceFrames = 0;
+    BallCount traceSpawnTo = 0;
     std::filesystem::path edgeLevelDirectory;
 };
 
@@ -132,6 +134,9 @@ BenchOptions parseOptions(int argumentCount, char** arguments) {
             ++i;
         } else if (argument == "--write-edge-levels") {
             options.edgeLevelDirectory = value;
+            ++i;
+        } else if (argument == "--trace-spawn-to") {
+            options.traceSpawnTo = std::strtoull(value, nullptr, 10);
             ++i;
         } else if (argument == "--trace-frames") {
             options.traceFrames = std::atoi(value);
@@ -243,12 +248,24 @@ int traceEdgeCases(const BenchOptions& options) {
                 }
                 std::printf("== %s %s %zu balls\n", edgeCaseName(layout, size).c_str(),
                             std::string(backendKindName(kind)).c_str(), balls);
+                SpawnPacer pacer;
+                int colorIndex = 0;
                 for (int frame = 0; frame < options.traceFrames; ++frame) {
-                    const auto start = std::chrono::steady_clock::now();
+                    using Clock = std::chrono::steady_clock;
+                    const auto start = Clock::now();
+                    const BallCount live = simulation.liveBallCount();
+                    const BallCount wanted = options.traceSpawnTo > live ? options.traceSpawnTo - live : 0;
+                    const BallCount launched = std::min(wanted, pacer.allowance());
+                    simulation.launchBalls(ballColorFromIndex(colorIndex++ % ballColorCount), launched);
+                    simulation.flushPendingSpawns();
+                    const auto spawned = Clock::now();
+                    pacer.recordSpawn(launched, std::chrono::duration<double>(spawned - start).count());
                     simulation.tick(options.substeps);
-                    const double ms =
-                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
-                    std::printf("frame %4d %8.2f ms  live %10llu  device %6.2f ms\n", frame, ms,
+                    const double spawnMs = std::chrono::duration<double, std::milli>(spawned - start).count();
+                    const double ms = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+                    pacer.reportFrame(ms / 1e3, simulation.liveBallCount());
+                    std::printf("frame %4d %8.2f ms  spawn %6.2f ms (%9llu)  live %10llu  device %6.2f ms\n", frame, ms,
+                                spawnMs, static_cast<unsigned long long>(launched),
                                 static_cast<unsigned long long>(simulation.liveBallCount()),
                                 simulation.backend().deviceStepMs());
                 }
