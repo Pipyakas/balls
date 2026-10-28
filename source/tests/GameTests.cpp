@@ -4,7 +4,9 @@
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
 
+#include <chrono>
 #include <filesystem>
+#include <thread>
 
 namespace {
 
@@ -73,4 +75,45 @@ TEST_CASE("performance session waits for one click then releases automatically")
         session.update(1.0f / 60.0f);
     }
     EXPECT(session.simulation().stats().totalBallsSpawned > 0);
+}
+
+TEST_CASE("ball collisions on Scalar take effect at once") {
+    GameSession session(GameMode::Normal, loadSample("normal", "DA_FirstLevel"), BackendKind::Scalar);
+    EXPECT(session.setBallCollisions(true) == BallCollisionsChange::None);
+    EXPECT(session.simulation().ballCollisionsActive());
+    EXPECT(!session.pendingBackend().has_value());
+    EXPECT(session.setBallCollisions(false) == BallCollisionsChange::None);
+    EXPECT(!session.simulation().ballCollisionsRequested());
+}
+
+TEST_CASE("ball collisions on another backend move to Scalar only where Scalar is offered") {
+    if (!isBackendAvailable(BackendKind::Avx2)) {
+        return;
+    }
+    GameSession session(GameMode::Normal, loadSample("normal", "DA_FirstLevel"), BackendKind::Avx2);
+    const BallCollisionsChange change = session.setBallCollisions(true);
+    EXPECT(session.simulation().ballCollisionsRequested());
+    if (!isBackendSelectable(BackendKind::Scalar)) {
+        EXPECT(change == BallCollisionsChange::ScalarNotOffered);
+        EXPECT(!session.pendingBackend().has_value());
+        return;
+    }
+    EXPECT(change == BallCollisionsChange::SwitchingToScalar);
+    EXPECT(session.pendingBackend() == BackendKind::Scalar);
+    std::optional<BackendSwitchOutcome> outcome;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!outcome && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        session.pollBackgroundWork();
+        outcome = session.takeBackendSwitchOutcome();
+    }
+    EXPECT(outcome && outcome->succeeded && outcome->forBallCollisions);
+    EXPECT(session.simulation().ballCollisionsActive());
+}
+
+TEST_CASE("every ball collisions change has the game's toast") {
+    EXPECT(ballCollisionsMessage(BallCollisionsChange::None).empty());
+    EXPECT(ballCollisionsMessage(BallCollisionsChange::SwitchingToScalar) ==
+           "Ball collisions need the Scalar backend - switching to Scalar");
+    EXPECT(!ballCollisionsMessage(BallCollisionsChange::ScalarNotOffered).empty());
 }

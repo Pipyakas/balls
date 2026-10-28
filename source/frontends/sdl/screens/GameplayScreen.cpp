@@ -107,19 +107,7 @@ void GameplayScreen::refreshSettings() {
     if (!runner) {
         return;
     }
-    const bool collisions = app.settings().ballCollisions;
-    runner->post([collisions](GameSession& session) {
-        session.simulation().setBallCollisions(collisions);
-        if (collisions && !session.simulation().ballCollisionsActive() && isBackendSelectable(BackendKind::Scalar)) {
-            session.requestBackend(BackendKind::Scalar);
-        }
-    });
-    if (collisions && view && !view->collisionsActive) {
-        showToast(isBackendSelectable(BackendKind::Scalar)
-                      ? "Ball collisions need the Scalar backend - switching to Scalar"
-                      : "Ball collisions need the Scalar backend, which is not offered on this machine",
-                  false);
-    }
+    runner->setBallCollisions(app.settings().ballCollisions);
 }
 
 void GameplayScreen::loadSession() {
@@ -162,7 +150,9 @@ void GameplayScreen::useAutoBallLimit() {
 
 void GameplayScreen::handleSessionEvents() {
     for (const SessionEvent& event : runner->takeEvents()) {
-        if (event.kind == SessionEventKind::BackendSwitched) {
+        if (event.kind == SessionEventKind::BallCollisionsChanged) {
+            showToast(std::string(ballCollisionsMessage(event.collisionsChange)), false);
+        } else if (event.kind == SessionEventKind::BackendSwitched) {
             applyDefaultBallLimit();
         } else {
             showToast(std::format("Could not start the {} backend", backendKindName(event.backend)), true);

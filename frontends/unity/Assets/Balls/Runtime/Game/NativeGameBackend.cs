@@ -161,7 +161,7 @@ namespace Balls.Game
 
         public override bool BallCollisions => BallsNative.balls_session_ball_collisions(session) != 0;
 
-        public override void SetBallCollisions(bool enabled) => BallsNative.balls_session_set_ball_collisions(session, enabled ? 1 : 0);
+        public override int SetBallCollisions(bool enabled) => BallsNative.balls_session_set_ball_collisions(session, enabled ? 1 : 0);
 
         public override void CancelProbe() => BallsNative.balls_session_cancel_capacity_probe(session);
 

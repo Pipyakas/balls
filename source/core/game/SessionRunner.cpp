@@ -180,7 +180,7 @@ void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, Le
         std::optional<SessionEvent> event;
         if (const auto outcome = session->takeBackendSwitchOutcome()) {
             event = SessionEvent{outcome->succeeded ? SessionEventKind::BackendSwitched : SessionEventKind::BackendFailed,
-                                 outcome->kind};
+                                 outcome->kind, outcome->forBallCollisions};
         }
         const double sinceLastUpdate = secondsBetween(lastUpdate, workStart);
         lastUpdate = workStart;
@@ -268,6 +268,20 @@ void SessionRunner::tick(const PhysicsFrameInput& input) {
 std::shared_ptr<const SessionView> SessionRunner::view() const {
     std::lock_guard lock(shared->mutex);
     return shared->latest;
+}
+
+void SessionRunner::setBallCollisions(bool enabled) {
+    // The physics thread keeps Shared alive while it runs commands, so the raw pointer cannot dangle.
+    post([enabled, shared = shared.get()](GameSession& session) {
+        const BallCollisionsChange change = session.setBallCollisions(enabled);
+        if (change == BallCollisionsChange::None) {
+            return;
+        }
+        SessionEvent event{SessionEventKind::BallCollisionsChanged, session.backend()};
+        event.collisionsChange = change;
+        std::lock_guard lock(shared->mutex);
+        shared->events.push_back(event);
+    });
 }
 
 std::vector<SessionEvent> SessionRunner::takeEvents() {

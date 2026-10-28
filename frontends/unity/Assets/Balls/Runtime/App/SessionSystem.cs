@@ -33,6 +33,9 @@ namespace Balls.App
         /// <summary>Why the last start request failed (an unreadable level), or null.</summary>
         public string LoadFailure { get; set; }
 
+        /// <summary>A toast the session has for the player (the core's ball collisions notice), taken by BallsApp.</summary>
+        public string Notice { get; set; }
+
         public GameBackend Backend => backend;
 
         protected override void OnCreate()
@@ -84,7 +87,7 @@ namespace Balls.App
             }
             if (BallsInput.TryTakeCollisions(out bool collisions))
             {
-                backend.SetBallCollisions(collisions);
+                ApplyBallCollisions(collisions);
             }
             if (BallsInput.TryTakeAutoRelease())
             {
@@ -130,11 +133,20 @@ namespace Balls.App
             // The GPU backends sample one grid cell per ball-sized block of the render target; a 1920-wide frame at
             // the 0.4-cell ball diameter is the default the other front ends use.
             backend.SetVisibilityGrid(160, 90);
-            backend.SetBallCollisions(request.collisions);
+            ApplyBallCollisions(request.collisions);
             frame = backend.Frame;
             RefreshBoard();
             ReadLaunchers();
             Publish(0f);
+        }
+
+        private void ApplyBallCollisions(bool enabled)
+        {
+            int change = backend.SetBallCollisions(enabled);
+            if (change != 0)
+            {
+                Notice = BallsNative.BallCollisionsMessage(change);
+            }
         }
 
         private void RefreshBoard()

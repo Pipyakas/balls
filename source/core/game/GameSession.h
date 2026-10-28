@@ -14,6 +14,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 
 enum class SessionState { Ready, Running, Won };
 
@@ -25,7 +26,16 @@ inline constexpr float normalModeSpawnRate = 60.0f;
 struct BackendSwitchOutcome {
     BackendKind kind = BackendKind::Scalar;
     bool succeeded = false;
+    // Set when the switch was the Scalar move that ball collisions asked for, not a pick from the Physics list.
+    bool forBallCollisions = false;
 };
+
+// What turning ball collisions on did to the session. Only the Scalar backend implements them, and the design offers
+// Scalar only where no other backend is available, so On either moves the game to Scalar or cannot take effect.
+enum class BallCollisionsChange { None, SwitchingToScalar, ScalarNotOffered };
+
+// The toast the design gives for the change, the same in every front end; empty for None.
+std::string_view ballCollisionsMessage(BallCollisionsChange change);
 
 class GameSession {
 public:
@@ -47,6 +57,9 @@ public:
     void selectBallLimit(int optionIndex);
     // The new backend is built off the frame; the session keeps running on the current one until it is ready.
     void requestBackend(BackendKind kind);
+    // Applies the Ball collisions setting, requesting Scalar when collisions need it and it is offered. The switch
+    // lands like any other and comes back through takeBackendSwitchOutcome with forBallCollisions set.
+    BallCollisionsChange setBallCollisions(bool enabled);
     std::optional<BackendKind> pendingBackend() const;
     // Once per finished request, so the caller can react to the switch or to its failure.
     std::optional<BackendSwitchOutcome> takeBackendSwitchOutcome();
@@ -109,6 +122,7 @@ private:
     bool machineLimitSelected = false;
     std::string backendFault;
     std::shared_ptr<BackendBuild> pendingBuild;
+    bool pendingBuildForCollisions = false;
     std::optional<BackendSwitchOutcome> switchOutcome;
     BallCount refillRemaining = 0;
     BallCount refillBatchBalls = BallCount{1} << 16;

@@ -24,11 +24,14 @@ struct PhysicsFrameInput {
     float visibilitySlotCells = 0.0f;
 };
 
-enum class SessionEventKind { BackendSwitched, BackendFailed };
+enum class SessionEventKind { BackendSwitched, BackendFailed, BallCollisionsChanged };
 
 struct SessionEvent {
     SessionEventKind kind = SessionEventKind::BackendSwitched;
     BackendKind backend = BackendKind::Scalar;
+    // For a switch: whether ball collisions asked for it. For BallCollisionsChanged: what the setting did.
+    bool forBallCollisions = false;
+    BallCollisionsChange collisionsChange = BallCollisionsChange::None;
 };
 
 // Runs a GameSession on its own thread so that nothing the simulation does, from a slow physics step to building a
@@ -46,6 +49,8 @@ public:
     SessionRunner& operator=(const SessionRunner&) = delete;
 
     void post(Command command);
+    // GameSession::setBallCollisions on the physics thread; anything other than None comes back as an event.
+    void setBallCollisions(bool enabled);
     // Called once per UI frame with what the physics thread needs from the UI; it does not wait for or wake it.
     void tick(const PhysicsFrameInput& input);
     // Null until the physics thread has built the session.

@@ -8,7 +8,7 @@
 
 #include <stdint.h>
 
-#define BALLS_UNITY_ABI_VERSION 1
+#define BALLS_UNITY_ABI_VERSION 2
 
 #if defined(_WIN32)
 #define BALLS_API __declspec(dllexport)
@@ -58,6 +58,13 @@ enum {
     BALLS_COLOR_INDIGO = 5,
     BALLS_COLOR_VIOLET = 6,
     BALLS_COLOR_COUNT = 7,
+};
+
+// Mirrors BallCollisionsChange: what turning ball collisions on did.
+enum {
+    BALLS_COLLISIONS_UNCHANGED = 0,
+    BALLS_COLLISIONS_SWITCHING_TO_SCALAR = 1,
+    BALLS_COLLISIONS_SCALAR_NOT_OFFERED = 2,
 };
 
 enum {
@@ -271,7 +278,10 @@ BALLS_API void balls_session_set_visibility_grid(BallsSession* session, int32_t 
 BALLS_API void balls_set_compute_gpu_preference(const char* preference);
 BALLS_API int32_t balls_compute_gpu_preference(char* buffer, int32_t size);
 
-BALLS_API void balls_session_set_ball_collisions(BallsSession* session, int32_t enabled);
+// Applies the Ball collisions setting; requests Scalar when collisions need it and it is offered. Returns a
+// BALLS_COLLISIONS_* value; balls_ball_collisions_message gives the toast for it.
+BALLS_API int32_t balls_session_set_ball_collisions(BallsSession* session, int32_t enabled);
+BALLS_API int32_t balls_ball_collisions_message(int32_t change, char* buffer, int32_t size);
 BALLS_API int32_t balls_session_ball_collisions(const BallsSession* session);
 BALLS_API int32_t balls_session_launch_balls(BallsSession* session, int32_t color, uint64_t count);
 

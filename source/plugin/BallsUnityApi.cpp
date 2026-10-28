@@ -509,10 +509,26 @@ int32_t balls_compute_gpu_preference(char* buffer, int32_t size) {
     return writeText(computeGpuPreference(), buffer, size);
 }
 
-void balls_session_set_ball_collisions(BallsSession* session, int32_t enabled) {
-    if (session != nullptr) {
-        session->game->simulation().setBallCollisions(enabled != 0);
+int32_t balls_session_set_ball_collisions(BallsSession* session, int32_t enabled) {
+    if (session == nullptr) {
+        return BALLS_COLLISIONS_UNCHANGED;
     }
+    switch (session->game->setBallCollisions(enabled != 0)) {
+    case BallCollisionsChange::SwitchingToScalar:
+        return BALLS_COLLISIONS_SWITCHING_TO_SCALAR;
+    case BallCollisionsChange::ScalarNotOffered:
+        return BALLS_COLLISIONS_SCALAR_NOT_OFFERED;
+    case BallCollisionsChange::None:
+        break;
+    }
+    return BALLS_COLLISIONS_UNCHANGED;
+}
+
+int32_t balls_ball_collisions_message(int32_t change, char* buffer, int32_t size) {
+    const BallCollisionsChange kind = change == BALLS_COLLISIONS_SWITCHING_TO_SCALAR ? BallCollisionsChange::SwitchingToScalar
+                                      : change == BALLS_COLLISIONS_SCALAR_NOT_OFFERED ? BallCollisionsChange::ScalarNotOffered
+                                                                                      : BallCollisionsChange::None;
+    return writeText(ballCollisionsMessage(kind), buffer, size);
 }
 
 int32_t balls_session_ball_collisions(const BallsSession* session) {

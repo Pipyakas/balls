@@ -145,14 +145,8 @@ void FBallsGameplay::Tick(float DeltaSeconds, double FrameSeconds, double WorkSe
         if (Outcome->succeeded) {
             // A switch inside a game lasts for that game only; the Settings page owns the remembered default.
             ShowToast(TEXT("Backend: ") + BallsText::FromUtf8(backendKindName(Outcome->kind)), false);
-            if (bCollisionsNeedScalar) {
-                bCollisionsNeedScalar = false;
-                Session->simulation().setBallCollisions(true);
-                ShowToast(TEXT("Ball collisions need the Scalar backend - switched to Scalar."), false);
-            }
             ApplyDefaultBallLimit();
         } else {
-            bCollisionsNeedScalar = false;
             ShowToast(FString::Printf(TEXT("%s failed: %s"), *BallsText::FromUtf8(backendKindName(Outcome->kind)),
                                       *BallsText::FromUtf8(Session->lastBackendFault())),
                       true);
@@ -186,14 +180,9 @@ void FBallsGameplay::ApplySettings() {
     if (!Session) {
         return;
     }
-    Simulation& Sim = Session->simulation();
-    const bool bWanted = App.GetSettings().ballCollisions;
-    Sim.setBallCollisions(bWanted);
-    // Only the Scalar backend implements collisions; asking for them elsewhere moves the game to Scalar. The switch
-    // finishes on a later frame, so Tick reports it once the new backend has adopted the balls.
-    if (bWanted && !Sim.ballCollisionsActive() && Session->backend() != BackendKind::Scalar && isBackendAvailable(BackendKind::Scalar)) {
-        bCollisionsNeedScalar = true;
-        Session->requestBackend(BackendKind::Scalar);
+    const BallCollisionsChange Change = Session->setBallCollisions(App.GetSettings().ballCollisions);
+    if (Change != BallCollisionsChange::None) {
+        ShowToast(BallsText::FromUtf8(ballCollisionsMessage(Change)), false);
     }
 }
 

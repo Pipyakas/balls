@@ -12,7 +12,7 @@ namespace Balls.Native
     {
         public const string Library = "balls_unity";
 
-        public const int AbiVersion = 1;
+        public const int AbiVersion = 2;
 
         public const int ModeNormal = 0;
         public const int ModePerformance = 1;
@@ -130,7 +130,9 @@ namespace Balls.Native
 
         [DllImport(Library)] public static extern int balls_editor_brick_hits(IntPtr editor, int column, int row);
 
-        [DllImport(Library)] public static extern void balls_session_set_ball_collisions(IntPtr session, int enabled);
+        [DllImport(Library)] public static extern int balls_session_set_ball_collisions(IntPtr session, int enabled);
+
+        [DllImport(Library)] public static extern int balls_ball_collisions_message(int change, byte[] buffer, int size);
 
         [DllImport(Library)] public static extern int balls_session_ball_collisions(IntPtr session);
 
@@ -259,6 +261,14 @@ namespace Balls.Native
                 BackendNames[kind] = name;
             }
             return name;
+        }
+
+        /// <summary>The core's toast for what turning ball collisions on did, or an empty string for no change.</summary>
+        public static string BallCollisionsMessage(int change)
+        {
+            var buffer = new byte[256];
+            int length = balls_ball_collisions_message(change, buffer, buffer.Length);
+            return length > 0 ? System.Text.Encoding.UTF8.GetString(buffer, 0, length) : string.Empty;
         }
 
         /// <summary>Matches a backend by its display name, ignoring case, '+', '-' and '_', as the core does.</summary>

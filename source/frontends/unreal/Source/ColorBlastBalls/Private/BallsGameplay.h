@@ -81,7 +81,5 @@ private:
     EMapNotice MapNotice = EMapNotice::None;
     bool bSettingsOpen = false;
     bool bProbeResultShown = true;
-    // Set while waiting for the Scalar switch that ball collisions need, so Tick can confirm it once it lands.
-    bool bCollisionsNeedScalar = false;
     int32 ProbeTargetFps = static_cast<int32>(defaultProbeTargetFps);
 };
