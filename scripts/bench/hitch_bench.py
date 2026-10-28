@@ -81,8 +81,11 @@ def run(arguments):
         command = [str(Path(arguments.exe).resolve()), "--control-port", str(arguments.port)]
         process = subprocess.Popen(command)
     bench = Bench(arguments.port, arguments.settle, arguments.budget)
+    saved_settings = None
     try:
         state = wait_for_server(arguments.port, 60.0)
+        # Settings persist, so the toggles below would otherwise leave the player's game changed.
+        saved_settings = call(arguments.port, "/settings")
         render_adapters = state.get("renderAdapters", [])
         compute_adapters = state.get("computeAdapters", [])
         call(arguments.port, "/play", mode="performance", level=arguments.level)
@@ -130,6 +133,11 @@ def run(arguments):
         bench.measure("back to menu", "/menu")
     finally:
         try:
+            if saved_settings:
+                call(arguments.port, "/settings", collisions=int(saved_settings["ballCollisions"]),
+                     layout=saved_settings["layout"], vsync=int(saved_settings["vsync"]),
+                     renderer=saved_settings["renderer"], api=saved_settings["graphicsApi"],
+                     backend=saved_settings["defaultBackend"].lower())
             call(arguments.port, "/quit")
         except OSError:
             pass
