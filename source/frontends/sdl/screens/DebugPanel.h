@@ -10,6 +10,7 @@
 
 struct DebugPanelState {
     float scroll = 0.0f;
+    float contentHeight = 0.0f;
 };
 
 // showBackend follows the control gadget's Advanced Settings section: closed, the backend and device rows are hidden.
@@ -17,4 +18,3 @@ struct DebugPanelState {
 void drawDebugPanel(Rect area, const SessionView& session, const FrameTimings& frames, DebugPanelState& state,
                     bool showBackend, std::string_view deviceDescription = {});
 void drawPortraitDebugStrip(Rect area, const SessionView& session, const FrameTimings& frames, bool showBackend);
-float debugContentHeight(const SessionView& session, bool showBackend);

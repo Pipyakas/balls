@@ -15,7 +15,9 @@
 // What the UI hands the physics thread each frame.
 struct PhysicsFrameInput {
     bool paused = false;
-    // The UI's last frame, so the capacity probe judges the whole game and not the physics thread alone.
+    // The UI's last frame, so the capacity probe judges the whole game and not the physics thread alone. The probe
+    // weighs the UI by its CPU and GPU time, which leave out waits for the display: with VSync, Vulkan's acquire and
+    // present block for the refresh, so the frame time alone would fail the probe with no balls at all.
     double uiFrameSeconds = 0.0;
     double uiWorkSeconds = 0.0;
     // The size of one visibility slot in board cells, set by how large the UI draws the board.
