@@ -105,6 +105,15 @@ namespace Balls.App
         /// <summary>The toast still on screen, or empty; benchmarks read it to tell what a step said.</summary>
         public string ToastText => toast.until > Time.realtimeSinceStartup ? toast.text : string.Empty;
 
+        /// <summary>
+        /// The game's Renderer value, renderer / API / adapter in one string ("Unity URP / Vulkan / AMD Radeon ..."); the
+        /// debug gadget and /state show the same text so benchmark runs record what they measured.
+        /// </summary>
+        public static string RendererText =>
+            rendererText ??= $"Unity URP / {SystemInfo.graphicsDeviceType} / {SystemInfo.graphicsDeviceName}";
+
+        private static string rendererText;
+
         /// <summary>Starts the control API on a loopback port; 0 leaves it off.</summary>
         public void StartControlApi(int port)
         {

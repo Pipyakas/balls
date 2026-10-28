@@ -66,13 +66,15 @@ namespace Balls.App
 
         protected override void OnUpdate()
         {
+            // A start request replaces a running session too: Next Level, Restart after the map changed on disk and
+            // the control API's /play all start a game from inside another one.
+            if (BallsInput.TryTakeStartRequest(out var request))
+            {
+                StartSession(request);
+                return;
+            }
             if (backend == null)
             {
-                if (!BallsInput.TryTakeStartRequest(out var request))
-                {
-                    return;
-                }
-                StartSession(request);
                 return;
             }
 

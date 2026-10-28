@@ -226,6 +226,42 @@ namespace Balls.Native
 
         [DllImport(Library)] private static extern int balls_pickable_kinds(string device, [Out] int[] kinds, int capacity);
 
+        [DllImport(Library)] private static extern int balls_picks_label(PickRecord[] picks, int count, byte[] buffer, int size);
+
+        [DllImport(Library)] private static extern int balls_kind_for_picks(PickRecord[] picks, int count);
+
+        private static PickRecord[] Records(IReadOnlyList<Pick> picks)
+        {
+            var records = new PickRecord[picks.Count];
+            for (int index = 0; index < picks.Count; ++index)
+            {
+                records[index] = new PickRecord { device = picks[index].device, kind = picks[index].kind };
+            }
+            return records;
+        }
+
+        private static string Text(byte[] buffer)
+        {
+            int end = Array.IndexOf(buffer, (byte)0);
+            return System.Text.Encoding.UTF8.GetString(buffer, 0, end < 0 ? buffer.Length : end);
+        }
+
+        /// <summary>"AVX2 (CPU) + CUDA (RTX 2060)", as the core labels picks.</summary>
+        public static string PicksLabel(IReadOnlyList<Pick> picks)
+        {
+            var buffer = new byte[256];
+            PickRecord[] records = Records(picks);
+            balls_picks_label(records, records.Length, buffer, buffer.Length);
+            return Text(buffer);
+        }
+
+        /// <summary>The backend the picks run as: Hybrid for two or more, the pick's own kind for one.</summary>
+        public static int KindForPicks(IReadOnlyList<Pick> picks)
+        {
+            PickRecord[] records = Records(picks);
+            return balls_kind_for_picks(records, records.Length);
+        }
+
         /// <summary>One device and the backend that runs on it; two or more picks run the composer.</summary>
         public readonly struct Pick
         {
@@ -270,25 +306,10 @@ namespace Balls.Native
             return length > 0 ? System.Text.Encoding.UTF8.GetString(buffer, 0, length) : string.Empty;
         }
 
-        [DllImport(Library)] private static extern int balls_kind_for_picks(PickRecord[] picks, int count);
-
-        /// <summary>Hybrid for two or more picks, the pick's kind for one.</summary>
-        public static int KindForPicks(IReadOnlyList<Pick> picks) => balls_kind_for_picks(ToRecords(picks), picks.Count);
-
-        private static PickRecord[] ToRecords(IReadOnlyList<Pick> picks)
-        {
-            var records = new PickRecord[picks.Count];
-            for (int index = 0; index < picks.Count; ++index)
-            {
-                records[index] = new PickRecord { device = picks[index].device, kind = picks[index].kind };
-            }
-            return records;
-        }
-
         /// <summary>Replaces the picks; false leaves the old ones and gives the core's reason.</summary>
         public static bool SetPicks(IReadOnlyList<Pick> picks, out string problem)
         {
-            PickRecord[] records = ToRecords(picks);
+            PickRecord[] records = Records(picks);
             var text = new byte[256];
             int ok = balls_picks_set(records, records.Length, text, text.Length);
             int end = Array.IndexOf(text, (byte)0);

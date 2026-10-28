@@ -85,26 +85,7 @@ namespace Balls.App.Screens
                 widgets.Label(new Rect(content.x, y, content.width, 22f), "Gameplay", TypeSizes.Small,
                     Palette.Accent, TextAnchor.UpperLeft, true);
                 y += 26f;
-                widgets.Label(new Rect(content.x, y, content.width, 22f), "Ball collisions", TypeSizes.Small,
-                    Palette.Text, TextAnchor.UpperLeft, false);
-                y += 26f;
-                if (widgets.OptionRow(new Rect(content.x, y, content.width, 36f), "Off", !settings.BallCollisions))
-                {
-                    settings.BallCollisions = false;
-                    App.ApplyBallCollisions(false);
-                    Apply(settings);
-                }
-                y += 40f;
-                if (widgets.OptionRow(new Rect(content.x, y, content.width, 36f), "On", settings.BallCollisions))
-                {
-                    settings.BallCollisions = true;
-                    App.ApplyBallCollisions(true);
-                    Apply(settings);
-                }
-                y += 40f;
-                widgets.Muted(new Rect(content.x, y, content.width, 60f),
-                    "Testing only - the game rules have balls\npass through each other.", TypeSizes.Small);
-                y += 50f;
+                y = SharedControls.DrawBallCollisions(App, widgets, content, y);
 
                 // Layout
                 widgets.Label(new Rect(content.x, y, content.width, 22f), "Layout orientation", TypeSizes.Small,
@@ -178,7 +159,14 @@ namespace Balls.App.Screens
                 }
                 y += 56f;
 
-                y = DrawDevicePicks(widgets, content, y);
+                y = SharedControls.DrawDevicePicks(App, widgets, content, y, App.DefaultBackendKind, picks =>
+                {
+                    // Saved as the core stores it: a kind's name, or Hybrid as its picks, so they come back on restart.
+                    int kind = BallsNative.KindForPicks(picks);
+                    settings.DefaultBackend = BallsNative.StoredBackendName(kind);
+                    App.SetBackend(kind);
+                    Apply(settings);
+                });
                 measuredHeight = Mathf.Max(730f, y - content.y + 24f);
             });
 
@@ -186,83 +174,6 @@ namespace Balls.App.Screens
             if (widgets.Button(back, "Back"))
             {
                 Close();
-            }
-        }
-
-        /// <summary>
-        /// The game's Devices rows: one per physical device, Off and one button per backend it runs. Each device takes at
-        /// most one backend, and two or more devices become the composer, which the core validates before it is stored.
-        /// </summary>
-        private float DrawDevicePicks(Widgets widgets, Rect content, float y)
-        {
-            widgets.Label(new Rect(content.x, y, content.width, 22f), "Devices", TypeSizes.Small, Palette.Accent,
-                TextAnchor.UpperLeft, true);
-            y += 26f;
-            List<BallsNative.Pick> picks = new(App.DefaultBackendKind >= 0
-                ? BallsNative.DisplayPicks(App.DefaultBackendKind)
-                : new List<BallsNative.Pick>());
-            foreach (BallsNative.PhysicsDevice device in BallsNative.Devices)
-            {
-                string chosen = null;
-                foreach (BallsNative.Pick pick in picks)
-                {
-                    if (pick.device == device.id)
-                    {
-                        chosen = BallsNative.BackendName(pick.kind);
-                    }
-                }
-                string name = device.type == 0 ? $"{device.name} (CPU)" : device.name;
-                widgets.Label(new Rect(content.x, y, content.width, 22f), name, TypeSizes.Small, Palette.Text,
-                    TextAnchor.UpperLeft, true);
-                y += 24f;
-                int[] kinds = BallsNative.PickableKinds(device.id);
-                float buttonWidth = (content.width - (kinds.Length) * 8f) / (kinds.Length + 1);
-                if (widgets.AccentButton(new Rect(content.x, y, buttonWidth, 32f), "Off", chosen == null,
-                        TypeSizes.Small))
-                {
-                    ApplyDevicePick(picks, device.id, -1);
-                }
-                for (int index = 0; index < kinds.Length; ++index)
-                {
-                    int kind = kinds[index];
-                    var button = new Rect(content.x + (index + 1) * (buttonWidth + 8f), y, buttonWidth, 32f);
-                    if (widgets.AccentButton(button, BallsNative.BackendName(kind), chosen == BallsNative.BackendName(kind),
-                            TypeSizes.Small))
-                    {
-                        ApplyDevicePick(picks, device.id, kind);
-                    }
-                }
-                y += 40f;
-            }
-            widgets.Muted(new Rect(content.x, y, content.width, 40f),
-                "One backend per device. Two or more devices\nrun as Hybrid, splitting the balls;\none runs that backend alone.",
-                TypeSizes.Small);
-            return y + 50f;
-        }
-
-        private void ApplyDevicePick(List<BallsNative.Pick> picks, string device, int kind)
-        {
-            picks.RemoveAll(pick => pick.device == device);
-            if (kind >= 0)
-            {
-                picks.Add(new BallsNative.Pick(device, kind));
-            }
-            if (picks.Count == 0)
-            {
-                // The design keeps the last device on, and the core refuses an empty list for the same reason.
-                App.Toast("The last device cannot be turned off", true);
-                return;
-            }
-            if (BallsNative.SetPicks(picks, out string problem))
-            {
-                // The picks become the default backend, saved as picks so they come back on the next start.
-                App.Settings.DefaultBackend = BallsNative.StoredBackendName(BallsNative.KindForPicks(picks));
-                Apply(App.Settings);
-                App.Toast(kind >= 0 ? $"Device: {BallsNative.BackendName(kind)}" : "Device off");
-            }
-            else
-            {
-                App.Toast($"Cannot use that backend: {problem}", true);
             }
         }
 

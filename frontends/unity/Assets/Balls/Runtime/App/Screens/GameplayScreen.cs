@@ -20,7 +20,6 @@ namespace Balls.App.Screens
         private const float LauncherMaxSize = 110f;
         private const float LauncherGapShare = 0.18f;
         private const float GadgetPadding = 12f;
-        private const float LauncherBackendHeight = 24f + BallsNative.BackendCount * 38f + 12f;
         private const float LauncherHeaderHeight = 24f;
         private const float BrickLabelShare = 0.55f;
         private const float MinimumLabelPixels = 9f;
@@ -37,8 +36,11 @@ namespace Balls.App.Screens
             return HitLabels[hits] ??= hits.ToString();
         }
         private const float TwoColumnWidth = 2f * 220f + 16f;
-        private const float ProbeContentHeight = 204f;
-        private const float SpawnContentHeight = 158f;
+        private const float ReleaseHeight = 62f;
+        private const float LauncherTapSlop = 8f;
+        private const float LauncherHoverBrighten = 0.25f;
+
+        private Vector2 launcherPressStart;
         private const int LauncherBallsPerLauncher = 1;
 
         private CoreLayout layout;
@@ -63,6 +65,7 @@ namespace Balls.App.Screens
         private int multiplierIndex;
         private int limitIndex;
         private bool advancedOpen;
+        private float performanceContentHeight = 600f;
         private bool autoLimit;
         private bool probeRecorded;
         private GameBackend syncedBackend;
@@ -131,15 +134,24 @@ namespace Balls.App.Screens
         /// <summary>A capacity probe result saved for this backend becomes the Auto ball limit of a new Performance game.</summary>
         private void ReapplySavedLimit(GameBackend backend)
         {
-            string name = BallsNative.BackendName(backend.BackendKind);
-            if (backend.Mode != BallsApp.PerformanceMode || !App.Profile.TryLimit(backend.BackendKind, out ulong balls, out double fps))
+            if (backend.Mode != BallsApp.PerformanceMode)
             {
                 return;
             }
-            backend.UseMachineLimit(balls);
+            // Every Performance game starts on Auto, as in SDL: the remembered limit when it was measured at this
+            // target, otherwise a fresh probe.
             limitIndex = 0;
             autoLimit = true;
-            App.Toast($"{name} limit {balls:N0} balls @{fps:F0} FPS");
+            string name = BallsNative.BackendName(backend.BackendKind);
+            if (App.Profile.TryLimit(backend.BackendKind, out ulong balls, out double fps) && Mathf.RoundToInt((float)fps) == probeTargetFps)
+            {
+                backend.UseMachineLimit(balls);
+                App.Toast($"{name} limit {balls:N0} balls @{fps:F0} FPS");
+            }
+            else
+            {
+                backend.StartProbe(probeTargetFps);
+            }
         }
 
         /// <summary>Saves a finished capacity probe per machine and backend so the next run starts from it.</summary>
@@ -254,6 +266,9 @@ namespace Balls.App.Screens
 
         /// <summary>Opens or closes the control gadget's Advanced Settings section, as its row does.</summary>
         public void SetAdvancedOpen(bool open) => advancedOpen = open;
+
+        /// <summary>Scrolls the control gadget to its end, so a conformance shot can cover Advanced Settings.</summary>
+        public void ScrollControlsToEnd() => interactionScroll.y = 100000f;
 
         /// <summary>Drops the cached layout, so a Settings change (orientation) is applied on the next frame.</summary>
         public void RefreshLayout() => hasLayout = false;
@@ -505,7 +520,7 @@ namespace Balls.App.Screens
                             continue;
                         }
                         Rect slot = new Rect(startX + column * (size + gap), startY + row * (size + gap), size, size);
-                        DrawLauncherSlot(widgets, launchers[index], slot, row == 0);
+                        DrawLauncherSlot(widgets, launchers[index], slot, row == 0, session);
                     }
                 }
             }
@@ -525,11 +540,9 @@ namespace Balls.App.Screens
                 DrawPortraitLauncherRows(widgets, board, session, new Rect(inner.x, inner.y, inner.width, inner.height));
                 return;
             }
-            Rect physics = new Rect(inner.x, inner.yMax - LauncherBackendHeight, inner.width, LauncherBackendHeight);
-            DrawBackendChoices(widgets, session, physics);
-
-            float advancedSectionHeight = advancedOpen ? 34f + 24f + AvailableBackendCount() * 38f + 10f : 34f;
-            float launcherRegionHeight = inner.height - LauncherBackendHeight - 8f - advancedSectionHeight;
+            // Under the launchers, the collapsible Advanced Settings with the Physics list and Ball collisions.
+            DrawAdvancedSection(widgets, session, inner);
+            float launcherRegionHeight = inner.height - 8f - AdvancedSectionHeight();
             widgets.Label(new Rect(inner.x, inner.y, inner.width, LauncherHeaderHeight), "Launchers",
                 TypeSizes.Value, Palette.Accent, TextAnchor.UpperLeft, true);
             Rect grid = new Rect(inner.x, inner.y + LauncherHeaderHeight + 6f, inner.width,
@@ -538,7 +551,6 @@ namespace Balls.App.Screens
             if (session.launcherRemaining <= 0)
             {
                 widgets.Muted(new Rect(grid.x, grid.y + 8f, grid.width, 28f), "All launchers released", TypeSizes.Medium);
-                DrawAdvancedSection(widgets, session, inner);
                 return;
             }
 
@@ -572,7 +584,7 @@ namespace Balls.App.Screens
                         {
                             continue;
                         }
-                        DrawLauncherSlot(widgets, launcher, slot, row == 0);
+                        DrawLauncherSlot(widgets, launcher, slot, row == 0, session);
                     }
                 }
             }
@@ -582,17 +594,35 @@ namespace Balls.App.Screens
             }
         }
 
-        private void DrawLauncherSlot(Widgets widgets, LauncherElement launcher, Rect slot, bool front)
+        private void DrawLauncherSlot(Widgets widgets, LauncherElement launcher, Rect slot, bool front,
+            SessionInfo session)
         {
+            Rect pixels = App.Theme.Units(slot.x, slot.y, slot.width, slot.height);
+            Event current = Event.current;
+            if (current.type == EventType.MouseDown)
+            {
+                launcherPressStart = current.mousePosition;
+            }
             Color color = Palette.Balls[Mathf.Clamp(launcher.color, 0, Palette.Balls.Length - 1)];
+            // Hover brightens only while the game runs unpaused; touch has no hover.
+            if (session.state == BallsNative.StateRunning && !paused && current.type == EventType.Repaint &&
+                pixels.Contains(current.mousePosition) && Input.touchCount == 0)
+            {
+                color = Color.Lerp(color, Color.white, LauncherHoverBrighten);
+            }
             float fade = front ? 1f : 0.55f;
             App.Theme.Frame(slot, UiTheme.WithAlpha(color, fade), UiTheme.WithAlpha(Color.white, 0.10f));
             widgets.Label(new Rect(slot.x, slot.y + slot.height * 0.5f - 12f, slot.width, 24f),
                 launcher.ballCount.ToString(), TypeSizes.Label, Palette.Background, TextAnchor.MiddleCenter, true);
 
-            if (GUI.Button(App.Theme.Units(slot.x, slot.y, slot.width, slot.height), GUIContent.none, GUIStyle.none))
+            if (GUI.Button(pixels, GUIContent.none, GUIStyle.none))
             {
-                BallsInput.ClickLauncher(launcher.column, launcher.row);
+                // Portrait releases on the tap's release; a press that travelled over 8 units was a drag, not a tap.
+                float travel = (current.mousePosition - launcherPressStart).magnitude / App.Theme.Scale;
+                if (!layout.Portrait || travel <= LauncherTapSlop)
+                {
+                    BallsInput.ClickLauncher(launcher.column, launcher.row);
+                }
             }
         }
 
@@ -603,24 +633,19 @@ namespace Balls.App.Screens
             Rect gadget = layout.Interaction;
             Rect inner = widgets.Gadget(gadget, null);
             bool compactLayout = inner.width < TwoColumnWidth;
-            float physicsHeight = 24f + AvailableBackendCount() * 38f;
-            float gpuHeight = GpuChoicesHeight();
-            float advancedHeight = advancedOpen
-                ? 38f + (compactLayout ? physicsHeight + 12f + gpuHeight : Mathf.Max(physicsHeight, gpuHeight))
-                : 38f;
-            float contentHeight = 52f + ProbeContentHeight + SpawnContentHeight + advancedHeight + 48f;
             float y = 0f;
-            widgets.ScrollColumn(inner, contentHeight, ref interactionScroll, content =>
+            widgets.ScrollColumn(inner, performanceContentHeight, ref interactionScroll, content =>
             {
                 y = content.y;
                 bool compact = compactLayout;
                 float physicsHeight = 24f + AvailableBackendCount() * 38f;
                 float gpuHeight = GpuChoicesHeight();
-                y += DrawReleaseAndProbe(widgets, backend, session, content, y);
+                y += DrawRelease(session, content, y);
                 y += DrawSpawnControls(widgets, backend, content, y);
                 y += DrawAdvancedToggle(widgets, content, y);
                 if (!advancedOpen)
                 {
+                    performanceContentHeight = y - content.y + 24f;
                     return;
                 }
                 if (compact)
@@ -641,44 +666,53 @@ namespace Balls.App.Screens
                     DrawGpuChoices(widgets, gpuGroup);
                     y += Mathf.Max(physicsHeight, gpuHeight);
                 }
+                // Devices, then Ball collisions last, both across the full width.
+                y = SharedControls.DrawDevicePicks(App, widgets, content, y + 12f, session.backend, SwitchToPicks);
+                y = SharedControls.DrawBallCollisions(App, widgets, content, y + 4f);
+                performanceContentHeight = y - content.y + 24f;
             });
         }
 
-        private float DrawReleaseAndProbe(Widgets widgets, GameBackend backend, SessionInfo session, Rect content, float y)
+        /// <summary>The game's Release row: Start (1 click), then a disabled Auto releasing - N launchers left.</summary>
+        private float DrawRelease(SessionInfo session, Rect content, float y)
         {
+            Widgets widgets = App.Widgets;
+            var row = new Rect(content.x, y, content.width, 52f);
             if (session.launcherRemaining > 0 && !IsAutoReleasing(session))
             {
-                if (widgets.AccentButton(new Rect(content.x, y, content.width, 52f), "Start", true, TypeSizes.Medium))
+                if (widgets.AccentButton(row, "Start (1 click)", true, TypeSizes.Label))
                 {
                     BallsInput.RequestAutoRelease();
                 }
             }
             else
             {
-                widgets.Label(new Rect(content.x, y, content.width, 52f),
-                    $"Auto releasing — {session.launcherRemaining} launchers left", TypeSizes.Label,
-                    Palette.TextMuted, TextAnchor.MiddleLeft);
+                widgets.Button(row, $"Auto releasing - {session.launcherRemaining:N0} launchers left", TypeSizes.Label,
+                    false);
             }
-            y += 62f;
+            return ReleaseHeight;
+        }
 
-            widgets.Label(new Rect(content.x, y, content.width, 22f), "Capacity probe", TypeSizes.Small,
-                Palette.Accent, TextAnchor.UpperLeft, true);
-            y += 26f;
-            if (widgets.Stepper(new Rect(content.x, y, content.width, 36f), "Target FPS", ref probeTargetFps, 10, 1000, out _))
+        private static string ProbeStatus(GameBackend backend)
+        {
+            if (backend == null)
             {
-                backend?.StartProbe(probeTargetFps);
+                return string.Empty;
             }
-            y += 42f;
-            string probeText = backend == null ? "" :
-                backend.ProbeActive ? $"Probing… {backend.ProbeBest:N0} balls, {(int)backend.ProbeFps} fps"
-                : backend.ProbeBest > 0 ? $"Max @{(int)backend.ProbeTargetFps} FPS: {backend.ProbeBest:N0}"
-                : $"Target {(int)backend.ProbeTargetFps} FPS";
-            if (widgets.Button(new Rect(content.x, y, content.width, 40f), "Find max balls", TypeSizes.Label))
+            if (backend.ProbeActive)
             {
-                backend?.StartProbe(probeTargetFps);
+                return $"Probing... {backend.ProbeBest:N0}, {backend.ProbeFps:F0}";
             }
-            widgets.Muted(new Rect(content.x, y + 44f, content.width, 22f), probeText, TypeSizes.Small);
-            return ProbeContentHeight;
+            return backend.ProbeBest > 0
+                ? $"Max @{backend.ProbeTargetFps:F0} FPS: {backend.ProbeBest:N0}"
+                : $"Target {backend.ProbeTargetFps:F0} FPS";
+        }
+
+        /// <summary>Applies picks changed in the gadget to this game only, as the game's in-game Devices rows do.</summary>
+        private void SwitchToPicks(List<BallsNative.Pick> picks)
+        {
+            App.SwitchBackend(BallsNative.KindForPicks(picks));
+            App.Toast($"Physics on {BallsNative.PicksLabel(picks)}");
         }
 
         private float DrawSpawnControls(Widgets widgets, GameBackend backend, Rect content, float y)
@@ -700,7 +734,21 @@ namespace Balls.App.Screens
             {
                 SelectBallLimit(backend);
             }
-            return SpawnContentHeight;
+            y += 42f;
+            float height = 24f + 3 * 42f;
+            if (limitIndex == 0)
+            {
+                // Auto: the probe's target sits under the dropdown, with no separate probe button; changing the
+                // target probes again.
+                if (widgets.Stepper(new Rect(content.x, y, content.width, 36f), "Target FPS", ref probeTargetFps, 10,
+                        1000, out _))
+                {
+                    backend?.StartProbe(probeTargetFps);
+                }
+                widgets.Muted(new Rect(content.x, y + 40f, content.width, 22f), ProbeStatus(backend), TypeSizes.Small);
+                height += 70f;
+            }
+            return height;
         }
 
         /// <summary>The game's collapsible Advanced Settings header: a row with a chevron, remembered in the settings.</summary>
@@ -720,9 +768,13 @@ namespace Balls.App.Screens
         }
 
         /// <summary>Draws the toggle at the bottom of the launcher gadget, and the Physics group under it when open.</summary>
+        private float AdvancedSectionHeight() => advancedOpen
+            ? 58f + AvailableBackendCount() * 38f + 8f + SharedControls.BallCollisionsHeight()
+            : 34f;
+
         private void DrawAdvancedSection(Widgets widgets, SessionInfo session, Rect inner)
         {
-            float height = advancedOpen ? 58f + AvailableBackendCount() * 38f : 34f;
+            float height = AdvancedSectionHeight();
             Rect area = new Rect(inner.x, inner.yMax - height, inner.width, height);
             float y = area.y;
             y += DrawAdvancedToggle(widgets, area, y);
@@ -732,6 +784,7 @@ namespace Balls.App.Screens
             }
             Rect physicsGroup = new Rect(area.x, y + 6f, area.width, 24f + AvailableBackendCount() * 38f);
             DrawBackendChoices(widgets, session, physicsGroup);
+            SharedControls.DrawBallCollisions(App, widgets, area, physicsGroup.yMax + 8f);
         }
 
         private void DrawBackendChoices(Widgets widgets, SessionInfo session, Rect area)
@@ -883,7 +936,7 @@ namespace Balls.App.Screens
             bool probeShown = backend != null && backend.ProbePhase != 0;
             bool fault = backend != null && !string.IsNullOrEmpty(backend.LastFault);
             bool collisionsWanted = App.Settings != null && App.Settings.BallCollisions;
-            float contentHeight = 620f + (string.IsNullOrEmpty(device) ? 0f : 46f) + (probeShown ? 46f : 0f) +
+            float contentHeight = 666f + (string.IsNullOrEmpty(device) ? 0f : 46f) + (probeShown ? 46f : 0f) +
                                   (fault ? 52f : 0f);
             widgets.ScrollColumn(inner, contentHeight, ref debugScroll, content =>
             {
@@ -916,11 +969,15 @@ namespace Balls.App.Screens
                 }
                 if (advancedOpen && !string.IsNullOrEmpty(device))
                 {
-                    widgets.Readout(new Rect(content.x, y, content.width, 40f), "Device", device);
+                    widgets.Readout(new Rect(content.x, y, content.width, 40f), "Device",
+                        widgets.Ellipsize(device, TypeSizes.Value, content.width));
                     y += 46f;
                 }
                 if (advancedOpen)
                 {
+                    widgets.Readout(new Rect(content.x, y, content.width, 40f), "Renderer",
+                        widgets.Ellipsize(BallsApp.RendererText, TypeSizes.Value, content.width));
+                    y += 46f;
                     widgets.Readout(new Rect(content.x, y, content.width, 40f), "Ball collisions",
                         stats.collisions ? "On" : collisionsWanted ? "On (unsupported)" : "Off",
                         collisionsWanted && !stats.collisions ? Palette.Danger : (Color?)null);

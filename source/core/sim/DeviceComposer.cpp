@@ -439,10 +439,14 @@ void DeviceComposer::step(const StepParams& params, std::vector<BallHit>& hits) 
         splitBrickBudgets();
         lastBudgetMs += millisecondsSince(start);
     }
+    // A part that is itself a composer (VulkanMulti) may move balls between its devices inside its step; that step
+    // says nothing about its speed, and timing it would shift balls away from it, so it goes unmeasured.
     const auto stepPart = [&params](Part& part) {
+        const auto* nested = dynamic_cast<const DeviceComposer*>(part.backend.get());
+        const size_t movesBefore = nested ? nested->movingStepCount() : 0;
         const Clock::time_point start = Clock::now();
         part.backend->step(params, part.hits);
-        part.lastMs = millisecondsSince(start);
+        part.lastMs = nested && nested->movingStepCount() != movesBefore ? 0.0 : millisecondsSince(start);
     };
     std::vector<std::future<void>> helpers;
     helpers.reserve(parts.size());

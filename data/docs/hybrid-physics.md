@@ -211,15 +211,21 @@ settle; the two-GPU desktop numbers the RX 6700 XT `gpu0` and the RTX 2060 `gpu1
 | Hybrid CUDA + Vulkan (RX) | 28.0 G | 31.2 G |
 | **Hybrid CUDA + ROCm** | **29.6 G** | **33.1 G** |
 | Hybrid Zen4 + CUDA + ROCm | 30.0 G (CPU parked) | 32.3 G (CPU parked) |
-| Hybrid Zen4 + VulkanMulti | 22.3 G (CPU parked) | 22.5 G (CPU parked) |
+| Hybrid Zen4 + VulkanMulti | 24.5 G (CPU parked) | 22.3-24.5 G (CPU parked) |
 
 - ROCm beats Vulkan on the same RX by 13-14%, and CUDA + ROCm splits the balls about 50/50 where CUDA + Vulkan
   settles at 57/43. A full 32M-ball game (`--full`) ends with the same balls and bricks on both (31,999,322 and
   336), at 2.12 ms per tick for ROCm and 2.42 ms for Vulkan.
 - The CPU is parked in every set with a GPU: a Ryzen 7 7700 steps about a seventeenth of what one of these GPUs
   does.
-- Zen4 + VulkanMulti stays about 10-20% below VulkanMulti alone even over 6000 ticks, with the CPU parked and both
-  GPUs stepping; the cause is not pinned down (the nested composer's step adds 0.2-0.3 ms over VulkanMulti's).
-  Picking the GPUs as separate parts (`Zen4@cpu+Vulkan@gpu0+Vulkan@gpu1`) runs at the two-GPU speed (24.5 G at
-  32M in the same session).
+- Zen4 + VulkanMulti matches VulkanMulti alone at 32M (24.5 G against 24.8 G in the same session). At 96M it
+  trails by 7-15% over 1500 ticks and by 3% over 4500: the remainder is warm-up, the CPU being handed balls, timed
+  and parked. It used to trail by 20% for two reasons, both fixed:
+  - The outer composer timed VulkanMulti's steps that included its own moves between the GPUs (60-80 ms each) as
+    stepping, so it handed half the balls to the CPU and had to move them all back. A nested composer's step that
+    moved balls is no longer measured.
+  - Each GPU backend picks how often to sort its balls by trying the intervals for a few dozen ticks
+    (`SortSchedule`). The trial ran while balls were still arriving, chose never to sort, and the RTX lost a fifth
+    of its speed over the next 1200 ticks as balls drifted out of order. A trial window that sees a bulk arrival
+    (a thirty-second of the balls or more) is now measured again.
 - Run-to-run noise on the two-GPU desktop is about 5-8%; VulkanMulti and the two-part Vulkan Hybrid trade places between runs.

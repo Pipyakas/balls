@@ -499,6 +499,7 @@ void VulkanBackend::addBalls(std::span<const BallSpawn> spawns) {
     commands->writeBuffer(packedBalls, packedToAdd.data(), packedToAdd.size() * sizeof(uint32_t), byteOffset);
     execute(commands);
     count += spawns.size();
+    sortSchedule.ballsAdded(spawns.size(), count);
     snapshotFresh = false;
 }
 
@@ -772,6 +773,7 @@ bool VulkanBackend::addCompact(const CompactBalls& added) {
     commands->writeBuffer(packedBalls, packed.data(), addedCount * sizeof(uint32_t), byteOffset);
     execute(commands);
     count += addedCount;
+    sortSchedule.ballsAdded(addedCount, count);
     snapshotFresh = false;
     return !isFaulted();
 }
