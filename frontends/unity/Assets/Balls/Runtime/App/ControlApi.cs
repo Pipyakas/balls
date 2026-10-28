@@ -372,6 +372,7 @@ namespace Balls.App
                         Error(request, 400, "layout must be auto, landscape or portrait");
                         return;
                 }
+                app.ApplyOrientation();
                 app.Get<Screens.GameplayScreen>().RefreshLayout();
             }
             if (query.TryGetValue("backend", out string backend))
@@ -429,6 +430,10 @@ namespace Balls.App
                 text.Append(",\"collisions\":").Append(stats.collisions ? "true" : "false");
             }
             text.Append(",\"toast\":").Append(Json(app.ToastText));
+            text.Append(",\"screenWidth\":").Append(UnityEngine.Screen.width);
+            text.Append(",\"screenHeight\":").Append(UnityEngine.Screen.height);
+            text.Append(",\"fullScreen\":").Append(UnityEngine.Screen.fullScreen ? "true" : "false");
+            text.Append(",\"orientation\":").Append(Json(app.Settings?.OrientationName.ToLowerInvariant() ?? "auto"));
             text.Append('}');
             return text.ToString();
         }
