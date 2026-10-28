@@ -376,6 +376,19 @@ BALLS_API int32_t balls_settings_save(const char* path, const BallsSettings* set
 
 BALLS_API BallsSession* balls_session_create(int32_t mode, const char* levelDirectory, const char* levelName,
                                              int32_t backend);
+// The same session run by the core's SessionRunner: physics on its own thread, commands posted to it and every read
+// answered from the latest view it published, so a long physics step never holds up a rendered frame. Every
+// balls_session_* call works on it; balls_session_update hands over the frame instead of stepping, and reads change
+// only at the next update.
+BALLS_API BallsSession* balls_session_create_threaded(int32_t mode, const char* levelDirectory, const char* levelName,
+                                                      int32_t backend);
+BALLS_API int32_t balls_session_threaded(const BallsSession* session);
+// A threaded session reports what turning ball collisions on did a frame or two later: the next BALLS_COLLISIONS_*
+// change, or 0 when there is none. A session on the caller's thread returns the change from set_ball_collisions.
+BALLS_API int32_t balls_session_take_collisions_change(BallsSession* session);
+// How long the physics thread took for its last frame and how many it completes a second; 0 on the caller's thread.
+BALLS_API double balls_session_physics_frame_ms(const BallsSession* session);
+BALLS_API double balls_session_physics_fps(const BallsSession* session);
 BALLS_API void balls_session_destroy(BallsSession* session);
 
 // Re-reads a level from disk. Returns 0 on success.

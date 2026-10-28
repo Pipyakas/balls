@@ -295,9 +295,15 @@ std::vector<SessionEvent> SessionRunner::takeEvents() {
     return std::exchange(shared->events, {});
 }
 
-void describeSession(const GameSession& session, SessionView& view) {
+void describeSession(const GameSession& session, SessionView& view, const SessionView* previous) {
     describeSessionState(session, view);
-    view.board = std::make_shared<const BrickBoard>(session.simulation().board());
+    const BrickBoard& board = session.simulation().board();
+    // Like the physics thread's views, a board that has not changed is shared rather than copied.
+    if (previous && previous->board && previous->board->revision() == board.revision() && !board.isAnimating()) {
+        view.board = previous->board;
+    } else {
+        view.board = std::make_shared<const BrickBoard>(board);
+    }
 }
 
 bool SessionRunner::waitForStoppedRunners(std::chrono::milliseconds timeout) {

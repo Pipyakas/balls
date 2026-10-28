@@ -307,6 +307,16 @@ namespace Balls.Native
 
         [DllImport(Library)] public static extern void balls_session_destroy(IntPtr session);
 
+        [DllImport(Library)] public static extern IntPtr balls_session_create_threaded(int mode, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelDirectory, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelName, int backend);
+
+        [DllImport(Library)] public static extern int balls_session_threaded(IntPtr session);
+
+        [DllImport(Library)] public static extern int balls_session_take_collisions_change(IntPtr session);
+
+        [DllImport(Library)] public static extern double balls_session_physics_frame_ms(IntPtr session);
+
+        [DllImport(Library)] public static extern double balls_session_physics_fps(IntPtr session);
+
         [DllImport(Library)] public static extern int balls_session_load_level(IntPtr session, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelDirectory, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelName);
 
         [DllImport(Library)] public static extern int balls_session_restart(IntPtr session);

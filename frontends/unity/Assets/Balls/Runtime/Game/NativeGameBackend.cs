@@ -16,9 +16,17 @@ namespace Balls.Game
         private BoardFrame frame;
         private BackendStats stats;
 
+        /// <summary>
+        /// Runs the session on the core's physics thread (SessionRunner) instead of inside Update, so a long physics
+        /// step overlaps rendering instead of adding to the frame. Set from <c>-balls-physics-thread</c>.
+        /// </summary>
+        public static bool UsePhysicsThread { get; set; }
+
         public NativeGameBackend(int mode, string levelDirectory, string levelName, int backendKind)
         {
-            session = BallsNative.balls_session_create(mode, levelDirectory, levelName, backendKind);
+            session = UsePhysicsThread
+                ? BallsNative.balls_session_create_threaded(mode, levelDirectory, levelName, backendKind)
+                : BallsNative.balls_session_create(mode, levelDirectory, levelName, backendKind);
             if (session == IntPtr.Zero)
             {
                 throw new InvalidOperationException($"cannot open level {levelName}: {BallsNative.LastError()}");
@@ -162,6 +170,11 @@ namespace Balls.Game
         public override bool BallCollisions => BallsNative.balls_session_ball_collisions(session) != 0;
 
         public override int SetBallCollisions(bool enabled) => BallsNative.balls_session_set_ball_collisions(session, enabled ? 1 : 0);
+
+        public override int TakeCollisionsChange() => BallsNative.balls_session_take_collisions_change(session);
+
+        public override double PhysicsThreadFps =>
+            BallsNative.balls_session_threaded(session) != 0 ? BallsNative.balls_session_physics_fps(session) : -1.0;
 
         public override void CancelProbe() => BallsNative.balls_session_cancel_capacity_probe(session);
 

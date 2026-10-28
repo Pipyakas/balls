@@ -72,7 +72,8 @@ struct SessionView {
     double physicsFramesPerSecond = 0.0;
 };
 
-// Fills everything in a view but the balls from the session as it is now, with a copy of its board. The physics
+// Fills everything in a view but the balls from the session as it is now, with its board copied, or shared with the
+// previous view when it has not changed. The physics
 // thread builds its views this way; a front end that ticks the session on its game thread uses it to read the session
 // the same way, for the control API's state.
-void describeSession(const GameSession& session, SessionView& view);
+void describeSession(const GameSession& session, SessionView& view, const SessionView* previous = nullptr);

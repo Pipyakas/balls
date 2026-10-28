@@ -101,6 +101,10 @@ namespace Balls.App
             float deltaSeconds = SystemAPI.Time.DeltaTime;
             backend.Update(deltaSeconds);
             backend.ReportFrame(deltaSeconds, backend.Stats.physicsMs / 1000.0);
+            if (backend.TakeCollisionsChange() is int change && change != 0)
+            {
+                Notice = BallsNative.BallCollisionsMessage(change);
+            }
 
             if (backend.Frame.revision != frame.revision || backend.Frame.paddedCellCount != frame.paddedCellCount)
             {
@@ -246,7 +250,7 @@ namespace Balls.App
                 spawned = stats.spawned,
                 hits = stats.hits,
                 physicsMs = stats.physicsMs,
-                physicsFps = m_physicsFps,
+                physicsFps = backend.PhysicsThreadFps >= 0.0 ? backend.PhysicsThreadFps : m_physicsFps,
                 ticks = stats.ticks,
                 color0 = stats.red,
                 color1 = stats.orange,
