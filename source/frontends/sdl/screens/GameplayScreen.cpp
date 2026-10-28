@@ -124,7 +124,8 @@ void GameplayScreen::loadSession() {
         return;
     }
     loadError.clear();
-    session = std::make_unique<GameSession>(mode, std::move(*level), app.preferredBackend());
+    session = std::make_unique<GameSession>(mode, std::move(*level), app.preferredBackend(),
+                                            app.settings().ticksPerSecond);
     applyDefaultBallLimit();
 }
 

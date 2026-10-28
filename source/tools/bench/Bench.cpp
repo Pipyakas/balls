@@ -179,6 +179,12 @@ int runAccuracy(const BenchOptions& options, const BrickLayout& level) {
         {"empty box, not drawn", emptyBoard(level.width, level.playableHeight), boxBalls, false, boxFrames, 2, 60, true,
          false},
         {"level, launched, not drawn", level, levelBalls, true, levelFrames, 2, 60, true, false},
+        {"empty box, 240 Hz", emptyBoard(level.width, level.playableHeight), boxBalls, false, boxFrames, 2, 60, true,
+         true, 240},
+        {"level, launched, 240 Hz", level, levelBalls, true, levelFrames, 2, 60, true, true, 240},
+        {"empty box, 480 Hz", emptyBoard(level.width, level.playableHeight), boxBalls, false, boxFrames, 2, 60, true,
+         true, 480},
+        {"level, launched, 480 Hz", level, levelBalls, true, levelFrames, 2, 60, true, true, 480},
     };
     for (const AccuracyScenario& scenario : scenarios) {
         std::printf("== %s: %zu balls, %d frames\n", scenario.name.c_str(), scenario.balls, scenario.frames);

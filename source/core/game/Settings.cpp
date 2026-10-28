@@ -1,6 +1,7 @@
 #include "game/Settings.h"
 
 #include <algorithm>
+#include <charconv>
 #include <array>
 #include <cctype>
 #include <format>
@@ -14,6 +15,7 @@ constexpr std::string_view collisionsKey = "ballCollisions";
 constexpr std::string_view layoutKey = "layout";
 constexpr std::string_view vsyncKey = "vsync";
 constexpr std::string_view drawBoardKey = "drawBoard";
+constexpr std::string_view ticksPerSecondKey = "physicsRate";
 constexpr std::string_view defaultBackendKey = "defaultBackend";
 constexpr std::string_view rendererKey = "renderer";
 constexpr std::string_view graphicsApiKey = "graphicsApi";
@@ -93,11 +95,12 @@ std::string normalizeGraphicsApiName(std::string_view api) {
 }
 
 std::string serializeSettings(const Settings& settings) {
-    return std::format("{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n",
+    return std::format("{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n",
                        collisionsKey, settings.ballCollisions ? "on" : "off",
                        layoutKey, orientationName(settings.layout),
                        vsyncKey, settings.vsync ? "on" : "off",
                        drawBoardKey, settings.drawBoard ? "on" : "off",
+                       ticksPerSecondKey, settings.ticksPerSecond,
                        defaultBackendKey, settings.defaultBackend,
                        rendererKey, normalizeRendererName(settings.renderer),
                        graphicsApiKey, normalizeGraphicsApiName(settings.graphicsApi));
@@ -125,6 +128,12 @@ Settings parseSettings(std::string_view text) {
             settings.vsync = parseFlag(value).value_or(settings.vsync);
         } else if (key == drawBoardKey) {
             settings.drawBoard = parseFlag(value).value_or(settings.drawBoard);
+        } else if (key == ticksPerSecondKey) {
+            int rate = 0;
+            const auto [end, error] = std::from_chars(value.data(), value.data() + value.size(), rate);
+            if (error == std::errc{} && rate >= 30 && rate <= 1920) {
+                settings.ticksPerSecond = rate;
+            }
         } else if (key == defaultBackendKey) {
             settings.defaultBackend = std::string(value);
         } else if (key == rendererKey) {

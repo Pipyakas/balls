@@ -5,12 +5,13 @@
 #include <algorithm>
 #include <chrono>
 
-GameSession::GameSession(GameMode mode, LevelData level, BackendKind backend)
+GameSession::GameSession(GameMode mode, LevelData level, BackendKind backend, int ticksPerSecond)
     : gameMode(mode), levelData(std::move(level)), backendKind(backend),
       physicsSimulation(createBackend(isBackendAvailable(backend) ? backend : BackendKind::Scalar)) {
     if (!isBackendAvailable(backend)) {
         backendKind = BackendKind::Scalar;
     }
+    physicsSimulation.setTicksPerSecond(ticksPerSecond);
     restart();
 }
 

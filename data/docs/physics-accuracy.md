@@ -41,6 +41,15 @@ these look depends on the launch's random draw: with the original sequential gen
 hits, with the per-ball hashed launch (parallel generation) 22-46% and 10-35 hits, Scalar included, while the board
 clears on the same frame with the same total.
 
+## Physics rate
+
+Settings > Advanced > Physics rate (120, 240 or 480 ticks a second; `physicsRate` in the settings file) checks
+contacts more often for the same game time. On the launched level the hit curve's worst gap to the reference falls
+from 17-18% at 120 Hz to 2.3-2.5% at 240 Hz (7% at 480 Hz, against a 0.9-1.4% noise floor), and brick counts come
+within 4-13%; the empty box is unchanged, since free flight is exact at any rate. Each doubling doubles the stepping
+work, so it is for hardware with time to spare; on boards over about 1000 cells tall a 480 Hz tick moves a ball less
+than one unit of the 16-bit position, and only the dithered rounding keeps it unbiased.
+
 ## What it has caught
 
 - Stepped balls drifted 0.12 cells in 10 s (0.2% speed error per axis): every frame a stepped position was rounded

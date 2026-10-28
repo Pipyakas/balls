@@ -10,10 +10,14 @@
 #include <random>
 #include <vector>
 
+inline constexpr int defaultTicksPerSecond = 120;
+// A slow frame catches up at most this much game time; past it the game slows down instead of stalling.
+inline constexpr float longestCatchUpSeconds = 4.0f / defaultTicksPerSecond;
+
 struct SimulationTuning {
     float ballRadius = 0.2f;
     float ballSpeed = 14.0f;
-    float tickSeconds = 1.0f / 120.0f;
+    float tickSeconds = 1.0f / defaultTicksPerSecond;
     int maxTicksPerFrame = 4;
     int retargetBounceThreshold = 3;
     float launchHalfAngleDegrees = 55.0f;
@@ -61,6 +65,8 @@ public:
     StepParams stepParams(int substeps = 1) const;
 
     void setBallCollisions(bool enabled);
+    // Only before balls are added: a held free-flight epoch counts ticks of the old length.
+    void setTicksPerSecond(int ticksPerSecond);
     bool ballCollisionsRequested() const { return ballCollisionsWanted; }
     bool ballCollisionsActive() const { return ballCollisionsWanted && physics->supportsBallCollisions(); }
 

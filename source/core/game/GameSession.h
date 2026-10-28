@@ -23,7 +23,7 @@ inline constexpr int probeSlowFramesToDropBacklog = 6;
 
 class GameSession {
 public:
-    GameSession(GameMode mode, LevelData level, BackendKind backend);
+    GameSession(GameMode mode, LevelData level, BackendKind backend, int ticksPerSecond = defaultTicksPerSecond);
 
     void restart();
     void reload(LevelData level);

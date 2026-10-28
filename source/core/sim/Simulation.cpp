@@ -53,6 +53,13 @@ void Simulation::replaceBackend(BackendHandle backend) {
     physics->setBallCollisions(ballCollisionsWanted);
 }
 
+void Simulation::setTicksPerSecond(int ticksPerSecond) {
+    const int rate = std::max(ticksPerSecond, 1);
+    settings.tickSeconds = 1.0f / static_cast<float>(rate);
+    settings.maxTicksPerFrame = std::max(1, static_cast<int>(std::ceil(longestCatchUpSeconds * static_cast<float>(rate))));
+    accumulator = 0.0f;
+}
+
 void Simulation::setBallCollisions(bool enabled) {
     ballCollisionsWanted = enabled;
     physics->setBallCollisions(enabled);

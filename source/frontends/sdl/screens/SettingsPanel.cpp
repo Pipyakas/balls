@@ -85,6 +85,7 @@ float settingsContentHeight() {
     height += sectionHeight + sectionHeight + (optionHeight + optionGap) * allBackendKinds.size() -
               optionGap + blockGap - optionGap;
     height += sectionHeight + blockHeight;
+    height += blockHeight;
     height += backHeight;
     return height;
 }
@@ -248,6 +249,24 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
     }
     cursor += optionHeight + hintGap;
     ui::drawText("Off runs the physics with nothing drawn, to measure it alone.", {innerX, cursor}, hintSize,
+                 palette::textMuted);
+    cursor += hintHeight + blockGap;
+
+    ui::drawText("Physics rate", {innerX, cursor}, sectionSize, palette::text);
+    cursor += sectionHeight;
+    const Rect rateOptions{innerX, cursor, innerWidth, optionHeight};
+    constexpr std::array<std::pair<int, const char*>, 3> rates{{{120, "120 Hz"}, {240, "240 Hz"}, {480, "480 Hz"}}};
+    for (size_t i = 0; i < rates.size(); ++i) {
+        const auto& [rate, label] = rates[i];
+        if (ui::button(ui::columnSlice(rateOptions, static_cast<int>(i), static_cast<int>(rates.size()), optionGap),
+                       label, true, current.ticksPerSecond == rate) &&
+            current.ticksPerSecond != rate) {
+            edit.settings.ticksPerSecond = rate;
+            edit.changed = true;
+        }
+    }
+    cursor += optionHeight + hintGap;
+    ui::drawText("Contacts checked more often; costs that much more. Next level.", {innerX, cursor}, hintSize,
                  palette::textMuted);
     cursor += hintHeight + blockGap;
 
