@@ -78,6 +78,8 @@ public:
 
 private:
     void launchAcrossColors(BallCount count);
+    // Hands the probe's pending balls to the simulation until this frame's time budget is spent; true once none are left.
+    bool drainPendingProbeBalls();
     void releaseLauncher(const Launcher& launcher);
     void recoverFromBackendFault();
     void pumpCapacityProbe();
@@ -101,6 +103,8 @@ private:
     double latestWorkSeconds = 0.0;
     CapacityProbe probe;
     int probeColorIndex = 0;
+    // Balls the probe asked for that have not been launched yet; a big jump is spread over frames, not one stall.
+    BallCount pendingProbeBalls = 0;
     std::optional<BallCount> measuredMachineLimit;
     bool machineLimitSelected = false;
     std::string backendFault;

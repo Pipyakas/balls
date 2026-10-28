@@ -29,15 +29,17 @@ const char* twoBrickLevel = "[Board]\nWidth 4\nHeight 1\nPlayableHeight 12\n[Lay
 
 }
 
-TEST_CASE("the fastest finished candidate wins and failed ones are never chosen") {
-    const std::vector<CandidateResult> results{
+TEST_CASE("the highest capacity finished candidate wins and failed ones are never chosen") {
+    std::vector<CandidateResult> results{
         result(BackendKind::Scalar, CandidateStatus::Done, 50e6),
         result(BackendKind::Avx2, CandidateStatus::Done, 900e6),
         result(BackendKind::Cuda, CandidateStatus::Failed, 9e9, "timed out after 5 s"),
         result(BackendKind::CudaAvx2, CandidateStatus::Unavailable, 0.0),
     };
-    EXPECT(bestCandidate(results) == std::optional<size_t>(1));
-    EXPECT(chooseDefaultBackend(results, everythingAvailable).kind == BackendKind::Avx2);
+    results[0].estimatedBalls = 200e6;
+    results[1].estimatedBalls = 150e6;
+    EXPECT(bestCandidate(results) == std::optional<size_t>(0));
+    EXPECT(chooseDefaultBackend(results, everythingAvailable).kind == BackendKind::Scalar);
 }
 
 TEST_CASE("with no finished candidate the default falls back to AVX2, else Scalar") {

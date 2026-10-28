@@ -51,6 +51,18 @@ TEST_CASE("normal level can be cleared by releasing every launcher") {
     EXPECT(session.state() == SessionState::Won);
 }
 
+TEST_CASE("a capacity probe jump is launched within a frame budget and completes over frames") {
+    GameSession session(GameMode::Performance, loadSample("performance", "DA_1000Bricks"), BackendKind::Scalar);
+    session.startCapacityProbe(60.0);
+    // The probe's first jump must be in the simulation after a few frames, and the probe must not have moved on to
+    // measuring while part of it was still waiting to be launched.
+    for (int frame = 0; frame < 600 && session.simulation().liveBallCount() < probeInitialBalls; ++frame) {
+        EXPECT(session.capacityProbe().phase() != ProbePhase::Measuring);
+        session.reportFrameSeconds(1.0 / 240.0, 1.0 / 240.0);
+    }
+    EXPECT(session.simulation().liveBallCount() >= probeInitialBalls);
+}
+
 TEST_CASE("performance session waits for one click then releases automatically") {
     GameSession session(GameMode::Performance, loadSample("performance", "DA_1000Bricks"), BackendKind::Scalar);
     session.selectSpawnRate(static_cast<int>(spawnRateOptions.size()) - 1);

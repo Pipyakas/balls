@@ -42,7 +42,9 @@ phase, so the compact 8-byte ball stores "this ball at tick E" unchanged.
 Without stepping, the ceiling is how many balls fit:
 
 - `PhysicsBackend::ballCapacityLimit()`: CUDA uses `cuMemGetInfo` minus a 256 MB reserve at 8 bytes per ball;
-  AVX2 uses three quarters of physical memory at 12 bytes per ball (position, state, render copy).
+  AVX2 uses the memory that is free right now minus a margin (1 GB or 1/32 of RAM) at 8 bytes per ball, and
+  drops to the current count as soon as Windows signals low memory. The separate 4-byte render copy is only kept
+  while every ball has its own visibility slot, so above the grid size a held ball costs 8 bytes, not 12.
 - Near the top of device memory CUDA grows its arrays through host memory, since the old and new arrays no longer
   fit side by side. A failed allocation keeps the current capacity instead of faulting the backend.
 - `Simulation::scatterBalls` clamps to the room left and hands balls to the backend in 4M-ball batches, and the
