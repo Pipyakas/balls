@@ -31,17 +31,18 @@ goto :eof
 
 :win64
 set "PLATFORM=Win64"
-set "STAGE_SUBDIR=Windows"
 set "DIST_DIR=%~dp0..\..\..\dist\win32-ue"
 set "STAGE_DIR=%~dp0..\..\..\build\win32-ue\stage"
+set "STAGE_SRC=%STAGE_DIR%\Windows"
 set "LAUNCHER=ColorBlastBalls.exe"
 goto :check
 
 :linux
 set "PLATFORM=Linux"
-set "STAGE_SUBDIR=Linux"
 set "DIST_DIR=%~dp0..\..\..\dist\linux-ue"
 set "STAGE_DIR=%~dp0..\..\..\build\linux-ue\stage"
+rem The Linux archive has no platform folder: the launcher and the game folder sit at the archive root.
+set "STAGE_SRC=%STAGE_DIR%"
 set "LAUNCHER=ColorBlastBalls.sh"
 goto :check
 
@@ -57,6 +58,14 @@ if /i "%VARIANT%"=="linux" (
     if not exist "%LINUX_MULTIARCH_ROOT%x86_64-unknown-linux-gnu\bin\clang++.exe" (
         echo Unreal's Linux toolchain not found at "%LINUX_MULTIARCH_ROOT%".
         echo Install it from Epic's Linux cross-compile toolchain, or set LINUX_MULTIARCH_ROOT.
+        cmd /c exit 1
+        goto :eof
+    )
+    rem UnrealBuildTool does not run the .uproject pre-build steps for a cross-compiled target, so the core and the
+    rem plugins are built here, with the same toolchain, before UAT links the game against them.
+    call "%~dp0BuildCoreLinux.bat"
+    if errorlevel 1 (
+        echo The Linux core failed to build.
         cmd /c exit 1
         goto :eof
     )
@@ -92,7 +101,7 @@ if errorlevel 1 (
 
 if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
 powershell -NoProfile -Command "Get-Process ColorBlastBalls -ErrorAction SilentlyContinue | Stop-Process -Force"
-robocopy "%STAGE_DIR%\%STAGE_SUBDIR%" "%DIST_DIR%" /mir /njh /njs /nfl /ndl /np >nul
+robocopy "%STAGE_SRC%" "%DIST_DIR%" /mir /njh /njs /nfl /ndl /np >nul
 if errorlevel 8 (cmd /c exit 1 & goto :eof)
 
 rem The core reads level files from disk; packaged builds look in <project dir>\assets.

@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 
-call build-win32-ue.bat
+call source\frontends\unreal\build.bat win64
 if errorlevel 1 (
     pause
     exit /b 1
