@@ -6,6 +6,8 @@
 
 #include <memory>
 
+struct FlightRenderLanes;
+
 class Avx2Backend final : public CpuBackendBase<CompactBallStore> {
 public:
     explicit Avx2Backend(size_t threadCount);
@@ -41,6 +43,8 @@ private:
     void stepRange(const StepParams& params, size_t begin, size_t end, std::vector<BallHit>& hits);
     void materializeFreeFlight();
 
+    static void renderSampledChunks(CompactBallStore& store, const FlightRenderLanes& lanes, size_t first,
+                                    size_t end);
     std::unique_ptr<WorkerPool> pool;
     std::vector<std::vector<BallHit>> chunkHits;
 };

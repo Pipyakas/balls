@@ -32,6 +32,11 @@ struct EdgeSweepResult {
     double seconds = 0.0;
 };
 
+class Simulation;
+
+// Sizes the visibility grid as the game would on a screen of the settings' size.
+void useGameVisibilityGrid(Simulation& simulation, const EdgeSweepSettings& settings = {});
+
 // Fills the board the way the game does, through SpawnPacer, until a window of frames averages more than the 60 FPS
 // budget, the backend is full, or the time runs out. The last balls launched are still flying from the launch point,
 // cheaper than balls working along the bricks, so the board then runs for one and a half crossings of its height (at

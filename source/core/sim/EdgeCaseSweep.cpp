@@ -15,6 +15,14 @@ double secondsSince(Clock::time_point start) { return std::chrono::duration<doub
 
 }
 
+void useGameVisibilityGrid(Simulation& simulation, const EdgeSweepSettings& settings) {
+    const float columns = static_cast<float>(simulation.board().columns());
+    const float rows = static_cast<float>(simulation.board().rows());
+    const float cellPixels = std::min(settings.screenWidth / columns, settings.screenHeight / rows);
+    const float slotSize = visibilitySlotSize(simulation.tuning().ballRadius, cellPixels);
+    simulation.backend().setVisibilityGrid(visibilitySlots(columns, slotSize), visibilitySlots(rows, slotSize));
+}
+
 EdgeSweepResult sweepEdgeCase(const BrickLayout& layout, BackendKind kind, const EdgeSweepSettings& settings) {
     EdgeSweepResult result;
     const Clock::time_point start = Clock::now();
@@ -25,11 +33,7 @@ EdgeSweepResult sweepEdgeCase(const BrickLayout& layout, BackendKind kind, const
     }
     Simulation simulation(std::move(backend));
     simulation.load(layout);
-    const float columns = static_cast<float>(simulation.board().columns());
-    const float rows = static_cast<float>(simulation.board().rows());
-    const float cellPixels = std::min(settings.screenWidth / columns, settings.screenHeight / rows);
-    const float slotSize = visibilitySlotSize(simulation.tuning().ballRadius, cellPixels);
-    simulation.backend().setVisibilityGrid(visibilitySlots(columns, slotSize), visibilitySlots(rows, slotSize));
+    useGameVisibilityGrid(simulation, settings);
     const double budgetSeconds = settings.frameBudgetShare / settings.targetFps;
     SpawnPacer pacer;
     double launchSeconds = 0.0;

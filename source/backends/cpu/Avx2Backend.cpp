@@ -324,6 +324,146 @@ size_t Avx2Backend::ballCapacityLimit() const {
     return store.count + spare / bytesPerBall;
 }
 
+// One axis of the closed-form flight, with everything that is the same for every ball worked out once per frame.
+struct FlightAxisLanes {
+    __m256 radius;
+    __m256 span;
+    __m256 twoSpan;
+    __m256 inverseTwoSpan;
+    __m256 decodeScale;
+    __m256 packScale;
+    __m256 slotsPerCoordinate;
+    __m256i lastSlot;
+
+    FlightAxisLanes(float extent, float ballRadius, float packScaleValue, int slots) {
+        const float spanValue = freeFlightSpan(extent, ballRadius);
+        radius = _mm256_set1_ps(ballRadius);
+        span = _mm256_set1_ps(spanValue);
+        twoSpan = _mm256_set1_ps(2.0f * spanValue);
+        inverseTwoSpan = _mm256_set1_ps(1.0f / (2.0f * spanValue));
+        decodeScale = _mm256_set1_ps(extent / compact::positionScale);
+        packScale = _mm256_set1_ps(packScaleValue);
+        slotsPerCoordinate = _mm256_set1_ps(static_cast<float>(slots) / static_cast<float>(renderCoordinateMax + 1));
+        lastSlot = _mm256_set1_epi32(slots - 1);
+    }
+};
+
+// The sampled free-flight drawing, eight balls at a time: the same closed form as flyFreely, without its divisions
+// (per-axis constants are worked out once a frame), followed by eight grid stores. The scalar form cost about 30 ns
+// a ball, which bounded a big board at 60 FPS by how many balls a frame could sample.
+struct FlightRenderLanes {
+    FlightAxisLanes x;
+    FlightAxisLanes y;
+    __m256 speed;
+    __m256 phaseAdvanceScale;
+    __m256i ticks;
+
+    explicit FlightRenderLanes(const CompactBallStore& store)
+        : x(store.flightParams.fieldWidth, store.flightParams.radius, store.flightParams.packScaleX, store.gridWidth),
+          y(store.flightParams.fieldHeight, store.flightParams.radius, store.flightParams.packScaleY, store.gridHeight),
+          speed(_mm256_set1_ps(store.speed)),
+          phaseAdvanceScale(_mm256_set1_ps(store.flightParams.deltaTime * freeFlightPhaseUnits)),
+          ticks(_mm256_set1_epi32(static_cast<int>(store.clockTick - store.freeFlightEpoch))) {}
+};
+
+namespace {
+
+void storeSlotRelaxed(uint32_t& slot, uint32_t value) {
+#if defined(__cpp_lib_atomic_ref)
+    std::atomic_ref<uint32_t>(slot).store(value, std::memory_order_relaxed);
+#else
+    __atomic_store_n(&slot, value, __ATOMIC_RELAXED);
+#endif
+}
+
+// A float in [0, 2^32) to the unsigned phase it truncates to, through the signed conversion AVX2 has.
+__m256i toPhase(__m256 units) {
+    const __m256 half = _mm256_set1_ps(2147483648.0f);
+    return _mm256_xor_si256(_mm256_cvttps_epi32(_mm256_sub_ps(units, half)), _mm256_set1_epi32(INT32_MIN));
+}
+
+__m256 flyAxis(__m256 position, __m256 velocity, const FlightAxisLanes& axis, const FlightRenderLanes& lanes) {
+    const __m256 zero = _mm256_setzero_ps();
+    const __m256 along = _mm256_min_ps(_mm256_max_ps(_mm256_sub_ps(position, axis.radius), zero), axis.span);
+    const __m256 backwards = _mm256_cmp_ps(velocity, zero, _CMP_LT_OQ);
+    const __m256 unfolded = _mm256_blendv_ps(along, _mm256_sub_ps(axis.twoSpan, along), backwards);
+    __m256 fraction = _mm256_mul_ps(unfolded, axis.inverseTwoSpan);
+    fraction = _mm256_andnot_ps(_mm256_cmp_ps(fraction, _mm256_set1_ps(1.0f), _CMP_GE_OQ), fraction);
+    const __m256i start = toPhase(_mm256_mul_ps(fraction, _mm256_set1_ps(freeFlightPhaseUnits)));
+    const __m256 speedAlong = _mm256_andnot_ps(_mm256_set1_ps(-0.0f), velocity);
+    const __m256i advance = _mm256_cvttps_epi32(_mm256_add_ps(
+        _mm256_mul_ps(_mm256_mul_ps(speedAlong, axis.inverseTwoSpan), lanes.phaseAdvanceScale), _mm256_set1_ps(0.5f)));
+    const __m256i phase = _mm256_add_epi32(start, _mm256_mullo_epi32(advance, lanes.ticks));
+    const __m256 travelled = _mm256_mul_ps(_mm256_mul_ps(_mm256_cvtepi32_ps(_mm256_srli_epi32(phase, 8)),
+                                                         _mm256_set1_ps(1.0f / 16777216.0f)),
+                                           axis.twoSpan);
+    const __m256 returning = _mm256_castsi256_ps(phase);
+    return _mm256_add_ps(axis.radius, _mm256_blendv_ps(travelled, _mm256_sub_ps(axis.twoSpan, travelled), returning));
+}
+
+__m256i packAxis(__m256 position, const FlightAxisLanes& axis) {
+    const __m256 scaled = _mm256_min_ps(_mm256_max_ps(_mm256_mul_ps(position, axis.packScale), _mm256_setzero_ps()),
+                                        _mm256_set1_ps(static_cast<float>(renderCoordinateMax)));
+    return _mm256_cvttps_epi32(_mm256_add_ps(scaled, _mm256_set1_ps(0.5f)));
+}
+
+__m256i slotAlong(__m256i coordinate, const FlightAxisLanes& axis) {
+    return _mm256_min_epi32(_mm256_cvttps_epi32(_mm256_mul_ps(_mm256_cvtepi32_ps(coordinate), axis.slotsPerCoordinate)),
+                            axis.lastSlot);
+}
+
+void renderEightInFlight(CompactBallStore& store, const FlightRenderLanes& lanes, size_t first) {
+    const __m256i positions = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(store.position.data() + first));
+    const __m256i states = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(store.state.data() + first));
+    const __m256 x = _mm256_mul_ps(_mm256_cvtepi32_ps(_mm256_and_si256(positions, _mm256_set1_epi32(0xFFFF))),
+                                   lanes.x.decodeScale);
+    const __m256 y = _mm256_mul_ps(_mm256_cvtepi32_ps(_mm256_srli_epi32(positions, 16)), lanes.y.decodeScale);
+    const __m256 dx = _mm256_cvtepi32_ps(_mm256_srai_epi32(_mm256_slli_epi32(states, 32 - compact::directionBits),
+                                                           32 - compact::directionBits));
+    const __m256 dy = _mm256_cvtepi32_ps(_mm256_srai_epi32(
+        _mm256_slli_epi32(states, 32 - 2 * compact::directionBits), 32 - compact::directionBits));
+    const __m256 length = _mm256_max_ps(_mm256_sqrt_ps(_mm256_add_ps(_mm256_mul_ps(dx, dx), _mm256_mul_ps(dy, dy))),
+                                        _mm256_set1_ps(1.0f));
+    const __m256 toSpeed = _mm256_div_ps(lanes.speed, length);
+    const __m256 flownX = flyAxis(x, _mm256_mul_ps(dx, toSpeed), lanes.x, lanes);
+    const __m256 flownY = flyAxis(y, _mm256_mul_ps(dy, toSpeed), lanes.y, lanes);
+    const __m256i packedX = packAxis(flownX, lanes.x);
+    const __m256i packedY = packAxis(flownY, lanes.y);
+    const __m256i color = _mm256_and_si256(_mm256_srli_epi32(states, compact::colorShift),
+                                           _mm256_set1_epi32(compact::colorMask));
+    const __m256i packed = _mm256_or_si256(
+        _mm256_or_si256(packedX, _mm256_slli_epi32(packedY, renderCoordinateBits)),
+        _mm256_slli_epi32(color, renderColorShift));
+    const __m256i slot = _mm256_add_epi32(_mm256_mullo_epi32(slotAlong(packedY, lanes.y),
+                                                             _mm256_set1_epi32(store.gridWidth)),
+                                          slotAlong(packedX, lanes.x));
+    alignas(32) uint32_t values[simdLaneCount];
+    alignas(32) int32_t slots[simdLaneCount];
+    _mm256_store_si256(reinterpret_cast<__m256i*>(values), packed);
+    _mm256_store_si256(reinterpret_cast<__m256i*>(slots), slot);
+    for (int lane = 0; lane < simdLaneCount; ++lane) {
+        storeSlotRelaxed(store.grid[static_cast<size_t>(slots[lane])], values[lane]);
+    }
+}
+
+}
+
+void Avx2Backend::renderSampledChunks(CompactBallStore& store, const FlightRenderLanes& lanes, size_t first,
+                                      size_t end) {
+    const size_t stride = static_cast<size_t>(store.bidderMask) + 1;
+    const size_t offset = store.frameSeed % stride;
+    for (size_t sample = first; sample < end; ++sample) {
+        const size_t chunk = offset + sample * stride;
+        const size_t begin = chunk * CompactBallStore::freeFlightChunkBalls;
+        const size_t last = std::min(store.count, begin + CompactBallStore::freeFlightChunkBalls);
+        size_t i = begin;
+        for (; i + simdLaneCount <= last; i += simdLaneCount) {
+            renderEightInFlight(store, lanes, i);
+        }
+        store.renderRangeInFlight(i, last);
+    }
+}
+
 void Avx2Backend::step(const StepParams& params, std::vector<BallHit>& hits) {
     store.clockTick = params.tick + static_cast<unsigned int>(params.substeps);
     store.flightParams = params;
@@ -337,8 +477,9 @@ void Avx2Backend::step(const StepParams& params, std::vector<BallHit>& hits) {
     if (params.freeFlight && gridded) {
         store.freeze(params.tick);
         constexpr size_t samplesPerTask = 64;
+        const FlightRenderLanes lanes(store);
         pool->runChunks(store.sampledChunkCount(), samplesPerTask,
-                        [&](size_t, size_t first, size_t end) { store.renderSampledChunks(first, end); });
+                        [&](size_t, size_t first, size_t end) { renderSampledChunks(store, lanes, first, end); });
         return;
     }
     materializeFreeFlight();

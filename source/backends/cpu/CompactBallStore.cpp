@@ -263,6 +263,13 @@ void CompactBallStore::renderSampledChunks(size_t first, size_t end) {
     }
 }
 
+void CompactBallStore::renderRangeInFlight(size_t begin, size_t end) {
+    const unsigned int ticks = clockTick - freeFlightEpoch;
+    for (size_t i = begin; i < end; ++i) {
+        placeInGrid(packedInFlight(i, ticks));
+    }
+}
+
 void CompactBallStore::materializeRange(size_t begin, size_t end) {
     const unsigned int ticks = clockTick - freeFlightEpoch;
     for (size_t i = begin; i < end; ++i) {

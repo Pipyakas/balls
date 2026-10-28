@@ -66,6 +66,7 @@ struct CompactBallStore {
     static constexpr size_t freeFlightChunkBalls = 256;
     size_t sampledChunkCount() const;
     void renderSampledChunks(size_t first, size_t end);
+    void renderRangeInFlight(size_t begin, size_t end);
     void materializeRange(size_t begin, size_t end);
 
 private:

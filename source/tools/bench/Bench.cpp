@@ -262,10 +262,7 @@ int traceEdgeCases(const BenchOptions& options) {
                 }
                 Simulation simulation(std::move(backend));
                 simulation.load(generateEdgeLayout(layout, size));
-                const float slotSize = simulation.tuning().ballRadius * visibilitySlotsPerRadius;
-                simulation.backend().setVisibilityGrid(
-                    visibilitySlots(static_cast<float>(simulation.board().columns()), slotSize),
-                    visibilitySlots(static_cast<float>(simulation.board().rows()), slotSize));
+                useGameVisibilityGrid(simulation);
                 const size_t balls = options.ballCounts.empty() ? size_t{1} << 22 : options.ballCounts.front();
                 for (const BallColor color : allBallColors) {
                     simulation.launchBalls(color, static_cast<BallCount>(balls / ballColorCount));
