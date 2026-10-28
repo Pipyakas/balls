@@ -158,3 +158,68 @@ The machine benchmark (balls at 60 FPS) is dominated by free flight there: the b
 growing with the ball count, so the score is the memory a backend can hold. Vulkan alone reports no memory limit
 and wins with "no limit"; Hybrid CUDA + Vulkan scores 2.3 B (capped by device memory), CUDA+AVX2 3.1 B
 (including CPU RAM).
+
+## Zen4, ROCm and VulkanMulti
+
+Three more backends can be composer parts.
+
+- **Zen4** (`backends/cpu/Zen4Backend`): AVX2's algorithm on 16-lane AVX-512 vectors, offered when CPUID and XGETBV
+  report AVX-512 F/BW/DQ/VL/VBMI2/VPOPCNTDQ. It gathers brick cells only for lanes near a brick, and neighbour cells
+  only for lanes whose neighbour offset is nonzero. Its results equal AVX2's ball for ball (`balls_bench
+  --accuracy`). It runs about 1.1x AVX2 on a Ryzen 7 7700: Zen 4 executes 512-bit operations on 256-bit units, and
+  a profile of the step shows no single hotspot that wider masks remove. A rewrite with opmask predicates
+  throughout and a scalar path for sparse lanes ran at 0.7x and diverged on the launched level; the accuracy test
+  now fails on balls left inside bricks, which caught it.
+- **ROCm** (`backends/rocm`, Linux): AMD GPUs through ROCm's own runtime, without HIP. The plugin loads
+  `libhsa-runtime64.so.1` at run time, keeps the balls in the agent's VRAM pool, and runs each step as AQL dispatch
+  packets with barrier bits and one completion signal. The kernels are OpenCL C, compiled at build time by ROCm
+  clang to gfx1030/gfx1031 code objects that the plugin embeds and loads with `hsa_executable_*`. HSA's agent UUID
+  is not Vulkan's, so `DeviceInventory` also merges GPUs at the same PCI location: the RX 6700 XT is one device
+  offering ROCm and Vulkan.
+- **VulkanMulti** (`backends/vulkan/VulkanMultiBackend`): one Vulkan backend over several GPUs, picked as
+  `VulkanMulti@gpu0|gpu1` (bare `VulkanMulti`: every discrete GPU). It is a `DeviceComposer` whose parts are
+  `VulkanBackend`s on one `VkInstance`, driven from one thread: `beginStep` records and submits each device's step,
+  then `finishStep` waits for each. It ties the two-part Vulkan Hybrid; doing without the helper threads saves
+  about what the single thread's serial readback costs.
+
+Composer changes that came with them:
+
+- A part is parked when the composed step stays slower than the other parts would be without it (before: than the
+  lead part alone). With three parts the old rule kept a CPU that held two GPUs back: Zen4 + CUDA + ROCm stepped at
+  17.2 G at 96M balls instead of 32.3 G.
+- VulkanMulti times its devices by kernel time, so it parks against the slowest kernel rather than the step's
+  wall time; otherwise the host readback alone could park the RX 6700 XT.
+- A composer that is itself a part (VulkanMulti inside Hybrid) restarts its parking comparison when the outer
+  composer moves balls in or out.
+
+### Results on the two-GPU desktop
+
+Same machine and method as above (`balls_bench --grid`, 1500 ticks, averages include the first ticks while shares
+settle; the two-GPU desktop numbers the RX 6700 XT `gpu0` and the RTX 2060 `gpu1`).
+
+| Backend | 32M balls | 96M balls |
+|---|---|---|
+| AVX2 | 0.96 G | 0.99 G |
+| Zen4 | 1.06 G | 1.08 G |
+| CUDA (RTX 2060) | 18.1 G | 19.1 G |
+| Vulkan (RX 6700 XT) | 15.3 G | 15.4 G |
+| ROCm (RX 6700 XT) | 17.4 G | 17.4 G |
+| CUDA+AVX2 | 15.8 G | 16.4 G |
+| Hybrid Zen4 + CUDA | 17.2 G (CPU parked) | 18.2 G (CPU parked) |
+| Hybrid Vulkan (RX) + Vulkan (RTX) | 26.0 G | 28.2 G |
+| VulkanMulti (RX + RTX) | 26.3 G | 28.2 G |
+| Hybrid CUDA + Vulkan (RX) | 28.0 G | 31.2 G |
+| **Hybrid CUDA + ROCm** | **29.6 G** | **33.1 G** |
+| Hybrid Zen4 + CUDA + ROCm | 30.0 G (CPU parked) | 32.3 G (CPU parked) |
+| Hybrid Zen4 + VulkanMulti | 22.3 G (CPU parked) | 22.5 G (CPU parked) |
+
+- ROCm beats Vulkan on the same RX by 13-14%, and CUDA + ROCm splits the balls about 50/50 where CUDA + Vulkan
+  settles at 57/43. A full 32M-ball game (`--full`) ends with the same balls and bricks on both (31,999,322 and
+  336), at 2.12 ms per tick for ROCm and 2.42 ms for Vulkan.
+- The CPU is parked in every set with a GPU: a Ryzen 7 7700 steps about a seventeenth of what one of these GPUs
+  does.
+- Zen4 + VulkanMulti stays about 10-20% below VulkanMulti alone even over 6000 ticks, with the CPU parked and both
+  GPUs stepping; the cause is not pinned down (the nested composer's step adds 0.2-0.3 ms over VulkanMulti's).
+  Picking the GPUs as separate parts (`Zen4@cpu+Vulkan@gpu0+Vulkan@gpu1`) runs at the two-GPU speed (24.5 G at
+  32M in the same session).
+- Run-to-run noise on the two-GPU desktop is about 5-8%; VulkanMulti and the two-part Vulkan Hybrid trade places between runs.

@@ -15,7 +15,9 @@ namespace {
 constexpr char pickSeparator = '+';
 constexpr char deviceSeparator = '@';
 constexpr std::string_view legacyCudaAvx2Name = "hybrid";
-constexpr double cpuPartWeight = 0.1;
+// Starting shares only; measured throughput takes over within a few steps. A CPU steps about a twentieth of a
+// discrete GPU's balls, and starting it with too many makes its first steps slow for every part.
+constexpr double cpuPartWeight = 0.05;
 constexpr double integratedGpuPartWeight = 0.2;
 constexpr double vulkanPartWeight = 0.8;
 constexpr double cudaPartWeight = 1.0;
@@ -62,7 +64,7 @@ double partWeight(BackendKind kind, const PhysicalDevice& device) {
     if (device.type == PhysicsDeviceType::IntegratedGpu) {
         return integratedGpuPartWeight;
     }
-    return kind == BackendKind::Cuda ? cudaPartWeight : vulkanPartWeight;
+    return kind == BackendKind::Cuda || kind == BackendKind::Rocm ? cudaPartWeight : vulkanPartWeight;
 }
 
 bool isPartKind(BackendKind kind) { return kind != BackendKind::Hybrid && kind != BackendKind::CudaAvx2; }
@@ -80,11 +82,45 @@ std::optional<std::vector<BackendPick>> parseBackendPicks(std::string_view text)
             return std::nullopt;
         }
         const std::optional<BackendKind> kind = backendKindFromName(trimmedView(item.substr(0, at)));
-        const PhysicalDevice* device = findPhysicalDevice(item.substr(at + 1));
-        if (!kind || !device) {
+        if (!kind) {
             return std::nullopt;
         }
-        picks.push_back({*kind, device->id});
+        std::string deviceToken = std::string(trimmedView(item.substr(at + 1)));
+        if (*kind == BackendKind::VulkanMulti) {
+            // A VulkanMulti pick may claim several devices separated by '|'.
+            std::vector<std::string> claimed;
+            size_t pos = 0;
+            while (true) {
+                const size_t next = deviceToken.find('|', pos);
+                const std::string token = deviceToken.substr(pos, next == std::string::npos ? std::string::npos : next - pos);
+                const PhysicalDevice* device = findPhysicalDevice(trimmedView(token));
+                if (!device) {
+                    return std::nullopt;
+                }
+                claimed.push_back(device->id);
+                if (next == std::string::npos) {
+                    break;
+                }
+                pos = next + 1;
+            }
+            if (claimed.size() < 2) {
+                return std::nullopt;
+            }
+            std::string joined;
+            for (size_t i = 0; i < claimed.size(); ++i) {
+                if (i) {
+                    joined += '|';
+                }
+                joined += claimed[i];
+            }
+            picks.push_back({*kind, joined});
+        } else {
+            const PhysicalDevice* device = findPhysicalDevice(deviceToken);
+            if (!device) {
+                return std::nullopt;
+            }
+            picks.push_back({*kind, device->id});
+        }
     }
     if (picks.empty()) {
         return std::nullopt;
@@ -115,30 +151,58 @@ std::string backendPicksLabel(std::span<const BackendPick> picks) {
     return label;
 }
 
+namespace {
+std::vector<std::string> claimedDevices(const BackendPick& pick) {
+    if (pick.kind != BackendKind::VulkanMulti) {
+        return {pick.device};
+    }
+    std::vector<std::string> result;
+    size_t pos = 0;
+    while (true) {
+        const size_t next = pick.device.find('|', pos);
+        result.push_back(pick.device.substr(pos, next == std::string::npos ? std::string::npos : next - pos));
+        if (next == std::string::npos) {
+            break;
+        }
+        pos = next + 1;
+    }
+    return result;
+}
+}
+
 std::string backendPicksProblem(std::span<const BackendPick> picks) {
     if (picks.empty()) {
         return "no device picked";
     }
+    std::vector<std::string> usedDevices;
     for (size_t index = 0; index < picks.size(); ++index) {
         const BackendPick& pick = picks[index];
         if (!isPartKind(pick.kind)) {
             return std::format("{} is not a single-device backend", backendKindName(pick.kind));
         }
-        const PhysicalDevice* device = findPhysicalDevice(pick.device);
-        if (!device) {
+        const std::vector<std::string> claimed = claimedDevices(pick);
+        if (claimed.empty()) {
             return std::format("no device '{}'", pick.device);
         }
-        for (size_t other = 0; other < index; ++other) {
-            if (picks[other].device == device->id) {
-                return std::format("{} has two backends picked; each device runs one", shortDeviceName(*device));
+        for (const std::string& token : claimed) {
+            const PhysicalDevice* device = findPhysicalDevice(token);
+            if (!device) {
+                return std::format("no device '{}'", token);
             }
-        }
-        const DeviceBackendOption* option = device->option(pick.kind);
-        if (!option) {
-            return std::format("{} cannot run on {}", backendKindName(pick.kind), shortDeviceName(*device));
-        }
-        if (const std::string reason = backendUnavailableReasonOnDevice(pick.kind, option->pluginDevice); !reason.empty()) {
-            return std::format("{} on {}: {}", backendKindName(pick.kind), shortDeviceName(*device), reason);
+            for (const std::string& used : usedDevices) {
+                if (used == device->id) {
+                    return std::format("{} has two backends picked; each device runs one", shortDeviceName(*device));
+                }
+            }
+            const BackendKind optionKind = pick.kind == BackendKind::VulkanMulti ? BackendKind::Vulkan : pick.kind;
+            const DeviceBackendOption* option = device->option(optionKind);
+            if (!option) {
+                return std::format("{} cannot run on {}", backendKindName(pick.kind), shortDeviceName(*device));
+            }
+            if (const std::string reason = backendUnavailableReasonOnDevice(optionKind, option->pluginDevice); !reason.empty()) {
+                return std::format("{} on {}: {}", backendKindName(pick.kind), shortDeviceName(*device), reason);
+            }
+            usedDevices.push_back(device->id);
         }
     }
     return {};
@@ -201,6 +265,29 @@ BackendHandle createComposedBackend(std::span<const BackendPick> picks) {
     }
     std::vector<DeviceComposer::PartSpec> parts;
     for (const BackendPick& pick : picks) {
+        if (pick.kind == BackendKind::VulkanMulti) {
+            std::vector<int> pluginDevices;
+            size_t memoryBytes = 0;
+            double weight = 0.0;
+            const std::vector<std::string> claimed = claimedDevices(pick);
+            for (const std::string& token : claimed) {
+                const PhysicalDevice* device = findPhysicalDevice(token);
+                if (!device || !device->option(BackendKind::Vulkan)) {
+                    return BackendHandle(nullptr, BackendRelease{});
+                }
+                pluginDevices.push_back(device->option(BackendKind::Vulkan)->pluginDevice);
+                memoryBytes += device->memoryBytes;
+                weight += partWeight(BackendKind::Vulkan, *device);
+            }
+            BackendHandle backend = createBackendOnDevices(BackendKind::VulkanMulti, pluginDevices.data(),
+                                                          static_cast<int>(pluginDevices.size()));
+            if (!backend) {
+                return BackendHandle(nullptr, BackendRelease{});
+            }
+            parts.push_back({std::move(backend), std::string("VulkanMulti"), weight,
+                              memoryBytes > 0 ? memoryBytes / gpuBytesPerBall : size_t{0}});
+            continue;
+        }
         const PhysicalDevice& device = *findPhysicalDevice(pick.device);
         BackendHandle backend = createBackendOnDevice(pick.kind, device.option(pick.kind)->pluginDevice);
         if (!backend) {

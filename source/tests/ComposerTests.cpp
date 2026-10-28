@@ -164,6 +164,21 @@ TEST_CASE("composer keeps balls, snapshots and truncation consistent across part
     EXPECT(composer.ballCount() == 1134);
 }
 
+TEST_CASE("multi-device picks round-trip and reject overlap") {
+    const auto picks = parseBackendPicks("VulkanMulti@gpu0|gpu1");
+    if (!picks) {
+        return;
+    }
+    EXPECT(picks->size() == 1 && picks->front().kind == BackendKind::VulkanMulti);
+    EXPECT(formatBackendPicks(*picks) == "VulkanMulti@gpu0|gpu1");
+    EXPECT(kindForPicks(*picks) == BackendKind::VulkanMulti);
+    // Overlap with a pick on one of the claimed devices is rejected.
+    const std::vector<BackendPick> overlap{{BackendKind::VulkanMulti, "gpu0|gpu1"}, {BackendKind::Vulkan, "gpu0"}};
+    EXPECT(!backendPicksProblem(overlap).empty());
+    // A single device is not enough.
+    EXPECT(!parseBackendPicks("VulkanMulti@gpu0"));
+}
+
 TEST_CASE("backend picks round-trip through their text form") {
     const auto picks = parseBackendPicks("avx2@cpu");
     if (!picks) {

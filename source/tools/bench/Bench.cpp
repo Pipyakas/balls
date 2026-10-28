@@ -274,17 +274,24 @@ std::vector<BallSpawn> scatterBalls(const BrickBoard& board, size_t count, float
     return balls;
 }
 
-void printComposerParts(const DeviceComposer& composer) {
+// A part that is itself a composer (VulkanMulti) is listed with its own parts, indented.
+void printComposerParts(const DeviceComposer& composer, int depth = 0) {
+    const int indent = 8 + 4 * depth;
     for (size_t part = 0; part < composer.partCount(); ++part) {
-        std::printf("        %-12s share %5.1f%%  balls %10zu  step %7.3f ms\n", composer.partLabel(part).c_str(),
+        std::printf("%*s%-12s share %5.1f%%  balls %10zu  step %7.3f ms\n", indent, "",
+                    composer.partLabel(part).c_str(),
                     100.0 * static_cast<double>(composer.partBallCount(part)) /
                         static_cast<double>(std::max<size_t>(composer.ballCount(), 1)),
                     composer.partBallCount(part), composer.partStepMs(part));
         if (composer.partParked(part)) {
-            std::printf("        %-12s parked: slower composed than without it\n", composer.partLabel(part).c_str());
+            std::printf("%*s%-12s parked: slower composed than without it\n", indent, "",
+                        composer.partLabel(part).c_str());
+        }
+        if (const auto* nested = dynamic_cast<const DeviceComposer*>(&composer.partBackend(part))) {
+            printComposerParts(*nested, depth + 1);
         }
     }
-    std::printf("        brick budgets %.3f ms per step on average, %zu balls moved in %zu steps\n",
+    std::printf("%*sbrick budgets %.3f ms per step on average, %zu balls moved in %zu steps\n", indent, "",
                 composer.averageBrickBudgetMs(), composer.movedBallCount(), composer.movingStepCount());
 }
 

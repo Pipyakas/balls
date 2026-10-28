@@ -13,11 +13,14 @@
 // CudaAvx2 is the fixed CUDA + AVX2 split (HybridBackend over those two); it was called "Hybrid" before the
 // general device composer took that name. Hybrid is the composer (DeviceComposer): one backend on each device the
 // player picked (BackendSelection.h).
-enum class BackendKind { Scalar, Avx2, Cuda, CudaAvx2, Vulkan, Hybrid };
+// New kinds go at the end: the values are compared and stored by name, but keep the old numbering stable anyway.
+// Zen4 is the AVX-512 CPU backend; ROCm drives AMD GPUs through the HSA runtime; VulkanMulti is one Vulkan backend
+// that spans several GPUs itself (unlike Hybrid, which composes one backend per device).
+enum class BackendKind { Scalar, Avx2, Cuda, CudaAvx2, Vulkan, Hybrid, Zen4, Rocm, VulkanMulti };
 
-inline constexpr std::array<BackendKind, 6> allBackendKinds{BackendKind::Scalar, BackendKind::Avx2,
-                                                             BackendKind::Cuda,   BackendKind::CudaAvx2,
-                                                             BackendKind::Vulkan, BackendKind::Hybrid};
+inline constexpr std::array<BackendKind, 9> allBackendKinds{
+    BackendKind::Scalar, BackendKind::Avx2,   BackendKind::Zen4,        BackendKind::Cuda,  BackendKind::CudaAvx2,
+    BackendKind::Rocm,   BackendKind::Vulkan, BackendKind::VulkanMulti, BackendKind::Hybrid};
 
 std::string_view backendKindName(BackendKind kind);
 // Case-insensitive, ignoring '+', '-', '_' and spaces, so "cuda-avx2" works in URLs and on the command line.
@@ -35,6 +38,7 @@ std::vector<PhysicsDeviceInfo> backendDevices(BackendKind kind);
 std::string backendUnavailableReasonOnDevice(BackendKind kind, int device);
 std::string backendDetailOnDevice(BackendKind kind, int device);
 BackendHandle createBackendOnDevice(BackendKind kind, int device);
+BackendHandle createBackendOnDevices(BackendKind kind, const int* devices, int count);
 // Where physics plugins are looked for, ahead of the executable's own folder. Hosts whose executable lives
 // elsewhere (Unity's editor and player both do) set this once at start-up; an empty path restores the default.
 void setPluginSearchDirectory(std::filesystem::path directory);
