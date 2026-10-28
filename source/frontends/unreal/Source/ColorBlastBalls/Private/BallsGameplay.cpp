@@ -223,6 +223,26 @@ void FBallsGameplay::SwitchBackend(BackendKind Kind) {
     Session->requestBackend(Kind);
 }
 
+std::shared_ptr<const SessionView> FBallsGameplay::sessionView() {
+    if (!Session) {
+        return nullptr;
+    }
+    auto View = std::make_shared<SessionView>();
+    describeSession(*Session, *View);
+    return View;
+}
+
+void FBallsGameplay::post(std::function<void(GameSession&)> Command) {
+    if (Session) {
+        Command(*Session);
+    }
+}
+
+void FBallsGameplay::startCapacityProbe(int TargetFps) {
+    ProbeTargetFps = TargetFps;
+    StartCapacityProbe();
+}
+
 void FBallsGameplay::Restart() {
     if (Watcher.diskState() == LevelDiskState::Removed) {
         App.ShowLevelSelect(Mode);

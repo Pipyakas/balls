@@ -11,7 +11,7 @@ struct FKey;
 
 // One level being played: owns the core GameSession, hot reload and the pause/toast state.
 // Port of frontends/raylib/screens/GameplayScreen without the drawing.
-class FBallsGameplay {
+class FBallsGameplay : public ControlGame {
 public:
     FBallsGameplay(FBallsApp& App, GameMode Mode, LevelFiles Files);
 
@@ -53,6 +53,19 @@ public:
     // The level files changed under a running game. The game is never swapped mid-play: the header says so and
     // Restart loads the new version ("Changes to the level being played").
     LevelDiskState GetDiskState() const { return Watcher.diskState(); }
+
+    // ControlGame: the HTTP control API's view of this game, answered by the core.
+    GameMode gameMode() const override { return Mode; }
+    std::string levelName() const override { return Files.name; }
+    std::string levelLoadError() const override { return TCHAR_TO_UTF8(*LoadError); }
+    LevelDiskState diskState() const override { return Watcher.diskState(); }
+    std::shared_ptr<const SessionView> sessionView() override;
+    void post(std::function<void(GameSession&)> Command) override;
+    bool isPaused() const override { return bPaused; }
+    void setPaused(bool bPause) override { SetPaused(bPause); }
+    void restart() override { Restart(); }
+    int capacityProbeTargetFps() const override { return ProbeTargetFps; }
+    void startCapacityProbe(int TargetFps) override;
 
     GameMode GetMode() const { return Mode; }
     const LevelFiles& GetFiles() const { return Files; }

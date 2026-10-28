@@ -86,17 +86,22 @@ public:
     bool IsBenchmarkSettled() const { return bBenchmarkSettled; }
     FString GetBenchmarkWinnerLabel() const;
 
-    // "Launch options and automation": one handler for every control API path, called on the game thread.
-    // OutBody is JSON; OutCode is the HTTP status (200 on success).
+    // "Launch options and automation": the core's control API handler, called on the game thread. OutBody is
+    // JSON; OutCode is the HTTP status (200 on success).
     void HandleControl(const FString& Path, const TMap<FString, FString>& Query, FString& OutBody, int32& OutCode);
-    FString GetScreenName() const;
+    // The routes only Unreal has (console variables, graphics quality), for the control server to bind.
+    static TArray<FString> OwnControlPaths();
+    std::string_view GetScreenName() const;
 
 private:
     enum class EScreen { MainMenu, LevelSelect, Gameplay, MapEditor, Settings, Benchmark };
 
     void SetScreen(EScreen Screen, TSharedRef<SWidget> Content);
     void RecordFrame(float DeltaSeconds);
-    FString BuildControlStateJson() const;
+    // What the core's control API may do to this front end.
+    struct FControlBridge;
+    std::optional<ControlResponse> HandleOwnControl(const ControlRequest& Request);
+    TSharedPtr<FControlBridge> ControlBridge;
 
     UWorld* World = nullptr;
     TSharedPtr<SBallsRoot> Root;

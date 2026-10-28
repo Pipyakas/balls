@@ -4,6 +4,7 @@
 THIRD_PARTY_INCLUDES_START
 #include "common/BallColor.h"
 #include "common/BallCount.h"
+#include "control/ControlApi.h"
 #include "editor/LevelEditor.h"
 #include "game/FrameTimings.h"
 #include "game/GameSession.h"
