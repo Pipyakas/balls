@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <new>
 #include <numbers>
 
 namespace {
@@ -26,18 +27,41 @@ void Simulation::load(const BrickLayout& layout) {
     syncBoardIfChanged();
 }
 
-BackendReplacement Simulation::replaceBackend(BackendHandle backend) {
-    const BallCount live = physics->ballCount();
-    const bool copyExactly = live <= exactMigrationBalls;
-    const std::vector<BallSpawn> balls = copyExactly ? physics->exportBalls() : std::vector<BallSpawn>{};
-    BackendReplacement replacement{std::move(physics), copyExactly ? 0 : live};
+// Runs on the physics thread, where it only delays the next tick: the UI keeps drawing the last published frame. Every
+// ball is streamed across with its position and velocity, so the new backend continues the same simulation. Only
+// when the new backend cannot hold them all are the balls it does not have handed back to be launched again: when it
+// says so up front, or when partway through it runs out of host memory, refuses a chunk or faults, as the Vulkan
+// backend does when device memory runs out. What it holds is counted, not what was sent.
+BackendReplacement Simulation::replaceBackend(BackendHandle backend, size_t chunkBalls) {
+    BackendReplacement replacement{std::move(physics), 0};
     physics = std::move(backend);
     uploadedRevision = ~0ull;
     targetsUploadPending = true;
     hitsUploadPending = true;
     syncBoardIfChanged();
-    physics->addBalls(balls);
     physics->setBallCollisions(ballCollisionsWanted);
+    PhysicsBackend& previous = *replacement.retired;
+    const size_t total = previous.ballCount();
+    if (total > physics->ballCapacityLimit()) {
+        replacement.ballsToRefill = total;
+        return replacement;
+    }
+    while (previous.ballCount() > 0 && physics->faultMessage().empty()) {
+        const std::vector<BallSpawn> chunk = previous.takeTail(std::min(previous.ballCount(), chunkBalls));
+        if (chunk.empty()) {
+            break;
+        }
+        const size_t expected = physics->ballCount() + chunk.size();
+        try {
+            physics->addBalls(chunk);
+        } catch (const std::bad_alloc&) {
+            break;
+        }
+        if (physics->ballCount() != expected) {
+            break;
+        }
+    }
+    replacement.ballsToRefill = total - std::min(physics->ballCount(), total);
     return replacement;
 }
 
