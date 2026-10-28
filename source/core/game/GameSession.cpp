@@ -6,12 +6,30 @@
 #include <chrono>
 #include <utility>
 
+namespace {
+
+// A GPU backend can fail to build even when available: starting a level right after one held hundreds of millions of
+// balls, the GPU memory is still being given back while the new session builds, and the target PC crashed loading the
+// level into a missing backend. The session then starts on the fastest CPU backend instead.
+BackendHandle firstBackendThatBuilds(BackendKind& kind) {
+    for (const BackendKind candidate : {kind, fastestAvailableCpuBackend(), BackendKind::Scalar}) {
+        if (!isBackendAvailable(candidate)) {
+            continue;
+        }
+        if (BackendHandle handle = createBackend(candidate)) {
+            kind = candidate;
+            return handle;
+        }
+    }
+    kind = BackendKind::Scalar;
+    return createBackend(BackendKind::Scalar);
+}
+
+}
+
 GameSession::GameSession(GameMode mode, LevelData level, BackendKind backend, int ticksPerSecond)
     : gameMode(mode), levelData(std::move(level)), backendKind(backend),
-      physicsSimulation(createBackend(isBackendAvailable(backend) ? backend : BackendKind::Scalar)) {
-    if (!isBackendAvailable(backend)) {
-        backendKind = BackendKind::Scalar;
-    }
+      physicsSimulation(firstBackendThatBuilds(backendKind)) {
     physicsSimulation.setTicksPerSecond(ticksPerSecond);
     restart();
 }

@@ -49,8 +49,15 @@ def wait_for_backend(port, timeout_seconds=60.0):
 def fill(port, level, backend, balls, timeout_seconds):
     call(port, f"/play?mode=performance&level={level}")
     time.sleep(0.5)
-    call(port, f"/backend?kind={backend}")
-    wait_for_backend(port)
+    details = {}
+    for _ in range(120):
+        details = call(port, "/state").get("details", {})
+        if "backend" in details:
+            break
+        time.sleep(0.25)
+    if details.get("backend", "").lower() != backend.lower():
+        call(port, f"/backend?kind={backend}")
+        wait_for_backend(port)
     call(port, "/start")
     call(port, f"/fill?count={balls}")
     deadline = time.time() + timeout_seconds
