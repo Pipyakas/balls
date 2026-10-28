@@ -31,6 +31,10 @@ endif()
 if(MSVC)
     set(BALLS_WARNINGS /W4 /permissive- /utf-8 /wd4324)
     add_compile_options(/MP)
+    # Release keeps its optimizations but also writes PDBs, so a crash on a player's machine or in a bench run has a
+    # readable stack. /OPT:REF and /OPT:ICF restore the dead-code and folding passes that /DEBUG turns off.
+    add_compile_options($<$<CONFIG:Release>:/Zi>)
+    add_link_options($<$<CONFIG:Release>:/DEBUG:FULL> $<$<CONFIG:Release>:/OPT:REF> $<$<CONFIG:Release>:/OPT:ICF>)
     set(BALLS_OPTIMIZE $<$<CONFIG:Release,RelWithDebInfo>:/O2 /Oi /fp:fast>)
     if(BALLS_WHOLE_PROGRAM_OPTIMIZATION)
         list(APPEND BALLS_OPTIMIZE $<$<CONFIG:Release,RelWithDebInfo>:/GL>)
