@@ -205,6 +205,19 @@ uint32_t CompactBallStore::packedInFlight(size_t index, unsigned int ticks) cons
     return packBallForRender(flown.x, flown.y, ball.color, flightParams.packScaleX, flightParams.packScaleY);
 }
 
+namespace {
+
+// The Android NDK's libc++ has no std::atomic_ref yet; its clang provides the same relaxed store as a builtin.
+void storeRelaxed(uint32_t& slot, uint32_t value) {
+#if defined(__cpp_lib_atomic_ref)
+    std::atomic_ref<uint32_t>(slot).store(value, std::memory_order_relaxed);
+#else
+    __atomic_store_n(&slot, value, __ATOMIC_RELAXED);
+#endif
+}
+
+} // namespace
+
 void CompactBallStore::placeInGrid(uint32_t value) {
     constexpr float coordinateSlots = static_cast<float>(renderCoordinateMax + 1);
     const int column = std::min(static_cast<int>(static_cast<float>(value & renderCoordinateMax) *
@@ -213,8 +226,7 @@ void CompactBallStore::placeInGrid(uint32_t value) {
     const int row = std::min(static_cast<int>(static_cast<float>((value >> renderCoordinateBits) & renderCoordinateMax) *
                                               static_cast<float>(gridHeight) / coordinateSlots),
                              gridHeight - 1);
-    std::atomic_ref<uint32_t>(grid[static_cast<size_t>(row) * static_cast<size_t>(gridWidth) + static_cast<size_t>(column)])
-        .store(value, std::memory_order_relaxed);
+    storeRelaxed(grid[static_cast<size_t>(row) * static_cast<size_t>(gridWidth) + static_cast<size_t>(column)], value);
 }
 
 // Only the bidders are needed to draw a frame, so whole chunks are sampled with the bidder stride: the cost

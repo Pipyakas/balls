@@ -22,6 +22,12 @@ else()
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>DLL")
 endif()
 
+# The NDK's libc++ keeps std::jthread behind its experimental library.
+if(ANDROID)
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fexperimental-library>)
+    add_link_options(-fexperimental-library)
+endif()
+
 if(MSVC)
     set(BALLS_WARNINGS /W4 /permissive- /utf-8 /wd4324)
     add_compile_options(/MP)
