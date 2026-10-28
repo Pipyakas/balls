@@ -236,11 +236,59 @@ namespace Balls.Native
             return length > 0 ? System.Text.Encoding.UTF8.GetString(buffer, 0, length) : string.Empty;
         }
 
+        private const double BackendCacheSeconds = 1.0;
+        private static readonly string[] BackendNames = new string[BackendCount];
+        private static readonly string[] BackendTexts = new string[BackendCount * 2];
+        private static readonly bool[] BackendAvailability = new bool[BackendCount];
+        private static double backendCacheExpires = -1.0;
+
+        /// <summary>The backend's fixed display name, looked up once.</summary>
         public static string BackendName(int kind)
         {
+            if (kind >= 0 && kind < BackendCount && BackendNames[kind] != null)
+            {
+                return BackendNames[kind];
+            }
             var buffer = new byte[64];
             int length = balls_backend_name(kind, buffer, buffer.Length);
-            return length > 0 ? System.Text.Encoding.UTF8.GetString(buffer, 0, length) : string.Empty;
+            string name = length > 0 ? System.Text.Encoding.UTF8.GetString(buffer, 0, length) : string.Empty;
+            if (kind >= 0 && kind < BackendCount)
+            {
+                BackendNames[kind] = name;
+            }
+            return name;
+        }
+
+        /// <summary>
+        /// Availability and its muted text, refreshed about once a second: asking the core can probe GPU libraries, which
+        /// is too slow to repeat on every OnGUI pass.
+        /// </summary>
+        public static bool BackendAvailable(int kind)
+        {
+            RefreshBackendCache();
+            return BackendAvailability[kind];
+        }
+
+        public static string BackendTextCached(int kind, bool detail)
+        {
+            RefreshBackendCache();
+            return BackendTexts[kind * 2 + (detail ? 1 : 0)];
+        }
+
+        private static void RefreshBackendCache()
+        {
+            double now = UnityEngine.Time.realtimeSinceStartupAsDouble;
+            if (now < backendCacheExpires)
+            {
+                return;
+            }
+            backendCacheExpires = now + BackendCacheSeconds;
+            for (int kind = 0; kind < BackendCount; ++kind)
+            {
+                BackendAvailability[kind] = balls_backend_available(kind) != 0;
+                BackendTexts[kind * 2] = BackendText(kind, false);
+                BackendTexts[kind * 2 + 1] = BackendText(kind, true);
+            }
         }
     }
 }

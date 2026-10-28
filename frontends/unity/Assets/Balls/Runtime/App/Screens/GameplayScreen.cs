@@ -509,12 +509,12 @@ namespace Balls.App.Screens
             float y = area.y + 24f;
             for (int kind = 0; kind < BallsNative.BackendCount; ++kind)
             {
-                if (kind == BallsNative.BackendHybrid && BallsNative.balls_backend_available(kind) == 0)
+                if (kind == BallsNative.BackendHybrid && !BallsNative.BackendAvailable(kind))
                 {
                     continue;
                 }
-                bool available = BallsNative.balls_backend_available(kind) != 0;
-                string detail = available ? BallsNative.BackendText(kind, true) : BallsNative.BackendText(kind, false);
+                bool available = BallsNative.BackendAvailable(kind);
+                string detail = BallsNative.BackendTextCached(kind, available);
                 if (widgets.OptionRow(new Rect(area.x, y, area.width, 34f), BallsNative.BackendName(kind),
                         session.backend == kind, available, detail) && available)
                 {
@@ -539,7 +539,7 @@ namespace Balls.App.Screens
             int count = 0;
             for (int kind = 0; kind < BallsNative.BackendCount; ++kind)
             {
-                if (kind == BallsNative.BackendHybrid && BallsNative.balls_backend_available(kind) == 0)
+                if (kind == BallsNative.BackendHybrid && !BallsNative.BackendAvailable(kind))
                 {
                     continue;
                 }

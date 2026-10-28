@@ -132,15 +132,15 @@ namespace Balls.App.Screens
                 y += 26f;
                 for (int kind = 0; kind < BallsNative.BackendCount; ++kind)
                 {
-                    if (kind == BallsNative.BackendHybrid && BallsNative.balls_backend_available(kind) == 0)
+                    if (kind == BallsNative.BackendHybrid && !BallsNative.BackendAvailable(kind))
                     {
                         continue;
                     }
-                    bool available = BallsNative.balls_backend_available(kind) != 0;
+                    bool available = BallsNative.BackendAvailable(kind);
                     bool selected = settings.BackendKind(BallsNative.BackendAvx2) == kind;
                     string detail = available
-                        ? BallsNative.BackendText(kind, true)
-                        : BallsNative.BackendText(kind, false);
+                        ? BallsNative.BackendTextCached(kind, true)
+                        : BallsNative.BackendTextCached(kind, false);
                     if (widgets.OptionRow(new Rect(content.x, y, content.width, 34f), BackendNames[kind], selected,
                             available, detail) && available)
                     {
