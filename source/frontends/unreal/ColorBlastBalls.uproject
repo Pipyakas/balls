@@ -58,6 +58,9 @@
     ],
     "Android": [
       "\"$(ProjectDir)\\BuildCoreAndroid.bat\""
+    ],
+    "Linux": [
+      "\"$(ProjectDir)\\BuildCoreLinux.bat\""
     ]
   }
 }

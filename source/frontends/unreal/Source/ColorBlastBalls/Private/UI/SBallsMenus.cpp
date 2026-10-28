@@ -216,8 +216,8 @@ int32 SBallsMainMenu::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedG
 
 void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
     FBallsApp* Owner = InArgs._App;
-    constexpr float OptionHeight = 48.0f;
-    constexpr float OptionGap = 8.0f;
+    static constexpr float OptionHeight = 48.0f;
+    static constexpr float OptionGap = 8.0f;
     TSharedRef<SVerticalBox> Column = SNew(SVerticalBox);
 
     auto AddHeading = [&Column](const TCHAR* Text) {

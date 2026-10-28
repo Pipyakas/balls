@@ -14,6 +14,22 @@ public class BallsCore : ModuleRules
         {
             PublicAdditionalLibraries.Add(Path.Combine(RepoRoot, "build", "android-ue", "source", "core", "libballs_core.a"));
         }
+        else if (Target.Platform == UnrealTargetPlatform.Linux)
+        {
+            // Cross-compiled with Unreal's own Linux toolchain by BuildCoreLinux.bat, so core, plugins and the game
+            // share one libc++. The physics plugins are .so files the core dlopens from next to the executable.
+            PublicAdditionalLibraries.Add(Path.Combine(RepoRoot, "build", "linux-ue", "source", "core", "libballs_core.a"));
+            string PluginDirectory = Path.Combine(RepoRoot, "build", "linux-ue", "bin");
+            PublicDefinitions.Add("BALLS_PLUGIN_DIR=\"" + PluginDirectory.Replace('\\', '/') + "\"");
+            foreach (string Plugin in new[] { "libballs_physics_cpu.so", "libballs_physics_vulkan.so" })
+            {
+                string PluginPath = Path.Combine(PluginDirectory, Plugin);
+                if (File.Exists(PluginPath))
+                {
+                    RuntimeDependencies.Add("$(BinaryOutputDir)/" + Plugin, PluginPath);
+                }
+            }
+        }
         else
         {
             PublicAdditionalLibraries.Add(Path.Combine(RepoRoot, "build", "win32-ue", "source", "core", "Release", "balls_core.lib"));
