@@ -166,6 +166,11 @@ namespace Balls.App
                         Error(request, 400, "mode must be normal or performance, and level is required");
                         return;
                     }
+                    if (!File.Exists(Path.Combine(app.LevelDirectoryFor(mode), level + "_Bricks.txt")))
+                    {
+                        Error(request, 404, $"no {(mode == BallsApp.PerformanceMode ? "performance" : "normal")} level named {level}");
+                        return;
+                    }
                     app.StartGameplay(mode, level, app.DefaultBackendKind);
                     Ok(request, "{\"ok\":true}");
                     return;

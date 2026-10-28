@@ -48,7 +48,9 @@ namespace Balls.App.Screens
                 return;
             }
 
-            if (watcher.Poll() != LevelWatcher.State.Unchanged)
+            // Only a change retries: a missing file reads as Removed on every poll, which would restart the level
+            // each frame. The file appearing later reads as Changed.
+            if (watcher.Poll() == LevelWatcher.State.Changed)
             {
                 App.StartGameplay(App.Mode, App.LevelName, App.BackendKind);
             }
