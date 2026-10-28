@@ -305,7 +305,12 @@ void Simulation::resolveHits() {
         --statistics.ballsByColor[toIndex(brickBoard.bricks()[hit.brick].color)];
     }
     statistics.totalHits += killedBalls.size();
-    std::ranges::sort(killedBalls, std::greater<>{});
+    // Backends report hits in ball order, so this is usually a reversal rather than a sort.
+    if (std::ranges::is_sorted(killedBalls)) {
+        std::ranges::reverse(killedBalls);
+    } else {
+        std::ranges::sort(killedBalls, std::greater<>{});
+    }
     physics->removeBalls(killedBalls);
     if (anyDestroyed) {
         brickBoard.settleColumns();

@@ -18,6 +18,7 @@ public:
     void addBalls(std::span<const BallSpawn> spawns) override;
     void setRenderSampleShare(double share) override { store.renderSampleShare = share; }
     void setDrawing(bool drawing) override;
+    void removeBalls(std::span<const uint32_t> descendingIndices) override;
     void shareCoresWithGpu() override;
     bool takeCompactTail(size_t count, CompactBalls& balls) override {
         materializeFreeFlight();

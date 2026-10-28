@@ -5,6 +5,7 @@
 #include "sim/PhysicsBackend.h"
 
 #include <functional>
+#include <vector>
 
 namespace compact {
 
@@ -50,7 +51,9 @@ struct CompactBallStore {
 
     // Adds as many spawns as memory takes and returns how many that was.
     size_t add(std::span<const BallSpawn> spawns, const RangeRunner& runRanges = {});
-    void swapRemove(std::span<const uint32_t> descendingIndices);
+    // Fills each removed index below the new count with a surviving ball from the tail. The moves touch random
+    // places in a store of many millions of balls, so with runRanges they are spread over its threads.
+    void swapRemove(std::span<const uint32_t> descendingIndices, const RangeRunner& runRanges = {});
     void clear() {
         resize(0);
         frozen = false;
@@ -76,4 +79,8 @@ private:
     BallSpawn decode(size_t index) const;
     uint32_t packedInFlight(size_t index, unsigned int ticks) const;
     void placeInGrid(uint32_t packed);
+    void moveBall(uint32_t from, uint32_t to);
+
+    std::vector<uint32_t> removalHoles;
+    std::vector<uint32_t> removalSources;
 };

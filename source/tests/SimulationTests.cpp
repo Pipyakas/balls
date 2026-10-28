@@ -365,3 +365,41 @@ TEST_CASE("balls a new backend drops partway are counted and handed back") {
     EXPECT(simulation.backend().ballCount() == 300);
     EXPECT(replacement.ballsToRefill == 700);
 }
+
+TEST_CASE("removing many balls at once on AVX2 keeps exactly the survivors") {
+    if (!isBackendAvailable(BackendKind::Avx2)) {
+        return;
+    }
+    BackendHandle backend = createBackend(BackendKind::Avx2);
+    constexpr size_t ballCount = 120000;
+    std::vector<BallSpawn> spawns(ballCount);
+    for (size_t i = 0; i < ballCount; ++i) {
+        spawns[i] = {static_cast<float>(i % 256) / 256.0f, static_cast<float>(i / 256) / 512.0f, 1.0f, 0.0f, 0};
+    }
+    backend->addBalls(spawns);
+    const std::vector<BallSpawn> before = backend->exportBalls();
+    std::vector<uint32_t> removed;
+    std::vector<bool> isRemoved(ballCount, false);
+    for (size_t index = ballCount; index-- > 0;) {
+        if (index % 3 == 0 || index >= ballCount - 1000) {
+            removed.push_back(static_cast<uint32_t>(index));
+            isRemoved[index] = true;
+        }
+    }
+    backend->removeBalls(removed);
+    const auto key = [](const BallSpawn& ball) { return std::pair(ball.x, ball.y); };
+    std::vector<std::pair<float, float>> expected;
+    for (size_t i = 0; i < ballCount; ++i) {
+        if (!isRemoved[i]) {
+            expected.push_back(key(before[i]));
+        }
+    }
+    std::vector<std::pair<float, float>> after;
+    for (const BallSpawn& ball : backend->exportBalls()) {
+        after.push_back(key(ball));
+    }
+    std::ranges::sort(expected);
+    std::ranges::sort(after);
+    EXPECT(backend->ballCount() == expected.size());
+    EXPECT(after == expected);
+}

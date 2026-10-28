@@ -105,17 +105,47 @@ size_t CompactBallStore::add(std::span<const BallSpawn> spawns, const RangeRunne
     return spawns.size();
 }
 
-void CompactBallStore::swapRemove(std::span<const uint32_t> descendingIndices) {
-    size_t last = count;
-    for (uint32_t index : descendingIndices) {
-        --last;
-        position[index] = position[last];
-        state[index] = state[last];
-        if (tracksPacked()) {
-            packed[index] = packed[last];
+void CompactBallStore::moveBall(uint32_t from, uint32_t to) {
+    position[to] = position[from];
+    state[to] = state[from];
+    if (tracksPacked()) {
+        packed[to] = packed[from];
+    }
+}
+
+void CompactBallStore::swapRemove(std::span<const uint32_t> descendingIndices, const RangeRunner& runRanges) {
+    constexpr size_t parallelRemovals = 16384;
+    if (!runRanges || descendingIndices.size() < parallelRemovals) {
+        size_t last = count;
+        for (uint32_t index : descendingIndices) {
+            moveBall(static_cast<uint32_t>(--last), index);
+        }
+        resize(last);
+        return;
+    }
+    // The removed indices at or above the new count need no filling; the rest (holes) take the tail's survivors
+    // (sources), one to one, so every move is independent of the others.
+    const size_t kept = count - descendingIndices.size();
+    size_t removedInTail = 0;
+    while (removedInTail < descendingIndices.size() && descendingIndices[removedInTail] >= kept) {
+        ++removedInTail;
+    }
+    removalHoles.assign(descendingIndices.begin() + static_cast<std::ptrdiff_t>(removedInTail), descendingIndices.end());
+    removalSources.clear();
+    size_t nextRemoved = 0;
+    for (size_t index = count; index-- > kept;) {
+        if (nextRemoved < removedInTail && descendingIndices[nextRemoved] == index) {
+            ++nextRemoved;
+        } else {
+            removalSources.push_back(static_cast<uint32_t>(index));
         }
     }
-    resize(last);
+    runRanges(removalHoles.size(), [&](size_t begin, size_t end) {
+        for (size_t i = begin; i < end; ++i) {
+            moveBall(removalSources[i], removalHoles[i]);
+        }
+    });
+    resize(kept);
 }
 
 BallTally CompactBallStore::truncate(size_t newCount) {

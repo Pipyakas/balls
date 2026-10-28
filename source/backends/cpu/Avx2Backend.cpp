@@ -281,6 +281,13 @@ void Avx2Backend::addBalls(std::span<const BallSpawn> spawns) {
     });
 }
 
+void Avx2Backend::removeBalls(std::span<const uint32_t> descendingIndices) {
+    constexpr size_t removalChunkBalls = size_t{1} << 12;
+    store.swapRemove(descendingIndices, [&](size_t count, const std::function<void(size_t, size_t)>& move) {
+        pool->runChunks(count, removalChunkBalls, [&](size_t, size_t begin, size_t end) { move(begin, end); });
+    });
+}
+
 void Avx2Backend::setDrawing(bool drawing) {
     store.drawing = drawing;
     if (!drawing) {
