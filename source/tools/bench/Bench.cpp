@@ -288,8 +288,8 @@ int runEdgeCases(const BenchOptions& options) {
     std::ofstream output;
     if (!options.edgeOutput.empty()) {
         output.open(options.edgeOutput, std::ios::binary);
-        output << "case\tbackend\tballs_at_60\tpassing\tpassing_ms\tworst_ms\tfailing\tfailing_ms\tbricks_left\t"
-                  "launch_ns_per_ball\tstop\tseconds\n";
+        output << "case\tbackend\tballs_at_60\twindow_ms\tworst_ms\tlaunched\tbricks_left\tlaunch_ns_per_ball\tstop\t"
+                  "seconds\n";
     }
     for (const EdgeBoardSize size : edgeBoardSizes()) {
         if (!listed(options.edgeSizes, std::format("{}x{}", size.width, size.height))) {
@@ -307,21 +307,18 @@ int runEdgeCases(const BenchOptions& options) {
                 }
                 const EdgeSweepResult result = sweepEdgeCase(bricks, kind, settings);
                 const std::string backendName(backendKindName(kind));
-                std::printf("%-28s %-7s ~%-7s at 60 FPS  (%s at %.1f ms, worst %.1f ms; %s at %.1f ms)  bricks %d  "
-                            "launch %.0f ns/ball  stop: %s  %.0f s\n",
-                            name.c_str(), backendName.c_str(), shortBallCount(result.estimatedBalls).c_str(),
-                            shortBallCount(static_cast<double>(result.passingBalls)).c_str(), result.passingFrameMs,
-                            result.passingWorstFrameMs,
-                            shortBallCount(static_cast<double>(result.failingBalls)).c_str(), result.failingFrameMs,
-                            result.aliveBricks, result.launchNanosecondsPerBall, result.stopReason.c_str(),
-                            result.seconds);
+                std::printf("%-28s %-7s ~%-7s at 60 FPS  (last window %.1f ms, worst frame %.1f ms, %s launched)  "
+                            "bricks %d  launch %.0f ns/ball  stop: %s  %.0f s\n",
+                            name.c_str(), backendName.c_str(), shortBallCount(result.ballsAtBudget).c_str(),
+                            result.windowFrameMs, result.worstFrameMs,
+                            shortBallCount(static_cast<double>(result.launchedBalls)).c_str(), result.aliveBricks,
+                            result.launchNanosecondsPerBall, result.stopReason.c_str(), result.seconds);
                 std::fflush(stdout);
                 if (output.is_open()) {
-                    output << std::format("{}\t{}\t{:.0f}\t{}\t{:.2f}\t{:.2f}\t{}\t{:.2f}\t{}\t{:.1f}\t{}\t{:.1f}\n",
-                                          name, backendName, result.estimatedBalls, result.passingBalls,
-                                          result.passingFrameMs, result.passingWorstFrameMs, result.failingBalls,
-                                          result.failingFrameMs, result.aliveBricks,
-                                          result.launchNanosecondsPerBall, result.stopReason, result.seconds);
+                    output << std::format("{}\t{}\t{:.0f}\t{:.2f}\t{:.2f}\t{}\t{}\t{:.1f}\t{}\t{:.1f}\n", name,
+                                          backendName, result.ballsAtBudget, result.windowFrameMs, result.worstFrameMs,
+                                          result.launchedBalls, result.aliveBricks, result.launchNanosecondsPerBall,
+                                          result.stopReason, result.seconds);
                     output.flush();
                 }
             }
