@@ -30,8 +30,8 @@ Requirements: Windows 10/11 x64, Visual Studio 2022 (C++ workload), CMake 3.25+,
 compiler pieces) and internet access on first configure (SDL 3.2.30, Dear ImGui 1.93.0 and NVRHI with the Vulkan and DirectX headers are downloaded).
 
 `-DBALLS_FRONTEND=none` builds only the core, the physics plugins and the tools. `-DBALLS_RENDERER=nvrhi|webgpu|sdlgpu`
-picks the renderer (default: `nvrhi` on desktop, `webgpu` on Android). With NVRHI, Windows runs Direct3D 12 and
-`--api vulkan` switches to Vulkan; Linux and macOS always use Vulkan.
+picks the renderer (default: `nvrhi` on desktop, `webgpu` on Android). With NVRHI, every platform runs Vulkan by default;
+`--api d3d12` switches Windows to Direct3D 12.
 
 `build.bat` (Windows) and `build.sh` (Linux) at the project root are the one entry point for every front end and
 platform:
