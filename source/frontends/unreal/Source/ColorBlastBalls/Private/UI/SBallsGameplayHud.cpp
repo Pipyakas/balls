@@ -669,8 +669,8 @@ private:
             X += static_cast<float>(BallsStyle::Measure(Value, ValueFont).X) + 18.0f;
         };
         Pair(TEXT("FPS"), FString::Printf(TEXT("%.0f"), Frames.FramesPerSecond()), FpsColor(Frames.FramesPerSecond()));
-        Pair(TEXT("Min"), FString::Printf(TEXT("%.0f"), Frames.WorstFpsLastSecond()),
-             FpsColor(Frames.WorstFpsLastSecond()));
+        Pair(TEXT("Work"), FString::Printf(TEXT("%.0f"), Frames.WorkFramesPerSecond()),
+             FpsColor(Frames.WorkFramesPerSecond()));
         Pair(TEXT("Frame"), FString::Printf(TEXT("%.1f ms"), Sample.FrameMs),
              BallsPalette::Linear(BallsPalette::Text));
         Pair(TEXT("GPU"), FString::Printf(TEXT("%.1f ms"), Sample.GpuMs), BallsPalette::Linear(BallsPalette::Text));
@@ -693,6 +693,10 @@ private:
         Writer.Row(TEXT("FPS"), FString::Printf(TEXT("%.0f"), Frames.FramesPerSecond()), FpsColor(Frames.FramesPerSecond()));
         Writer.Row(TEXT("Min FPS (1s)"), FString::Printf(TEXT("%.0f"), Frames.WorstFpsLastSecond()),
                    FpsColor(Frames.WorstFpsLastSecond()));
+        Writer.Row(TEXT("Work FPS"), FString::Printf(TEXT("%.0f"), Frames.WorkFramesPerSecond()),
+                   FpsColor(Frames.WorkFramesPerSecond()));
+        Writer.Row(TEXT("Min work FPS (1s)"), FString::Printf(TEXT("%.0f"), Frames.WorstWorkFpsLastSecond()),
+                   FpsColor(Frames.WorstWorkFpsLastSecond()));
         Writer.Row(TEXT("Frame ms"), FString::Printf(TEXT("%.2f"), Sample.FrameMs));
         Writer.Row(TEXT("Physics ms"), FString::Printf(TEXT("%.2f"), Stats.lastFramePhysicsMs));
         Writer.Row(TEXT("GPU ms"), FString::Printf(TEXT("%.2f"), Sample.GpuMs));

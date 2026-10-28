@@ -622,9 +622,8 @@ void FBallsApp::Tick(float DeltaSeconds) {
     }
     // Hold a reference: the tick can open the next level, which replaces Gameplay.
     const TSharedPtr<FBallsGameplay> Current = Gameplay;
-    // The probe sizes its jumps from the slower of the CPU and GPU work per frame, like the SDL front end.
-    const double WorkSeconds = FMath::Max3(LatestSample.GameMs, LatestSample.RenderMs, LatestSample.GpuMs) / 1000.0;
-    Current->Tick(DeltaSeconds, FApp::GetDeltaTime(), WorkSeconds);
+    // Probe windows use the limiting CPU/GPU work rate, not cadence imposed by VSync or the compositor.
+    Current->Tick(DeltaSeconds, LatestSample.WorkMs() / 1000.0, LatestSample.WorkMs() / 1000.0);
     GameSession* Session = Current->GetSession();
     const FGeometry& Geometry = Root->GetCachedGeometry();
     const FVector2D ViewportSize = Geometry.GetLocalSize();
@@ -664,6 +663,8 @@ FString FBallsApp::BuildControlStateJson() const {
     const FVector2D WindowSize = Geometry.GetLocalSize();
     const double Fps = FrameTimings.FramesPerSecond();
     const double MinFps = FrameTimings.WorstFpsLastSecond();
+    const double WorkFps = FrameTimings.WorkFramesPerSecond();
+    const double MinWorkFps = FrameTimings.WorstWorkFpsLastSecond();
     const BackendKind ActiveBackend = Gameplay && Gameplay->GetSession() ? Gameplay->GetSession()->backend()
                                                                         : PreferredBackend;
 
@@ -689,10 +690,11 @@ FString FBallsApp::BuildControlStateJson() const {
     const FString ToastText = Toast.SecondsLeft > 0.0f ? Toast.Text : FString();
     return FString::Printf(
         TEXT("{\"ok\":true,\"frontend\":\"unreal\",\"renderer\":\"%s\",\"screen\":\"%s\",\"window\":[%.0f,%.0f],")
-        TEXT("\"fps\":%.1f,\"minFps\":%.1f,\"frameMs\":%.2f,\"cpuMs\":%.2f,\"gpuMs\":%.2f,\"renderMs\":%.2f,")
+        TEXT("\"fps\":%.1f,\"minFps\":%.1f,\"workFps\":%.1f,\"minWorkFps\":%.1f,\"frameMs\":%.2f,\"cpuMs\":%.2f,\"gpuMs\":%.2f,\"renderMs\":%.2f,")
         TEXT("\"backend\":\"%s\",\"vsync\":%s,\"toast\":\"%s\",\"details\":%s}"),
-        *EscapeJson(GRHIAdapterName), *GetScreenName(), WindowSize.X, WindowSize.Y, Fps, MinFps, Sample.FrameMs,
-        Sample.GameMs, Sample.GpuMs, Sample.RenderMs, *BallsText::FromUtf8(backendKindName(ActiveBackend)),
+        *EscapeJson(GRHIAdapterName), *GetScreenName(), WindowSize.X, WindowSize.Y, Fps, MinFps,
+        WorkFps, MinWorkFps, Sample.FrameMs, Sample.GameMs,
+        Sample.GpuMs, Sample.RenderMs, *BallsText::FromUtf8(backendKindName(ActiveBackend)),
         bVSync ? TEXT("true") : TEXT("false"), *EscapeJson(ToastText), *Details);
 }
 
