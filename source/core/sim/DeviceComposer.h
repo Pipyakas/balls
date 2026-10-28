@@ -98,8 +98,8 @@ private:
     std::vector<size_t> targetCounts(size_t total) const;
     void rebalance();
     void updateShares();
-    void parkLosingParts(double wallMs);
-    void judgeParkTrial(double wallMsPerBall);
+    void parkLosingParts(double wallMs, bool movedBalls);
+    void setParked(Part& part, bool parked, double share);
     void splitBrickBudgets();
     void mergeDeviceHits();
     void overlay(const BallSnapshot& balls, uint32_t replaceBelow, uint32_t salt);
@@ -114,14 +114,15 @@ private:
     double wallEwma = 0.0;
     double soloEwma = 0.0;
     int losingSteps = 0;
-    // A parked part stays parked only if the step, per ball, got faster without it.
-    static constexpr size_t noTrial = static_cast<size_t>(-1);
-    size_t trialPart = noTrial;
+    // Parking is a trial: the step time per ball is measured with the part (Baseline), then without it once its
+    // balls have moved away (Without), and the part stays parked only if that is clearly faster.
+    enum class ParkTrial { None, Baseline, Draining, Without };
+    ParkTrial parkTrial = ParkTrial::None;
+    size_t trialPart = 0;
     double trialShare = 0.0;
-    double wallPerBallEwma = 0.0;
-    double trialBeforeMsPerBall = 0.0;
-    double trialAfterMsPerBall = 0.0;
+    double trialMsPerBallSum = 0.0;
     int trialSteps = 0;
+    double baselineMsPerBall = 0.0;
     int parkRetryWait = 0;
     // Brick budgets, used when two or more parts resolve hits on the device.
     std::vector<int32_t> brickHits;
