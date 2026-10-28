@@ -17,7 +17,10 @@ uint32_t bidderMaskFor(size_t balls, size_t cells) {
     return mask;
 }
 
-size_t roundUpToLanes(size_t count) { return (count + simdLaneCount - 1) / simdLaneCount * simdLaneCount; }
+// The widest stepper (Zen4, 16 lanes) loads and stores whole vectors, so storage is padded to its width.
+constexpr size_t storageLaneCount = 16;
+
+size_t roundUpToLanes(size_t count) { return (count + storageLaneCount - 1) / storageLaneCount * storageLaneCount; }
 
 uint32_t encodeAxis(float value, float extent) {
     const float scaled = value / extent * compact::positionScale + 0.5f;

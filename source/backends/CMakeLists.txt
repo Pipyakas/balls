@@ -9,6 +9,10 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64|x86|i[3-6]86)$")
     target_sources(balls_physics_cpu PRIVATE cpu/Avx2Backend.cpp)
     target_compile_definitions(balls_physics_cpu PRIVATE BALLS_HAS_AVX2_BACKEND=1)
     set_source_files_properties(cpu/Avx2Backend.cpp PROPERTIES COMPILE_OPTIONS "${BALLS_AVX2_FLAGS}")
+
+    target_sources(balls_physics_cpu PRIVATE cpu/Zen4Backend.cpp)
+    target_compile_definitions(balls_physics_cpu PRIVATE BALLS_HAS_ZEN4_BACKEND=1)
+    set_source_files_properties(cpu/Zen4Backend.cpp PROPERTIES COMPILE_OPTIONS "${BALLS_AVX512_FLAGS}")
 endif()
 target_include_directories(balls_physics_cpu PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(balls_physics_cpu PRIVATE balls_physics_interface)
@@ -16,6 +20,8 @@ target_compile_options(balls_physics_cpu PRIVATE ${BALLS_WARNINGS} ${BALLS_OPTIM
 balls_precompile(balls_physics_cpu)
 # Compiled with /arch:AVX2, which a header precompiled without it cannot be used with.
 set_source_files_properties(cpu/Avx2Backend.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
+# Compiled with AVX-512 flags, which a header precompiled without them cannot be used with.
+set_source_files_properties(cpu/Zen4Backend.cpp PROPERTIES SKIP_PRECOMPILE_HEADERS ON)
 target_link_options(balls_physics_cpu PRIVATE ${BALLS_LINK_OPTIMIZE})
 set(BALLS_PHYSICS_PLUGINS balls_physics_cpu)
 

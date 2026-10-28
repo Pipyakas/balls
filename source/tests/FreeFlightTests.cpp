@@ -157,6 +157,7 @@ TEST_CASE("every optimized backend stays within accuracy bounds of the naive ref
             EXPECT(report.meanPositionError < meanPositionBound);
             EXPECT(report.maxPositionError < maxPositionBound);
             EXPECT(report.worstOutsideField == 0);
+            EXPECT(report.worstInsideBricks == 0);
             EXPECT(report.worstSpeedError < 1e-3);
         }
     }
