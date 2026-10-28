@@ -113,6 +113,29 @@ void DeviceComposer::uploadBoard(const BoardUpload& board) {
     }
 }
 
+// Sparse updates set a brick's hits on every part to the host's count. With two or more device parts each holds its
+// own budget instead, so they take whole boards and get their budgets drawn from those.
+bool DeviceComposer::acceptsSparseBoardUpdates() const {
+    return deviceParts < 2 &&
+           std::ranges::all_of(parts, [](const Part& part) { return part.backend->acceptsSparseBoardUpdates(); });
+}
+
+void DeviceComposer::setDrawing(bool drawing) {
+    for (Part& part : parts) {
+        part.backend->setDrawing(drawing);
+    }
+}
+
+// Each part fills the visibility grid from a sample of its balls; a part holding a fraction of the balls only wins
+// that fraction of the slots in snapshot(), so it needs only that fraction of the samples.
+void DeviceComposer::shareRenderSamples() {
+    const size_t total = ballCount();
+    for (Part& part : parts) {
+        part.backend->setRenderSampleShare(
+            total > 0 ? static_cast<double>(part.backend->ballCount()) / static_cast<double>(total) : 1.0);
+    }
+}
+
 std::vector<size_t> DeviceComposer::targetCounts(size_t total) const {
     std::vector<size_t> targets(parts.size(), 0);
     const auto lead = std::ranges::max_element(parts, {}, &Part::share) - parts.begin();
@@ -421,6 +444,7 @@ void DeviceComposer::step(const StepParams& params, std::vector<BallHit>& hits) 
     }
     stepGridWidth = gridWidth;
     stepGridHeight = gridHeight;
+    shareRenderSamples();
     lastBudgetMs = 0.0;
     if (deviceParts >= 2 && !brickHits.empty()) {
         const Clock::time_point start = Clock::now();

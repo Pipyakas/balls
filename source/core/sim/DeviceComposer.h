@@ -63,6 +63,8 @@ public:
     DeviceHitResults deviceHitResults() const override;
     void setVisibilityGrid(int width, int height) override;
     double deviceStepMs() const override;
+    bool acceptsSparseBoardUpdates() const override;
+    void setDrawing(bool drawing) override;
 
     size_t partCount() const { return parts.size(); }
     const std::string& partLabel(size_t part) const { return parts[part].label; }
@@ -99,6 +101,7 @@ private:
     void splitBrickBudgets();
     void mergeDeviceHits();
     void overlay(const BallSnapshot& balls, uint32_t replaceBelow, uint32_t salt);
+    void shareRenderSamples();
     size_t partCapacity(const Part& part) const;
     size_t gridCellCount() const { return static_cast<size_t>(stepGridWidth) * static_cast<size_t>(stepGridHeight); }
 
