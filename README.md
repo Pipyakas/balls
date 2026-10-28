@@ -4,9 +4,11 @@ A ball-bouncing, brick-breaking color game for Windows, written in C++20.
 It has an engine-agnostic core (`source/core/`) and an SDL3 front end (`source/frontends/sdl/`) with Dear ImGui for text and
 widgets. Rendering sits behind `IRenderer`: NVRHI (Direct3D 12 or Vulkan) on Windows, Linux and macOS (via
 MoltenVK), and SDL_GPU for Android and other SDL targets. The physics can run on
-interchangeable backends: a scalar reference, AVX2 multithreaded, CUDA, Vulkan compute, CUDA+AVX2, a fixed split
-of the balls between those two, and Hybrid, which runs one backend on each device the player picks (the CPU and
-every GPU) and splits the balls between all of them (see [data/docs/hybrid-physics.md](data/docs/hybrid-physics.md)).
+interchangeable backends: a scalar reference, AVX2 and AVX-512 (Zen4) multithreaded, CUDA, ROCm (AMD GPUs through
+the HSA runtime, Linux), Vulkan compute, VulkanMulti (one Vulkan backend across several GPUs), CUDA+AVX2, a fixed
+split of the balls between those two, and Hybrid, which runs one backend on each device the player picks (the CPU
+and every GPU) and splits the balls between all of them (see
+[data/docs/hybrid-physics.md](data/docs/hybrid-physics.md)).
 
 ## Features
 
@@ -93,6 +95,11 @@ dist/linux-sdl/balls --play normal DA_49Bricks --backend avx2
 
 Tests and the benchmark build in the same CMake tree: `cmake --build build/linux --target balls_tests balls_bench`.
 
+The ROCm backend (AMD GPUs, Linux only) needs the ROCm runtime (`libhsa-runtime64.so.1`) and ROCm's clang with its
+device libraries at build time; `scripts/FetchRocmSdk.sh` downloads the HSA headers into `.deps/rocm`. Its kernels
+are OpenCL C compiled to gfx1030/gfx1031 code objects embedded in the plugin; no HIP is used. Without the headers
+or the compiler the plugin is skipped.
+
 To start it from the application menu or the desktop, run `scripts/install-desktop-shortcut.sh` once; it writes a
 `.desktop` entry with this checkout's absolute paths.
 
@@ -159,12 +166,15 @@ runtime and copies its DLLs next to the executable.
 ### Devices and Hybrid
 
 Each plugin lists the devices it can run on, and the game merges them into physical devices: `cpu`, then
-`gpu0`, `gpu1`, ... ordered by PCI location, with a GPU that both CUDA and Vulkan see listed once (matched by
-UUID). `balls_bench --devices` prints them. A selection gives each device at most one backend:
+`gpu0`, `gpu1`, ... ordered by PCI location, with a GPU that several plugins see listed once (matched by UUID, or
+by PCI location for ROCm). `balls_bench --devices` prints them. A selection gives each device at most one backend;
+VulkanMulti claims several devices, joined with `|`:
 
 ```powershell
 balls.exe --backend "AVX2@cpu+CUDA@gpu0+Vulkan@gpu1"   # Hybrid over three devices
 balls.exe --backend "vulkan@6700"                       # one backend pinned to a device (name substring)
+balls --backend "Zen4@cpu+CUDA@gpu1+ROCm@gpu0"          # AVX-512 CPU, CUDA and ROCm
+balls --backend "VulkanMulti@gpu0|gpu1"                 # one Vulkan backend over two GPUs
 balls_bench.exe --grid --balls 32000000 --backend "cuda,cuda+avx2,cuda@gpu0+vulkan@gpu1"
 ```
 
@@ -210,8 +220,10 @@ source/
     sim/              BrickBoard, TargetField, Simulation, physics backend interface, CUDA kernel core
     game/             GameSession, LauncherQueue, SpawnController
     editor/           LevelEditor model used by any front end
-  backends/cpu/       balls_physics_cpu.dll plugin: Scalar and AVX2 backends
+  backends/cpu/       balls_physics_cpu.dll plugin: Scalar, AVX2 and Zen4 (AVX-512) backends
   backends/cuda/      balls_physics_cuda.dll plugin: CUDA backend and kernels
+  backends/rocm/      libballs_physics_rocm.so plugin (Linux): ROCm backend on HSA, OpenCL C kernels
+  backends/vulkan/    balls_physics_vulkan.dll plugin: Vulkan and VulkanMulti backends
   frontends/sdl/      SDL3 + SDL_GPU + Dear ImGui front end: screens, map editor UI, control API
     render/           IRenderer, the SDL_GPU renderer (compute ball culling, impostor balls, instanced rects)
     render/nvrhi/     NVRHI renderer: D3D12 and Vulkan devices and swapchains, ImGui backend, GPU timer queries
