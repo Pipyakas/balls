@@ -124,91 +124,95 @@ then; the device composer that now carries the name matches it ([hybrid-physics.
 
 ## Hybrid (device composer) full sweep
 
-2026-10-28, target PC, after the CUDA+AVX2 pair was removed: Hybrid with `AVX2@cpu+CUDA@gpu0` picked, every picked
-device always stepping (the composer no longer parks any), Windows core parking off. `balls_bench --edge-cases
---sizes all --layouts all --backend avx2@cpu+cuda@gpu0`. The pair's column is the earlier sweep above, taken with
-core parking on and before the later changes, so differences within about 15% are run-to-run noise.
+Target PC, `balls_bench --edge-cases --sizes all --layouts all --backend avx2@cpu+cuda@gpu0`: Hybrid with AVX2 on
+the CPU and CUDA on the GTX 1650 picked, every picked device always stepping, Windows core parking off. "28 Oct" is
+the first sweep after the CUDA+AVX2 pair was removed; "now" (29 Oct) adds shares measured over windows of steps and
+parallel removal of hit balls (see [hybrid-physics.md](hybrid-physics.md#hit-heavy-small-boards)). The CUDA and
+pair columns are the earlier sweep above, taken with core parking on; single runs of the small boards vary by up to
+about 15%.
 
-| Board | CUDA+AVX2 pair (earlier sweep) | Hybrid AVX2 + CUDA | Change | Stop | Worst frame |
-|---|---|---|---|---|---|
-| Empty 16x16 | 7.4B | 7.3B | -1% | capacity | 7 ms |
-| Solid 16x16 | 7.4B | 7.3B | -1% | capacity | 18 ms |
-| Tough 16x16 | 65M | 63M | -3% | frame budget | 27 ms |
-| Checker 16x16 | 56M | 53M | -5% | frame budget | 22 ms |
-| Columns 16x16 | 64M | 64M | +0% | frame budget | 23 ms |
-| Shelves 16x16 | 73M | 73M | +0% | frame budget | 24 ms |
-| Sparse 16x16 | 69M | 71M | +3% | frame budget | 27 ms |
-| LoneBrick 16x16 | 161M | 158M | -2% | frame budget | 37 ms |
-| Monochrome 16x16 | 7.4B | 7.3B | -1% | capacity | 13 ms |
-| Cage 16x16 | 62M | 60M | -3% | frame budget | 24 ms |
-| Empty 48x48 | 7.4B | 7.3B | -1% | capacity | 9 ms |
-| Solid 48x48 | 7.4B | 7.3B | -1% | capacity | 13 ms |
-| Tough 48x48 | 105M | 107M | +2% | frame budget | 29 ms |
-| Checker 48x48 | 80M | 65M | -19% | frame budget | 27 ms |
-| Columns 48x48 | 78M | 74M | -5% | frame budget | 32 ms |
-| Shelves 48x48 | 95M | 66M | -31% | frame budget | 35 ms |
-| Sparse 48x48 | 85M | 88M | +4% | frame budget | 34 ms |
-| LoneBrick 48x48 | 176M | 177M | +1% | frame budget | 30 ms |
-| Monochrome 48x48 | 7.4B | 7.3B | -1% | capacity | 9 ms |
-| Cage 48x48 | 65M | 63M | -3% | frame budget | 21 ms |
-| Empty 128x128 | 7.3B | 7.1B | -3% | time | 9 ms |
-| Solid 128x128 | 7.3B | 6.8B | -7% | time | 9 ms |
-| Tough 128x128 | 121M | 108M | -11% | frame budget | 34 ms |
-| Checker 128x128 | 100M | 99M | -1% | frame budget | 26 ms |
-| Columns 128x128 | 85M | 82M | -4% | frame budget | 40 ms |
-| Shelves 128x128 | 114M | 118M | +4% | frame budget | 27 ms |
-| Sparse 128x128 | 93M | 82M | -12% | frame budget | 37 ms |
-| LoneBrick 128x128 | 175M | 178M | +2% | frame budget | 32 ms |
-| Monochrome 128x128 | 7.4B | 6.7B | -9% | time | 8 ms |
-| Cage 128x128 | 77M | 67M | -13% | frame budget | 24 ms |
-| Empty 512x512 | 6.9B | 5.9B | -14% | time | 12 ms |
-| Solid 512x512 | 7.4B | 2.6B | -65% | time | 26 ms |
-| Tough 512x512 | 126M | 174M | +38% | frame budget | 35 ms |
-| Checker 512x512 | 135M | 167M | +24% | frame budget | 45 ms |
-| Columns 512x512 | 106M | 133M | +25% | frame budget | 41 ms |
-| Shelves 512x512 | 126M | 165M | +31% | frame budget | 35 ms |
-| Sparse 512x512 | 113M | 136M | +20% | frame budget | 31 ms |
-| LoneBrick 512x512 | 182M | 191M | +5% | frame budget | 34 ms |
-| Monochrome 512x512 | 7.4B | 2.5B | -66% | time | 28 ms |
-| Cage 512x512 | 55M | 58M | +5% | frame budget | 25 ms |
-| Empty 2048x2048 | 1.8B | 6.9B | +283% | time | 10 ms |
-| Solid 2048x2048 | 142M | 151M | +6% | frame budget | 62 ms |
-| Tough 2048x2048 | 174M | 178M | +2% | frame budget | 28 ms |
-| Checker 2048x2048 | 165M | 189M | +15% | frame budget | 36 ms |
-| Columns 2048x2048 | 155M | 172M | +11% | frame budget | 28 ms |
-| Shelves 2048x2048 | 157M | 192M | +22% | frame budget | 34 ms |
-| Sparse 2048x2048 | 145M | 179M | +23% | frame budget | 32 ms |
-| LoneBrick 2048x2048 | 174M | 195M | +12% | frame budget | 33 ms |
-| Monochrome 2048x2048 | 117M | 137M | +17% | frame budget | 30 ms |
-| Cage 2048x2048 | 56M | 47M | -16% | frame budget | 30 ms |
-| Empty 2048x64 | 7.5B | 7.3B | -3% | capacity | 14 ms |
-| Solid 2048x64 | 128M | 118M | -8% | frame budget | 34 ms |
-| Tough 2048x64 | 106M | 110M | +4% | frame budget | 36 ms |
-| Checker 2048x64 | 85M | 61M | -28% | frame budget | 29 ms |
-| Columns 2048x64 | 75M | 75M | +0% | frame budget | 23 ms |
-| Shelves 2048x64 | 94M | 93M | -1% | frame budget | 32 ms |
-| Sparse 2048x64 | 84M | 90M | +7% | frame budget | 25 ms |
-| LoneBrick 2048x64 | 174M | 182M | +5% | frame budget | 30 ms |
-| Monochrome 2048x64 | 136M | 115M | -15% | frame budget | 35 ms |
-| Cage 2048x64 | 46M | 44M | -4% | frame budget | 19 ms |
-| Empty 64x2048 | 7.5B | 7.3B | -3% | capacity | 9 ms |
-| Solid 64x2048 | 100M | 135M | +35% | frame budget | 34 ms |
-| Tough 64x2048 | 168M | 177M | +5% | frame budget | 32 ms |
-| Checker 64x2048 | 167M | 164M | -2% | frame budget | 29 ms |
-| Columns 64x2048 | 167M | 165M | -1% | frame budget | 29 ms |
-| Shelves 64x2048 | 172M | 170M | -1% | frame budget | 29 ms |
-| Sparse 64x2048 | 174M | 169M | -3% | frame budget | 30 ms |
-| LoneBrick 64x2048 | 99M | 129M | +30% | frame budget | 38 ms |
-| Monochrome 64x2048 | 164M | 153M | -7% | frame budget | 32 ms |
-| Cage 64x2048 | 48M | 46M | -4% | frame budget | 30 ms |
+| Board | CUDA (earlier sweep) | CUDA+AVX2 pair (earlier sweep) | Hybrid, 28 Oct | Hybrid now | Stop | Worst frame |
+|---|---|---|---|---|---|---|
+| Empty 16x16 | 403M | 7.4B | 7.3B | 7.3B | capacity | 7 ms |
+| Solid 16x16 | 403M | 7.4B | 7.3B | 7.3B | capacity | 18 ms |
+| Tough 16x16 | 69M | 65M | 63M | 70M | frame budget | 32 ms |
+| Checker 16x16 | 59M | 56M | 53M | 60M | frame budget | 29 ms |
+| Columns 16x16 | 66M | 64M | 64M | 69M | frame budget | 29 ms |
+| Shelves 16x16 | 78M | 73M | 73M | 79M | frame budget | 27 ms |
+| Sparse 16x16 | 74M | 69M | 71M | 76M | frame budget | 25 ms |
+| LoneBrick 16x16 | 120M | 161M | 158M | 160M | frame budget | 32 ms |
+| Monochrome 16x16 | 403M | 7.4B | 7.3B | 7.3B | capacity | 13 ms |
+| Cage 16x16 | 66M | 62M | 60M | 67M | frame budget | 22 ms |
+| Empty 48x48 | 403M | 7.4B | 7.3B | 7.3B | capacity | 9 ms |
+| Solid 48x48 | 403M | 7.4B | 7.3B | 7.3B | capacity | 9 ms |
+| Tough 48x48 | 95M | 105M | 107M | 103M | frame budget | 32 ms |
+| Checker 48x48 | 74M | 80M | 65M | 84M | frame budget | 32 ms |
+| Columns 48x48 | 77M | 78M | 74M | 82M | frame budget | 25 ms |
+| Shelves 48x48 | 94M | 95M | 66M | 97M | frame budget | 25 ms |
+| Sparse 48x48 | 86M | 85M | 88M | 90M | frame budget | 32 ms |
+| LoneBrick 48x48 | 122M | 176M | 177M | 168M | frame budget | 37 ms |
+| Monochrome 48x48 | 403M | 7.4B | 7.3B | 7.3B | capacity | 9 ms |
+| Cage 48x48 | 70M | 65M | 63M | 75M | frame budget | 30 ms |
+| Empty 128x128 | 386M | 7.3B | 7.1B | 6.9B | time | 8 ms |
+| Solid 128x128 | 386M | 7.3B | 6.8B | 6.8B | time | 9 ms |
+| Tough 128x128 | 99M | 121M | 108M | 121M | frame budget | 30 ms |
+| Checker 128x128 | 89M | 100M | 99M | 100M | frame budget | 37 ms |
+| Columns 128x128 | 80M | 85M | 82M | 94M | frame budget | 31 ms |
+| Shelves 128x128 | 99M | 114M | 118M | 127M | frame budget | 27 ms |
+| Sparse 128x128 | 85M | 93M | 82M | 100M | frame budget | 31 ms |
+| LoneBrick 128x128 | 114M | 175M | 178M | 171M | frame budget | 28 ms |
+| Monochrome 128x128 | 386M | 7.4B | 6.7B | 6.9B | time | 9 ms |
+| Cage 128x128 | 64M | 77M | 67M | 78M | frame budget | 32 ms |
+| Empty 512x512 | 205M | 6.9B | 5.9B | 5.9B | time | 12 ms |
+| Solid 512x512 | 103M | 7.4B | 2.6B | 2.6B | time | 29 ms |
+| Tough 512x512 | 96M | 126M | 174M | 165M | frame budget | 33 ms |
+| Checker 512x512 | 98M | 135M | 167M | 139M | frame budget | 39 ms |
+| Columns 512x512 | 108M | 106M | 133M | 121M | frame budget | 36 ms |
+| Shelves 512x512 | 98M | 126M | 165M | 155M | frame budget | 30 ms |
+| Sparse 512x512 | 92M | 113M | 136M | 89M | frame budget | 37 ms |
+| LoneBrick 512x512 | 108M | 182M | 191M | 191M | frame budget | 37 ms |
+| Monochrome 512x512 | 369M | 7.4B | 2.5B | 2.5B | time | 34 ms |
+| Cage 512x512 | 46M | 55M | 58M | 56M | frame budget | 22 ms |
+| Empty 2048x2048 | 352M | 1.8B | 6.9B | 6.9B | time | 10 ms |
+| Solid 2048x2048 | 108M | 142M | 151M | 148M | frame budget | 49 ms |
+| Tough 2048x2048 | 121M | 174M | 178M | 175M | frame budget | 28 ms |
+| Checker 2048x2048 | 110M | 165M | 189M | 187M | frame budget | 33 ms |
+| Columns 2048x2048 | 118M | 155M | 172M | 185M | frame budget | 38 ms |
+| Shelves 2048x2048 | 114M | 157M | 192M | 194M | frame budget | 34 ms |
+| Sparse 2048x2048 | 112M | 145M | 179M | 183M | frame budget | 38 ms |
+| LoneBrick 2048x2048 | 125M | 174M | 195M | 174M | frame budget | 33 ms |
+| Monochrome 2048x2048 | 107M | 117M | 137M | 131M | frame budget | 30 ms |
+| Cage 2048x2048 | 48M | 56M | 47M | 60M | frame budget | 28 ms |
+| Empty 2048x64 | 386M | 7.5B | 7.3B | 7.3B | capacity | 8 ms |
+| Solid 2048x64 | 104M | 128M | 118M | 120M | frame budget | 34 ms |
+| Tough 2048x64 | 88M | 106M | 110M | 102M | frame budget | 38 ms |
+| Checker 2048x64 | 77M | 85M | 61M | 84M | frame budget | 33 ms |
+| Columns 2048x64 | 71M | 75M | 75M | 77M | frame budget | 27 ms |
+| Shelves 2048x64 | 87M | 94M | 93M | 101M | frame budget | 29 ms |
+| Sparse 2048x64 | 80M | 84M | 90M | 88M | frame budget | 26 ms |
+| LoneBrick 2048x64 | 118M | 174M | 182M | 178M | frame budget | 33 ms |
+| Monochrome 2048x64 | 115M | 136M | 115M | 125M | frame budget | 34 ms |
+| Cage 2048x64 | 39M | 46M | 44M | 50M | frame budget | 22 ms |
+| Empty 64x2048 | 386M | 7.5B | 7.3B | 7.3B | capacity | 86 ms |
+| Solid 64x2048 | 61M | 100M | 135M | 127M | frame budget | 39 ms |
+| Tough 64x2048 | 89M | 168M | 177M | 172M | frame budget | 32 ms |
+| Checker 64x2048 | 95M | 167M | 164M | 158M | frame budget | 30 ms |
+| Columns 64x2048 | 97M | 167M | 165M | 164M | frame budget | 35 ms |
+| Shelves 64x2048 | 98M | 172M | 170M | 157M | frame budget | 33 ms |
+| Sparse 64x2048 | 101M | 174M | 169M | 168M | frame budget | 32 ms |
+| LoneBrick 64x2048 | 43M | 99M | 129M | 126M | frame budget | 42 ms |
+| Monochrome 64x2048 | 95M | 164M | 153M | 172M | frame budget | 32 ms |
+| Cage 64x2048 | 45M | 48M | 46M | 59M | frame budget | 30 ms |
 
-- 59 of 70 cases are within 10% of the pair or ahead of it; the large boards gain most (Tough 512 +38%, Shelves
-  2048 +22%, Empty 2048 now reaches the memory ceiling).
-- Solid, Monochrome and Empty 512 stopped on the case's time limit while still filling (frames 5-9 ms), not on the
-  frame budget: they clear their bricks and then fill as fast as the spawn pacer allows, so their count is the
-  fill rate over the case time, not a capacity.
-- Real shortfalls, 19-31%: Shelves and Checker 48x48 and Checker 2048x64, small or short boards where nearly
-  every ball hits a brick every tick.
+- Against the 28 Oct sweep: 16 cases more than 10% up, 3 more than 10% down (Sparse 512 89M against 136M,
+  Checker 512 and LoneBrick 2048x2048, all within what single runs have varied by). The boards that trailed the
+  pair are back level or ahead: Shelves 48 97M (pair 95M), Checker 48 84M (80M), Checker 2048x64 84M (85M).
+- Against CUDA alone, Hybrid holds at least as many balls on 69 of 70 cases (Sparse 512 89M against 92M).
+  Against the pair it is ahead by more than 10% on 16 cases, within 10% on 50, and behind on 4: Solid, Monochrome
+  and Empty 512, which stopped on the case's time limit while still filling (frames of 5-9 ms; a capacity is not
+  reached there), and Sparse 512.
+- Peak on brick boards about 190M balls at 60 FPS (Shelves 2048 194M, LoneBrick 512 191M, Columns 2048 185M);
+  boards without bricks reach the 7.3B memory ceiling.
 
 ## What the cases found
 
