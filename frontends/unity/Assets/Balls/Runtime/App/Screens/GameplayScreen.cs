@@ -975,7 +975,8 @@ namespace Balls.App.Screens
                 }
                 if (advancedOpen && !string.IsNullOrEmpty(device))
                 {
-                    widgets.Readout(new Rect(content.x, y, content.width, 40f), "Device", device);
+                    widgets.Readout(new Rect(content.x, y, content.width, 40f), "Device",
+                        widgets.Ellipsize(device, TypeSizes.Value, content.width));
                     y += 46f;
                 }
                 if (advancedOpen)
