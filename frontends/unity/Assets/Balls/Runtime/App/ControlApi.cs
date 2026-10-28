@@ -402,6 +402,7 @@ namespace Balls.App
             if (Get(query, "scroll") is string scroll && scroll.Equals("end", StringComparison.OrdinalIgnoreCase))
             {
                 app.Get<Screens.SettingsScreen>().ScrollToEnd();
+                app.Get<Screens.GameplayScreen>().ScrollControlsToEnd();
             }
             Ok(request, SettingsJson(settings));
         }
