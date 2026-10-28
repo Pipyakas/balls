@@ -5,8 +5,12 @@
 #include "sim/BackendFactory.h"
 #include "sim/Simulation.h"
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
+#include <limits>
+#include <random>
+#include <tuple>
 #include <vector>
 
 namespace {
@@ -276,4 +280,88 @@ TEST_CASE("a ball only retargets a brick it can see, so blocked targets cannot t
     EXPECT(targetInSight(1.5f, 1.5f, 1, 0, board, ColumnOfBricks::paddedWidth));
     EXPECT(targetInSight(0.3f, 1.2f, 1, 0, board, ColumnOfBricks::paddedWidth));
     EXPECT(!targetInSight(1.4f, 4.0f, 1, 0, board, ColumnOfBricks::paddedWidth));
+}
+
+namespace {
+
+std::vector<BallSpawn> scatteredBalls(size_t count) {
+    std::mt19937 random(7);
+    std::uniform_real_distribution<float> unit(0.3f, 2.7f);
+    std::uniform_real_distribution<float> speed(-10.0f, 10.0f);
+    std::vector<BallSpawn> balls(count);
+    for (size_t i = 0; i < count; ++i) {
+        balls[i] = {unit(random), unit(random) + 2.0f, speed(random), speed(random), static_cast<int32_t>(i % 7)};
+    }
+    return balls;
+}
+
+std::vector<std::tuple<float, float, float, float, int32_t>> sortedState(const std::vector<BallSpawn>& balls) {
+    std::vector<std::tuple<float, float, float, float, int32_t>> state;
+    for (const BallSpawn& ball : balls) {
+        state.emplace_back(ball.x, ball.y, ball.vx, ball.vy, ball.color);
+    }
+    std::ranges::sort(state);
+    return state;
+}
+
+// A backend that holds only a few balls, to stand in for one whose memory is too small for the balls in play. With no
+// declared limit it takes the first chunks and silently drops the rest, as a backend that faults partway does.
+class SmallBackend final : public PhysicsBackend {
+public:
+    std::string_view name() const override { return "Small"; }
+    void uploadBoard(const BoardUpload&) override {}
+    explicit SmallBackend(bool declaresLimit) : declaresLimit(declaresLimit) {}
+    void addBalls(std::span<const BallSpawn> spawns) override {
+        if (balls.size() + spawns.size() <= heldBalls) {
+            balls.insert(balls.end(), spawns.begin(), spawns.end());
+        }
+    }
+    void step(const StepParams&, std::vector<BallHit>&) override {}
+    void removeBalls(std::span<const uint32_t>) override {}
+    size_t ballCount() const override { return balls.size(); }
+    size_t ballCapacityLimit() const override { return declaresLimit ? heldBalls : std::numeric_limits<size_t>::max(); }
+    BallSnapshot snapshot() override { return {}; }
+    std::vector<BallSpawn> exportBalls() override { return balls; }
+    std::vector<BallSpawn> takeTail(size_t) override { return {}; }
+    void clear() override { balls.clear(); }
+    BallTally truncate(size_t) override { return {}; }
+
+private:
+    static constexpr size_t heldBalls = 300;
+    bool declaresLimit;
+    std::vector<BallSpawn> balls;
+};
+
+} // namespace
+
+TEST_CASE("switching backends streams every ball across with its position and velocity") {
+    Simulation simulation(createBackend(BackendKind::Scalar));
+    simulation.load(makeLayout(singleBrickLevel));
+    const std::vector<BallSpawn> balls = scatteredBalls(10'000);
+    simulation.backend().addBalls(balls);
+    const BackendReplacement replacement = simulation.replaceBackend(createBackend(BackendKind::Scalar), 777);
+    EXPECT(replacement.ballsToRefill == 0);
+    EXPECT(replacement.retired->ballCount() == 0);
+    EXPECT(simulation.backend().ballCount() == balls.size());
+    EXPECT(sortedState(simulation.backend().exportBalls()) == sortedState(balls));
+}
+
+TEST_CASE("balls a new backend cannot hold are handed back to be launched again") {
+    Simulation simulation(createBackend(BackendKind::Scalar));
+    simulation.load(makeLayout(singleBrickLevel));
+    simulation.backend().addBalls(scatteredBalls(1'000));
+    const BackendReplacement replacement = simulation.replaceBackend(
+        BackendHandle(new SmallBackend(true), BackendRelease{[](PhysicsBackend* backend) { delete backend; }}));
+    EXPECT(replacement.ballsToRefill == 1'000);
+    EXPECT(simulation.backend().ballCount() == 0);
+}
+
+TEST_CASE("balls a new backend drops partway are counted and handed back") {
+    Simulation simulation(createBackend(BackendKind::Scalar));
+    simulation.load(makeLayout(singleBrickLevel));
+    simulation.backend().addBalls(scatteredBalls(1'000));
+    const BackendReplacement replacement = simulation.replaceBackend(
+        BackendHandle(new SmallBackend(false), BackendRelease{[](PhysicsBackend* backend) { delete backend; }}), 100);
+    EXPECT(simulation.backend().ballCount() == 300);
+    EXPECT(replacement.ballsToRefill == 700);
 }

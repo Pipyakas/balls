@@ -175,12 +175,13 @@ void GameSession::adoptBackend(BackendKind kind, BackendHandle backend) {
     BackendReplacement replacement = physicsSimulation.replaceBackend(std::move(backend));
     BackendWorker::shared().retire(std::move(replacement.retired));
     backendKind = kind;
-    refillRemaining = replacement.ballsToRefill;
+    // A refill still owed from an earlier switch carries over: those balls were never in the backend being replaced.
+    refillRemaining += replacement.ballsToRefill;
     switchOutcome = BackendSwitchOutcome{kind, true};
 }
 
-// Too many balls to copy across in one frame are launched into the new backend instead, a batch per frame sized
-// to stay within the budget.
+// Balls that could not be moved to the new backend are launched into it instead, a batch per frame sized to stay
+// within the budget.
 void GameSession::refillBatch() {
     constexpr double budgetMs = 4.0;
     constexpr BallCount smallestBatch = BallCount{1} << 12;
@@ -188,14 +189,32 @@ void GameSession::refillBatch() {
     if (refillRemaining == 0) {
         return;
     }
-    const BallCount batch = std::min(refillRemaining, refillBatchBalls);
-    const auto start = std::chrono::steady_clock::now();
+    // The ball limit caps a refill like any release: after a switch, Auto may have chosen a lower limit for the new
+    // backend than the balls the old one held.
+    const BallCount limit = gameMode == GameMode::Performance ? ballLimit() : unlimitedBalls;
+    const BallCount room = remainingCapacity(limit, physicsSimulation.liveBallCount());
+    if (room == 0) {
+        refillRemaining = 0;
+        return;
+    }
+    // A full backend may only be waiting for the retired one to free its device memory, which the backend worker does
+    // just after the switch; the refill gives up only once the room has stayed at zero for a while.
+    const auto now = std::chrono::steady_clock::now();
+    if (physicsSimulation.ballRoom() == 0) {
+        if (!refillStalledSince) {
+            refillStalledSince = now;
+        } else if (now - *refillStalledSince > refillPatience) {
+            refillRemaining = 0;
+            refillStalledSince.reset();
+        }
+        return;
+    }
+    refillStalledSince.reset();
+    const BallCount batch = std::min({refillRemaining, refillBatchBalls, room});
+    const auto start = now;
     launchAcrossColors(batch);
     const double elapsedMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
     refillRemaining -= batch;
-    if (physicsSimulation.ballRoom() == 0) {
-        refillRemaining = 0;
-    }
     const double scale = elapsedMs > 0.0 ? budgetMs / elapsedMs : 2.0;
     refillBatchBalls = std::clamp(static_cast<BallCount>(static_cast<double>(batch) * std::min(scale, 2.0)), smallestBatch,
                                   largestBatch);
