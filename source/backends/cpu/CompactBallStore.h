@@ -4,6 +4,8 @@
 #include "cpu/SimdVector.h"
 #include "sim/PhysicsBackend.h"
 
+#include <functional>
+
 namespace compact {
 
 inline constexpr float positionScale = 65535.0f;
@@ -41,8 +43,11 @@ struct CompactBallStore {
     unsigned int clockTick = 0;
     StepParams flightParams{};
 
+    // Calls encode(begin, end) over [0, count), on as many threads as the caller has.
+    using RangeRunner = std::function<void(size_t count, const std::function<void(size_t, size_t)>& encode)>;
+
     // Adds as many spawns as memory takes and returns how many that was.
-    size_t add(std::span<const BallSpawn> spawns);
+    size_t add(std::span<const BallSpawn> spawns, const RangeRunner& runRanges = {});
     void swapRemove(std::span<const uint32_t> descendingIndices);
     void clear() {
         resize(0);

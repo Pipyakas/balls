@@ -3,10 +3,42 @@
 #include <algorithm>
 #include <chrono>
 #include <numbers>
+#include <thread>
 
 namespace {
 
 constexpr int maximumScatterAttempts = 8;
+constexpr size_t launchChunkBalls = size_t{1} << 15;
+constexpr size_t ballsPerLaunchThread = size_t{1} << 18;
+
+uint64_t mixBits(uint64_t value) {
+    value += 0x9e3779b97f4a7c15ull;
+    value = (value ^ (value >> 30)) * 0xbf58476d1ce4e5b9ull;
+    value = (value ^ (value >> 27)) * 0x94d049bb133111ebull;
+    return value ^ (value >> 31);
+}
+
+float unitFloat(uint64_t bits) { return static_cast<float>(bits >> 40) * (1.0f / 16777216.0f); }
+
+// Runs body(first, last) over [0, count) in chunks spread across the hardware threads; small counts stay on the
+// calling thread, where starting threads would cost more than the work.
+template <typename Body>
+void forEachChunk(size_t count, Body&& body) {
+    const size_t chunks = (count + launchChunkBalls - 1) / launchChunkBalls;
+    const size_t threads = std::min<size_t>({std::max(1u, std::thread::hardware_concurrency()), chunks,
+                                             std::max<size_t>(1, count / ballsPerLaunchThread)});
+    const auto runFrom = [&](size_t firstChunk) {
+        for (size_t chunk = firstChunk; chunk < chunks; chunk += threads) {
+            body(chunk * launchChunkBalls, std::min(count, (chunk + 1) * launchChunkBalls));
+        }
+    };
+    std::vector<std::jthread> workers;
+    workers.reserve(threads - 1);
+    for (size_t worker = 1; worker < threads; ++worker) {
+        workers.emplace_back(runFrom, worker);
+    }
+    runFrom(0);
+}
 
 }
 
@@ -42,20 +74,36 @@ void Simulation::setBallCollisions(bool enabled) {
     physics->setBallCollisions(enabled);
 }
 
+// Each ball's angle and jitter come from a hash of its index, so a launch of millions is generated on every hardware
+// thread and still gives the same balls however many threads ran it.
 void Simulation::launchBalls(BallColor color, BallCount requested) {
     constexpr float degreesToRadians = std::numbers::pi_v<float> / 180.0f;
     const BallCount count = std::min(requested, ballRoom());
     const float halfAngle = settings.launchHalfAngleDegrees * degreesToRadians;
-    std::uniform_real_distribution<float> angleDistribution(-halfAngle, halfAngle);
-    std::uniform_real_distribution<float> jitterDistribution(-settings.ballRadius, settings.ballRadius);
-    pendingSpawns.reserve(pendingSpawns.size() + std::min(static_cast<size_t>(count), spawnFlushBalls));
-    for (BallCount i = 0; i < count; ++i) {
-        const float angle = angleDistribution(random);
-        pendingSpawns.push_back({launchX() + jitterDistribution(random), launchY(),
-                                 std::sin(angle) * settings.ballSpeed, -std::cos(angle) * settings.ballSpeed,
-                                 toIndex(color)});
+    const float x = launchX();
+    const float y = launchY();
+    const float radius = settings.ballRadius;
+    const float speed = settings.ballSpeed;
+    const int32_t colorIndex = toIndex(color);
+    const uint64_t launchSeed = (static_cast<uint64_t>(random()) << 32) | random();
+    for (BallCount done = 0; done < count;) {
         flushSpawnsIfLarge();
+        const size_t first = pendingSpawns.size();
+        const size_t batch = static_cast<size_t>(std::min<BallCount>(count - done, spawnFlushBalls - first));
+        pendingSpawns.resize(first + batch);
+        BallSpawn* out = pendingSpawns.data() + first;
+        const uint64_t batchSeed = launchSeed + done;
+        forEachChunk(batch, [&](size_t begin, size_t end) {
+            for (size_t i = begin; i < end; ++i) {
+                const uint64_t bits = mixBits(batchSeed + i);
+                const float angle = (unitFloat(bits) * 2.0f - 1.0f) * halfAngle;
+                const float jitter = (unitFloat(bits << 24) * 2.0f - 1.0f) * radius;
+                out[i] = {x + jitter, y, std::sin(angle) * speed, -std::cos(angle) * speed, colorIndex};
+            }
+        });
+        done += batch;
     }
+    flushSpawnsIfLarge();
     statistics.ballsByColor[toIndex(color)] += count;
     statistics.totalBallsSpawned += count;
 }

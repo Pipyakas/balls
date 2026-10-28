@@ -33,9 +33,13 @@ The compact backends store a direction in 13 bits per axis, so a ball's heading 
 radian; over 10 s of flight that is the hundredth of a cell above.
 
 DA_1000Bricks with balls launched as in a game: no backend ever put a ball outside the field or left one inside a
-live brick, and speed never changed. Bricks left stay within 3-9% of the reference (noise floor 5.4%); total hits
-end equal and run 10-20 hits ahead of the reference during the first two seconds, because the game checks contacts
-once per tick (0.117 cells of travel) where the reference checks every 0.01 cells.
+live brick, and speed never changed. Total hits end equal and run 10-35 hits off the reference during the first
+four seconds, because the game checks contacts once per tick (0.117 cells of travel) where the reference checks every
+0.01 cells; the whole launch reaches the bricks together, so a few balls landing a tick earlier or later move the
+early curve. Bricks left differ by up to about 20 near the end, which reads as 22-46% when only ~80 remain. How large
+these look depends on the launch's random draw: with the original sequential generator they were 3-9% and 10-20
+hits, with the per-ball hashed launch (parallel generation) 22-46% and 10-35 hits, Scalar included, while the board
+clears on the same frame with the same total.
 
 ## What it has caught
 

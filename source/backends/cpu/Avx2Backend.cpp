@@ -263,6 +263,15 @@ inline void considerCell(ContactSearch& best, const int32_t* paddedCells, __m256
 Avx2Backend::Avx2Backend(size_t threadCount) : pool(std::make_unique<WorkerPool>(threadCount)) {
 }
 
+// Encoding is about 30 ns a ball when the store is frozen (each spawn is projected back to the free-flight epoch), so
+// large launches are split across the pool.
+void Avx2Backend::addBalls(std::span<const BallSpawn> spawns) {
+    constexpr size_t addChunkBalls = size_t{1} << 16;
+    store.add(spawns, [&](size_t count, const std::function<void(size_t, size_t)>& encode) {
+        pool->runChunks(count, addChunkBalls, [&](size_t, size_t begin, size_t end) { encode(begin, end); });
+    });
+}
+
 void Avx2Backend::setVisibilityGrid(int width, int height) {
     store.gridWidth = std::max(width, 0);
     store.gridHeight = std::max(height, 0);

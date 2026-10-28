@@ -13,6 +13,7 @@ public:
     std::string_view name() const override { return "AVX2"; }
     void step(const StepParams& params, std::vector<BallHit>& hits) override;
     void setVisibilityGrid(int width, int height) override;
+    void addBalls(std::span<const BallSpawn> spawns) override;
     void shareCoresWithGpu() override;
     bool takeCompactTail(size_t count, CompactBalls& balls) override {
         materializeFreeFlight();
