@@ -1,7 +1,9 @@
+#include "level/EdgeCaseLevels.h"
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
 #include "sim/BackendBenchmark.h"
 #include "sim/BackendFactory.h"
+#include "sim/EdgeCaseSweep.h"
 #include "sim/HybridBackend.h"
 #include "sim/PhysicsAccuracy.h"
 #include "sim/Simulation.h"
@@ -39,6 +41,11 @@ struct BenchOptions {
     int substeps = 2;
     std::filesystem::path machineBenchmarkOutput;
     bool accuracy = false;
+    bool edgeCases = false;
+    std::string edgeLayouts = "all";
+    std::string edgeSizes = "all";
+    double edgeCaseSeconds = 40.0;
+    std::filesystem::path edgeOutput;
 };
 
 std::vector<size_t> parseCounts(const char* text) {
@@ -109,6 +116,20 @@ BenchOptions parseOptions(int argumentCount, char** arguments) {
             ++i;
         } else if (argument == "--accuracy") {
             options.accuracy = true;
+        } else if (argument == "--edge-cases") {
+            options.edgeCases = true;
+        } else if (argument == "--layouts") {
+            options.edgeLayouts = value;
+            ++i;
+        } else if (argument == "--sizes") {
+            options.edgeSizes = value;
+            ++i;
+        } else if (argument == "--case-seconds") {
+            options.edgeCaseSeconds = std::atof(value);
+            ++i;
+        } else if (argument == "--out") {
+            options.edgeOutput = value;
+            ++i;
         }
     }
     return options;
@@ -155,6 +176,60 @@ int runAccuracy(const BenchOptions& options, const BrickLayout& level) {
                                                        static_cast<long long>(reference.samples[i].hits));
             }
             std::printf("             hits minus reference per sample:%s\n", hitsCurve.c_str());
+        }
+    }
+    return 0;
+}
+
+bool listed(const std::string& list, const std::string& name) {
+    return list == "all" || (',' + list + ',').find(',' + name + ',') != std::string::npos;
+}
+
+// Every generated board shape and size against every backend, from small to as big as the machine holds; one line
+// per pair, also written as tab-separated rows to --out.
+int runEdgeCases(const BenchOptions& options) {
+    EdgeSweepSettings settings;
+    settings.caseSeconds = options.edgeCaseSeconds;
+    std::ofstream output;
+    if (!options.edgeOutput.empty()) {
+        output.open(options.edgeOutput, std::ios::binary);
+        output << "case\tbackend\tballs_at_60\tpassing\tpassing_ms\tworst_ms\tfailing\tfailing_ms\tbricks_left\t"
+                  "launch_ns_per_ball\tstop\tseconds\n";
+    }
+    for (const EdgeBoardSize size : edgeBoardSizes()) {
+        if (!listed(options.edgeSizes, std::format("{}x{}", size.width, size.height))) {
+            continue;
+        }
+        for (const EdgeLayout layout : allEdgeLayouts()) {
+            if (!listed(options.edgeLayouts, edgeLayoutName(layout))) {
+                continue;
+            }
+            const std::string name = edgeCaseName(layout, size);
+            const BrickLayout bricks = generateEdgeLayout(layout, size);
+            for (BackendKind kind : options.backends) {
+                if (!isBackendAvailable(kind)) {
+                    continue;
+                }
+                const EdgeSweepResult result = sweepEdgeCase(bricks, kind, settings);
+                const std::string backendName(backendKindName(kind));
+                std::printf("%-28s %-7s ~%-7s at 60 FPS  (%s at %.1f ms, worst %.1f ms; %s at %.1f ms)  bricks %d  "
+                            "launch %.0f ns/ball  stop: %s  %.0f s\n",
+                            name.c_str(), backendName.c_str(), shortBallCount(result.estimatedBalls).c_str(),
+                            shortBallCount(static_cast<double>(result.passingBalls)).c_str(), result.passingFrameMs,
+                            result.passingWorstFrameMs,
+                            shortBallCount(static_cast<double>(result.failingBalls)).c_str(), result.failingFrameMs,
+                            result.aliveBricks, result.launchNanosecondsPerBall, result.stopReason.c_str(),
+                            result.seconds);
+                std::fflush(stdout);
+                if (output.is_open()) {
+                    output << std::format("{}\t{}\t{:.0f}\t{}\t{:.2f}\t{:.2f}\t{}\t{:.2f}\t{}\t{:.1f}\t{}\t{:.1f}\n",
+                                          name, backendName, result.estimatedBalls, result.passingBalls,
+                                          result.passingFrameMs, result.passingWorstFrameMs, result.failingBalls,
+                                          result.failingFrameMs, result.aliveBricks,
+                                          result.launchNanosecondsPerBall, result.stopReason, result.seconds);
+                    output.flush();
+                }
+            }
         }
     }
     return 0;
@@ -412,6 +487,9 @@ int main(int argumentCount, char** arguments) {
         std::printf("board: %s\n", onLevel ? options.levelName.c_str() : "empty");
         runRoofline(options, rooflineLevel ? &rooflineLevel->bricks : nullptr);
         return 0;
+    }
+    if (options.edgeCases) {
+        return runEdgeCases(options);
     }
     auto level = loadLevel(levelFilesFor(options.levelDirectory, options.levelName));
     if (!level) {
