@@ -23,7 +23,7 @@ void BallView::draw(PhysicsBackend& backend, const BoardTransform& transform, fl
     if (backend.ballCount() == 0) {
         return;
     }
-    const float slotSize = std::max(radiusCells * visibilitySlotsPerRadius, 1.0f / transform.cellPixels);
+    const float slotSize = visibilitySlotSize(radiusCells, transform.cellPixels);
     backend.setVisibilityGrid(visibilitySlots(lastFieldWidth, slotSize), visibilitySlots(lastFieldHeight, slotSize));
     const auto snapshotStart = std::chrono::steady_clock::now();
     const BallSnapshot balls = backend.snapshot();

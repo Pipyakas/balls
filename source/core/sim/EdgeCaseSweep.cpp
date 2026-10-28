@@ -25,9 +25,11 @@ EdgeSweepResult sweepEdgeCase(const BrickLayout& layout, BackendKind kind, const
     }
     Simulation simulation(std::move(backend));
     simulation.load(layout);
-    const float slotSize = simulation.tuning().ballRadius * visibilitySlotsPerRadius;
-    simulation.backend().setVisibilityGrid(visibilitySlots(static_cast<float>(simulation.board().columns()), slotSize),
-                                           visibilitySlots(static_cast<float>(simulation.board().rows()), slotSize));
+    const float columns = static_cast<float>(simulation.board().columns());
+    const float rows = static_cast<float>(simulation.board().rows());
+    const float cellPixels = std::min(settings.screenWidth / columns, settings.screenHeight / rows);
+    const float slotSize = visibilitySlotSize(simulation.tuning().ballRadius, cellPixels);
+    simulation.backend().setVisibilityGrid(visibilitySlots(columns, slotSize), visibilitySlots(rows, slotSize));
     const double budgetSeconds = settings.frameBudgetShare / settings.targetFps;
     SpawnPacer pacer;
     double launchSeconds = 0.0;

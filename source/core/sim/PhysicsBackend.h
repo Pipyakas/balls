@@ -3,6 +3,7 @@
 #include "common/BallCount.h"
 #include "sim/kernels/BallStepCore.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -92,6 +93,11 @@ inline constexpr float visibilitySlotsPerRadius = 1.6f;
 // would ask for gigabytes, so the buffer stops here; a kill past it is refunded and the ball bounces, to land a later
 // step.
 inline constexpr size_t maximumKillsPerStep = size_t{1} << 22;
+
+// A slot is never smaller than a pixel: a board bigger than the screen draws at most one ball per pixel.
+inline float visibilitySlotSize(float radiusCells, float cellPixels) {
+    return std::max(radiusCells * visibilitySlotsPerRadius, cellPixels > 0.0f ? 1.0f / cellPixels : 0.0f);
+}
 
 inline int visibilitySlots(float fieldExtent, float slotSize) {
     return static_cast<int>(std::ceil(fieldExtent / (slotSize > 0.0f ? slotSize : 1.0f)));
