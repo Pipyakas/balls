@@ -125,33 +125,6 @@ std::string_view gameVersion() {
     return version ? version : "";
 }
 
-constexpr const char* targetBenchmarkFileName = "target-benchmark.txt";
-
-// The scoring machine's machine-benchmark record, measured with balls_bench --machine-benchmark and
-// shipped with the assets, so the game starts on the backend that is fastest where it is judged.
-std::optional<BenchmarkCandidate> targetMachineWinner() {
-    std::ifstream file(assetRoot() / targetBenchmarkFileName, std::ios::binary);
-    std::stringstream text;
-    text << file.rdbuf();
-    const std::optional<BenchmarkRecord> record = parseBenchmarkRecord(text.str());
-    return record ? record->winner : std::nullopt;
-}
-
-// The command line wins, then the Settings default (this machine's own benchmark winner or the player's pick), then
-// the scoring machine's winner, then the fastest CPU backend, skipping any that cannot load on this machine.
-BackendKind startupBackend(std::optional<BackendKind> commandLine, std::string_view settingsDefault) {
-    if (commandLine && isBackendAvailable(*commandLine)) {
-        return *commandLine;
-    }
-    if (const auto saved = parseSavedBackendKind(settingsDefault); saved && isBackendAvailable(*saved) && isBackendSelectable(*saved)) {
-        return *saved;
-    }
-    if (const auto target = targetMachineWinner();
-        target && isBackendAvailable(target->kind) && isBackendSelectable(target->kind)) {
-        return target->kind;
-    }
-    return fastestAvailableCpuBackend();
-}
 
 std::string screenshotFileFor(const std::string& requested) {
     std::filesystem::path path(requested);
@@ -472,7 +445,7 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
     computeAdapterList = enumerateGpuAdapters(GpuApi::Vulkan);
     applyOrientationHint(currentSettings.layout);
     setVsync(effective.vsync || currentSettings.vsync);
-    backendChoice = startupBackend(options.backend, currentSettings.defaultBackend);
+    backendChoice = chooseStartupBackend(options.backend, currentSettings.defaultBackend, assetRoot() / targetBenchmarkFileName);
     if (options.controlPort > 0) {
         controlServer.start(options.controlPort);
     }

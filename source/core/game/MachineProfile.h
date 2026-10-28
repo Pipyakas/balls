@@ -44,6 +44,18 @@ private:
 
 using MeasuredBallLimits = std::map<BackendKind, MachineProfile::MeasuredLimit>;
 
+inline constexpr std::string_view targetBenchmarkFileName = "target-benchmark.txt";
+
+// The winner in the target PC's benchmark record (data/assets/target-benchmark.txt, measured with
+// balls_bench --machine-benchmark and shipped with the assets), or nothing when there is none.
+std::optional<BenchmarkCandidate> targetMachineWinner(const std::filesystem::path& recordFile);
+
+// The backend a new game starts on ("Default backend and machine benchmark"): the command line, then the Settings
+// default (this machine's own benchmark winner or the player's pick, kind or device picks), then the target PC's
+// winner, then the fastest CPU backend, skipping any that cannot load or is not offered here.
+BackendKind chooseStartupBackend(std::optional<BackendKind> commandLine, std::string_view settingsDefault,
+                                 const std::filesystem::path& targetRecordFile);
+
 // One "<backend> <target fps> <balls>" line per backend. The parser also takes the tab-separated
 // "limit\t<backend>\t<balls>\t<fps>" lines the Unity front end wrote before the profile moved into the core.
 std::string serializeBallLimits(const MeasuredBallLimits& limits);

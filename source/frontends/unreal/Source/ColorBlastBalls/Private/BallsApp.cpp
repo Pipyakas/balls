@@ -109,12 +109,8 @@ std::optional<BackendKind> BackendFromCommandLine() {
     if (!FParse::Value(FCommandLine::Get(), TEXT("BallsBackend="), Name)) {
         return std::nullopt;
     }
-    for (const BackendKind Kind : allBackendKinds) {
-        if (Name.Equals(BallsText::FromUtf8(backendKindName(Kind)), ESearchCase::IgnoreCase) && isBackendAvailable(Kind)) {
-            return Kind;
-        }
-    }
-    return std::nullopt;
+    // A kind name or device picks ("AVX2@cpu+CUDA@gpu0"), as the game's backend launch option takes them.
+    return parseBackendKind(TCHAR_TO_UTF8(*Name));
 }
 
 // The Settings page values the core does not own (backend, VSync) live in the per-user GameUserSettings.ini.
@@ -150,31 +146,6 @@ void AdoptIniBallLimits(MachineProfile& Profile) {
     GConfig->Flush(false, GGameUserSettingsIni);
 }
 
-std::optional<BackendKind> AvailableBackendNamed(const std::string& Name) {
-    for (const BackendKind Kind : allBackendKinds) {
-        if (Name == backendKindName(Kind) && isBackendAvailable(Kind)) {
-            return Kind;
-        }
-    }
-    return std::nullopt;
-}
-
-// The scoring machine's machine-benchmark record ships with the assets, so the game starts on the backend that is
-// fastest where it is judged ("Default backend and machine benchmark").
-std::optional<BackendKind> TargetMachineBackend(const std::filesystem::path& AssetRoot) {
-    std::ifstream File(AssetRoot / "target-benchmark.txt", std::ios::binary);
-    if (!File) {
-        return std::nullopt;
-    }
-    std::stringstream Text;
-    Text << File.rdbuf();
-    const std::optional<BenchmarkRecord> Record = parseBenchmarkRecord(Text.str());
-    if (!Record || !Record->winner) {
-        return std::nullopt;
-    }
-    return AvailableBackendNamed(std::string(backendKindName(Record->winner->kind)));
-}
-
 // The Unreal port owns this one: the design has no graphics level, but its post chain costs more than the scene.
 EBallsGraphics SavedGraphics() {
     // The command line wins: screenshots and measurements pin the level they want to capture.
@@ -207,16 +178,7 @@ BackendKind StartupBackend(const std::string& SettingsDefault, const std::filesy
 #if PLATFORM_WINDOWS && defined(BALLS_PLUGIN_DIR)
     AddPhysicsPluginDirectory();
 #endif
-    if (const std::optional<BackendKind> Requested = BackendFromCommandLine()) {
-        return *Requested;
-    }
-    if (const std::optional<BackendKind> Saved = AvailableBackendNamed(SettingsDefault)) {
-        return *Saved;
-    }
-    if (const std::optional<BackendKind> Target = TargetMachineBackend(AssetRoot)) {
-        return *Target;
-    }
-    return fastestAvailableCpuBackend();
+    return chooseStartupBackend(BackendFromCommandLine(), SettingsDefault, AssetRoot / targetBenchmarkFileName);
 }
 
 }
@@ -489,8 +451,9 @@ FString FBallsApp::GetBenchmarkWinnerLabel() const {
 
 void FBallsApp::SetPreferredBackend(BackendKind Kind) {
     PreferredBackend = Kind;
-    // The default backend is a core setting, shared with the SDL front end's Settings page.
-    CurrentSettings.defaultBackend = std::string(backendKindName(Kind));
+    // The default backend is a core setting, shared with the SDL front end's Settings page; Hybrid is saved as its
+    // device picks.
+    CurrentSettings.defaultBackend = storedBackendName(Kind);
     if (const Result<void> Saved = saveSettings(SettingsFile(), CurrentSettings); !Saved) {
         UE_LOG(LogTemp, Warning, TEXT("BallsSettings: %s"), *BallsText::FromUtf8(Saved.error()));
     }

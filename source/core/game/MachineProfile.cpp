@@ -1,6 +1,7 @@
 #include "game/MachineProfile.h"
 
 #include "sim/BackendSelection.h"
+#include "sim/BackendWorker.h"
 
 #include <charconv>
 #include <fstream>
@@ -127,4 +128,24 @@ void MachineProfile::rememberBenchmark(BenchmarkRecord record) {
     std::filesystem::create_directories(folder, error);
     std::ofstream(folder / benchmarkFileName, std::ios::trunc) << serializeBenchmarkRecord(record);
     benchmarkRecord = std::move(record);
+}
+
+std::optional<BenchmarkCandidate> targetMachineWinner(const std::filesystem::path& recordFile) {
+    const std::optional<BenchmarkRecord> record = parseBenchmarkRecord(readFile(recordFile));
+    return record ? record->winner : std::nullopt;
+}
+
+BackendKind chooseStartupBackend(std::optional<BackendKind> commandLine, std::string_view settingsDefault,
+                                 const std::filesystem::path& targetRecordFile) {
+    if (commandLine && isBackendAvailable(*commandLine)) {
+        return *commandLine;
+    }
+    const auto usable = [](BackendKind kind) { return isBackendAvailable(kind) && isBackendSelectable(kind); };
+    if (const auto saved = parseSavedBackendKind(settingsDefault); saved && usable(*saved)) {
+        return *saved;
+    }
+    if (const auto target = targetMachineWinner(targetRecordFile); target && usable(target->kind)) {
+        return target->kind;
+    }
+    return fastestAvailableCpuBackend();
 }
