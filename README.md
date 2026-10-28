@@ -41,6 +41,7 @@ platform:
 | `build.bat`, or double-click it | the submission version, SDL + NVRHI, into `dist\win32-sdl\balls.exe` |
 | `build.bat --menu` | a numbered list of every front end and platform to pick from |
 | `build.bat sdl <variant>` | one variant directly, e.g. `build.bat sdl android` |
+| `build.bat --setup [--menu \| sdl <variant>]` | only the setup check below, without building |
 | `./build.sh [--menu \| sdl <variant>]` | the same on Linux; the default is SDL + NVRHI (Vulkan) into `dist/linux-sdl/balls` |
 
 Each front end owns its build in `source/frontends/<name>/build.bat` and `build.sh`, which can also be run on their
@@ -53,6 +54,14 @@ new front end adds its scripts to its own folder and appears in the menu. The SD
 | `win32-webgpu`, `win32-sdlgpu` | `dist\win32-sdl-webgpu\`, `dist\win32-sdl-sdlgpu\` |
 | `linux-nvrhi` (default on Linux), `linux-webgpu`, `linux-sdlgpu` | `dist/linux-sdl/`, `dist/linux-sdl-webgpu/`, `dist/linux-sdl-sdlgpu/` |
 | `android` | `dist\android-sdl\balls.apk` (needs JDK 17, and `ANDROID_HOME` pointing at an SDK with NDK 27.2) |
+
+Every build starts with a setup check (`source/frontends/<name>/setup.ps1`, `setup.sh` on Linux) that lists each
+thing the chosen variant needs with `ok` or `MISS`: for Windows desktop builds Visual Studio 2022 with the C++
+tools, a Windows SDK, CMake 3.25+, Git, Python (only to fetch the CUDA compiler pieces) and internet access for the
+first configure; for Android JDK 17+, the Android SDK with NDK 27.2, platform 35 and an SDK CMake 3.25+. It offers
+to install what is missing (winget on Windows, apt or dnf on Linux, `sdkmanager` for Android SDK packages), finds
+tools that are installed but not on `PATH` (such as the CMake bundled with Visual Studio), and stops before CMake or
+Gradle starts when something required is still missing.
 
 Every build keeps CMake's intermediate files under `build\`, stages a self-contained runnable copy under `dist\`,
 stops a game still running from that copy first, and ends by printing the absolute path of what it built.

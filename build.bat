@@ -4,6 +4,8 @@ rem One entry point for every front end and platform.
 rem   build.bat                         the submission build: SDL + NVRHI for Windows
 rem   build.bat --menu                  pick any front end and platform from a menu
 rem   build.bat <frontend> [variant]    build one directly, e.g. build.bat sdl android
+rem   build.bat --setup [...]           only check this PC can build it (with --menu, or a front end and variant)
+rem Every build first runs its front end's setup check, which names what is missing and offers to install it.
 rem Each front end owns source\frontends\<name>\build.bat; this script only dispatches to them, and the menu lists
 rem whatever variants each of those reports with --variants, so a new front end needs no change here.
 cd /d "%~dp0"
@@ -14,8 +16,10 @@ echo %CMDCMDLINE% | find /i "%~f0" >nul && set "WAIT_AT_END=1"
 set "BALLS_NO_PAUSE=1"
 setlocal EnableDelayedExpansion
 
+set "SETUP_FLAG="
+if /i "%~1"=="--setup" (set "SETUP_FLAG=--setup" & shift /1)
 if "%~1"=="" (
-    call source\frontends\sdl\build.bat
+    call source\frontends\sdl\build.bat %SETUP_FLAG%
     goto :finish
 )
 if /i "%~1"=="--menu" goto :menu
@@ -29,7 +33,7 @@ if not exist "source\frontends\%~1\build.bat" (
     cmd /c exit 1
     goto :finish
 )
-call "source\frontends\%~1\build.bat" %2
+call "source\frontends\%~1\build.bat" %SETUP_FLAG% %2
 goto :finish
 
 :menu
@@ -60,14 +64,15 @@ if not defined SCRIPT_%PICKED% (
     goto :finish
 )
 echo.
-call "!SCRIPT_%PICKED%!" !VARIANT_%PICKED%!
+call "!SCRIPT_%PICKED%!" %SETUP_FLAG% !VARIANT_%PICKED%!
 goto :finish
 
 :usage
-echo Usage: build.bat [--menu ^| ^<frontend^> [variant]]
+echo Usage: build.bat [--setup] [--menu ^| ^<frontend^> [variant]]
 echo   no arguments   build the submission version: SDL + NVRHI for Windows, into dist\win32-sdl
 echo   --menu, -m     choose a front end and platform from a list
 echo   sdl android    build one variant directly; build.bat --menu lists them
+echo   --setup        only check this PC has what that build needs, offering to install anything missing
 exit /b 0
 
 :finish

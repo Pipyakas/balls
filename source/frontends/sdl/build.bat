@@ -1,9 +1,11 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions DisableDelayedExpansion
 rem Builds one variant of the SDL front end and stages a runnable copy under dist\.
 rem   build.bat               the submission build (win32-nvrhi)
 rem   build.bat <variant>     one of the variants below
 rem   build.bat --variants    lists them as id;description, which the root build.bat menu reads
+rem   build.bat --setup [variant]   only checks this PC can build it, offering to install what is missing
+rem Every build runs that setup check first, so a missing tool is named before CMake or Gradle starts.
 for %%I in ("%~dp0..\..\..") do set "ROOT=%%~fI"
 cd /d "%ROOT%"
 
@@ -20,6 +22,8 @@ rem BALLS_NO_PAUSE because it waits on its own.
 set "WAIT_AT_END="
 if not defined BALLS_NO_PAUSE echo %CMDCMDLINE% | find /i "%~f0" >nul && set "WAIT_AT_END=1"
 
+set "SETUP_ONLY="
+if /i "%~1"=="--setup" (set "SETUP_ONLY=1" & shift /1)
 set "RENDERER="
 set "VARIANT=%~1"
 if not defined VARIANT set "VARIANT=win32-nvrhi"
@@ -27,14 +31,19 @@ rem The submission build keeps the short build\win32 and dist\win32-sdl folders 
 if /i "%VARIANT%"=="win32-nvrhi" (set "RENDERER=nvrhi" & set "BUILD_DIR=build\win32" & set "DIST_DIR=%ROOT%\dist\win32-sdl")
 if /i "%VARIANT%"=="win32-webgpu" (set "RENDERER=webgpu" & set "BUILD_DIR=build\win32-webgpu" & set "DIST_DIR=%ROOT%\dist\win32-sdl-webgpu")
 if /i "%VARIANT%"=="win32-sdlgpu" (set "RENDERER=sdlgpu" & set "BUILD_DIR=build\win32-sdlgpu" & set "DIST_DIR=%ROOT%\dist\win32-sdl-sdlgpu")
-if /i "%VARIANT%"=="android" goto :android
+if /i "%VARIANT%"=="android" set "RENDERER=gradle"
 if not defined RENDERER (
     echo Unknown SDL variant "%VARIANT%". Known variants:
     call "%~f0" --variants
     goto :failed
 )
 
-where cmake >nul 2>&1 || (echo CMake not found on PATH. & goto :failed)
+set "SETUP_ENV=%ROOT%\build\setup-%VARIANT%.bat"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup.ps1" -Variant %VARIANT% -EnvFile "%SETUP_ENV%"
+if errorlevel 1 goto :failed
+call "%SETUP_ENV%"
+if defined SETUP_ONLY goto :finish
+if /i "%VARIANT%"=="android" goto :android
 
 if not exist ".deps\cuda\sdk\include\nvrtc.h" (
     echo Fetching CUDA compiler pieces for the GPU backend...
@@ -66,11 +75,6 @@ goto :done
 :android
 set "ANDROID_DIR=%~dp0android"
 set "DIST_DIR=%ROOT%\dist\android-sdl"
-where java >nul 2>&1 || (echo Java not found on PATH; the Android build needs JDK 17. & goto :failed)
-if not defined ANDROID_HOME if not defined ANDROID_SDK_ROOT if not exist "%ANDROID_DIR%\local.properties" (
-    echo Set ANDROID_HOME to the Android SDK, or write sdk.dir into %ANDROID_DIR%\local.properties.
-    goto :failed
-)
 pushd "%ANDROID_DIR%"
 call "%ANDROID_DIR%\gradlew.bat" --no-daemon assembleDebug
 set "GRADLE_RESULT=%ERRORLEVEL%"
@@ -83,6 +87,7 @@ set "BUILT=%DIST_DIR%\balls.apk"
 :done
 echo.
 echo Built: %BUILT%
+:finish
 if defined WAIT_AT_END pause
 exit /b 0
 

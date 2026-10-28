@@ -3,6 +3,8 @@
 #   build.sh               the default build (linux-nvrhi)
 #   build.sh <variant>     one of the variants below
 #   build.sh --variants    lists them as id;description, which the root build.sh menu reads
+#   build.sh --setup [variant]   only checks this machine can build it, offering to install what is missing
+# Every build runs that setup check first, so a missing tool is named before CMake or Gradle starts.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/../../.." && pwd)
 cd "$root"
@@ -15,25 +17,35 @@ if [ "${1:-}" = "--variants" ]; then
     exit 0
 fi
 
+setup_only=""
+if [ "${1:-}" = "--setup" ]; then
+    setup_only=1
+    shift
+fi
 variant=${1:-linux-nvrhi}
+case "$variant" in
+    linux-nvrhi | linux-webgpu | linux-sdlgpu | android) ;;
+    *)
+        echo "Unknown SDL variant \"$variant\". Known variants:" >&2
+        "$0" --variants >&2
+        exit 1
+        ;;
+esac
+"$root/source/frontends/sdl/setup.sh" "$variant"
+[ -n "$setup_only" ] && exit 0
+
 case "$variant" in
     linux-nvrhi) renderer=nvrhi; build_dir=build/linux; dist_dir=dist/linux-sdl ;;
     linux-webgpu) renderer=webgpu; build_dir=build/linux-webgpu; dist_dir=dist/linux-sdl-webgpu ;;
     linux-sdlgpu) renderer=sdlgpu; build_dir=build/linux-sdlgpu; dist_dir=dist/linux-sdl-sdlgpu ;;
     android)
         android_dir="$root/source/frontends/sdl/android"
-        command -v java >/dev/null 2>&1 || { echo "Java not found; the Android build needs JDK 17." >&2; exit 1; }
         (cd "$android_dir" && sh ./gradlew --no-daemon assembleDebug)
         mkdir -p dist/android-sdl
         cp "$android_dir/app/build/outputs/apk/debug/app-debug.apk" dist/android-sdl/balls.apk
         echo
         echo "Built: $root/dist/android-sdl/balls.apk"
         exit 0
-        ;;
-    *)
-        echo "Unknown SDL variant \"$variant\". Known variants:" >&2
-        "$0" --variants >&2
-        exit 1
         ;;
 esac
 
