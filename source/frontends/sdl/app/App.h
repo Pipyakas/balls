@@ -124,6 +124,9 @@ private:
     bool screenshotPending = false;
     std::string screenshotPath;
     float frameSeconds = 0.0f;
+    // Longest gap between two frame starts since /hitch last read it. Unlike the frame timings it includes the
+    // renderer, adapter and screen switches applied after a frame is measured, so it is what a hitch costs.
+    double longestFrameIntervalMs = 0.0;
     Toast toast;
     std::vector<std::filesystem::path> droppedPaths;
     std::mutex dialogMutex;

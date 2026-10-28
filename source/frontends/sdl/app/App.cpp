@@ -526,6 +526,7 @@ bool App::frame() {
     }
     const Clock::time_point updateStart = Clock::now();
     frameSeconds = static_cast<float>(millisecondsBetween(previousUpdateStart, updateStart) / 1000.0);
+    longestFrameIntervalMs = std::max(longestFrameIntervalMs, millisecondsBetween(previousUpdateStart, updateStart));
     previousUpdateStart = updateStart;
     const float deltaTime = std::min(frameSeconds, maximumFrameSeconds);
     renderer->beginFrame();
@@ -588,26 +589,44 @@ void App::applyPendingScreen() {
     }
 }
 
+namespace {
+
+std::string adapterNamesJson(const std::vector<GpuAdapterInfo>& adapters) {
+    std::string json = "[";
+    for (const GpuAdapterInfo& adapter : adapters) {
+        json += std::format("{}\"{}\"", json.size() > 1 ? "," : "", jsonEscape(adapter.name));
+    }
+    return json + "]";
+}
+
+} // namespace
+
 std::string App::stateJson() const {
     const FrameSample& sample = timings.average();
     return std::format(
         "{{\"ok\":true,\"frontend\":\"sdl\",\"renderer\":\"{}\",\"screen\":\"{}\",\"window\":[{},{}],"
         "\"fps\":{:.1f},\"minFps\":{:.1f},\"workFps\":{:.1f},\"minWorkFps\":{:.1f},\"shownFps\":{:.1f},\"frameMs\":{:.3f},\"cpuMs\":{:.3f},\"gpuMs\":{:.3f},"
         "\"presentMs\":{:.3f},\"preferredBackend\":\"{}\",\"computeGpu\":\"{}\",\"vsync\":{},\"toast\":\"{}\","
-        "\"details\":{}}}",
+        "\"renderAdapters\":{},\"computeAdapters\":{},\"details\":{}}}",
         jsonEscape(renderer->deviceDescription()), currentScreen->name(), gfx::screenWidth(),
         gfx::screenHeight(), timings.framesPerSecond(), timings.worstFpsLastSecond(),
         timings.workFramesPerSecond(), timings.worstWorkFpsLastSecond(), timings.shownFramesPerSecond(),
         sample.frameMs,
         sample.cpuMs, sample.gpuMs, sample.presentMs, backendKindName(backendChoice),
         jsonEscape(backendDetail(BackendKind::Vulkan)), isVsyncEnabled(),
-        jsonEscape(toast.secondsLeft > 0.0f ? toast.text : std::string{}), currentScreen->stateJson());
+        jsonEscape(toast.secondsLeft > 0.0f ? toast.text : std::string{}), adapterNamesJson(renderAdapterList),
+        adapterNamesJson(computeAdapterList), currentScreen->stateJson());
 }
 
 std::optional<ControlResponse> App::handleControl(const ControlRequest& request) {
     const std::string& path = request.path;
     if (path == "/state") {
         return ControlResponse::ok(stateJson());
+    }
+    if (path == "/hitch") {
+        const double longest = longestFrameIntervalMs;
+        longestFrameIntervalMs = 0.0;
+        return ControlResponse::ok(std::format("{{\"ok\":true,\"longestFrameMs\":{:.2f}}}", longest));
     }
     if (path == "/screenshot") {
         const std::string requested = request.text("path").value_or("");
