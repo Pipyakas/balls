@@ -14,6 +14,7 @@ namespace Balls.App
             public string levelDirectory;
             public string levelName;
             public int backend;
+            public bool collisions;
         }
 
         private static readonly Queue<(int column, int row)> LauncherClicks = new();
@@ -22,6 +23,7 @@ namespace Balls.App
         private static bool restartPending;
         private static bool autoReleasePending;
         private static int backendSwitch = -1;
+        private static int collisionsRequest = -1;
 
         public static void RequestStart(in StartRequest request)
         {
@@ -36,6 +38,8 @@ namespace Balls.App
         public static void RequestAutoRelease() => autoReleasePending = true;
 
         public static void RequestBackendSwitch(int kind) => backendSwitch = kind;
+
+        public static void RequestCollisions(bool enabled) => collisionsRequest = enabled ? 1 : 0;
 
         public static bool TryTakeStartRequest(out StartRequest request)
         {
@@ -78,6 +82,14 @@ namespace Balls.App
             return kind >= 0;
         }
 
+        public static bool TryTakeCollisions(out bool enabled)
+        {
+            enabled = collisionsRequest == 1;
+            bool pending = collisionsRequest >= 0;
+            collisionsRequest = -1;
+            return pending;
+        }
+
         public static void Reset()
         {
             LauncherClicks.Clear();
@@ -85,6 +97,7 @@ namespace Balls.App
             restartPending = false;
             autoReleasePending = false;
             backendSwitch = -1;
+            collisionsRequest = -1;
         }
     }
 }

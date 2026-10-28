@@ -69,22 +69,27 @@ namespace Balls.App.Screens
                 panel.height - (overlay ? 132f : 86f));
             SettingsData settings = App.Settings;
 
-            widgets.ScrollColumn(inner, 540f, ref scroll, content =>
+            widgets.ScrollColumn(inner, 570f, ref scroll, content =>
             {
                 float y = content.y;
                 // Gameplay
                 widgets.Label(new Rect(content.x, y, content.width, 22f), "Gameplay", TypeSizes.Small,
                     Palette.Accent, TextAnchor.UpperLeft, true);
                 y += 26f;
-                if (widgets.OptionRow(new Rect(content.x, y, content.width, 36f), "Ball collisions", settings.BallCollisions))
+                widgets.Label(new Rect(content.x, y, content.width, 22f), "Ball collisions", TypeSizes.Small,
+                    Palette.Text, TextAnchor.UpperLeft, false);
+                y += 26f;
+                if (widgets.OptionRow(new Rect(content.x, y, content.width, 36f), "Off", !settings.BallCollisions))
                 {
-                    settings.BallCollisions = true;
+                    settings.BallCollisions = false;
+                    App.ApplyBallCollisions(false);
                     Apply(settings);
                 }
                 y += 40f;
-                if (widgets.OptionRow(new Rect(content.x, y, content.width, 36f), "Ball collisions off", !settings.BallCollisions))
+                if (widgets.OptionRow(new Rect(content.x, y, content.width, 36f), "On", settings.BallCollisions))
                 {
-                    settings.BallCollisions = false;
+                    settings.BallCollisions = true;
+                    App.ApplyBallCollisions(true);
                     Apply(settings);
                 }
                 y += 40f;
@@ -153,7 +158,7 @@ namespace Balls.App.Screens
             });
 
             Rect back = new Rect(panel.x + (panel.width - 200f) * 0.5f, panel.yMax - 68f, 200f, 56f);
-            if (widgets.Button(back, overlay ? "Back" : "Back") || Input.GetKeyDown(KeyCode.Escape))
+            if (widgets.Button(back, "Back"))
             {
                 Close();
             }

@@ -604,7 +604,7 @@ namespace Balls.App.Screens
                 y += 46f;
                 widgets.Readout(new Rect(content.x, y, half, 40f), "Backend", BallsNative.BackendName(session.backend));
                 widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "Ball collisions",
-                    stats.collisions ? "On" : "Off");
+                    stats.collisions ? "On" : App.Settings != null && App.Settings.BallCollisions ? "On (unsupported)" : "Off");
                 y += 52f;
 
                 widgets.Label(new Rect(content.x, y, content.width, 22f), "Objects", TypeSizes.Small,
@@ -699,7 +699,7 @@ namespace Balls.App.Screens
             if (widgets.Button(new Rect(panel.x + 24f, buttonY, panel.width - 48f, 60f), "Next Level"))
             {
                 wonShown = false;
-                App.Go<LevelSelectScreen>();
+                App.StartNextLevel();
             }
             buttonY += 74f;
             if (widgets.Button(new Rect(panel.x + 24f, buttonY, panel.width - 48f, 60f), "Restart"))

@@ -79,6 +79,10 @@ namespace Balls.App
             {
                 backend.SwitchBackend(backendKind);
             }
+            if (BallsInput.TryTakeCollisions(out bool collisions))
+            {
+                backend.SetBallCollisions(collisions);
+            }
             if (BallsInput.TryTakeAutoRelease())
             {
                 backend.StartAutoRelease();
@@ -113,6 +117,7 @@ namespace Balls.App
             // The GPU backends sample one grid cell per ball-sized block of the render target; a 1920-wide frame at
             // the 0.4-cell ball diameter is the default the other front ends use.
             backend.SetVisibilityGrid(160, 90);
+            backend.SetBallCollisions(request.collisions);
             frame = backend.Frame;
             RefreshBoard();
             ReadLaunchers();
@@ -212,7 +217,7 @@ namespace Balls.App
                 color5 = stats.indigo,
                 color6 = stats.violet,
                 waitingToSpawn = stats.liveBallCount > stats.ballCount ? stats.liveBallCount - stats.ballCount : 0,
-                collisions = BallsNative.balls_session_ball_collisions(sessionHandle) != 0,
+                collisions = backend.BallCollisions,
                 frameMs = deltaSeconds * 1000.0,
                 frameMinFps = m_minFps,
                 fps = m_fps,

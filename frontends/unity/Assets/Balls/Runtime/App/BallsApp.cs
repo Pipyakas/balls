@@ -96,13 +96,13 @@ namespace Balls.App
                 pending = null;
                 current.Enter();
             }
-            if (current is Screens.GameplayScreen gameplay)
-            {
-                gameplay.HandleWorldInput();
-            }
-            else if (Input.GetKeyDown(KeyCode.Escape) && current != null)
+            if (current != null && Input.GetKeyDown(KeyCode.Escape))
             {
                 current.HandleEscape();
+            }
+            else if (current is Screens.GameplayScreen gameplay)
+            {
+                gameplay.HandleWorldInput();
             }
         }
 
@@ -158,6 +158,12 @@ namespace Balls.App
 
         public void StartGameplay(int mode, string levelName, int backendKind)
         {
+            bool collisions = Settings != null && Settings.BallCollisions;
+            if (collisions && backendKind != BallsNative.BackendScalar)
+            {
+                backendKind = BallsNative.BackendScalar;
+                Toast(CollisionsNeedScalar);
+            }
             Mode = mode;
             LevelName = levelName;
             BackendKind = backendKind;
@@ -168,11 +174,56 @@ namespace Balls.App
                 levelDirectory = LevelDirectory,
                 levelName = levelName,
                 backend = backendKind,
+                collisions = collisions,
             });
             Go<Screens.GameplayScreen>();
             var gameplay = Get<Screens.GameplayScreen>();
             gameplay.BeginSession();
-            Toast($"{BallsNative.BackendName(backendKind)} physics");
+            if (!collisions)
+            {
+                Toast($"{BallsNative.BackendName(backendKind)} physics");
+            }
+        }
+
+        public const string CollisionsNeedScalar = "Ball collisions need the Scalar backend - switched to Scalar";
+
+        /// <summary>Applies the Ball collisions setting to the running game; the Scalar backend is the only one that supports it.</summary>
+        public void ApplyBallCollisions(bool enabled)
+        {
+            if (!Running)
+            {
+                return;
+            }
+            if (enabled && BackendKind != BallsNative.BackendScalar)
+            {
+                BackendKind = BallsNative.BackendScalar;
+                BallsInput.RequestBackendSwitch(BallsNative.BackendScalar);
+                Toast(CollisionsNeedScalar);
+            }
+            BallsInput.RequestCollisions(enabled);
+        }
+
+        /// <summary>The level after the current one in the mode's list, or Level select after the last.</summary>
+        public void StartNextLevel()
+        {
+            IReadOnlyList<string> names = LevelNames();
+            int index = -1;
+            for (int i = 0; i < names.Count; ++i)
+            {
+                if (names[i] == LevelName)
+                {
+                    index = i;
+                    break;
+                }
+            }
+            if (index >= 0 && index + 1 < names.Count)
+            {
+                StartGameplay(Mode, names[index + 1], BackendKind);
+            }
+            else
+            {
+                Go<Screens.LevelSelectScreen>();
+            }
         }
 
         public void RestartGameplay()
