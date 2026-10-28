@@ -46,6 +46,7 @@ struct BenchOptions {
     std::string edgeSizes = "all";
     double edgeCaseSeconds = 40.0;
     std::filesystem::path edgeOutput;
+    int traceFrames = 0;
 };
 
 std::vector<size_t> parseCounts(const char* text) {
@@ -127,6 +128,9 @@ BenchOptions parseOptions(int argumentCount, char** arguments) {
         } else if (argument == "--case-seconds") {
             options.edgeCaseSeconds = std::atof(value);
             ++i;
+        } else if (argument == "--trace-frames") {
+            options.traceFrames = std::atoi(value);
+            ++i;
         } else if (argument == "--out") {
             options.edgeOutput = value;
             ++i;
@@ -183,6 +187,48 @@ int runAccuracy(const BenchOptions& options, const BrickLayout& level) {
 
 bool listed(const std::string& list, const std::string& name) {
     return list == "all" || (',' + list + ',').find(',' + name + ',') != std::string::npos;
+}
+
+// One generated board, one backend, one ball count: every frame's time and live balls, to find where spikes come from.
+int traceEdgeCases(const BenchOptions& options) {
+    for (const EdgeBoardSize size : edgeBoardSizes()) {
+        if (!listed(options.edgeSizes, std::format("{}x{}", size.width, size.height))) {
+            continue;
+        }
+        for (const EdgeLayout layout : allEdgeLayouts()) {
+            if (!listed(options.edgeLayouts, edgeLayoutName(layout))) {
+                continue;
+            }
+            for (BackendKind kind : options.backends) {
+                BackendHandle backend = createBackend(kind);
+                if (!backend) {
+                    continue;
+                }
+                Simulation simulation(std::move(backend));
+                simulation.load(generateEdgeLayout(layout, size));
+                const float slotSize = simulation.tuning().ballRadius * visibilitySlotsPerRadius;
+                simulation.backend().setVisibilityGrid(
+                    visibilitySlots(static_cast<float>(simulation.board().columns()), slotSize),
+                    visibilitySlots(static_cast<float>(simulation.board().rows()), slotSize));
+                const size_t balls = options.ballCounts.empty() ? size_t{1} << 22 : options.ballCounts.front();
+                for (const BallColor color : allBallColors) {
+                    simulation.launchBalls(color, static_cast<BallCount>(balls / ballColorCount));
+                }
+                std::printf("== %s %s %zu balls\n", edgeCaseName(layout, size).c_str(),
+                            std::string(backendKindName(kind)).c_str(), balls);
+                for (int frame = 0; frame < options.traceFrames; ++frame) {
+                    const auto start = std::chrono::steady_clock::now();
+                    simulation.tick(options.substeps);
+                    const double ms =
+                        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+                    std::printf("frame %4d %8.2f ms  live %10llu  device %6.2f ms\n", frame, ms,
+                                static_cast<unsigned long long>(simulation.liveBallCount()),
+                                simulation.backend().deviceStepMs());
+                }
+            }
+        }
+    }
+    return 0;
 }
 
 // Every generated board shape and size against every backend, from small to as big as the machine holds; one line
@@ -489,7 +535,7 @@ int main(int argumentCount, char** arguments) {
         return 0;
     }
     if (options.edgeCases) {
-        return runEdgeCases(options);
+        return options.traceFrames > 0 ? traceEdgeCases(options) : runEdgeCases(options);
     }
     auto level = loadLevel(levelFilesFor(options.levelDirectory, options.levelName));
     if (!level) {
