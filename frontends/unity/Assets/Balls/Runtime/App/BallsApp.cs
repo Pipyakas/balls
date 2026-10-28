@@ -62,6 +62,20 @@ namespace Balls.App
 
         public bool Running => current is Screens.GameplayScreen;
 
+        /// <summary>Smoothed GPU frame time from Unity's frame timing, or 0 when the platform reports none.</summary>
+        public double GpuMs { get; private set; }
+
+        private readonly FrameTiming[] frameTimings = new FrameTiming[1];
+
+        private void SampleGpuTime()
+        {
+            FrameTimingManager.CaptureFrameTimings();
+            if (FrameTimingManager.GetLatestTimings(1, frameTimings) == 1 && frameTimings[0].gpuFrameTime > 0.0)
+            {
+                GpuMs = GpuMs <= 0.0 ? frameTimings[0].gpuFrameTime : GpuMs * 0.9 + frameTimings[0].gpuFrameTime * 0.1;
+            }
+        }
+
         public void AddScreen<T>(T screen) where T : Screen
         {
             screen.Attach(this);
@@ -89,6 +103,7 @@ namespace Balls.App
 
         public void Update()
         {
+            SampleGpuTime();
             if (pending != null)
             {
                 current?.Leave();

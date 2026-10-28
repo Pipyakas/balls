@@ -62,6 +62,9 @@ namespace Balls.Editor
             PlayerSettings.SetScriptingBackend(NamedBuildTarget.FromBuildTargetGroup(BuildPipeline.GetBuildTargetGroup(target)),
                 target == BuildTarget.StandaloneLinux64 ? ScriptingImplementation.IL2CPP : ScriptingImplementation.Mono2x);
 
+            // The debug gadget's GPU ms row reads Unity's frame timing, which is off unless a build asks for it.
+            PlayerSettings.enableFrameTimingStats = true;
+
             var options = new BuildPlayerOptions
             {
                 scenes = new[] { ProjectSetup.ScenePath },

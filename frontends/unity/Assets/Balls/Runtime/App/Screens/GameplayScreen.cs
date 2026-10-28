@@ -21,6 +21,7 @@ namespace Balls.App.Screens
         private const float PortraitDebugHeight = 48f;
         private const float LauncherBackendHeight = 24f + BallsNative.BackendCount * 38f + 12f;
         private const float LauncherHeaderHeight = 24f;
+        private const float TwoColumnWidth = 2f * 220f + 16f;
         private const float ProbeContentHeight = 204f;
         private const float SpawnContentHeight = 158f;
         private const float GpuChoicesHeight = 84f;
@@ -46,6 +47,8 @@ namespace Balls.App.Screens
         private int spawnRateIndex;
         private int multiplierIndex;
         private int limitIndex;
+        private bool autoLimit;
+        private GameBackend syncedBackend;
         private Vector2 interactionScroll;
         private Vector2 debugScroll;
         private readonly string[] spawnRateOptions = { "10", "50", "200", "1000", "2000", "Max" };
@@ -65,12 +68,22 @@ namespace Balls.App.Screens
             interactionScroll = Vector2.zero;
             debugScroll = Vector2.zero;
             probeTargetFps = 60;
-            if (SessionSystem.Current?.Backend != null)
+            syncedBackend = null;
+        }
+
+        /// <summary>Reads the performance controls back from a new session, whenever the backend object is replaced.</summary>
+        private void SyncControls()
+        {
+            GameBackend backend = SessionSystem.Current?.Backend;
+            if (backend == null || ReferenceEquals(backend, syncedBackend))
             {
-                spawnRateIndex = SessionSystem.Current.Backend.SpawnRateIndex;
-                multiplierIndex = SessionSystem.Current.Backend.BallMultiplierIndex;
-                limitIndex = SessionSystem.Current.Backend.BallLimitIndex;
+                return;
             }
+            syncedBackend = backend;
+            spawnRateIndex = backend.SpawnRateIndex;
+            multiplierIndex = backend.BallMultiplierIndex;
+            limitIndex = backend.BallLimitIndex + 1;
+            autoLimit = false;
         }
 
         public void OnRestarted()
@@ -93,6 +106,7 @@ namespace Balls.App.Screens
 
             // No full-window fill here: the board is drawn by the camera underneath this UI, and the gadgets and
             // header paint their own panels.
+            SyncControls();
             EnsureLayout(board);
 
             RefitCamera(board);
@@ -408,7 +422,7 @@ namespace Balls.App.Screens
             GameBackend backend = SessionSystem.Current?.Backend;
             Rect gadget = layout.Interaction;
             Rect inner = widgets.Gadget(gadget, null);
-            bool compactLayout = inner.width < 310f;
+            bool compactLayout = inner.width < TwoColumnWidth;
             float physicsHeight = 24f + AvailableBackendCount() * 38f;
             float gpuHeight = GpuChoicesHeight;
             float contentHeight = 52f + ProbeContentHeight + SpawnContentHeight +
@@ -497,7 +511,7 @@ namespace Balls.App.Screens
             y += 42f;
             if (widgets.Dropdown("balllimit", new Rect(content.x, y, content.width, 34f), limitOptions, ref limitIndex))
             {
-                backend?.SelectBallLimit(limitIndex);
+                SelectBallLimit(backend);
             }
             return SpawnContentHeight;
         }
@@ -559,7 +573,7 @@ namespace Balls.App.Screens
             string[] labels = { "FPS", "Min", "Frame", "GPU", "Balls", "Bricks", "Launch", "Backend" };
             string[] values =
             {
-                $"{stats.fps:F0}", $"{stats.frameMinFps:F0}", $"{stats.frameMs:F1}", "—",
+                $"{stats.fps:F0}", $"{stats.frameMinFps:F0}", $"{stats.frameMs:F1}", GpuText(),
                 $"{stats.liveBalls:N0}", $"{board.aliveBricks:N0}", $"{session.launcherRemaining:N0}",
                 BallsNative.BackendName(session.backend),
             };
@@ -582,33 +596,65 @@ namespace Balls.App.Screens
             Widgets widgets = App.Widgets;
             Rect gadget = layout.Debug;
             Rect inner = widgets.Gadget(gadget, null);
-            float contentHeight = 620f;
+            GameBackend backend = SessionSystem.Current?.Backend;
+            bool performance = session.mode == BallsApp.PerformanceMode;
+            string device = BallsNative.BackendTextCached(session.backend, true);
+            bool probeShown = backend != null && backend.ProbePhase != 0;
+            bool fault = backend != null && !string.IsNullOrEmpty(backend.LastFault);
+            bool collisionsWanted = App.Settings != null && App.Settings.BallCollisions;
+            float contentHeight = 620f + (string.IsNullOrEmpty(device) ? 0f : 46f) + (probeShown ? 46f : 0f) +
+                                  (fault ? 52f : 0f);
             widgets.ScrollColumn(inner, contentHeight, ref debugScroll, content =>
             {
                 float y = content.y;
                 float half = (content.width - 12f) * 0.5f;
-                widgets.Readout(new Rect(content.x, y, half, 40f), "FPS", $"{stats.fps:F0}",
+                widgets.Readout(new Rect(content.x, y, half, 40f), "FPS", $"{stats.fps:N0}",
                     stats.fps >= 60f ? Palette.Success : Palette.Danger);
-                widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "Min FPS (1s)", $"{stats.frameMinFps:F0}");
+                widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "Min FPS (1s)", $"{stats.frameMinFps:N0}",
+                    stats.frameMinFps >= 60f ? Palette.Success : Palette.Danger);
                 y += 46f;
                 widgets.Readout(new Rect(content.x, y, half, 40f), "Frame ms", $"{stats.frameMs:F2}");
                 widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "Physics ms", $"{stats.physicsMs:F2}");
                 y += 46f;
-                widgets.Readout(new Rect(content.x, y, half, 40f), "Backend", BallsNative.BackendName(session.backend));
-                widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "Ball collisions",
-                    stats.collisions ? "On" : App.Settings != null && App.Settings.BallCollisions ? "On (unsupported)" : "Off");
+                widgets.Readout(new Rect(content.x, y, half, 40f), "GPU ms", GpuText());
+                widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "Backend",
+                    BallsNative.BackendName(session.backend));
+                y += 46f;
+                if (probeShown)
+                {
+                    widgets.Readout(new Rect(content.x, y, content.width, 40f), "Probe",
+                        $"{ProbePhaseName(backend.ProbePhase)} {backend.ProbeFps:F0}/{backend.ProbeTargetFps:F0} fps");
+                    y += 46f;
+                }
+                if (!string.IsNullOrEmpty(device))
+                {
+                    widgets.Readout(new Rect(content.x, y, content.width, 40f), "Device", device);
+                    y += 46f;
+                }
+                widgets.Readout(new Rect(content.x, y, content.width, 40f), "Ball collisions",
+                    stats.collisions ? "On" : collisionsWanted ? "On (unsupported)" : "Off",
+                    collisionsWanted && !stats.collisions ? Palette.Danger : (Color?)null);
                 y += 52f;
 
                 widgets.Label(new Rect(content.x, y, content.width, 22f), "Objects", TypeSizes.Small,
                     Palette.Accent, TextAnchor.UpperLeft, true);
                 y += 24f;
-                widgets.Readout(new Rect(content.x, y, half, 40f), "Balls", $"{stats.liveBalls:N0}");
-                widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "Bricks", $"{board.aliveBricks:N0}");
+                widgets.Readout(new Rect(content.x, y, half, 40f), "Total objects",
+                    $"{stats.liveBalls + (ulong)board.aliveBricks + (ulong)session.launcherRemaining:N0}");
+                widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "Balls", $"{stats.liveBalls:N0}");
                 y += 46f;
-                widgets.Readout(new Rect(content.x, y, half, 40f), "Launchers", $"{session.launcherRemaining:N0}");
-                widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "Waiting to spawn",
-                    $"{stats.waitingToSpawn:N0}");
-                y += 52f;
+                widgets.Readout(new Rect(content.x, y, half, 40f), "Bricks", $"{board.aliveBricks:N0}");
+                widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "Launchers",
+                    $"{session.launcherRemaining:N0}");
+                y += 46f;
+                widgets.Readout(new Rect(content.x, y, content.width, 40f), "Waiting to spawn", $"{stats.waitingToSpawn:N0}");
+                y += 46f;
+                if (performance && backend != null)
+                {
+                    widgets.Readout(new Rect(content.x, y, content.width, 40f), "Ball limit", BallLimitText(backend));
+                    y += 46f;
+                }
+                y += 6f;
 
                 widgets.Label(new Rect(content.x, y, content.width, 22f), "Balls per color", TypeSizes.Small,
                     Palette.Accent, TextAnchor.UpperLeft, true);
@@ -622,8 +668,62 @@ namespace Balls.App.Screens
                         TypeSizes.Small, Palette.Text, TextAnchor.UpperRight);
                     y += 24f;
                 }
+                if (fault)
+                {
+                    y += 8f;
+                    widgets.Label(new Rect(content.x, y, content.width, 22f), "Backend fault", TypeSizes.Small,
+                        Palette.Accent, TextAnchor.UpperLeft, true);
+                    y += 24f;
+                    widgets.Label(new Rect(content.x, y, content.width, 22f), "Fell back to CPU", TypeSizes.Small,
+                        Palette.Danger, TextAnchor.UpperLeft);
+                }
             });
         }
+
+        /// <summary>Auto uses the machine's measured limit, probing first when there is none; the rest are fixed limits.</summary>
+        private void SelectBallLimit(GameBackend backend)
+        {
+            if (backend == null)
+            {
+                return;
+            }
+            if (limitIndex != 0)
+            {
+                autoLimit = false;
+                backend.SelectBallLimit(limitIndex - 1);
+            }
+            else if (backend.HasMachineLimit)
+            {
+                autoLimit = true;
+                backend.UseMachineLimit(backend.MachineLimit);
+            }
+            else
+            {
+                autoLimit = true;
+                backend.StartProbe(probeTargetFps);
+            }
+        }
+
+        /// <summary>The Auto option shows the number it resolved to; a fixed option shows its own limit.</summary>
+        private string BallLimitText(GameBackend backend)
+        {
+            if (!autoLimit)
+            {
+                return backend.BallLimit == ulong.MaxValue ? "Max (2^64-1)" : $"{backend.BallLimit:N0}";
+            }
+            return backend.HasMachineLimit ? $"Auto {backend.MachineLimit:N0}" : "Auto (probe needed)";
+        }
+
+        private static string ProbePhaseName(int phase) => phase switch
+        {
+            1 => "settling",
+            2 => "measuring",
+            3 => "confirming",
+            4 => "done",
+            _ => "idle",
+        };
+
+        private string GpuText() => App.GpuMs > 0.0 ? $"{App.GpuMs:F2}" : "n/a";
 
         private static string PaletteColorName(int color) => color switch
         {
