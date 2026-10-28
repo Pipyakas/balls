@@ -31,6 +31,9 @@ struct PhysicalDevice {
     const DeviceBackendOption* option(BackendKind kind) const;
 };
 
+// How menus name a device: "CPU", the GPU's name, and " (iGPU)" after an integrated one.
+std::string physicalDeviceLabel(const PhysicalDevice& device);
+
 // Every physical device any plugin reports, the CPU first. Listed once per run: plugins open drivers to answer.
 const std::vector<PhysicalDevice>& physicalDevices();
 // Builds the list from per-kind plugin answers; physicalDevices() uses it, tests call it directly.

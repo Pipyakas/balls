@@ -12,13 +12,6 @@ namespace {
 
 constexpr std::string_view offLabel = "Off";
 
-std::string deviceLabel(const PhysicalDevice& device) {
-    if (device.type == PhysicsDeviceType::Cpu) {
-        return "CPU";
-    }
-    return device.type == PhysicsDeviceType::IntegratedGpu ? device.name + " (iGPU)" : device.name;
-}
-
 }
 
 float devicePickerHeight(const DevicePickerStyle& style) {
@@ -35,7 +28,7 @@ std::optional<std::vector<BackendPick>> drawDevicePicker(Rect area, std::span<co
         const auto picked = std::ranges::find(current, device.id, &BackendPick::device);
         const std::optional<BackendKind> pickedKind =
             picked == current.end() ? std::nullopt : std::optional<BackendKind>(picked->kind);
-        ui::drawTextInRect(deviceLabel(device), {area.x, cursor, labelWidth - style.gap, style.rowHeight},
+        ui::drawTextInRect(physicalDeviceLabel(device), {area.x, cursor, labelWidth - style.gap, style.rowHeight},
                            style.textSize, palette::text, ui::Align::Left);
         const std::vector<BackendKind> kinds = pickableKinds(device);
         const Rect buttons{area.x + labelWidth, cursor, area.width - labelWidth, style.rowHeight};
