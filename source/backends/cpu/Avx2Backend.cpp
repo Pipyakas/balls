@@ -220,7 +220,10 @@ struct GridTarget {
         while (lanes != 0) {
             const int lane = std::countr_zero(lanes);
             lanes &= lanes - 1;
-            std::atomic_ref<uint32_t>(slots[slotIndex[lane]]).store(values[lane], std::memory_order_relaxed);
+            std::atomic_ref<uint32_t> slot(slots[slotIndex[lane]]);
+            if (slot.load(std::memory_order_relaxed) == emptyRenderSlot) {
+                slot.store(values[lane], std::memory_order_relaxed);
+            }
         }
     }
 };
@@ -376,11 +379,20 @@ struct FlightRenderLanes {
 
 namespace {
 
+// Only an empty slot is written: on a board much bigger than the launch fan, millions of balls stay over a few
+// thousand pixels for minutes, and every thread rewriting the same slots bounced their cache lines between cores.
+// A filled slot is only read, which cores can share. The grid is cleared every frame, so the first sampled ball of
+// the frame keeps the slot, as random a pick as the last.
 void storeSlotRelaxed(uint32_t& slot, uint32_t value) {
 #if defined(__cpp_lib_atomic_ref)
-    std::atomic_ref<uint32_t>(slot).store(value, std::memory_order_relaxed);
+    std::atomic_ref<uint32_t> shared(slot);
+    if (shared.load(std::memory_order_relaxed) == emptyRenderSlot) {
+        shared.store(value, std::memory_order_relaxed);
+    }
 #else
-    __atomic_store_n(&slot, value, __ATOMIC_RELAXED);
+    if (__atomic_load_n(&slot, __ATOMIC_RELAXED) == emptyRenderSlot) {
+        __atomic_store_n(&slot, value, __ATOMIC_RELAXED);
+    }
 #endif
 }
 

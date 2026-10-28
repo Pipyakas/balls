@@ -218,11 +218,17 @@ uint32_t CompactBallStore::packedInFlight(size_t index, unsigned int ticks) cons
 namespace {
 
 // The Android NDK's libc++ has no std::atomic_ref yet; its clang provides the same relaxed store as a builtin.
+// Writes only an empty slot, like the AVX2 drawing: a filled slot is read, not rewritten, by every thread.
 void storeRelaxed(uint32_t& slot, uint32_t value) {
 #if defined(__cpp_lib_atomic_ref)
-    std::atomic_ref<uint32_t>(slot).store(value, std::memory_order_relaxed);
+    std::atomic_ref<uint32_t> shared(slot);
+    if (shared.load(std::memory_order_relaxed) == emptyRenderSlot) {
+        shared.store(value, std::memory_order_relaxed);
+    }
 #else
-    __atomic_store_n(&slot, value, __ATOMIC_RELAXED);
+    if (__atomic_load_n(&slot, __ATOMIC_RELAXED) == emptyRenderSlot) {
+        __atomic_store_n(&slot, value, __ATOMIC_RELAXED);
+    }
 #endif
 }
 
