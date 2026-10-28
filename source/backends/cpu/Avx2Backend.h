@@ -47,5 +47,7 @@ private:
     static void renderSampledChunks(CompactBallStore& store, const FlightRenderLanes& lanes, size_t first,
                                     size_t end);
     std::unique_ptr<WorkerPool> pool;
+    size_t stepChunkBalls;
+    size_t renderSamplesPerTask;
     std::vector<std::vector<BallHit>> chunkHits;
 };

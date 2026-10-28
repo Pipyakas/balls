@@ -1,3 +1,4 @@
+#include "common/WorkerPool.h"
 #include "game/SpawnPacer.h"
 #include "level/EdgeCaseLevels.h"
 #include "level/LevelParser.h"
@@ -610,6 +611,9 @@ int main(int argumentCount, char** arguments) {
     }
 #endif
     const BenchOptions options = parseOptions(argumentCount, arguments);
+    if (environmentNumber("BALLS_PIN_LATENCY_THREADS", 0) != 0) {
+        preferPerformanceCores();
+    }
     if (options.cpuRoofline) {
         runCpuRoofline(options.ballCounts.empty() ? size_t{96000000} : options.ballCounts.front(),
                        std::max(options.ticks, 1));

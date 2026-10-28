@@ -1,5 +1,7 @@
 #include "game/SessionRunner.h"
 
+#include "common/WorkerPool.h"
+
 #include "sim/HybridBackend.h"
 
 #include <algorithm>
@@ -193,6 +195,9 @@ void fillView(GameSession& session, SessionView& view, const SessionView* previo
 void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, LevelData level, BackendKind backend,
                 int ticksPerSecond) {
     PreciseSleeper sleeper;
+    if (environmentNumber("BALLS_PIN_LATENCY_THREADS", 0) != 0) {
+        preferPerformanceCores();
+    }
     auto session = std::make_unique<GameSession>(mode, std::move(level), backend, ticksPerSecond);
     uint64_t frameNumber = 0;
     uint64_t boardRevision = ~0ull;

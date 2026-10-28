@@ -10,6 +10,11 @@
 
 enum class WorkerPriority { Normal, Background };
 
+// A tuning value from the environment, or the fallback: lets a benchmark try other settings without a rebuild.
+long environmentNumber(const char* name, long fallback);
+// Keeps the calling thread on the CPU's fastest cores (on a hybrid CPU, the P-cores); a no-op elsewhere.
+void preferPerformanceCores();
+
 class WorkerPool {
 public:
     using ChunkTask = std::function<void(size_t chunkIndex, size_t begin, size_t end)>;

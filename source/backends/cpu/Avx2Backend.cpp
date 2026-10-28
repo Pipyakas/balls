@@ -58,7 +58,9 @@ std::optional<PhysicalMemory> physicalMemory() {
 #endif
 }
 
-constexpr size_t ballsPerChunk = 16384;
+constexpr long defaultStepChunkBalls = 16384;
+constexpr long defaultRenderSamplesPerTask = 64;
+constexpr long defaultHybridSpareThreads = 1;
 constexpr int paddingRowsAboveFirstRow = 1;
 constexpr float coastMargin = 1e-3f;
 
@@ -263,7 +265,11 @@ inline void considerCell(ContactSearch& best, const int32_t* paddedCells, __m256
 
 }
 
-Avx2Backend::Avx2Backend(size_t threadCount) : pool(std::make_unique<WorkerPool>(threadCount)) {
+Avx2Backend::Avx2Backend(size_t threadCount)
+    : pool(std::make_unique<WorkerPool>(threadCount)),
+      stepChunkBalls(static_cast<size_t>(std::max(environmentNumber("BALLS_STEP_CHUNK", defaultStepChunkBalls), 1024L))),
+      renderSamplesPerTask(
+          static_cast<size_t>(std::max(environmentNumber("BALLS_RENDER_SAMPLES", defaultRenderSamplesPerTask), 1L))) {
 }
 
 // Encoding is about 30 ns a ball when the store is frozen (each spawn is projected back to the free-flight epoch), so
@@ -290,7 +296,8 @@ void Avx2Backend::setVisibilityGrid(int width, int height) {
 
 void Avx2Backend::shareCoresWithGpu() {
     const size_t threads = pool->threadCount();
-    pool = std::make_unique<WorkerPool>(threads > 1 ? threads - 1 : 1, WorkerPriority::Background);
+    const size_t spare = static_cast<size_t>(std::max(environmentNumber("BALLS_HYBRID_SPARE_THREADS", defaultHybridSpareThreads), 0L));
+    pool = std::make_unique<WorkerPool>(threads > spare ? threads - spare : 1, WorkerPriority::Background);
 }
 
 bool Avx2Backend::isSupportedByCpu() {
@@ -311,7 +318,7 @@ void Avx2Backend::materializeFreeFlight() {
     if (!store.frozen) {
         return;
     }
-    pool->runChunks(store.count, ballsPerChunk,
+    pool->runChunks(store.count, stepChunkBalls,
                     [&](size_t, size_t begin, size_t end) { store.materializeRange(begin, end); });
     store.frozen = false;
 }
@@ -500,23 +507,22 @@ void Avx2Backend::step(const StepParams& params, std::vector<BallHit>& hits) {
     }
     if (params.freeFlight && gridded) {
         store.freeze(params.tick);
-        constexpr size_t samplesPerTask = 64;
         const FlightRenderLanes lanes(store);
-        pool->runChunks(store.sampledChunkCount(), samplesPerTask,
+        pool->runChunks(store.sampledChunkCount(), renderSamplesPerTask,
                         [&](size_t, size_t first, size_t end) { renderSampledChunks(store, lanes, first, end); });
         return;
     }
     materializeFreeFlight();
-    if (store.count <= ballsPerChunk) {
+    if (store.count <= stepChunkBalls) {
         stepRange(params, 0, store.count, hits);
         return;
     }
-    chunkHits.resize(std::max(chunkHits.size(), WorkerPool::chunkCountFor(store.count, ballsPerChunk)));
-    pool->runChunks(store.count, ballsPerChunk, [&](size_t chunk, size_t begin, size_t end) {
+    chunkHits.resize(std::max(chunkHits.size(), WorkerPool::chunkCountFor(store.count, stepChunkBalls)));
+    pool->runChunks(store.count, stepChunkBalls, [&](size_t chunk, size_t begin, size_t end) {
         chunkHits[chunk].clear();
         stepRange(params, begin, end, chunkHits[chunk]);
     });
-    const size_t usedChunks = WorkerPool::chunkCountFor(store.count, ballsPerChunk);
+    const size_t usedChunks = WorkerPool::chunkCountFor(store.count, stepChunkBalls);
     for (size_t chunk = 0; chunk < usedChunks; ++chunk) {
         hits.insert(hits.end(), chunkHits[chunk].begin(), chunkHits[chunk].end());
     }
