@@ -15,6 +15,9 @@ option(BALLS_STATIC_CRT "Link the static MSVC runtime (physics plugins need the 
 # take 19 s to rebuild instead of 5. Renamed from BALLS_LTO so existing build trees drop their cached ON.
 option(BALLS_WHOLE_PROGRAM_OPTIMIZATION "Enable whole-program optimization (/GL /LTCG)" OFF)
 set(BALLS_CUDA_SDK_DIR "${CMAKE_SOURCE_DIR}/.deps/cuda/sdk" CACHE PATH "Directory with CUDA include/ and bin/ (scripts/FetchCudaSdk.ps1)")
+option(BALLS_ENABLE_ROCM "Build the ROCm physics backend (needs HSA headers and an amdgcn clang)" ON)
+set(BALLS_ROCM_SDK_DIR "${CMAKE_SOURCE_DIR}/.deps/rocm" CACHE PATH "Directory with ROCm HSA include/ (scripts/FetchRocmSdk.sh)")
+set(BALLS_ROCM_CLANG "/usr/lib64/rocm/llvm/bin/clang" CACHE PATH "amdgcn-capable clang for ROCm code objects")
 
 if(BALLS_STATIC_CRT)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
