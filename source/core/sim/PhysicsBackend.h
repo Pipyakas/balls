@@ -88,6 +88,10 @@ struct DeviceHitResults {
 // The visibility grid has one slot per this many ball radii: front ends size it this way, and the machine
 // benchmark sizes it the same, so balls fly freely there exactly as they do in a game.
 inline constexpr float visibilitySlotsPerRadius = 1.6f;
+// GPU backends record each step's kills in a buffer sized for the most a step can make. Bricks with huge hit counts
+// would ask for gigabytes, so the buffer stops here; a kill past it is refunded and the ball bounces, to land a later
+// step.
+inline constexpr size_t maximumKillsPerStep = size_t{1} << 22;
 
 inline int visibilitySlots(float fieldExtent, float slotSize) {
     return static_cast<int>(std::ceil(fieldExtent / (slotSize > 0.0f ? slotSize : 1.0f)));

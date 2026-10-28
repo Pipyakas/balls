@@ -419,7 +419,8 @@ void CudaBackend::uploadBrickHits(std::span<const int32_t> hitsLeft) {
     for (int32_t hits : hostBrickHitsLeft) {
         totalHits += static_cast<BallCount>(std::max(hits, 0));
     }
-    killedCapacity = static_cast<unsigned int>(std::max<BallCount>(totalHits, minimumKilledCapacity));
+    killedCapacity = static_cast<unsigned int>(
+        std::clamp<BallCount>(totalHits, minimumKilledCapacity, maximumKillsPerStep));
     ensureArray(killedIndices, static_cast<size_t>(killedCapacity) * killedRecordWords * 4);
     ensureArray(holes, static_cast<size_t>(killedCapacity) * 4);
 }

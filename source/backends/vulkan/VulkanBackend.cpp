@@ -420,11 +420,8 @@ void VulkanBackend::uploadBoard(const BoardUpload& board) {
     for (int32_t hits : hostBrickHitsLeft) {
         possibleKills += static_cast<BallCount>(std::max(hits, 0));
     }
-    if (possibleKills > std::numeric_limits<uint32_t>::max()) {
-        setFault("Vulkan board hit total exceeds the shader's 32-bit counter range");
-        return;
-    }
-    const uint32_t requiredKills = static_cast<uint32_t>(std::max<BallCount>(possibleKills, minimumKilledCapacity));
+    const uint32_t requiredKills =
+        static_cast<uint32_t>(std::clamp<BallCount>(possibleKills, minimumKilledCapacity, maximumKillsPerStep));
     const std::vector<int32_t> words = buildCellWords(board);
     std::vector<int32_t> hitsWithSentinel = hostBrickHitsLeft;
     hitsWithSentinel.push_back(0);
