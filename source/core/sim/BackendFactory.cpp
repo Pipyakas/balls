@@ -34,16 +34,19 @@ namespace {
 constexpr std::string_view cpuPluginFile = "balls_physics_cpu.dll";
 constexpr std::string_view cudaPluginFile = "balls_physics_cuda.dll";
 constexpr std::string_view vulkanPluginFile = "balls_physics_vulkan.dll";
+constexpr std::string_view rocmPluginFile = "balls_physics_rocm.dll";
 constexpr bool usesShadowCopies = true;
 #elif defined(__APPLE__)
 constexpr std::string_view cpuPluginFile = "libballs_physics_cpu.dylib";
 constexpr std::string_view cudaPluginFile = "libballs_physics_cuda.dylib";
 constexpr std::string_view vulkanPluginFile = "libballs_physics_vulkan.dylib";
+constexpr std::string_view rocmPluginFile = "libballs_physics_rocm.dylib";
 constexpr bool usesShadowCopies = false;
 #else
 constexpr std::string_view cpuPluginFile = "libballs_physics_cpu.so";
 constexpr std::string_view cudaPluginFile = "libballs_physics_cuda.so";
 constexpr std::string_view vulkanPluginFile = "libballs_physics_vulkan.so";
+constexpr std::string_view rocmPluginFile = "libballs_physics_rocm.so";
 constexpr bool usesShadowCopies = false;
 #endif
 constexpr std::string_view shadowFolder = "balls/physics-plugins";
@@ -202,6 +205,12 @@ std::string_view backendKindName(BackendKind kind) {
         return "Vulkan";
     case BackendKind::Hybrid:
         return "Hybrid";
+    case BackendKind::Zen4:
+        return "Zen4";
+    case BackendKind::Rocm:
+        return "ROCm";
+    case BackendKind::VulkanMulti:
+        return "VulkanMulti";
     }
     return "?";
 }
@@ -231,8 +240,11 @@ std::string_view backendPluginFileName(BackendKind kind) {
     if (kind == BackendKind::Cuda) {
         return cudaPluginFile;
     }
-    if (kind == BackendKind::Vulkan) {
+    if (kind == BackendKind::Vulkan || kind == BackendKind::VulkanMulti) {
         return vulkanPluginFile;
+    }
+    if (kind == BackendKind::Rocm) {
+        return rocmPluginFile;
     }
     return cpuPluginFile;
 }
@@ -375,6 +387,9 @@ std::string computeGpuPreference() {
 }
 
 BackendKind fastestAvailableCpuBackend() {
+    if (isBackendAvailable(BackendKind::Zen4)) {
+        return BackendKind::Zen4;
+    }
     return isBackendAvailable(BackendKind::Avx2) ? BackendKind::Avx2 : BackendKind::Scalar;
 }
 

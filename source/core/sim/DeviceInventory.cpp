@@ -18,8 +18,9 @@
 namespace {
 
 constexpr size_t minimumUuidPrefixDigits = 8;
-constexpr std::array<BackendKind, 4> inventoryKinds{BackendKind::Avx2, BackendKind::Scalar, BackendKind::Cuda,
-                                                     BackendKind::Vulkan};
+// Fastest first within each device. VulkanMulti spans several GPUs and is not listed per device.
+constexpr std::array<BackendKind, 6> inventoryKinds{BackendKind::Zen4, BackendKind::Avx2, BackendKind::Scalar,
+                                                     BackendKind::Cuda, BackendKind::Rocm, BackendKind::Vulkan};
 
 std::string lowercase(std::string_view text) {
     std::string lowered(text);
@@ -92,8 +93,13 @@ std::vector<PhysicalDevice> mergePhysicalDevices(
             }
             std::array<uint8_t, 16> uuid{};
             std::copy(std::begin(info.uuid), std::end(info.uuid), uuid.begin());
+            // ROCm's agent UUID is not Vulkan's device UUID, so a GPU is also the same one at the same PCI location.
             const auto same = std::ranges::find_if(gpus, [&](const GpuEntry& entry) {
-                return info.hasUuid != 0 && entry.device.hasUuid && entry.device.uuid == uuid;
+                if (info.hasUuid != 0 && entry.device.hasUuid && entry.device.uuid == uuid) {
+                    return true;
+                }
+                return info.pciBus >= 0 && entry.pciLocation &&
+                       *entry.pciLocation == std::tuple{info.pciDomain, info.pciBus, info.pciDevice};
             });
             if (same != gpus.end()) {
                 same->device.backends.push_back(option);

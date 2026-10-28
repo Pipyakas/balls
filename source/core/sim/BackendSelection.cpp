@@ -62,7 +62,7 @@ double partWeight(BackendKind kind, const PhysicalDevice& device) {
     if (device.type == PhysicsDeviceType::IntegratedGpu) {
         return integratedGpuPartWeight;
     }
-    return kind == BackendKind::Cuda ? cudaPartWeight : vulkanPartWeight;
+    return kind == BackendKind::Cuda || kind == BackendKind::Rocm ? cudaPartWeight : vulkanPartWeight;
 }
 
 bool isPartKind(BackendKind kind) { return kind != BackendKind::Hybrid && kind != BackendKind::CudaAvx2; }
