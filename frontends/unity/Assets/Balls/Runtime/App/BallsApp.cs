@@ -87,6 +87,35 @@ namespace Balls.App
 
         public bool Running => current is Screens.GameplayScreen;
 
+        /// <summary>The HTTP control API, or null when this run did not ask for one.</summary>
+        public ControlApi Control { get; private set; }
+
+        /// <summary>The screen on show, as the control API names it.</summary>
+        public string ScreenName => current switch
+        {
+            Screens.GameplayScreen => "gameplay",
+            Screens.LevelSelectScreen => "level-select",
+            Screens.SettingsScreen => "settings",
+            Screens.EditorScreen => "editor",
+            Screens.BenchmarkScreen => "benchmark",
+            Screens.LoadErrorScreen => "load-error",
+            _ => "main-menu",
+        };
+
+        /// <summary>The toast still on screen, or empty; benchmarks read it to tell what a step said.</summary>
+        public string ToastText => toast.until > Time.realtimeSinceStartup ? toast.text : string.Empty;
+
+        /// <summary>Starts the control API on a loopback port; 0 leaves it off.</summary>
+        public void StartControlApi(int port)
+        {
+            if (port <= 0 || Control != null)
+            {
+                return;
+            }
+            Control = new ControlApi(this, port);
+            Control.Start();
+        }
+
         /// <summary>Smoothed GPU frame time from Unity's frame timing, or 0 when the platform reports none.</summary>
         public double GpuMs { get; private set; }
 
@@ -129,6 +158,7 @@ namespace Balls.App
         public void Update()
         {
             SampleGpuTime();
+            Control?.Pump();
             if (pending != null)
             {
                 current?.Leave();

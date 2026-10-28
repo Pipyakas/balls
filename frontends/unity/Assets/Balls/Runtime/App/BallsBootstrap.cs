@@ -38,6 +38,7 @@ namespace Balls.App
         private int switchTo = -1;
         private float switchAt = 3f;
         private bool switched;
+        private int controlPort;
         private float startedAt;
         private float captureDelay = 6f;
 
@@ -59,6 +60,7 @@ namespace Balls.App
             app.AddScreen(new BenchmarkScreen());
             app.AddScreen(new LoadErrorScreen());
             app.Go<MainMenuScreen>();
+            app.StartControlApi(controlPort);
 
             try
             {
@@ -130,6 +132,12 @@ namespace Balls.App
                         break;
                     case "-balls-parity":
                         parityRun = true;
+                        break;
+                    case "-balls-control" when index + 1 < args.Length:
+                        if (int.TryParse(args[index + 1], out int port))
+                        {
+                            controlPort = port;
+                        }
                         break;
                     case "-BallsGpu" when index + 1 < args.Length:
                         if (!BallsNative.SetComputeGpu(args[index + 1]))

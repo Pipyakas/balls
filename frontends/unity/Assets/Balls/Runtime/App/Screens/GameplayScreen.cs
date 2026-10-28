@@ -249,6 +249,31 @@ namespace Balls.App.Screens
         /// <summary>The level files' state against what was loaded, for the header notice and Restart.</summary>
         public LevelWatcher.State WatchState => watcher.Poll();
 
+        /// <summary>The control API drives the same pause the header button does.</summary>
+        public void SetPaused(bool value) => paused = value;
+
+        /// <summary>Drops the cached layout, so a Settings change (orientation) is applied on the next frame.</summary>
+        public void RefreshLayout() => hasLayout = false;
+
+        /// <summary>The control API's handle on the gadget's Spawn controls, which update the rows as a click does.</summary>
+        public void ControlSpawnRate(int index)
+        {
+            spawnRateIndex = Mathf.Clamp(index, 0, spawnRateOptions.Length - 1);
+            SessionSystem.Current?.Backend?.SelectSpawnRate(spawnRateIndex);
+        }
+
+        public void ControlMultiplier(int index)
+        {
+            multiplierIndex = Mathf.Clamp(index, 0, multiplierOptions.Length - 1);
+            SessionSystem.Current?.Backend?.SelectBallMultiplier(multiplierIndex);
+        }
+
+        public void ControlBallLimit(int index)
+        {
+            limitIndex = Mathf.Clamp(index, 0, limitOptions.Length - 1);
+            SelectBallLimit(SessionSystem.Current?.Backend);
+        }
+
         private void EnsureLayout(BoardInfoData board)
         {
             int launcherRows = Mathf.Max(1, board.launcherVisibleRows);
