@@ -68,7 +68,8 @@ bool loadNvrtc(NvrtcApi& api) {
 #if defined(_WIN32)
         std::cerr << "cannot load " << nvrtcLibraryName << " (run scripts/FetchCudaSdk.ps1)\n";
 #else
-        std::cerr << "cannot load " << nvrtcLibraryName << ": " << (dlerror() ? dlerror() : "unknown error")
+        const char* reason = dlerror();
+        std::cerr << "cannot load " << nvrtcLibraryName << ": " << (reason ? reason : "unknown error")
                   << " (run scripts/FetchCudaSdk.sh)\n";
 #endif
         return false;
