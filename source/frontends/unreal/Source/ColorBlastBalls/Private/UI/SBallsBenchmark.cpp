@@ -32,7 +32,8 @@ constexpr double BallStepsPerMillion = 1'000'000.0;
 FString ResultText(const CandidateResult& Result) {
     switch (Result.status) {
     case CandidateStatus::Done:
-        return FString::Printf(TEXT("%.0f M ball-steps/s"), Result.ballStepsPerSecond / BallStepsPerMillion);
+        return FString::Printf(TEXT("%.0f balls @60 FPS  %.0f M ball-steps/s"), Result.estimatedBalls,
+                               Result.ballStepsPerSecond / BallStepsPerMillion);
     case CandidateStatus::Failed:
         return FString::Printf(TEXT("failed: %s"), *BallsText::FromUtf8(Result.failure));
     case CandidateStatus::Unavailable:
@@ -133,8 +134,8 @@ FString SBallsBenchmark::Signature() const {
         return Result;
     }
     for (const CandidateResult& Entry : App->GetBenchmark().Results()) {
-        Result += FString::Printf(TEXT("%d:%.0f:%.2f;"), static_cast<int32>(Entry.status), Entry.ballStepsPerSecond,
-                                  Entry.progress);
+        Result += FString::Printf(TEXT("%d:%.0f:%.0f:%.0f:%.2f;"), static_cast<int32>(Entry.status),
+                                  Entry.ballStepsPerSecond, Entry.estimatedBalls, Entry.ballCapacity, Entry.progress);
     }
     Result += App->IsBenchmarkSettled() ? TEXT("settled") : TEXT("measuring");
     return Result;
@@ -146,7 +147,7 @@ void SBallsBenchmark::Refresh() {
     }
     Rows->ClearChildren();
     const std::vector<CandidateResult> Results = App->GetBenchmark().Results();
-    const std::optional<size_t> Best = fastestCandidate(Results);
+    const std::optional<size_t> Best = bestCandidate(Results);
     const bool bSettled = App->IsBenchmarkSettled();
     for (size_t Index = 0; Index < Results.size(); ++Index) {
         const CandidateResult& Entry = Results[Index];

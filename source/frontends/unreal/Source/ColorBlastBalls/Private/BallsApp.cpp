@@ -918,12 +918,13 @@ void FBallsApp::HandleControl(const FString& Path, const TMap<FString, FString>&
         FString Candidates;
         for (const CandidateResult& Result : Benchmark.Results()) {
             Candidates += FString::Printf(
-                TEXT("%s{\"backend\":\"%s\",\"status\":\"%s\",\"ballStepsPerSecond\":%.0f,\"progress\":%.2f,")
-                TEXT("\"failure\":\"%s\"}"),
+                TEXT("%s{\"backend\":\"%s\",\"status\":\"%s\",\"ballStepsPerSecond\":%.0f,")
+                TEXT("\"estimatedBalls\":%.0f,\"ballCapacity\":%.0f,\"progress\":%.2f,\"failure\":\"%s\"}"),
                 Candidates.IsEmpty() ? TEXT("") : TEXT(","),
                 *EscapeJson(BallsText::FromUtf8(backendKindName(Result.candidate.kind))),
                 StatusNames[FMath::Clamp(static_cast<int32>(Result.status), 0, 4)], Result.ballStepsPerSecond,
-                Result.progress, *EscapeJson(BallsText::FromUtf8(Result.failure)));
+                Result.estimatedBalls, Result.ballCapacity, Result.progress,
+                *EscapeJson(BallsText::FromUtf8(Result.failure)));
         }
         const FString Winner = GetBenchmarkWinnerLabel();
         const TCHAR* State = Benchmark.IsRunning() ? TEXT("running") : bBenchmarkSettled ? TEXT("done") : TEXT("idle");
