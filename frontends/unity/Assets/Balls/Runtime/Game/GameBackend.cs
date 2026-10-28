@@ -79,6 +79,16 @@ namespace Balls.Game
 
         public abstract bool SwitchBackend(int kind);
 
+        /// <summary>The backend being built in the background, or -1. Taking over happens on the session's own thread.</summary>
+        public virtual int PendingBackend => -1;
+
+        /// <summary>0 when no request has finished, 1 when it succeeded, 2 when it failed.</summary>
+        public virtual int TakeSwitchOutcome(out int kind)
+        {
+            kind = -1;
+            return 0;
+        }
+
         public abstract void StartProbe(double targetFps);
 
         public abstract void ReportFrame(double frameSeconds, double workSeconds);

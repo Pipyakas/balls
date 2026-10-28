@@ -101,6 +101,8 @@ namespace Balls.Native
         [DllImport(Library)] public static extern int balls_session_auto_releasing(IntPtr session);
 
         [DllImport(Library)] public static extern int balls_session_switch_backend(IntPtr session, int kind);
+        [DllImport(Library)] public static extern int balls_session_pending_backend(IntPtr session);
+        [DllImport(Library)] public static extern int balls_session_take_switch_outcome(IntPtr session, out int kind);
 
         [DllImport(Library)] public static extern void balls_session_start_capacity_probe(IntPtr session, double targetFps);
 
@@ -257,6 +259,39 @@ namespace Balls.Native
                 BackendNames[kind] = name;
             }
             return name;
+        }
+
+        /// <summary>Matches a backend by its display name, ignoring case, '+', '-' and '_', as the core does.</summary>
+        public static bool TryBackendKind(string name, out int kind)
+        {
+            string wanted = Normalize(name);
+            for (int candidate = 0; candidate < BackendCount; ++candidate)
+            {
+                if (Normalize(BackendName(candidate)) == wanted)
+                {
+                    kind = candidate;
+                    return true;
+                }
+            }
+            kind = -1;
+            return false;
+        }
+
+        private static string Normalize(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+            {
+                return string.Empty;
+            }
+            var text = new System.Text.StringBuilder(name.Length);
+            foreach (char letter in name)
+            {
+                if (letter != '+' && letter != '-' && letter != '_' && letter != ' ')
+                {
+                    text.Append(char.ToLowerInvariant(letter));
+                }
+            }
+            return text.ToString();
         }
 
         /// <summary>

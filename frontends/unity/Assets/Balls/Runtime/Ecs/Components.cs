@@ -90,6 +90,9 @@ namespace Balls.Ecs
         public int mode;
         public int state;
         public int backend;
+
+        // The backend still being built in the background, or -1.
+        public int pendingBackend;
         public bool nativeBackend;
         public double elapsed;
         public int launcherRemaining;

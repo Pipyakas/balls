@@ -291,11 +291,14 @@ namespace Balls.App
         /// <summary>Sets the backend the next game starts on, without touching a running one.</summary>
         public void SetBackend(int kind) => BackendKind = kind;
 
+        /// <summary>
+        /// Switches a running game without blocking it: the row reads starting... until the session takes the new
+        /// backend over, and GameplayScreen reports a failure; SDL behaves the same.
+        /// </summary>
         public void SwitchBackend(int kind)
         {
             BackendKind = kind;
             BallsInput.RequestBackendSwitch(kind);
-            Toast($"Physics: {BallsNative.BackendName(kind)}");
         }
 
         public bool LoadSettings()

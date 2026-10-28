@@ -249,7 +249,12 @@ BALLS_API int32_t balls_session_ball_multiplier_index(const BallsSession* sessio
 BALLS_API int32_t balls_session_ball_limit_index(const BallsSession* session);
 BALLS_API uint64_t balls_session_ball_limit(const BallsSession* session);
 BALLS_API int32_t balls_session_auto_releasing(const BallsSession* session);
+// Requests a switch; the new backend is built in the background and takes over when it is ready, so the caller
+// polls balls_session_pending_backend and then balls_session_take_switch_outcome once.
 BALLS_API int32_t balls_session_switch_backend(BallsSession* session, int32_t kind);
+BALLS_API int32_t balls_session_pending_backend(const BallsSession* session);
+// 0 when no request has finished, 1 when it succeeded (the new backend is live), 2 when it failed.
+BALLS_API int32_t balls_session_take_switch_outcome(BallsSession* session, int32_t* kind);
 
 BALLS_API void balls_session_start_capacity_probe(BallsSession* session, double targetFps);
 BALLS_API void balls_session_cancel_capacity_probe(BallsSession* session);

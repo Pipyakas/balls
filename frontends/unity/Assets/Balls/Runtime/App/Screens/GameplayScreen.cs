@@ -88,6 +88,28 @@ namespace Balls.App.Screens
             syncedBackend = null;
         }
 
+        /// <summary>
+        /// Mirrors SDL: a backend switch finishes off-frame, a failure is told rather than silently ignored, and the
+        /// new backend's saved machine limit becomes the Auto limit.
+        /// </summary>
+        private void HandleSwitchOutcome()
+        {
+            GameBackend backend = SessionSystem.Current?.Backend;
+            if (backend == null)
+            {
+                return;
+            }
+            int outcome = backend.TakeSwitchOutcome(out int kind);
+            if (outcome == 1)
+            {
+                ReapplySavedLimit(backend);
+            }
+            else if (outcome == 2)
+            {
+                App.Toast($"Could not start the {BallsNative.BackendName(kind)} backend");
+            }
+        }
+
         /// <summary>Reads the performance controls back from a new session, whenever the backend object is replaced.</summary>
         private void SyncControls()
         {
@@ -157,6 +179,7 @@ namespace Balls.App.Screens
 
             // No full-window fill here: the board is drawn by the camera underneath this UI, and the gadgets and
             // header paint their own panels.
+            HandleSwitchOutcome();
             SyncControls();
             if (SessionSystem.Current?.Backend != null)
             {
@@ -619,9 +642,10 @@ namespace Balls.App.Screens
                     continue;
                 }
                 bool available = BallsNative.BackendAvailable(kind);
-                string detail = BallsNative.BackendTextCached(kind, available);
+                bool starting = session.pendingBackend == kind;
+                string detail = starting ? "starting..." : BallsNative.BackendTextCached(kind, available);
                 if (widgets.OptionRow(new Rect(area.x, y, area.width, 34f), BallsNative.BackendName(kind),
-                        session.backend == kind, available, detail) && available)
+                        session.backend == kind || starting, available, detail) && available)
                 {
                     App.SwitchBackend(kind);
                 }

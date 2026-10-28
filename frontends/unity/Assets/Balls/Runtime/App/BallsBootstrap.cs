@@ -35,6 +35,9 @@ namespace Balls.App
         private bool autoPlayed;
         private bool parityRun;
         private bool parityDone;
+        private int switchTo = -1;
+        private float switchAt = 3f;
+        private bool switched;
         private float startedAt;
         private float captureDelay = 6f;
 
@@ -128,6 +131,22 @@ namespace Balls.App
                     case "-balls-parity":
                         parityRun = true;
                         break;
+                    case "-balls-switch" when index + 1 < args.Length:
+                        if (BallsNative.TryBackendKind(args[index + 1], out int kind))
+                        {
+                            switchTo = kind;
+                        }
+                        else
+                        {
+                            Debug.LogWarning($"balls: unknown backend '{args[index + 1]}' for -balls-switch");
+                        }
+                        break;
+                    case "-balls-switch-delay" when index + 1 < args.Length:
+                        if (float.TryParse(args[index + 1], out float delay))
+                        {
+                            switchAt = Mathf.Max(0.1f, delay);
+                        }
+                        break;
                 }
             }
         }
@@ -169,6 +188,11 @@ namespace Balls.App
                     BallsInput.ClickLauncher(1, 0);
                     BallsInput.ClickLauncher(2, 0);
                 }
+            }
+            if (switchTo >= 0 && !switched && app != null && app.Running && now - startedAt > switchAt)
+            {
+                switched = true;
+                app.SwitchBackend(switchTo);
             }
             if (screenshotPath == null)
             {

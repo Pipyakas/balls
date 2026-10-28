@@ -198,6 +198,7 @@ namespace Balls.App
                 mode = backend.Mode,
                 state = backend.State,
                 backend = backend.BackendKind,
+                pendingBackend = backend.PendingBackend,
                 nativeBackend = backend.IsNative,
                 elapsed = backend.Elapsed,
                 launcherRemaining = frame.launcherRemainingBalls,

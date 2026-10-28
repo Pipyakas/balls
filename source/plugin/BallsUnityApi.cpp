@@ -312,6 +312,8 @@ void balls_session_update(BallsSession* session, float deltaSeconds) {
     if (session == nullptr) {
         return;
     }
+    // A backend built off the frame is adopted here, before the tick that would run on it (SessionRunner's order).
+    session->game->pollBackgroundWork();
     session->game->update(deltaSeconds);
 }
 
@@ -398,7 +400,34 @@ int32_t balls_session_auto_releasing(const BallsSession* session) {
 }
 
 int32_t balls_session_switch_backend(BallsSession* session, int32_t kind) {
-    return session != nullptr && session->game->switchBackend(toBackendKind(kind)) ? 1 : 0;
+    if (session == nullptr) {
+        return 0;
+    }
+    // The new backend is built off the frame; the session keeps running on the current one until it is ready.
+    session->game->requestBackend(toBackendKind(kind));
+    return 1;
+}
+
+int32_t balls_session_pending_backend(const BallsSession* session) {
+    if (session == nullptr) {
+        return -1;
+    }
+    const std::optional<BackendKind> pending = session->game->pendingBackend();
+    return pending ? fromBackendKind(*pending) : -1;
+}
+
+int32_t balls_session_take_switch_outcome(BallsSession* session, int32_t* kind) {
+    if (session == nullptr) {
+        return 0;
+    }
+    const std::optional<BackendSwitchOutcome> outcome = session->game->takeBackendSwitchOutcome();
+    if (!outcome) {
+        return 0;
+    }
+    if (kind != nullptr) {
+        *kind = fromBackendKind(outcome->kind);
+    }
+    return outcome->succeeded ? 1 : 2;
 }
 
 void balls_session_start_capacity_probe(BallsSession* session, double targetFps) {

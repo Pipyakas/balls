@@ -94,6 +94,10 @@ namespace Balls.Game
 
         public override bool SwitchBackend(int kind) => BallsNative.balls_session_switch_backend(session, kind) != 0;
 
+        public override int PendingBackend => BallsNative.balls_session_pending_backend(session);
+
+        public override int TakeSwitchOutcome(out int kind) => BallsNative.balls_session_take_switch_outcome(session, out kind);
+
         public override void StartProbe(double targetFps) => BallsNative.balls_session_start_capacity_probe(session, targetFps);
 
         public override void ReportFrame(double frameSeconds, double workSeconds) => BallsNative.balls_session_report_frame(session, frameSeconds, workSeconds);
