@@ -327,7 +327,9 @@ void Avx2Backend::step(const StepParams& params, std::vector<BallHit>& hits) {
     const bool gridded = store.prepareGrid();
     if (params.freeFlight && gridded) {
         store.freeze(params.tick);
-        store.renderFreeFlightSample();
+        constexpr size_t samplesPerTask = 64;
+        pool->runChunks(store.sampledChunkCount(), samplesPerTask,
+                        [&](size_t, size_t first, size_t end) { store.renderSampledChunks(first, end); });
         return;
     }
     materializeFreeFlight();
@@ -463,8 +465,28 @@ LaneStepResult stepLanes(LaneState& state, const LaneConstants& k, const BoardVi
         const __m256 facing = _mm256_cmp_ps(
             _mm256_fmadd_ps(directionX, normalX, _mm256_mul_ps(directionY, normalY)), k.zero, _CMP_GE_OQ);
         const __m256 hasTarget = _mm256_castsi256_ps(_mm256_cmpgt_epi32(target, k.minusOneInt));
-        const __m256 apply = _mm256_and_ps(_mm256_and_ps(retarget, hasTarget),
-                                           _mm256_and_ps(facing, greaterThan(lengthSquared, k.retargetEpsilon)));
+        __m256 apply = _mm256_and_ps(_mm256_and_ps(retarget, hasTarget),
+                                     _mm256_and_ps(facing, greaterThan(lengthSquared, k.retargetEpsilon)));
+        // Few lanes retarget in a step, so the line-of-sight walk runs per lane.
+        if (unsigned lanes = static_cast<unsigned>(_mm256_movemask_ps(apply)); lanes != 0) {
+            alignas(32) float laneX[simdLaneCount];
+            alignas(32) float laneY[simdLaneCount];
+            alignas(32) int32_t laneTarget[simdLaneCount];
+            alignas(32) int32_t inSight[simdLaneCount] = {};
+            _mm256_store_ps(laneX, x);
+            _mm256_store_ps(laneY, y);
+            _mm256_store_si256(reinterpret_cast<__m256i*>(laneTarget), target);
+            const int paddedWidth = _mm256_cvtsi256_si32(k.paddedWidth);
+            while (lanes != 0) {
+                const int lane = std::countr_zero(lanes);
+                lanes &= lanes - 1;
+                inSight[lane] = targetInSight(laneX[lane], laneY[lane], laneTarget[lane] % paddedWidth - 1,
+                                              laneTarget[lane] / paddedWidth - 1, board, paddedWidth)
+                                    ? -1
+                                    : 0;
+            }
+            apply = _mm256_and_ps(apply, _mm256_castsi256_ps(_mm256_load_si256(reinterpret_cast<const __m256i*>(inSight))));
+        }
         vx = select(apply, _mm256_mul_ps(directionX, k.speed), vx);
         vy = select(apply, _mm256_mul_ps(directionY, k.speed), vy);
     }
@@ -517,6 +539,31 @@ __m256i encodeAxisLanes(__m256 value, __m256 toPosition, const LaneConstants& k)
 __m256i encodePositionLanes(const LaneState& lanes, const LaneConstants& k) {
     return _mm256_or_si256(encodeAxisLanes(lanes.x, k.xToPosition, k),
                            _mm256_slli_epi32(encodeAxisLanes(lanes.y, k.yToPosition, k), 16));
+}
+
+__m256i roundingDitherLanes(__m256i previousPosition) {
+    __m256i hash = _mm256_mullo_epi32(previousPosition, _mm256_set1_epi32(static_cast<int>(0x9E3779B1u)));
+    hash = _mm256_xor_si256(hash, _mm256_srli_epi32(hash, 15));
+    hash = _mm256_mullo_epi32(hash, _mm256_set1_epi32(static_cast<int>(0x85EBCA77u)));
+    hash = _mm256_xor_si256(hash, _mm256_srli_epi32(hash, 13));
+    hash = _mm256_mullo_epi32(hash, _mm256_set1_epi32(static_cast<int>(0xC2B2AE3Du)));
+    return _mm256_xor_si256(hash, _mm256_srli_epi32(hash, 16));
+}
+
+__m256i encodeAxisDitheredLanes(__m256 value, __m256 toPosition, __m256i dither16, const LaneConstants& k) {
+    const __m256 fraction = _mm256_mul_ps(_mm256_cvtepi32_ps(_mm256_and_si256(dither16, _mm256_set1_epi32(0xFFFF))),
+                                          _mm256_set1_ps(1.0f / 65536.0f));
+    const __m256 scaled = _mm256_fmadd_ps(value, toPosition, fraction);
+    return _mm256_cvttps_epi32(_mm256_min_ps(_mm256_max_ps(scaled, k.zero), k.positionMax));
+}
+
+// A stepped ball's position: rounded without bias (see roundingDither in BallStepCore.h).
+__m256i encodeSteppedPositionLanes(const LaneState& lanes, __m256i previousPosition, const LaneConstants& k) {
+    const __m256i dither = roundingDitherLanes(previousPosition);
+    return _mm256_or_si256(encodeAxisDitheredLanes(lanes.x, k.xToPosition, dither, k),
+                           _mm256_slli_epi32(encodeAxisDitheredLanes(lanes.y, k.yToPosition,
+                                                                     _mm256_srli_epi32(dither, 16), k),
+                                             16));
 }
 
 __m256i encodeComponentLanes(__m256 velocity, const LaneConstants& k) {
@@ -584,7 +631,8 @@ void Avx2Backend::stepRange(const StepParams& params, size_t begin, size_t end, 
 
     for (size_t i = begin; i < end; i += simdLaneCount) {
         const __m256i startState = _mm256_load_si256(reinterpret_cast<const __m256i*>(states + i));
-        LaneState state = decodeLanes(_mm256_load_si256(reinterpret_cast<const __m256i*>(positions + i)), startState, k);
+        const __m256i startPosition = _mm256_load_si256(reinterpret_cast<const __m256i*>(positions + i));
+        LaneState state = decodeLanes(startPosition, startState, k);
         const __m256i startBounces = state.bounces;
         __m256 active = allLanes;
         __m256i hitBrick = k.minusOneInt;
@@ -609,7 +657,7 @@ void Avx2Backend::stepRange(const StepParams& params, size_t begin, size_t end, 
             }
         }
 
-        _mm256_store_si256(reinterpret_cast<__m256i*>(positions + i), encodePositionLanes(state, k));
+        _mm256_store_si256(reinterpret_cast<__m256i*>(positions + i), encodeSteppedPositionLanes(state, startPosition, k));
         const __m256i stateChanged = _mm256_xor_si256(_mm256_cmpeq_epi32(state.bounces, startBounces), k.minusOneInt);
         if (!_mm256_testz_si256(stateChanged, stateChanged)) {
             _mm256_maskstore_epi32(reinterpret_cast<int*>(states + i), stateChanged, encodeStateLanes(state, k));

@@ -10,7 +10,9 @@
 #endif
 
 #if defined(_WIN32)
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 #include <d3d12.h>
 #include <dxgi1_4.h>

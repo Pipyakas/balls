@@ -2,6 +2,7 @@
 
 #include "level/LevelData.h"
 #include "sim/BackendFactory.h"
+#include "sim/PhysicsAccuracy.h"
 #include "sim/Simulation.h"
 #include "sim/kernels/BallStepCore.h"
 
@@ -130,5 +131,33 @@ TEST_CASE("balls flying freely on CUDA and AVX2 match Scalar stepping, including
             worst = std::max({worst, std::fabs(stepped[i].x - flown[i].x), std::fabs(stepped[i].y - flown[i].y)});
         }
         EXPECT(worst < driftTolerance);
+    }
+}
+
+TEST_CASE("every optimized backend stays within accuracy bounds of the naive reference engine") {
+    constexpr size_t boxBalls = 3000;
+    constexpr int boxFrames = 300;
+    constexpr double meanPositionBound = 0.02;
+    constexpr double maxPositionBound = 0.06;
+    BrickLayout box;
+    box.width = fieldColumns;
+    box.height = 1;
+    box.playableHeight = fieldRows;
+    box.cellIds.assign(static_cast<size_t>(fieldColumns), emptyBrickId);
+    for (const bool grid : {true, false}) {
+        AccuracyScenario scenario{"empty box", box, boxBalls, false, boxFrames};
+        scenario.visibilityGrid = grid;
+        const AccuracyRun reference = runAccuracyScenario(createReferenceBackend(), scenario);
+        for (const BackendKind kind : allBackendKinds) {
+            if (!isBackendAvailable(kind)) {
+                continue;
+            }
+            const AccuracyReport report = compareToReference(runAccuracyScenario(createBackend(kind), scenario), reference);
+            EXPECT(report.comparedPositions);
+            EXPECT(report.meanPositionError < meanPositionBound);
+            EXPECT(report.maxPositionError < maxPositionBound);
+            EXPECT(report.worstOutsideField == 0);
+            EXPECT(report.worstSpeedError < 1e-3);
+        }
     }
 }

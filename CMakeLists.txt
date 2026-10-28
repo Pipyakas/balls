@@ -10,7 +10,10 @@ set_property(CACHE BALLS_FRONTEND PROPERTY STRINGS sdl none)
 option(BALLS_BUILD_TOOLS "Build tests and benchmarks" ON)
 option(BALLS_ENABLE_CUDA "Build the CUDA physics backend (needs NVRTC at build time)" ON)
 option(BALLS_STATIC_CRT "Link the static MSVC runtime (physics plugins need the shared runtime)" OFF)
-option(BALLS_LTO "Enable whole-program optimization (turn OFF when building balls_core for Unreal)" ON)
+# Off by default: it made no measurable difference to the physics (AVX2 972 vs 985 M ball-steps/s, the CUDA work
+# runs on the GPU) and redid code generation for the whole program at every link, which made a one-line change
+# take 19 s to rebuild instead of 5. Renamed from BALLS_LTO so existing build trees drop their cached ON.
+option(BALLS_WHOLE_PROGRAM_OPTIMIZATION "Enable whole-program optimization (/GL /LTCG)" OFF)
 set(BALLS_CUDA_SDK_DIR "${CMAKE_SOURCE_DIR}/.deps/cuda/sdk" CACHE PATH "Directory with CUDA include/ and bin/ (scripts/FetchCudaSdk.ps1)")
 
 if(BALLS_STATIC_CRT)
@@ -23,7 +26,7 @@ if(MSVC)
     set(BALLS_WARNINGS /W4 /permissive- /utf-8 /wd4324)
     add_compile_options(/MP)
     set(BALLS_OPTIMIZE $<$<CONFIG:Release,RelWithDebInfo>:/O2 /Oi /fp:fast>)
-    if(BALLS_LTO)
+    if(BALLS_WHOLE_PROGRAM_OPTIMIZATION)
         list(APPEND BALLS_OPTIMIZE $<$<CONFIG:Release,RelWithDebInfo>:/GL>)
         set(BALLS_LINK_OPTIMIZE $<$<CONFIG:Release,RelWithDebInfo>:/LTCG>)
     endif()
@@ -37,6 +40,23 @@ endif()
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+# Every translation unit here is small, but each one re-parsed the same standard headers (<format> and
+# <filesystem> alone are about a second each with MSVC), so they are precompiled once per target.
+option(BALLS_PRECOMPILED_HEADERS "Precompile the common standard headers" ON)
+set(BALLS_COMMON_PCH
+    <algorithm> <array> <atomic> <chrono> <cmath> <cstdint> <cstdio> <cstring> <filesystem> <format> <functional>
+    <map> <memory> <mutex> <numbers> <optional> <random> <span> <sstream> <string> <string_view> <thread>
+    <unordered_map> <unordered_set> <vector>)
+function(balls_precompile target)
+    if(BALLS_PRECOMPILED_HEADERS)
+        target_precompile_headers(${target} PRIVATE ${BALLS_COMMON_PCH} ${ARGN})
+    endif()
+endfunction()
+
+# Lets a target's objects compile while the static libraries it links are still building (Ninja), instead of
+# waiting for them; only the link has to wait.
+set(CMAKE_OPTIMIZE_DEPENDENCIES ON)
+
 set(BALLS_SOURCE_DIR ${CMAKE_SOURCE_DIR}/source)
 set(BALLS_ASSET_DIR ${CMAKE_SOURCE_DIR}/data/assets)
 
@@ -44,7 +64,12 @@ set(BALLS_ASSET_DIR ${CMAKE_SOURCE_DIR}/data/assets)
 # and supply Vulkan-Headers to balls_core, regardless of whether the front end renderer is WebGPU or NVRHI.
 include(FetchContent)
 set(NVRHI_INSTALL OFF CACHE BOOL "" FORCE)
-set(NVRHI_WITH_DX11 ${WIN32} CACHE BOOL "" FORCE)
+# Only the GPU compute tool (balls_gpucompute) uses D3D11; the game renders through D3D12 or Vulkan.
+if(WIN32 AND BALLS_BUILD_TOOLS)
+    set(NVRHI_WITH_DX11 ON CACHE BOOL "" FORCE)
+else()
+    set(NVRHI_WITH_DX11 OFF CACHE BOOL "" FORCE)
+endif()
 set(NVRHI_WITH_VULKAN ON CACHE BOOL "" FORCE)
 set(NVRHI_WITH_VALIDATION OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(nvrhi
@@ -52,6 +77,12 @@ FetchContent_Declare(nvrhi
     GIT_TAG 6b96fb03e07539f08327aea76c56d55f1de9d906
     GIT_SHALLOW FALSE)
 FetchContent_MakeAvailable(nvrhi)
+# NVRHI's Vulkan backend spent ~9 s per file parsing vulkan.hpp; its sources define the dynamic dispatch macro
+# before including it, so the same definition on the target lets the header be precompiled once.
+if(TARGET nvrhi_vk AND BALLS_PRECOMPILED_HEADERS)
+    target_compile_definitions(nvrhi_vk PRIVATE VULKAN_HPP_DISPATCH_LOADER_DYNAMIC=1)
+    target_precompile_headers(nvrhi_vk PRIVATE <nvrhi/vulkan.h> <vulkan/vulkan.hpp> <mutex> <list>)
+endif()
 
 add_subdirectory(source/core)
 add_subdirectory(source/backends)
@@ -82,6 +113,7 @@ add_executable(balls_bench source/tools/bench/Bench.cpp)
 target_link_libraries(balls_bench PRIVATE balls_core)
 add_dependencies(balls_bench balls_physics_plugins)
 target_compile_options(balls_bench PRIVATE ${BALLS_WARNINGS} ${BALLS_OPTIMIZE})
+balls_precompile(balls_bench)
 target_link_options(balls_bench PRIVATE ${BALLS_LINK_OPTIMIZE})
 
 set(BALLS_CUPTI_DIR "${CMAKE_SOURCE_DIR}/.deps/cupti" CACHE PATH "CUPTI headers for the instruction counter (scripts/FetchCudaSdk.ps1 -ProfilerTools)")
@@ -130,6 +162,7 @@ add_executable(balls_tests source/tests/TestMain.cpp source/tests/LevelTests.cpp
 target_link_libraries(balls_tests PRIVATE balls_core)
 add_dependencies(balls_tests balls_physics_plugins)
 target_compile_options(balls_tests PRIVATE ${BALLS_WARNINGS})
+balls_precompile(balls_tests)
 target_link_options(balls_tests PRIVATE ${BALLS_LINK_OPTIMIZE})
 target_compile_definitions(balls_tests PRIVATE BALLS_ASSET_DIR="${BALLS_ASSET_DIR}")
 add_test(NAME balls_tests COMMAND balls_tests)

@@ -108,6 +108,38 @@ void pushOutOfCell(inout float x, inout float y, out float normalX, out float no
     }
 }
 
+// See targetInSight in source/core/sim/kernels/BallStepCore.h: only aim at a target no other brick hides.
+bool targetInSight(float x, float y, int targetColumn, int targetRow) {
+    const float unreachable = 1e30f;
+    const float toX = (float)targetColumn + 0.5f - x;
+    const float toY = (float)targetRow + 0.5f - y;
+    int column = (int)floor(x);
+    int row = (int)floor(y);
+    const int stepColumn = toX > 0.0f ? 1 : -1;
+    const int stepRow = toY > 0.0f ? 1 : -1;
+    const float deltaX = toX != 0.0f ? abs(1.0f / toX) : unreachable;
+    const float deltaY = toY != 0.0f ? abs(1.0f / toY) : unreachable;
+    float nextX = toX != 0.0f ? (stepColumn > 0 ? (float)(column + 1) - x : x - (float)column) * deltaX : unreachable;
+    float nextY = toY != 0.0f ? (stepRow > 0 ? (float)(row + 1) - y : y - (float)row) * deltaY : unreachable;
+    const int cellsToCross = abs(column - targetColumn) + abs(row - targetRow);
+    for (int crossed = 0; crossed < cellsToCross; ++crossed) {
+        if (nextX < nextY) {
+            nextX += deltaX;
+            column += stepColumn;
+        } else {
+            nextY += deltaY;
+            row += stepRow;
+        }
+        if (column == targetColumn && row == targetRow) {
+            return true;
+        }
+        if (cellWords[paddedCellIndex(column, row)] >= 0) {
+            return false;
+        }
+    }
+    return column == targetColumn && row == targetRow;
+}
+
 void retargetTowardNearestBrick(float x, float y, inout float vx, inout float vy, int color, float normalX,
                                 float normalY) {
     const int column = (int)floor(x);
@@ -127,6 +159,9 @@ void retargetTowardNearestBrick(float x, float y, inout float vx, inout float vy
     const float directionX = toTargetX / distance;
     const float directionY = toTargetY / distance;
     if (directionX * normalX + directionY * normalY < 0.0f) {
+        return;
+    }
+    if (!targetInSight(x, y, target % paddedWidth - 1, target / paddedWidth - 1)) {
         return;
     }
     vx = directionX * speed;
@@ -248,6 +283,22 @@ uint encodeAxis(float value, float extent) {
     return (uint)min(max(scaled, 0.0f), POSITION_SCALE);
 }
 
+// Unbiased rounding of a stepped position; see roundingDither in source/core/sim/kernels/BallStepCore.h.
+uint roundingDither(uint previousPosition) {
+    uint hash = previousPosition * 0x9E3779B1u;
+    hash ^= hash >> 15;
+    hash *= 0x85EBCA77u;
+    hash ^= hash >> 13;
+    hash *= 0xC2B2AE3Du;
+    hash ^= hash >> 16;
+    return hash;
+}
+
+uint encodeAxisDithered(float value, float extent, uint dither16) {
+    const float scaled = value / extent * POSITION_SCALE + (float)(dither16 & 0xFFFFu) * (1.0f / 65536.0f);
+    return (uint)min(max(scaled, 0.0f), POSITION_SCALE);
+}
+
 int signedComponent(uint bits) { return ((int)(bits << (32 - DIRECTION_BITS))) >> (32 - DIRECTION_BITS); }
 
 uint encodeComponent(float value) {
@@ -301,7 +352,8 @@ void stepOneBall(uint index, uint startPosition, uint startState) {
             break;
         }
     }
-    const uint position = encodeAxis(x, fieldWidth) | (encodeAxis(y, fieldHeight) << 16);
+    const uint dither = roundingDither(startPosition);
+    const uint position = encodeAxisDithered(x, fieldWidth, dither) | (encodeAxisDithered(y, fieldHeight, dither >> 16) << 16);
     if (toSorted != 0) {
         sortedPositions[index] = position;
     } else {

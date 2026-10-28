@@ -48,7 +48,8 @@ std::string_view stateName(CandidateStatus status) {
 std::string resultText(const CandidateResult& result) {
     switch (result.status) {
     case CandidateStatus::Done:
-        return std::format("{:.0f} M ball-steps/s", result.ballStepsPerSecond / ballStepsPerMillion);
+        return std::format("{} balls at 60 FPS   {:.0f} M ball-steps/s", shortBallCount(result.estimatedBalls),
+                           result.ballStepsPerSecond / ballStepsPerMillion);
     case CandidateStatus::Failed:
         return "failed: " + result.failure;
     case CandidateStatus::Unavailable:
@@ -83,9 +84,10 @@ std::string benchmarkJson(std::string_view state, std::span<const CandidateResul
     for (const CandidateResult& result : results) {
         candidates += std::format(
             "{}{{\"backend\":\"{}\",\"computeGpu\":\"{}\",\"status\":\"{}\",\"ballStepsPerSecond\":{:.0f},"
-            "\"progress\":{:.2f},\"failure\":\"{}\"}}",
+            "\"estimatedBalls\":{:.0f},\"ballCapacity\":{:.0f},\"progress\":{:.2f},\"failure\":\"{}\"}}",
             candidates.empty() ? "" : ",", backendKindName(result.candidate.kind), jsonEscape(result.candidate.computeGpu),
-            stateName(result.status), result.ballStepsPerSecond, result.progress, jsonEscape(result.failure));
+            stateName(result.status), result.ballStepsPerSecond, result.estimatedBalls, result.ballCapacity,
+            result.progress, jsonEscape(result.failure));
     }
     const std::string winnerJson =
         winner ? std::format("\"{}\"", jsonEscape(winner->label)) : std::string("null");
@@ -165,7 +167,7 @@ void MachineBenchmarkScreen::draw() {
     }
     const std::vector<CandidateResult> results = winner ? finalResults : benchmark ? benchmark->results()
                                                                                    : std::vector<CandidateResult>{};
-    const std::optional<size_t> best = winner ? fastestCandidate(results) : std::nullopt;
+    const std::optional<size_t> best = winner ? bestCandidate(results) : std::nullopt;
     for (size_t index = 0; index < results.size(); ++index) {
         drawRow(results[index], rowTop, best == index);
         rowTop += rowHeight + rowGap;

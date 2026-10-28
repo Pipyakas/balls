@@ -30,6 +30,8 @@ struct SimulationStats {
 
 class Simulation {
 public:
+    static constexpr size_t spawnFlushBalls = size_t{1} << 22;
+
     explicit Simulation(BackendHandle backend, SimulationTuning tuning = {});
 
     void load(const BrickLayout& layout);
@@ -60,6 +62,7 @@ public:
 
 private:
     void syncBoardIfChanged();
+    void flushSpawnsIfLarge();
     void resolveHits();
     void applyDeviceHits();
 

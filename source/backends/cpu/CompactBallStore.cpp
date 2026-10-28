@@ -1,6 +1,7 @@
 #include "cpu/CompactBallStore.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 
 namespace {
@@ -212,18 +213,29 @@ void CompactBallStore::placeInGrid(uint32_t value) {
     const int row = std::min(static_cast<int>(static_cast<float>((value >> renderCoordinateBits) & renderCoordinateMax) *
                                               static_cast<float>(gridHeight) / coordinateSlots),
                              gridHeight - 1);
-    grid[static_cast<size_t>(row) * static_cast<size_t>(gridWidth) + static_cast<size_t>(column)] = value;
+    std::atomic_ref<uint32_t>(grid[static_cast<size_t>(row) * static_cast<size_t>(gridWidth) + static_cast<size_t>(column)])
+        .store(value, std::memory_order_relaxed);
 }
 
 // Only the bidders are needed to draw a frame, so whole chunks are sampled with the bidder stride: the cost
 // follows the visibility grid, not the ball count.
-void CompactBallStore::renderFreeFlightSample() {
-    constexpr size_t chunkBalls = 256;
+size_t CompactBallStore::sampledChunkCount() const {
+    const size_t chunks = (count + freeFlightChunkBalls - 1) / freeFlightChunkBalls;
+    const size_t stride = static_cast<size_t>(bidderMask) + 1;
+    const size_t offset = frameSeed % stride;
+    return chunks > offset ? (chunks - offset + stride - 1) / stride : 0;
+}
+
+// Only the bidders are needed to draw a frame, so whole chunks are sampled with the bidder stride: the cost
+// follows the visibility grid, not the ball count. Samples [first, end) can run on any thread.
+void CompactBallStore::renderSampledChunks(size_t first, size_t end) {
     const unsigned int ticks = clockTick - freeFlightEpoch;
     const size_t stride = static_cast<size_t>(bidderMask) + 1;
-    for (size_t chunk = frameSeed % stride; chunk * chunkBalls < count; chunk += stride) {
-        const size_t end = std::min(count, (chunk + 1) * chunkBalls);
-        for (size_t i = chunk * chunkBalls; i < end; ++i) {
+    const size_t offset = frameSeed % stride;
+    for (size_t sample = first; sample < end; ++sample) {
+        const size_t chunk = offset + sample * stride;
+        const size_t last = std::min(count, (chunk + 1) * freeFlightChunkBalls);
+        for (size_t i = chunk * freeFlightChunkBalls; i < last; ++i) {
             placeInGrid(packedInFlight(i, ticks));
         }
     }

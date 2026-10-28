@@ -165,25 +165,66 @@ bool benchmarkNeeded(const std::optional<BenchmarkRecord>& stored, const Hardwar
     return !stored || !stored->complete || stored->fingerprint != current;
 }
 
-std::optional<size_t> fastestCandidate(std::span<const CandidateResult> results) {
+std::optional<size_t> bestCandidate(std::span<const CandidateResult> results) {
     std::optional<size_t> best;
+    const auto better = [](const CandidateResult& challenger, const CandidateResult& holder) {
+        if (challenger.estimatedBalls != holder.estimatedBalls) {
+            return challenger.estimatedBalls > holder.estimatedBalls;
+        }
+        return challenger.ballStepsPerSecond > holder.ballStepsPerSecond;
+    };
     for (size_t index = 0; index < results.size(); ++index) {
         const CandidateResult& result = results[index];
-        if (result.status == CandidateStatus::Done &&
-            (!best || result.ballStepsPerSecond > results[*best].ballStepsPerSecond)) {
+        if (result.status == CandidateStatus::Done && (!best || better(result, results[*best]))) {
             best = index;
         }
     }
     return best;
 }
 
+std::string shortBallCount(double balls) {
+    constexpr double unbounded = 1e15;
+    constexpr double billion = 1e9;
+    if (balls >= unbounded) {
+        return "no limit";
+    }
+    constexpr double million = 1e6;
+    constexpr double thousand = 1e3;
+    if (balls >= billion) {
+        return std::format("{:.1f} B", balls / billion);
+    }
+    if (balls >= million) {
+        return std::format("{:.0f} M", balls / million);
+    }
+    if (balls >= thousand) {
+        return std::format("{:.0f} k", balls / thousand);
+    }
+    return std::format("{:.0f}", balls);
+}
+
 BenchmarkCandidate chooseDefaultBackend(std::span<const CandidateResult> results,
                                         const std::function<bool(BackendKind)>& isAvailable) {
-    if (const auto best = fastestCandidate(results)) {
+    if (const auto best = bestCandidate(results)) {
         return results[*best].candidate;
     }
     const BackendKind fallback = isAvailable(BackendKind::Avx2) ? BackendKind::Avx2 : BackendKind::Scalar;
     return {fallback, {}, candidateLabel(fallback, {})};
+}
+
+double estimateBallsAtTarget(double smallBalls, double smallFrameSeconds, double largeBalls, double largeFrameSeconds,
+                             double frameBudgetSeconds, double capacity) {
+    // A stepped backend's frame grows almost in proportion to the count (2.6x to 3.3x for 4x the balls); one whose
+    // balls fly freely only draws sampled bidders and stays within noise of flat. Fitting a line through two
+    // nearly equal noisy times would extrapolate noise, so anything growing less than this is capacity-limited.
+    constexpr double flatGrowth = 1.5;
+    const double addedBalls = largeBalls - smallBalls;
+    if (addedBalls <= 0.0 || largeFrameSeconds <= smallFrameSeconds * flatGrowth) {
+        return largeFrameSeconds <= frameBudgetSeconds ? capacity : 0.0;
+    }
+    const double perBall = (largeFrameSeconds - smallFrameSeconds) / addedBalls;
+    const double fixed = std::max(0.0, largeFrameSeconds - perBall * largeBalls);
+    const double reachable = fixed < frameBudgetSeconds ? (frameBudgetSeconds - fixed) / perBall : 0.0;
+    return std::min(reachable, capacity);
 }
 
 std::string serializeBenchmarkRecord(const BenchmarkRecord& record) {
@@ -200,9 +241,10 @@ std::string serializeBenchmarkRecord(const BenchmarkRecord& record) {
                             withoutSeparators(record.winner->computeGpu));
     }
     for (const CandidateResult& result : record.results) {
-        text += std::format("result{0}{1}{0}{2}{0}{3}{0}{4:.0f}{0}{5}\n", fieldSeparator,
+        text += std::format("result{0}{1}{0}{2}{0}{3}{0}{4:.0f}{0}{5}{0}{6:.0f}{0}{7:.0f}\n", fieldSeparator,
                             backendKindName(result.candidate.kind), withoutSeparators(result.candidate.computeGpu),
-                            statusName(result.status), result.ballStepsPerSecond, withoutSeparators(result.failure));
+                            statusName(result.status), result.ballStepsPerSecond, withoutSeparators(result.failure),
+                            result.estimatedBalls, result.ballCapacity);
     }
     return text;
 }
@@ -244,6 +286,8 @@ std::optional<BenchmarkRecord> parseBenchmarkRecord(std::string_view text) {
                 result.status = *status;
                 result.ballStepsPerSecond = std::strtod(fields[4].c_str(), nullptr);
                 result.failure = fields.size() > 5 ? fields[5] : std::string{};
+                result.estimatedBalls = fields.size() > 6 ? std::strtod(fields[6].c_str(), nullptr) : 0.0;
+                result.ballCapacity = fields.size() > 7 ? std::strtod(fields[7].c_str(), nullptr) : 0.0;
                 record.results.push_back(std::move(result));
             }
         }
@@ -359,54 +403,77 @@ void BackendBenchmark::runCandidate(size_t index, std::optional<long long> refer
     }
     Simulation simulation(std::move(backend));
     simulation.load(workload.level);
-    for (const BallColor color : allBallColors) {
-        simulation.scatterBalls(color, static_cast<BallCount>(workload.balls / ballColorCount));
-    }
+    const float slotSize = simulation.tuning().ballRadius * visibilitySlotsPerRadius;
+    simulation.backend().setVisibilityGrid(visibilitySlots(static_cast<float>(simulation.board().columns()), slotSize),
+                                           visibilitySlots(static_cast<float>(simulation.board().rows()), slotSize));
+    const auto scatterUpTo = [&](size_t balls) {
+        const size_t live = static_cast<size_t>(simulation.liveBallCount());
+        const size_t perColor = balls > live ? (balls - live) / ballColorCount : 0;
+        for (const BallColor color : allBallColors) {
+            simulation.scatterBalls(color, static_cast<BallCount>(perColor));
+        }
+    };
     const auto timedOut = [&] { return secondsSince(start) > workload.candidateLimitSeconds; };
-    const auto faulted = [&] { return std::string(simulation.backend().faultMessage()); };
-    for (int tick = 0; tick < workload.warmupTicks; ++tick) {
-        if (cancelled) {
-            return;
+    // Runs game frames (ticksPerFrame ticks each) until `frames` are done or `seconds` pass, whichever the caller
+    // asks for; false when the candidate faulted, timed out or was cancelled.
+    const auto runFrames = [&](int frames, double seconds, double progressFrom, double progressTo,
+                               long long& framesRun) {
+        const Clock::time_point begin = Clock::now();
+        framesRun = 0;
+        while (frames > 0 ? framesRun < frames : secondsSince(begin) < seconds) {
+            if (cancelled) {
+                return false;
+            }
+            simulation.tick(workload.ticksPerFrame);
+            ++framesRun;
+            if (const std::string_view fault = simulation.backend().faultMessage(); !fault.empty()) {
+                fail(std::string(fault));
+                return false;
+            }
+            if (timedOut()) {
+                fail(std::format("timed out after {:.0f} s", workload.candidateLimitSeconds));
+                return false;
+            }
+            const double done = frames > 0 ? static_cast<double>(framesRun) / frames : secondsSince(begin) / seconds;
+            update(index, [&](CandidateResult& result) {
+                result.progress = progressFrom + (progressTo - progressFrom) * std::min(1.0, done);
+            });
         }
-        simulation.tick(1);
-        if (const std::string fault = faulted(); !fault.empty()) {
-            fail(fault);
-            return;
+        return true;
+    };
+    const auto measureFrameSeconds = [&](double progressFrom, double progressTo, double& frameSeconds) {
+        long long frames = 0;
+        const Clock::time_point begin = Clock::now();
+        if (!runFrames(0, workload.measuredSeconds, progressFrom, progressTo, frames)) {
+            return false;
         }
-        if (timedOut()) {
-            fail(std::format("timed out after {:.0f} s", workload.candidateLimitSeconds));
-            return;
-        }
-        update(index, [&](CandidateResult& result) {
-            result.progress = warmupShare * static_cast<double>(tick + 1) / static_cast<double>(workload.warmupTicks);
-        });
-    }
+        frameSeconds = secondsSince(begin) / static_cast<double>(std::max(frames, 1LL));
+        return true;
+    };
 
-    const double balls = static_cast<double>(simulation.backend().ballCount());
-    const Clock::time_point measureStart = Clock::now();
-    long long ticks = 0;
-    while (secondsSince(measureStart) < workload.measuredSeconds) {
-        if (cancelled) {
-            return;
-        }
-        simulation.tick(1);
-        ++ticks;
-        if (const std::string fault = faulted(); !fault.empty()) {
-            fail(fault);
-            return;
-        }
-        if (timedOut()) {
-            fail(std::format("timed out after {:.0f} s", workload.candidateLimitSeconds));
-            return;
-        }
-        update(index, [&](CandidateResult& result) {
-            result.progress = warmupShare + (1.0 - warmupShare) * std::min(1.0, secondsSince(measureStart) / workload.measuredSeconds);
-        });
+    scatterUpTo(workload.balls);
+    long long frames = 0;
+    const int warmupFrames = std::max(1, workload.warmupTicks / workload.ticksPerFrame);
+    double smallFrameSeconds = 0.0;
+    if (!runFrames(warmupFrames, 0.0, 0.0, warmupShare, frames) || !measureFrameSeconds(warmupShare, 0.6, smallFrameSeconds)) {
+        return;
     }
-    const double seconds = secondsSince(measureStart);
+    const double smallBalls = static_cast<double>(simulation.backend().ballCount());
+    scatterUpTo(workload.largerBalls);
+    double largeFrameSeconds = 0.0;
+    if (!runFrames(workload.warmupFramesAfterGrowth, 0.0, 0.6, 0.7, frames) ||
+        !measureFrameSeconds(0.7, 1.0, largeFrameSeconds)) {
+        return;
+    }
+    const double largeBalls = static_cast<double>(simulation.backend().ballCount());
+    const double capacity = static_cast<double>(simulation.backend().ballCapacityLimit());
+    const double estimate = estimateBallsAtTarget(smallBalls, smallFrameSeconds, largeBalls, largeFrameSeconds,
+                                                  workload.frameBudgetShare / workload.targetFps, capacity);
     update(index, [&](CandidateResult& result) {
         result.status = CandidateStatus::Done;
         result.progress = 1.0;
-        result.ballStepsPerSecond = balls * static_cast<double>(ticks) / seconds;
+        result.ballStepsPerSecond = largeBalls * workload.ticksPerFrame / largeFrameSeconds;
+        result.estimatedBalls = estimate;
+        result.ballCapacity = capacity;
     });
 }

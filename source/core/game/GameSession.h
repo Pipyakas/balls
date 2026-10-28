@@ -59,7 +59,7 @@ public:
     const std::string& lastBackendFault() const { return backendFault; }
 
 private:
-    void scatterAcrossColors(BallCount count);
+    void launchAcrossColors(BallCount count);
     void releaseLauncher(const Launcher& launcher);
     void recoverFromBackendFault();
     void pumpCapacityProbe();

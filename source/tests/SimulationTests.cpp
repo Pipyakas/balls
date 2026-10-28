@@ -250,3 +250,30 @@ TEST_CASE("Vulkan rejects an unknown compute adapter preference") {
     EXPECT(!backend);
     EXPECT(reason.find("adapter") != std::string::npos);
 }
+
+namespace {
+
+struct ColumnOfBricks {
+    static constexpr int columns = 3;
+    static constexpr int rows = 6;
+    static constexpr int paddedWidth = columns + 2;
+    std::vector<int> cells = std::vector<int>(static_cast<size_t>(paddedWidth * (rows + 2)), -1);
+
+    void place(int column, int row, int brick) { cells[static_cast<size_t>(paddedCellIndex(column, row, paddedWidth))] = brick; }
+    int occupant(int index, int& color) const {
+        color = cells[static_cast<size_t>(index)];
+        return cells[static_cast<size_t>(index)];
+    }
+};
+
+}
+
+TEST_CASE("a ball only retargets a brick it can see, so blocked targets cannot trap it in a loop") {
+    ColumnOfBricks board;
+    board.place(1, 0, 0);
+    board.place(1, 2, 1);
+    EXPECT(!targetInSight(1.5f, 5.5f, 1, 0, board, ColumnOfBricks::paddedWidth));
+    EXPECT(targetInSight(1.5f, 1.5f, 1, 0, board, ColumnOfBricks::paddedWidth));
+    EXPECT(targetInSight(0.3f, 1.2f, 1, 0, board, ColumnOfBricks::paddedWidth));
+    EXPECT(!targetInSight(1.4f, 4.0f, 1, 0, board, ColumnOfBricks::paddedWidth));
+}
