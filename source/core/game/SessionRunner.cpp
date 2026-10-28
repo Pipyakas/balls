@@ -73,17 +73,24 @@ std::shared_ptr<const BrickBoard> boardFor(const Simulation& simulation, const s
     return std::make_shared<const BrickBoard>(board);
 }
 
-void captureBalls(Simulation& simulation, float slotCells, BallFrame& frame) {
+// The last field size the backend reported, kept across frames: the grid is sized from it, and a size that changed
+// from frame to frame would make the backend rebuild its grid every frame.
+struct FieldSize {
+    float width = 1.0f;
+    float height = 1.0f;
+};
+
+void captureBalls(Simulation& simulation, float slotCells, FieldSize& field, BallFrame& frame) {
     PhysicsBackend& backend = simulation.backend();
     if (backend.ballCount() == 0) {
         frame.packed.clear();
         return;
     }
     if (slotCells > 0.0f) {
-        backend.setVisibilityGrid(visibilitySlots(frame.fieldWidth, slotCells),
-                                  visibilitySlots(frame.fieldHeight, slotCells));
+        backend.setVisibilityGrid(visibilitySlots(field.width, slotCells), visibilitySlots(field.height, slotCells));
     }
     const BallSnapshot snapshot = backend.snapshot();
+    field = {snapshot.fieldWidth, snapshot.fieldHeight};
     frame.fieldWidth = snapshot.fieldWidth;
     frame.fieldHeight = snapshot.fieldHeight;
     frame.visibilityGrid = snapshot.visibilityGrid;
@@ -95,7 +102,7 @@ void captureBalls(Simulation& simulation, float slotCells, BallFrame& frame) {
 }
 
 void fillView(GameSession& session, SessionView& view, const SessionView* previous, uint64_t& boardRevision,
-              float slotCells) {
+              float slotCells, FieldSize& field) {
     Simulation& simulation = session.simulation();
     view.mode = session.mode();
     view.state = session.state();
@@ -128,13 +135,14 @@ void fillView(GameSession& session, SessionView& view, const SessionView* previo
     view.launchX = simulation.launchX();
     view.launchY = simulation.launchY();
     view.ballRadius = simulation.tuning().ballRadius;
-    captureBalls(simulation, slotCells, view.balls);
+    captureBalls(simulation, slotCells, field, view.balls);
 }
 
 void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, LevelData level, BackendKind backend) {
     auto session = std::make_unique<GameSession>(mode, std::move(level), backend);
     uint64_t frameNumber = 0;
     uint64_t boardRevision = ~0ull;
+    FieldSize field;
     Clock::time_point lastUpdate = Clock::now();
     Clock::time_point rateWindowStart = lastUpdate;
     int framesInWindow = 0;
@@ -180,7 +188,7 @@ void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, Le
             session->update(static_cast<float>(frameSeconds));
         }
         wasPaused = input.paused;
-        fillView(*session, *view, previous.get(), boardRevision, input.visibilitySlotCells);
+        fillView(*session, *view, previous.get(), boardRevision, input.visibilitySlotCells, field);
         const Clock::time_point workEnd = Clock::now();
         lastWorkSeconds = secondsBetween(workStart, workEnd);
         ++framesInWindow;
