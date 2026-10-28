@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <utility>
 
 GameSession::GameSession(GameMode mode, LevelData level, BackendKind backend, int ticksPerSecond)
     : gameMode(mode), levelData(std::move(level)), backendKind(backend),
@@ -171,14 +172,79 @@ void GameSession::selectBallMultiplier(int optionIndex) {
     selectedMultiplier = std::clamp(optionIndex, 0, static_cast<int>(ballMultiplierOptions.size()) - 1);
 }
 
-bool GameSession::switchBackend(BackendKind kind) {
-    auto backend = createBackend(kind);
-    if (!backend) {
-        return false;
+GameSession::~GameSession() {
+    if (pendingBuild) {
+        pendingBuild->abandon();
     }
-    physicsSimulation.replaceBackend(std::move(backend));
+    BackendWorker::shared().retire(physicsSimulation.releaseBackend());
+}
+
+// A newer request replaces one still building, which also picks up a compute GPU chosen in between.
+void GameSession::requestBackend(BackendKind kind) {
+    if (pendingBuild) {
+        pendingBuild->abandon();
+    }
+    pendingBuild = BackendWorker::shared().build(kind);
+}
+
+std::optional<BackendKind> GameSession::pendingBackend() const {
+    return pendingBuild ? std::optional<BackendKind>(pendingBuild->kind()) : std::nullopt;
+}
+
+std::optional<BackendSwitchOutcome> GameSession::takeBackendSwitchOutcome() {
+    return std::exchange(switchOutcome, std::nullopt);
+}
+
+void GameSession::pollBackgroundWork() {
+    if (pendingBuild) {
+        if (std::optional<BackendHandle> finished = pendingBuild->take()) {
+            const BackendKind kind = pendingBuild->kind();
+            pendingBuild.reset();
+            if (*finished) {
+                adoptBackend(kind, std::move(*finished));
+            } else {
+                switchOutcome = BackendSwitchOutcome{kind, false};
+            }
+        }
+    }
+    refillBatch();
+}
+
+void GameSession::adoptBackend(BackendKind kind, BackendHandle backend) {
+    BackendReplacement replacement = physicsSimulation.replaceBackend(std::move(backend));
+    BackendWorker::shared().retire(std::move(replacement.retired));
     backendKind = kind;
-    return true;
+    refillRemaining = replacement.ballsToRefill;
+    switchOutcome = BackendSwitchOutcome{kind, true};
+}
+
+// Too many balls to copy across in one frame are launched into the new backend instead, a batch per frame sized
+// to stay within the budget.
+void GameSession::refillBatch() {
+    constexpr double budgetMs = 4.0;
+    constexpr BallCount smallestBatch = BallCount{1} << 12;
+    constexpr BallCount largestBatch = BallCount{1} << 24;
+    if (refillRemaining == 0) {
+        return;
+    }
+    const BallCount batch = std::min(refillRemaining, refillBatchBalls);
+    const auto start = std::chrono::steady_clock::now();
+    launchAcrossColors(batch);
+    const double elapsedMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    refillRemaining -= batch;
+    if (physicsSimulation.ballRoom() == 0) {
+        refillRemaining = 0;
+    }
+    const double scale = elapsedMs > 0.0 ? budgetMs / elapsedMs : 2.0;
+    refillBatchBalls = std::clamp(static_cast<BallCount>(static_cast<double>(batch) * std::min(scale, 2.0)), smallestBatch,
+                                  largestBatch);
+}
+
+// A backend that faulted cannot keep running while a replacement builds, so this one switch happens on the frame.
+void GameSession::switchBackendNow(BackendKind kind) {
+    if (BackendHandle backend = createBackend(kind)) {
+        adoptBackend(kind, std::move(backend));
+    }
 }
 
 void GameSession::update(float deltaTime) {
@@ -208,5 +274,5 @@ void GameSession::recoverFromBackendFault() {
         return;
     }
     backendFault = std::string(fault);
-    switchBackend(fastestAvailableCpuBackend());
+    switchBackendNow(fastestAvailableCpuBackend());
 }

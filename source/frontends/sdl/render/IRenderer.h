@@ -70,10 +70,17 @@ public:
     // Time the last frame spent waiting for the display (VSync, a busy compositor), not doing work.
     virtual double lastPresentWaitMs() const { return 0.0; }
     virtual std::string deviceDescription() const = 0;
+    // A renderer that supports it is prepared off the UI thread (device, pipelines, buffers) and only then takes
+    // over the window, so switching renderer or GPU costs the frame no more than the swap-chain hand-over.
+    virtual bool supportsDeferredAttach() const { return false; }
+    virtual bool attachToWindow(std::string&) { return true; }
+    virtual void detachFromWindow() {}
 };
 
 bool isWebGpuCompiledIn();
 bool isNvrhiCompiledIn();
+// Whether this build contains the named renderer ("nvrhi", "webgpu", "sdlgpu"); an empty name means the default.
+bool isRendererCompiledIn(std::string_view renderer);
 std::unique_ptr<IRenderer> createSdlGpuRenderer(SDL_Window* window, std::string& error);
 SDL_WindowFlags rendererWindowFlags(std::string_view api);
 SDL_WindowFlags rendererWindowFlags(std::string_view renderer, std::string_view api);
@@ -82,3 +89,7 @@ std::unique_ptr<IRenderer> createRenderer(SDL_Window* window, std::string_view a
                                           std::string& error);
 std::unique_ptr<IRenderer> createRenderer(SDL_Window* window, std::string_view renderer, std::string_view api,
                                           std::string_view gpuPreference, std::string& error);
+// Builds a detached renderer, safe on a worker thread, or returns null when this renderer cannot be prepared
+// apart from the window; the caller then falls back to createRenderer on the UI thread.
+std::unique_ptr<IRenderer> prepareRenderer(SDL_Window* window, std::string_view renderer, std::string_view api,
+                                           std::string_view gpuPreference, std::string& error);

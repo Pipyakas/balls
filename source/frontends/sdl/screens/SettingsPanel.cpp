@@ -2,6 +2,7 @@
 
 #include "render/Palette.h"
 #include "sim/BackendFactory.h"
+#include "sim/BackendWorker.h"
 #include "ui/Widgets.h"
 
 #include <algorithm>
@@ -213,10 +214,11 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
     }
     cursor += sectionHeight;
     for (const BackendKind kind : allBackendKinds) {
-        const bool available = isBackendAvailable(kind);
+        const BackendStatus status = backendStatus(kind);
+        const bool available = status.available;
         std::string label(backendKindName(kind));
         if (!available) {
-            label += std::string(" - ") + backendUnavailableReason(kind);
+            label += std::string(" - ") + status.unavailableReason;
         }
         const Rect row{innerX, cursor, innerWidth, optionHeight};
         if (ui::button(row, label, available, selectedBackend == kind) && available) {
@@ -273,6 +275,8 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
     if (ui::button({innerX, cursor, innerWidth, backHeight}, "Back")) {
         edit.backPressed = true;
     }
+    // Kept clear of the panel's rounded corners, which the fade would square off.
+    ui::scrollHints({innerX, inner.y, innerWidth, inner.height}, scroll, settingsContentHeight(), palette::panel);
     gfx::endClip();
     return edit;
 }

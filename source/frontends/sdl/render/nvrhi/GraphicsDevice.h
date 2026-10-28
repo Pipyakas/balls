@@ -14,6 +14,11 @@ public:
     virtual ~GraphicsDevice() = default;
 
     virtual nvrhi::IDevice* device() const = 0;
+    // Creating a device takes up to a few hundred milliseconds, so it happens off the UI thread with no hold on the
+    // window. attach then creates the swap chain on the UI thread, once the previous device has detached.
+    virtual bool attach(std::string& error) = 0;
+    // Waits for the GPU and releases the swap chain, so the device can be destroyed on another thread.
+    virtual void detach() = 0;
     virtual bool beginFrame() = 0;
     virtual nvrhi::ITexture* backBuffer() const = 0;
     virtual void present() = 0;
@@ -29,6 +34,6 @@ public:
 
 SDL_WindowFlags windowFlagsFor(GraphicsApi api);
 // gpuPreference picks the rendering adapter: "auto" (default), "integrated", "discrete", an index, or a
-// case-insensitive substring of the adapter name.
+// case-insensitive substring of the adapter name. The device comes back detached; call attach before rendering.
 std::unique_ptr<GraphicsDevice> createGraphicsDevice(GraphicsApi api, SDL_Window* window, std::string_view gpuPreference,
                                                      std::string& error);

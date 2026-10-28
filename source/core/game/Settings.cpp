@@ -19,6 +19,7 @@ constexpr std::string_view ticksPerSecondKey = "physicsRate";
 constexpr std::string_view defaultBackendKey = "defaultBackend";
 constexpr std::string_view rendererKey = "renderer";
 constexpr std::string_view graphicsApiKey = "graphicsApi";
+constexpr std::string_view advancedSettingsKey = "advancedSettings";
 
 constexpr std::array<std::pair<LayoutOrientation, std::string_view>, 3> orientationNames{{
     {LayoutOrientation::Auto, "auto"},
@@ -95,7 +96,7 @@ std::string normalizeGraphicsApiName(std::string_view api) {
 }
 
 std::string serializeSettings(const Settings& settings) {
-    return std::format("{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n",
+    return std::format("{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n",
                        collisionsKey, settings.ballCollisions ? "on" : "off",
                        layoutKey, orientationName(settings.layout),
                        vsyncKey, settings.vsync ? "on" : "off",
@@ -103,7 +104,8 @@ std::string serializeSettings(const Settings& settings) {
                        ticksPerSecondKey, settings.ticksPerSecond,
                        defaultBackendKey, settings.defaultBackend,
                        rendererKey, normalizeRendererName(settings.renderer),
-                       graphicsApiKey, normalizeGraphicsApiName(settings.graphicsApi));
+                       graphicsApiKey, normalizeGraphicsApiName(settings.graphicsApi),
+                       advancedSettingsKey, settings.advancedSettings ? "on" : "off");
 }
 
 // Unknown keys and unreadable values keep their defaults, so an old or hand-edited file never blocks startup.
@@ -140,6 +142,8 @@ Settings parseSettings(std::string_view text) {
             settings.renderer = normalizeRendererName(value);
         } else if (key == graphicsApiKey || key == "api") {
             settings.graphicsApi = normalizeGraphicsApiName(value);
+        } else if (key == advancedSettingsKey) {
+            settings.advancedSettings = parseFlag(value).value_or(settings.advancedSettings);
         }
     }
     return settings;

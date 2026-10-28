@@ -26,6 +26,9 @@ struct Settings {
     std::string defaultBackend;
     std::string renderer = "webgpu";
     std::string graphicsApi = "auto";
+    // Whether the gameplay control gadget shows its Advanced Settings section (backend and GPU choices), and with it
+    // the backend and device rows of the debug gadget.
+    bool advancedSettings = false;
 
     bool operator==(const Settings&) const = default;
 };

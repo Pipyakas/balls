@@ -1,19 +1,17 @@
 #pragma once
 
+#include "game/SessionView.h"
 #include "render/IRenderer.h"
 #include "render/ScreenLayout.h"
-#include "sim/PhysicsBackend.h"
 
 class BallView {
 public:
     explicit BallView(IRenderer& renderer) : renderer(renderer) {}
 
-    void draw(PhysicsBackend& backend, const BoardTransform& transform, float radiusCells);
-    double takeSynchronizationMs();
+    // How large one visibility slot is in board cells at this zoom: what the physics thread builds the grid with.
+    static float slotCells(const BoardTransform& transform, float radiusCells);
+    void draw(const BallFrame& balls, const BoardTransform& transform, float radiusCells);
 
 private:
     IRenderer& renderer;
-    double synchronizationMs = 0.0;
-    float lastFieldWidth = 0.0f;
-    float lastFieldHeight = 0.0f;
 };

@@ -24,7 +24,10 @@ namespace {
 
 constexpr UINT backBufferCount = 3;
 constexpr UINT maximumQueuedFrames = 2;
-constexpr DWORD vsyncPresentWaitMilliseconds = 1000;
+// With VSync on, the wait for a free present slot paces the loop to the display. It is capped at about three 60 Hz
+// refreshes: a compositor that stops taking frames (a minimized Remote Desktop window) must not hold every frame for
+// a second; past the cap the frame skips its present, as with VSync off.
+constexpr DWORD vsyncPresentWaitMilliseconds = 50;
 constexpr DXGI_FORMAT swapChainFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 
 std::string narrow(const wchar_t* text) {
@@ -42,6 +45,8 @@ public:
 
     bool initialize(std::string& error);
     nvrhi::IDevice* device() const override { return nvrhiDevice; }
+    bool attach(std::string& error) override;
+    void detach() override;
     bool beginFrame() override;
     nvrhi::ITexture* backBuffer() const override { return backBuffers[swapChain->GetCurrentBackBufferIndex()]; }
     void present() override;
@@ -78,20 +83,11 @@ private:
 };
 
 D3d12Device::~D3d12Device() {
-    if (nvrhiDevice) {
-        nvrhiDevice->waitForIdle();
-    }
-    releaseBackBuffers();
+    detach();
     nvrhiDevice = nullptr;
 }
 
 bool D3d12Device::initialize(std::string& error) {
-    HWND windowHandle = static_cast<HWND>(
-        SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
-    if (!windowHandle) {
-        error = "window has no HWND";
-        return false;
-    }
     if (FAILED(CreateDXGIFactory2(0, IID_PPV_ARGS(&factory)))) {
         error = "CreateDXGIFactory2 failed";
         return false;
@@ -128,6 +124,25 @@ bool D3d12Device::initialize(std::string& error) {
                                                               sizeof(allowTearing))) &&
                        allowTearing;
 
+    nvrhi::d3d12::DeviceDesc deviceDescription;
+    deviceDescription.errorCB = &MessageLog::instance();
+    deviceDescription.pDevice = nativeDevice.Get();
+    deviceDescription.pGraphicsCommandQueue = queue.Get();
+    nvrhiDevice = nvrhi::d3d12::createDevice(deviceDescription);
+    if (!nvrhiDevice) {
+        error = "nvrhi::d3d12::createDevice failed";
+        return false;
+    }
+    return true;
+}
+
+bool D3d12Device::attach(std::string& error) {
+    HWND windowHandle = static_cast<HWND>(
+        SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
+    if (!windowHandle) {
+        error = "window has no HWND";
+        return false;
+    }
     int pixelWidth = 0;
     int pixelHeight = 0;
     SDL_GetWindowSizeInPixels(window, &pixelWidth, &pixelHeight);
@@ -152,17 +167,25 @@ bool D3d12Device::initialize(std::string& error) {
     factory->MakeWindowAssociation(windowHandle, DXGI_MWA_NO_ALT_ENTER);
     swapChain->SetMaximumFrameLatency(maximumQueuedFrames);
     frameLatencyWaitable = swapChain->GetFrameLatencyWaitableObject();
-
-    nvrhi::d3d12::DeviceDesc deviceDescription;
-    deviceDescription.errorCB = &MessageLog::instance();
-    deviceDescription.pDevice = nativeDevice.Get();
-    deviceDescription.pGraphicsCommandQueue = queue.Get();
-    nvrhiDevice = nvrhi::d3d12::createDevice(deviceDescription);
-    if (!nvrhiDevice) {
-        error = "nvrhi::d3d12::createDevice failed";
+    if (!createBackBuffers()) {
+        error = "could not wrap the swap chain's back buffers";
         return false;
     }
-    return createBackBuffers();
+    return true;
+}
+
+void D3d12Device::detach() {
+    if (!swapChain) {
+        return;
+    }
+    nvrhiDevice->waitForIdle();
+    releaseBackBuffers();
+    nvrhiDevice->runGarbageCollection();
+    if (frameLatencyWaitable) {
+        CloseHandle(frameLatencyWaitable);
+        frameLatencyWaitable = nullptr;
+    }
+    swapChain.Reset();
 }
 
 bool D3d12Device::createBackBuffers() {

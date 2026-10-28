@@ -17,6 +17,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -48,6 +49,7 @@ public:
 
     const Settings& settings() const { return currentSettings; }
     void applySettings(const Settings& settings, std::optional<BackendKind> backend = std::nullopt);
+    void setAdvancedSettingsOpen(bool open);
     std::string settingsJson() const;
     // Whether this build links a WebGPU renderer, so the Settings page can offer it.
     bool isWebGpuSupported() const;
@@ -85,9 +87,26 @@ public:
     }
 
 private:
+    // A renderer, graphics API and render GPU to switch to.
+    struct RendererTarget {
+        std::string renderer;
+        std::string api;
+        std::string gpuPreference;
+    };
+    struct PreparedRenderer {
+        std::unique_ptr<IRenderer> renderer;
+        std::string error;
+        std::vector<GpuAdapterInfo> adapters;
+    };
+
     bool openWindowAndRenderer(const LaunchOptions& options, std::string_view api, std::string& error);
     void applyPendingRenderAdapter();
     void applyPendingRendererSwitch();
+    void switchRenderer(RendererTarget target);
+    void switchRendererNow(const RendererTarget& target);
+    void adoptPreparedRenderer();
+    void useRenderer(const RendererTarget& target, std::vector<GpuAdapterInfo> adapters);
+    static void retireRenderer(std::unique_ptr<IRenderer> retired);
     using Clock = std::chrono::steady_clock;
 
     struct Toast {
@@ -124,6 +143,9 @@ private:
     bool screenshotPending = false;
     std::string screenshotPath;
     float frameSeconds = 0.0f;
+    // Longest gap between two frame starts since /hitch last read it. Unlike the frame timings it includes the
+    // renderer, adapter and screen switches applied after a frame is measured, so it is what a hitch costs.
+    double longestFrameIntervalMs = 0.0;
     Toast toast;
     std::vector<std::filesystem::path> droppedPaths;
     std::mutex dialogMutex;
@@ -138,5 +160,8 @@ private:
     int activeRenderAdapter = -1;
     std::optional<int> pendingRenderAdapter;
     std::optional<std::pair<std::string, std::string>> pendingRendererSwitch;
+    // A renderer being prepared on a worker thread while the current one keeps drawing.
+    std::optional<RendererTarget> preparingTarget;
+    std::future<PreparedRenderer> preparing;
     Clock::time_point previousUpdateStart = Clock::now();
 };

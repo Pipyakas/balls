@@ -138,6 +138,8 @@ void LevelSelectScreen::draw() {
 
     const float top = 130.0f;
     const float bottom = listBottom();
+    const float listHeight = levels.empty() ? 0.0f : static_cast<float>(levels.size()) * (rowHeight + rowGap) - rowGap;
+    scroll = std::clamp(scroll, 0.0f, std::max(0.0f, listHeight - (bottom - top)));
     gfx::beginClip({0.0f, top, static_cast<float>(gfx::screenWidth()), bottom - top});
     for (size_t i = 0; i < levels.size(); ++i) {
         const float y = top + static_cast<float>(i) * (rowHeight + rowGap) - scroll;
@@ -152,6 +154,7 @@ void LevelSelectScreen::draw() {
             app.openEditor(mode, levels[i]);
         }
     }
+    ui::scrollHints({centerX - listWidth * 0.5f, top, listWidth, bottom - top}, scroll, listHeight, palette::background);
     gfx::endClip();
     if (levels.empty()) {
         ui::drawText("No levels found", {centerX, top + 40.0f}, 28.0f, palette::textMuted, ui::Align::Center);

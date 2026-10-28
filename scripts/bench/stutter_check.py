@@ -69,7 +69,8 @@ def main():
             stutter = state["minWorkFps"] < min(state["workFps"], DISPLAY_FPS) * STUTTER_RATIO
             stutters += 1 if stutter else 0
             print(f"{time.time() - start:6.1f} s  balls {details['balls']:>14,}  waiting {details['pendingSpawn']:>14,}  "
-                  f"work {state['workFps']:7.1f} fps  worst {state['minWorkFps']:7.1f} fps  "
+                  f"physics {details['physicsFps']:6.1f} fps ({details['physicsFrameMs']:5.2f} ms)  "
+                  f"ui {state['workFps']:7.1f} fps  worst {state['minWorkFps']:7.1f} fps  "
                   f"probe {details['probe']['phase']:<10} {details['backend']}{'  STUTTER' if stutter else ''}",
                   flush=True)
         print(f"{stutters} stuttering samples")

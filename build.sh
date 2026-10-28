@@ -3,20 +3,28 @@
 #   ./build.sh                         the default build: SDL + NVRHI (Vulkan) for Linux
 #   ./build.sh --menu                  pick any front end and platform from a menu
 #   ./build.sh <frontend> [variant]    build one directly, e.g. ./build.sh sdl android
+#   ./build.sh --setup [...]           only check this machine can build it (with --menu, or a front end and variant)
 # Each front end owns source/frontends/<name>/build.sh; this script only dispatches to them, and the menu lists
 # whatever variants each of those reports with --variants, so a new front end needs no change here.
 set -euo pipefail
 cd "$(dirname "$0")"
 
 usage() {
-    echo "Usage: ./build.sh [--menu | <frontend> [variant]]"
+    echo "Usage: ./build.sh [--setup] [--menu | <frontend> [variant]]"
     echo "  no arguments   build SDL + NVRHI for Linux, into dist/linux-sdl"
     echo "  --menu, -m     choose a front end and platform from a list"
     echo "  sdl android    build one variant directly; ./build.sh --menu lists them"
+    echo "  --setup        only check this machine has what that build needs, offering to install anything missing"
 }
 
+setup_flag=()
+if [ "${1:-}" = "--setup" ]; then
+    setup_flag=(--setup)
+    shift
+fi
+
 case "${1:-}" in
-    "") exec source/frontends/sdl/build.sh ;;
+    "") exec source/frontends/sdl/build.sh "${setup_flag[@]}" ;;
     --help | -h) usage; exit 0 ;;
     --menu | -m) ;;
     *)
@@ -26,7 +34,7 @@ case "${1:-}" in
             usage >&2
             exit 1
         fi
-        exec "$script" "${@:2}"
+        exec "$script" "${setup_flag[@]}" "${@:2}"
         ;;
 esac
 
@@ -53,4 +61,4 @@ if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt ${#va
     exit 1
 fi
 echo
-exec "${scripts[choice - 1]}" "${variants[choice - 1]}"
+exec "${scripts[choice - 1]}" "${setup_flag[@]}" "${variants[choice - 1]}"

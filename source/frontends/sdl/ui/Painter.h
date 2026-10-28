@@ -32,6 +32,7 @@ void strokeRounded(Rect rect, float roundness, float thickness, Color color);
 void strokeRect(Rect rect, float thickness, Color color);
 void fillCircle(Vec2 center, float radius, Color color);
 void fillTriangle(Vec2 first, Vec2 second, Vec2 third, Color color);
+void fillGradient(Rect rect, Color start, Color end, bool horizontal);
 void drawLine(Vec2 start, Vec2 end, float thickness, Color color);
 void beginClip(Rect rect);
 Rect currentClip();

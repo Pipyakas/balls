@@ -22,11 +22,22 @@ def wait_for_server(port, timeout_seconds=15.0):
     raise RuntimeError("game did not start its control server")
 
 
+# Backend switches finish off the frame, so a run that measures one waits until the game has adopted it.
+def wait_for_backend(port, timeout_seconds=120.0):
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        if not call(port, "/state")["details"].get("pendingBackend"):
+            return
+        time.sleep(0.1)
+    raise RuntimeError("the backend switch did not finish")
+
+
 def probe_backend(port, level, backend, timeout_seconds, steady_seconds, target_fps):
     call(port, f"/play?mode=performance&level={level}")
     time.sleep(0.3)
     if not call(port, f"/backend?kind={backend}").get("ok", False):
         return None
+    wait_for_backend(port)
     call(port, f"/probe?fps={target_fps}" if target_fps else "/probe")
     deadline = time.time() + timeout_seconds
     state = call(port, "/state")
@@ -42,6 +53,8 @@ def probe_backend(port, level, backend, timeout_seconds, steady_seconds, target_
         "phase": steady["details"]["probe"]["phase"],
         "fps": steady["fps"],
         "minFps": steady["minFps"],
+        "physicsFps": steady["details"]["physicsFps"],
+        "physicsFrameMs": steady["details"]["physicsFrameMs"],
         "cpuMs": steady["cpuMs"],
         "gpuMs": steady["gpuMs"],
         "physicsMs": steady["details"]["physicsMs"],
@@ -74,8 +87,9 @@ def main():
                 print(f"{backend:7} unavailable", flush=True)
                 continue
             print(
-                f"{backend:7} limit={result['limit']:>11,} @{result['target']:.0f} ({result['phase']})  steady fps={result['fps']:5.1f} "
-                f"min={result['minFps']:5.1f}  cpu={result['cpuMs']:6.2f}  gpu={result['gpuMs']:6.2f}  "
+                f"{backend:7} limit={result['limit']:>11,} @{result['target']:.0f} ({result['phase']})  "
+                f"physics fps={result['physicsFps']:6.1f} ({result['physicsFrameMs']:5.2f} ms)  "
+                f"ui fps={result['fps']:5.1f} min={result['minFps']:5.1f}  cpu={result['cpuMs']:6.2f}  gpu={result['gpuMs']:6.2f}  "
                 f"physics={result['physicsMs']:6.2f}  kernel={result['kernelMs']:6.2f}"
                 + (f"  {result['balls'] * arguments.bytes_per_ball / (result['kernelMs'] * 1e6):6.1f} GB/s" if result['kernelMs'] > 0 else "")
                 + f"  now={result['backendNow']} {result['fault']}",

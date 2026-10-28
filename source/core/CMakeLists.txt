@@ -13,6 +13,7 @@ add_library(balls_core STATIC
     sim/TargetField.cpp
     sim/Simulation.cpp
     sim/BackendFactory.cpp
+    sim/BackendWorker.cpp
     sim/HybridBackend.cpp
     sim/BackendBenchmark.cpp
     sim/PhysicsAccuracy.cpp
@@ -24,6 +25,7 @@ add_library(balls_core STATIC
     level/EdgeCaseLevels.cpp
     sim/EdgeCaseSweep.cpp
     game/GameSession.cpp
+    game/SessionRunner.cpp
     game/Settings.cpp
     ui/GameplayLayout.cpp
     editor/LevelEditor.cpp

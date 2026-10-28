@@ -482,9 +482,15 @@ public:
         pendingRects.assign(rects.begin(), rects.end());
     }
 
+    // The ball words live in the physics backend, which a control request or a UI action later in the same frame
+    // may reallocate or free, so they are copied out when handed over.
     void drawBalls(const BallDrawRequest& request) override {
         pendingBalls = request;
         hasBalls = request.count > 0 && request.packed != nullptr;
+        if (hasBalls) {
+            ballWords.assign(request.packed, request.packed + request.count);
+            pendingBalls.packed = ballWords.data();
+        }
     }
 
     void endFrame(ClearColor clearColor) override {
@@ -1618,6 +1624,7 @@ private:
 
     bool hasBalls = false;
     BallDrawRequest pendingBalls;
+    std::vector<uint32_t> ballWords;
     uint32_t frameSeed = 0;
 
     WGPUShaderModule ballsVertexModule = nullptr;
