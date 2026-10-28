@@ -12,6 +12,13 @@
 
 #include <emmintrin.h>
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <psapi.h>
+#endif
+
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -221,6 +228,23 @@ int writeEdgeLevels(const BenchOptions& options) {
     return 0;
 }
 
+// Available physical memory and the process's page faults so far, to see a fill approach the swap line.
+std::string memoryReport() {
+#if defined(_WIN32)
+    MEMORYSTATUSEX memory{};
+    memory.dwLength = sizeof(memory);
+    GlobalMemoryStatusEx(&memory);
+    PROCESS_MEMORY_COUNTERS counters{};
+    counters.cb = sizeof(counters);
+    K32GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters));
+    return std::format("  available {:.1f} GB  working set {:.1f} GB  page faults {}",
+                       static_cast<double>(memory.ullAvailPhys) / 1e9, static_cast<double>(counters.WorkingSetSize) / 1e9,
+                       counters.PageFaultCount);
+#else
+    return {};
+#endif
+}
+
 // One generated board, one backend, one ball count: every frame's time and live balls, to find where spikes come from.
 int traceEdgeCases(const BenchOptions& options) {
     for (const EdgeBoardSize size : edgeBoardSizes()) {
@@ -264,10 +288,10 @@ int traceEdgeCases(const BenchOptions& options) {
                     const double spawnMs = std::chrono::duration<double, std::milli>(spawned - start).count();
                     const double ms = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
                     pacer.reportFrame(ms / 1e3, simulation.liveBallCount());
-                    std::string split;
+                    std::string split = frame % 50 == 0 ? memoryReport() : std::string();
                     if (const auto* hybrid = dynamic_cast<const HybridBackend*>(&simulation.backend())) {
-                        split = std::format("  cpu {:10} balls {:6.2f} ms  gpu {:6.2f} ms", hybrid->cpuBallCount(),
-                                            hybrid->cpuStepMs(), hybrid->gpuStepMs());
+                        split += std::format("  cpu {:10} balls {:6.2f} ms  gpu {:6.2f} ms", hybrid->cpuBallCount(),
+                                             hybrid->cpuStepMs(), hybrid->gpuStepMs());
                     }
                     std::printf("frame %4d %8.2f ms  spawn %6.2f ms (%9llu)  live %10llu  device %6.2f ms%s\n", frame,
                                 ms, spawnMs, static_cast<unsigned long long>(launched),
