@@ -3,7 +3,7 @@
 In Performance mode the capacity probe adds balls until the frame rate drops. With millions of balls the board is
 cleared within the first second, and from then on nothing can change a ball's path except the four walls. Stepping
 those balls every tick read and wrote every ball, so the ball count at 60 FPS was set by memory bandwidth
-(about 150M on the GTX 1650, 262M with the hybrid CPU + GPU split on the i9-14900K).
+(about 150M on the GTX 1650, 262M with the CUDA+AVX2 split on the i9-14900K).
 
 ## The closed form
 
@@ -34,7 +34,7 @@ phase, so the compact 8-byte ball stores "this ball at tick E" unchanged.
 - Any normal step, export or transfer between devices first writes every ball back at the current tick
   (`materializeFreeFlightKernel`, `CompactBallStore::materializeRange`), so the rest of each backend never sees
   the epoch form.
-- Hybrid stops rebalancing in free flight (neither side steps, and moving balls would force a write-back) and
+- CUDA+AVX2 stops rebalancing in free flight (neither side steps, and moving balls would force a write-back) and
   sends new balls to the GPU until its memory is full, then to the CPU side.
 
 ## Memory becomes the limit
@@ -55,7 +55,7 @@ Max balls with the probe at 60 FPS on DA_1000Bricks, NVRHI D3D12:
 | Machine | Backend | Stepping | Free flight |
 |---|---|---|---|
 | i9-14900K, 64 GB DDR5, GTX 1650 (target PC) | CUDA | 150M | 287M at ~4,500 FPS (before host-staged growth) |
-| i9-14900K, 64 GB DDR5, GTX 1650 (target PC) | Hybrid | 262M | 4.37 billion at ~2,600 FPS, min 233 |
+| i9-14900K, 64 GB DDR5, GTX 1650 (target PC) | CUDA+AVX2 | 262M | 4.37 billion at ~2,600 FPS, min 233 |
 | i5-12400F, GTX 1650 (busy development PC) | CUDA | 88M | 392M at ~4,500 FPS |
 
 While bricks are alive nothing changes: balls are stepped exactly as before.

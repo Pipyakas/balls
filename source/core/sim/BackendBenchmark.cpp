@@ -118,14 +118,7 @@ std::optional<CandidateStatus> parseStatus(std::string_view name) {
     return std::nullopt;
 }
 
-std::optional<BackendKind> kindNamed(std::string_view name) {
-    for (const BackendKind kind : allBackendKinds) {
-        if (backendKindName(kind) == name) {
-            return kind;
-        }
-    }
-    return std::nullopt;
-}
+std::optional<BackendKind> kindNamed(std::string_view name) { return backendKindFromName(name); }
 
 std::string candidateLabel(BackendKind kind, std::string_view computeGpu) {
     return computeGpu.empty() ? std::string(backendKindName(kind))
