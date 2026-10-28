@@ -32,9 +32,11 @@ struct DeviceCache {
     std::map<int, std::string> errors;
 };
 
+// Never destroyed: at process exit the GPU drivers may already be torn down when static destructors run, and
+// destroying a device then crashes. Idle devices are released during the run by ballsReleaseIdleDevice.
 DeviceCache& cache() {
-    static DeviceCache shared;
-    return shared;
+    static DeviceCache* shared = new DeviceCache();
+    return *shared;
 }
 
 // The adapters the plugin offers, in Vulkan enumeration order: everything with a compute queue that is not a
