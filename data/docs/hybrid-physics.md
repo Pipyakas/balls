@@ -203,3 +203,29 @@ After all three, Tough, Checker and LoneBrick at 128 and 512, two rounds with th
 composer held 1758M balls in total against the pair's 1728M. Per board the two were within the run-to-run noise
 (about 15%), the composer ahead on Checker (100-175M against 89-131M) and behind on Tough 512 (146-151M against
 163-167M). Holding a half-share cap on the CPU, as the pair did, changed nothing. The pair was then removed.
+
+### Hit-heavy small boards
+
+The full sweep left Hybrid 19-31% behind the pair on Shelves and Checker 48x48 and Checker 2048x64, where nearly
+every ball hits a brick every tick. Traces at a fixed count (`balls_bench --edge-cases --trace-frames 900 --balls
+60000000 --trace-spawn-to 60000000`, which now prints each tick's sync, step and hit times) showed two causes:
+
+- Shares measured from single steps: the CPU's step time per ball varies threefold there, and its share swung
+  between 4M and 21M of 60M balls from frame to frame, each swing a costly move. Shares now come from 4 summed steps
+  while settling and 16 after; the CPU holds a steady 11-12M.
+- The CPU part's hits handled serially by the host after the step, 1.2-1.6 ms a frame, mostly swap-removing killed
+  balls at random places in the store. Removal now runs on the AVX2 pool, and ordered kill lists are reversed
+  rather than sorted: 0.54-0.62 ms. Letting the AVX2 part resolve its own hits was rejected: beside CUDA it would
+  need per-tick brick budgets, which force whole-board uploads and hurt the large boards.
+
+Frame time with 60M balls (150M on 512x512), target PC, two rounds each:
+
+| Board | CUDA alone | Hybrid before | Hybrid now |
+|---|---|---|---|
+| Shelves 48x48 | 8.84-8.91 ms | 9.63 ms | 7.98 ms |
+| Checker 48x48 | 10.39-10.46 ms | 11.76 ms | 9.78-9.83 ms |
+| Checker 2048x64 | 10.70-10.73 ms | 10.58 ms | 9.72 ms |
+| LoneBrick 512x512 | 15.66-15.72 ms | - | 9.62-9.79 ms |
+| Tough 512x512 | 16.77-16.85 ms | - | 14.78-15.03 ms |
+
+Empty and cleared boards have no hits and never rebalance in free flight, so neither change touches them.
