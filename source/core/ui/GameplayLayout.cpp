@@ -10,8 +10,10 @@ constexpr float boardPadding = 10.0f;
 constexpr float landscapeGadgetWidth = 310.0f;
 constexpr float landscapeHeaderHeight = 56.0f;
 constexpr float widestLandscapeAspect = 16.0f / 9.0f;
-constexpr float portraitTopHeight = 92.0f;
-constexpr float portraitHeaderHeight = 44.0f;
+constexpr float portraitTopFraction = 0.046f;
+constexpr float portraitTopMinimum = 72.0f;
+constexpr float portraitTopMaximum = 150.0f;
+constexpr float portraitHeaderFraction = 0.55f;
 constexpr float minimumBoardExtent = 240.0f;
 constexpr float compactLauncherFraction = 0.19f;
 constexpr float compactLauncherMinimum = 120.0f;
@@ -79,28 +81,32 @@ CoreGameplayLayout computeCoreGameplayLayout(float frameWidth, float frameHeight
                               columnHeight};
         layout.debug = layout.rightGadget;
     } else {
+        // The top gadget is a fraction of the frame (4.6% of the 1560-unit portrait design), so the debug
+        // strip keeps room for its label and value lines on a tall phone instead of clipping them.
+        const float topHeight =
+            std::clamp(frameHeight * portraitTopFraction, portraitTopMinimum, portraitTopMaximum);
+        const float headerHeight = topHeight * portraitHeaderFraction;
         float bottomHeight = panelHeight(frameHeight, launcherRows, frameWidth);
-        const float boardSpace = frameHeight - outerMargin * 2.0f - portraitTopHeight - bottomHeight -
+        const float boardSpace = frameHeight - outerMargin * 2.0f - topHeight - bottomHeight -
                                  gadgetGap * 2.0f - boardPadding * 2.0f;
         if (boardSpace < minimumBoardExtent) {
             bottomHeight = std::max(0.0f, bottomHeight - (minimumBoardExtent - boardSpace));
         }
         const float boardWidth = frameWidth - outerMargin * 2.0f - boardPadding * 2.0f;
-        const float boardHeight = frameHeight - outerMargin * 2.0f - portraitTopHeight - bottomHeight -
+        const float boardHeight = frameHeight - outerMargin * 2.0f - topHeight - bottomHeight -
                                   gadgetGap * 2.0f - boardPadding * 2.0f;
         layout.cellSize = std::max(
             1.0f, std::min(boardWidth / static_cast<float>(columns), boardHeight / static_cast<float>(rows)));
         const float frameBoardWidth = layout.cellSize * static_cast<float>(columns) + boardPadding * 2.0f;
         const float frameBoardHeight = layout.cellSize * static_cast<float>(rows) + boardPadding * 2.0f;
-        const float groupHeight = portraitTopHeight + gadgetGap + frameBoardHeight + gadgetGap + bottomHeight;
+        const float groupHeight = topHeight + gadgetGap + frameBoardHeight + gadgetGap + bottomHeight;
         const float groupY = (frameHeight - groupHeight) * 0.5f;
         const float gadgetWidth = frameWidth - outerMargin * 2.0f;
-        layout.topGadget = {outerMargin, groupY, gadgetWidth, portraitTopHeight};
-        layout.header = {outerMargin, groupY, gadgetWidth, portraitHeaderHeight};
-        layout.debug = {outerMargin, groupY + portraitHeaderHeight, gadgetWidth,
-                        portraitTopHeight - portraitHeaderHeight};
+        layout.topGadget = {outerMargin, groupY, gadgetWidth, topHeight};
+        layout.header = {outerMargin, groupY, gadgetWidth, headerHeight};
+        layout.debug = {outerMargin, groupY + headerHeight, gadgetWidth, topHeight - headerHeight};
         layout.main = {outerMargin + (gadgetWidth - frameBoardWidth) * 0.5f,
-                       groupY + portraitTopHeight + gadgetGap, frameBoardWidth, frameBoardHeight};
+                       groupY + topHeight + gadgetGap, frameBoardWidth, frameBoardHeight};
         layout.bottomGadget = {outerMargin, layout.main.y + frameBoardHeight + gadgetGap, gadgetWidth,
                                bottomHeight};
         layout.interaction = layout.bottomGadget;

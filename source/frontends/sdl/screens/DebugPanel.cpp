@@ -84,7 +84,7 @@ int debugRowCount(const Simulation& simulation) {
 } // namespace
 
 void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& frames,
-                    DebugPanelState& state) {
+                    DebugPanelState& state, std::string_view deviceDescription) {
     ui::drawPanel(area, palette::panel, 0.03f);
     const float contentHeight = debugContentHeight(session.simulation());
     float visibleHeight = 0.0f;
@@ -127,7 +127,9 @@ void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& f
                                         probe.lastFps(), probe.targetFps()));
     }
     writer.row("Backend", backendKindName(session.backend()));
-    if (const std::string detail = backendDetail(session.backend()); !detail.empty()) {
+    if (!deviceDescription.empty()) {
+        writer.row("Renderer", deviceDescription);
+    } else if (const std::string detail = backendDetail(session.backend()); !detail.empty()) {
         writer.row("Device", detail);
     }
     const bool collisionsWanted = session.simulation().ballCollisionsRequested();

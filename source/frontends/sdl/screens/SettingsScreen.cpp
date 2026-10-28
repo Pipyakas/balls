@@ -22,8 +22,8 @@ void SettingsScreen::draw() {
     const float panelHeight = std::min(settingsPanelHeight, height - 32.0f);
     const Rect panel{(width - panelWidth) * 0.5f, (height - panelHeight) * 0.5f, panelWidth, panelHeight};
     ui::drawPanel(panel, palette::panel, 0.08f);
-    const SettingsPanelEdit edit =
-        drawSettingsPanel(panel, app.settings(), app.preferredBackend(), app.benchmarkScores(), scroll);
+    const SettingsPanelEdit edit = drawSettingsPanel(panel, app.settings(), app.preferredBackend(),
+                                                     app.benchmarkScores(), app.isWebGpuSupported(), scroll);
     if (edit.changed) {
         app.applySettings(edit.settings, edit.backend);
     }

@@ -33,7 +33,7 @@ private:
     void acceptLoop();
     void serveClient(uintptr_t client);
 
-    std::jthread listener;
+    std::thread listener;
     std::atomic<bool> running = false;
     uintptr_t listenSocket = ~uintptr_t{0};
     std::mutex queueMutex;

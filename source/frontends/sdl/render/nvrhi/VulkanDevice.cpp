@@ -69,7 +69,7 @@ public:
     bool setVsync(bool enabled) override;
     bool isVsyncEnabled() const override { return vsync; }
     nvrhi::Format backBufferFormat() const override { return nvrhiFormat; }
-    std::string description() const override { return std::format("Vulkan {}", adapterName); }
+    std::string description() const override { return std::format("Vulkan / {}", adapterName); }
 
 private:
     bool createInstance(std::string& error);

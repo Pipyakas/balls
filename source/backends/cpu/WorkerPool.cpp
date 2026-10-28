@@ -59,6 +59,11 @@ WorkerPool::~WorkerPool() {
         stopping = true;
     }
     wakeCondition.notify_all();
+    for (auto& worker : workers) {
+        if (worker.joinable()) {
+            worker.join();
+        }
+    }
     workers.clear();
 }
 

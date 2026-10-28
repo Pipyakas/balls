@@ -19,12 +19,17 @@ struct Settings {
     // A physics backend name (see backendKindName); empty lets the front end pick. The machine benchmark writes its
     // winner here, and the player can override it from the Settings page.
     std::string defaultBackend;
+    std::string renderer = "webgpu";
+    std::string graphicsApi = "auto";
 
     bool operator==(const Settings&) const = default;
 };
 
 std::string_view orientationName(LayoutOrientation orientation);
 std::optional<LayoutOrientation> parseOrientation(std::string_view name);
+
+std::string normalizeRendererName(std::string_view renderer);
+std::string normalizeGraphicsApiName(std::string_view api);
 
 std::string serializeSettings(const Settings& settings);
 Settings parseSettings(std::string_view text);

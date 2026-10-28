@@ -20,10 +20,13 @@
 #include <imgui_impl_sdl3.h>
 
 #include <algorithm>
+#include <cstring>
 #include <filesystem>
 #include <format>
 #include <fstream>
 #include <sstream>
+#include <string_view>
+#include <vector>
 
 namespace {
 
@@ -47,6 +50,57 @@ constexpr float toastTextSize = 24.0f;
 constexpr float toastHeight = 48.0f;
 constexpr float toastPadding = 20.0f;
 constexpr float toastMargin = 24.0f;
+
+// ImGui asserts inside AddFontFromFileTTF when the file cannot be opened, which aborts the app on
+// devices where the asset extraction only produced an empty or unreadable font file.
+ImFont* loadFontFromDisk(ImFontAtlas& atlas, const std::filesystem::path& path, float pixels) {
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(path, error)) {
+        return nullptr;
+    }
+    const auto bytes = std::filesystem::file_size(path, error);
+    if (error || bytes == 0) {
+        return nullptr;
+    }
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream) {
+        return nullptr;
+    }
+    std::vector<char> contents(static_cast<size_t>(bytes));
+    if (!stream.read(contents.data(), static_cast<std::streamsize>(bytes))) {
+        return nullptr;
+    }
+    void* owned = ImGui::MemAlloc(static_cast<size_t>(bytes));
+    std::memcpy(owned, contents.data(), static_cast<size_t>(bytes));
+    return atlas.AddFontFromMemoryTTF(owned, static_cast<int>(bytes), pixels);
+}
+
+// The renderer this build chose at configure time, used until a launch option or the saved settings override it.
+std::string defaultRendererName() {
+#if defined(BALLS_RENDERER_WEBGPU) || defined(BALLS_WITH_WEBGPU)
+    return "webgpu";
+#elif defined(BALLS_RENDERER_NVRHI) || defined(BALLS_WITH_NVRHI)
+    return "nvrhi";
+#else
+    return "sdlgpu";
+#endif
+}
+
+// The adapter list has to come from the API the renderer actually drives, so "auto" follows the renderer and platform.
+GpuApi adapterApiFor(std::string_view renderer, std::string_view api) {
+    if (api == "vulkan" || api == "webgpu-vulkan") {
+        return GpuApi::Vulkan;
+    }
+    if (api == "d3d12" || api == "webgpu-d3d12") {
+        return GpuApi::D3d12;
+    }
+#if defined(_WIN32)
+    return renderer == "sdlgpu" ? GpuApi::Vulkan : GpuApi::D3d12;
+#else
+    (void)renderer;
+    return GpuApi::Vulkan;
+#endif
+}
 
 double millisecondsBetween(std::chrono::steady_clock::time_point start,
                            std::chrono::steady_clock::time_point end) {
@@ -128,7 +182,10 @@ bool App::openWindowAndRenderer(const LaunchOptions& options, std::string_view a
     if (window) {
         SDL_DestroyWindow(window);
     }
-    SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | rendererWindowFlags(api);
+    const std::string wantedRenderer =
+        options.renderer.empty() ? (activeRenderer.empty() ? defaultRendererName() : activeRenderer)
+                                 : options.renderer;
+    SDL_WindowFlags flags = SDL_WINDOW_RESIZABLE | rendererWindowFlags(wantedRenderer, api);
     if (options.hidden) {
         flags |= SDL_WINDOW_HIDDEN;
     }
@@ -141,21 +198,65 @@ bool App::openWindowAndRenderer(const LaunchOptions& options, std::string_view a
         return false;
     }
     SDL_SetWindowMinimumSize(window, minimumWindowWidth, minimumWindowHeight);
-    renderer = createRenderer(window, api, options.gpu, error);
+#if defined(__ANDROID__)
+    // Fullscreen hides the status bar, which otherwise clips the top gadget in portrait.
+    SDL_SetWindowFullscreen(window, true);
+#endif
+    renderer = createRenderer(window, wantedRenderer, api, options.gpu, error);
     if (!renderer) {
         return false;
     }
+    activeRenderer = wantedRenderer;
     activeGraphicsApi = std::string(api);
     renderGpuPreference = options.gpu;
-#if defined(_WIN32)
-    const GpuApi adapterApi = api == "vulkan" ? GpuApi::Vulkan : GpuApi::D3d12;
-#else
-    const GpuApi adapterApi = GpuApi::Vulkan;
-#endif
-    renderAdapterList = enumerateGpuAdapters(adapterApi);
+    renderAdapterList = enumerateGpuAdapters(adapterApiFor(activeRenderer, activeGraphicsApi));
     activeRenderAdapter = selectGpuAdapter(renderAdapterList, renderGpuPreference, GpuRole::Render);
     applyOrientationToWindow();
     return true;
+}
+
+void App::applyPendingRendererSwitch() {
+    if (!pendingRendererSwitch) {
+        return;
+    }
+    auto [wantedRenderer, wantedApi] = *pendingRendererSwitch;
+    pendingRendererSwitch.reset();
+    if (wantedRenderer.empty()) {
+        wantedRenderer = activeRenderer;
+    }
+    if (wantedApi.empty()) {
+        wantedApi = activeGraphicsApi;
+    }
+    if (wantedRenderer == activeRenderer && wantedApi == activeGraphicsApi) {
+        return;
+    }
+    const bool vsync = isVsyncEnabled();
+    const std::string previousRenderer = activeRenderer;
+    const std::string previousApi = activeGraphicsApi;
+    balls.reset();
+    renderer.reset();
+    std::string error;
+    renderer = createRenderer(window, wantedRenderer, wantedApi, renderGpuPreference, error);
+    if (renderer) {
+        activeRenderer = wantedRenderer;
+        activeGraphicsApi = wantedApi;
+        SDL_Log("Switched renderer to %s (%s)", activeRenderer.c_str(), activeGraphicsApi.c_str());
+    } else {
+        SDL_Log("Could not switch renderer to %s (%s): %s", wantedRenderer.c_str(), wantedApi.c_str(),
+                error.c_str());
+        std::string fallbackError;
+        renderer = createRenderer(window, previousRenderer, previousApi, renderGpuPreference, fallbackError);
+        activeRenderer = previousRenderer;
+        activeGraphicsApi = previousApi;
+    }
+    if (!renderer) {
+        running = false;
+        return;
+    }
+    renderAdapterList = enumerateGpuAdapters(adapterApiFor(activeRenderer, activeGraphicsApi));
+    activeRenderAdapter = selectGpuAdapter(renderAdapterList, renderGpuPreference, GpuRole::Render);
+    balls = std::make_unique<BallView>(*renderer);
+    setVsync(vsync);
 }
 
 void App::applyPendingRenderAdapter() {
@@ -173,14 +274,14 @@ void App::applyPendingRenderAdapter() {
     balls.reset();
     renderer.reset();
     std::string error;
-    renderer = createRenderer(window, activeGraphicsApi, wantedPreference, error);
+    renderer = createRenderer(window, activeRenderer, activeGraphicsApi, wantedPreference, error);
     if (renderer) {
         renderGpuPreference = wantedPreference;
         activeRenderAdapter = wanted;
         SDL_Log("Rendering on %s", renderAdapterList[static_cast<size_t>(wanted)].name.c_str());
     } else {
         std::string ignored;
-        renderer = createRenderer(window, activeGraphicsApi, previousPreference, ignored);
+        renderer = createRenderer(window, activeRenderer, activeGraphicsApi, previousPreference, ignored);
         SDL_Log("Could not render on %s: %s", renderAdapterList[static_cast<size_t>(wanted)].name.c_str(), error.c_str());
     }
     if (!renderer) {
@@ -233,19 +334,55 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.LogFilename = nullptr;
-    fonts.regular =
-        io.Fonts->AddFontFromFileTTF(fontPath(palette::regularFontFile).string().c_str(), fontLoadPixels);
+    fonts.regular = loadFontFromDisk(*io.Fonts, fontPath(palette::regularFontFile), fontLoadPixels);
     if (!fonts.regular) {
+        SDL_Log("Fonts: %s unreadable, using the built-in font", palette::regularFontFile);
         fonts.regular = io.Fonts->AddFontDefault();
     }
-    fonts.strong =
-        io.Fonts->AddFontFromFileTTF(fontPath(palette::strongFontFile).string().c_str(), fontLoadPixels);
+    fonts.strong = loadFontFromDisk(*io.Fonts, fontPath(palette::strongFontFile), fontLoadPixels);
+    if (!fonts.strong) {
+        fonts.strong = fonts.regular;
+    }
     fonts.strongMinimumSize = palette::strongTextMinimumPixels;
 
-    if (!openWindowAndRenderer(options, options.graphicsApi, error)) {
-        const std::string_view fallback = fallbackGraphicsApi(options.graphicsApi);
+    // The saved settings decide the renderer unless a launch option names one outright. Without a file the build's
+    // own default stays in charge, since a fresh Settings carries the WebGPU name whatever this binary links.
+    std::error_code settingsError;
+    const bool savedSettings = std::filesystem::is_regular_file(settingsFilePath(), settingsError);
+    currentSettings = loadSettings(settingsFilePath());
+    LaunchOptions effective = options;
+    if (effective.renderer.empty() && savedSettings) {
+        effective.renderer = normalizeRendererName(currentSettings.renderer);
+    }
+    if (effective.graphicsApi.empty() && savedSettings) {
+        effective.graphicsApi = normalizeGraphicsApiName(currentSettings.graphicsApi);
+    }
+
+    if (!openWindowAndRenderer(effective, effective.graphicsApi, error)) {
+        const std::string_view fallback = fallbackGraphicsApi(effective.graphicsApi);
         std::string fallbackError;
-        if (fallback.empty() || !openWindowAndRenderer(options, fallback, fallbackError)) {
+        bool initialized = false;
+        if (!fallback.empty() && openWindowAndRenderer(effective, fallback, fallbackError)) {
+            initialized = true;
+        } else if (isNvrhiCompiledIn() && activeRenderer != "nvrhi") {
+            // WebGPU can fail on an old driver; the desktop build links NVRHI too, so try it rather than quit.
+            LaunchOptions nvrhiOptions = effective;
+            nvrhiOptions.renderer = "nvrhi";
+            nvrhiOptions.graphicsApi = "auto";
+            std::string nvrhiError;
+            if (openWindowAndRenderer(nvrhiOptions, nvrhiOptions.graphicsApi, nvrhiError)) {
+                SDL_Log("WebGPU failed (%s); recovered with the NVRHI renderer", error.c_str());
+                initialized = true;
+            } else {
+                const std::string_view nvrhiFallback = fallbackGraphicsApi(nvrhiOptions.graphicsApi);
+                if (!nvrhiFallback.empty() && openWindowAndRenderer(nvrhiOptions, nvrhiFallback, fallbackError)) {
+                    SDL_Log("WebGPU failed; recovered with the NVRHI renderer (%s)",
+                            std::string(nvrhiFallback).c_str());
+                    initialized = true;
+                }
+            }
+        }
+        if (!initialized) {
             error =
                 fallback.empty() ? error : std::format("{}; {} fallback: {}", error, fallback, fallbackError);
             return false;
@@ -255,9 +392,8 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
     profile.load();
     setComputeGpuPreference(options.computeGpu);
     computeAdapterList = enumerateGpuAdapters(GpuApi::Vulkan);
-    currentSettings = loadSettings(settingsFilePath());
     applyOrientationHint(currentSettings.layout);
-    setVsync(options.vsync || currentSettings.vsync);
+    setVsync(effective.vsync || currentSettings.vsync);
     backendChoice = startupBackend(options.backend, currentSettings.defaultBackend);
     if (options.controlPort > 0) {
         controlServer.start(options.controlPort);
@@ -428,6 +564,7 @@ bool App::frame() {
                     millisecondsBetween(presentStart, frameEnd) + synchronizationMs + gpuWaitMs,
                     renderer->lastFramePresented() ? 1.0 : 0.0, renderer->lastPresentWaitMs()});
     applyPendingRenderAdapter();
+    applyPendingRendererSwitch();
     applyPendingScreen();
     return running;
 }
@@ -498,6 +635,12 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
         deliverImport(std::move(paths));
         return ControlResponse::ok(std::format("{{\"ok\":true,\"toast\":\"{}\"}}", jsonEscape(toast.text)));
     }
+    if (path == "/renderer") {
+        const std::string wantedRenderer = request.text("renderer").value_or(activeRenderer);
+        const std::string wantedApi = request.text("api").value_or(activeGraphicsApi);
+        requestRenderer(wantedRenderer, wantedApi);
+        return ControlResponse::ok("{\"ok\":true}");
+    }
     if (path == "/render-gpu") {
         const auto index = request.integer("index");
         if (!index || *index < 0 || *index >= static_cast<long long>(renderAdapterList.size())) {
@@ -535,6 +678,14 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
         }
         if (const auto vsync = request.integer("vsync")) {
             next.vsync = *vsync != 0;
+        }
+        if (const auto renderer = request.text("renderer")) {
+            next.renderer = normalizeRendererName(*renderer);
+        }
+        if (const auto api = request.text("graphicsApi")) {
+            next.graphicsApi = normalizeGraphicsApiName(*api);
+        } else if (const auto api = request.text("api")) {
+            next.graphicsApi = normalizeGraphicsApiName(*api);
         }
         std::optional<BackendKind> backend;
         if (const auto name = request.text("backend")) {
@@ -628,7 +779,11 @@ void App::showSettings() {
     pendingScreen = std::make_unique<SettingsScreen>(*this);
 }
 
+bool App::isWebGpuSupported() const { return isWebGpuCompiledIn(); }
+
 void App::applySettings(const Settings& settings, std::optional<BackendKind> backend) {
+    const bool rendererChanged = normalizeRendererName(settings.renderer) != activeRenderer ||
+                                 normalizeGraphicsApiName(settings.graphicsApi) != activeGraphicsApi;
     currentSettings = settings;
     if (backend) {
         backendChoice = *backend;
@@ -638,12 +793,19 @@ void App::applySettings(const Settings& settings, std::optional<BackendKind> bac
     setVsync(settings.vsync);
     applyOrientationToWindow();
     notifySettingsConsumers();
+    if (rendererChanged) {
+        requestRenderer(normalizeRendererName(settings.renderer),
+                        normalizeGraphicsApiName(settings.graphicsApi));
+    }
 }
 
 std::string App::settingsJson() const {
-    return std::format("{{\"ballCollisions\":{},\"layout\":\"{}\",\"vsync\":{},\"defaultBackend\":\"{}\"}}",
-                       currentSettings.ballCollisions, orientationName(currentSettings.layout),
-                       currentSettings.vsync, jsonEscape(currentSettings.defaultBackend));
+    return std::format(
+        "{{\"ballCollisions\":{},\"layout\":\"{}\",\"vsync\":{},\"defaultBackend\":\"{}\",\"renderer\":\"{}\","
+        "\"graphicsApi\":\"{}\"}}",
+        currentSettings.ballCollisions, orientationName(currentSettings.layout), currentSettings.vsync,
+        jsonEscape(currentSettings.defaultBackend), normalizeRendererName(currentSettings.renderer),
+        normalizeGraphicsApiName(currentSettings.graphicsApi));
 }
 
 void App::notifySettingsConsumers() {

@@ -12,27 +12,11 @@
 
 namespace {
 
-constexpr const char* organizationName = "Pipyakas";
 constexpr const char* applicationName = "ColorBlastBalls";
 constexpr const char* profileFileName = "machine.txt";
 constexpr const char* benchmarkFileName = "benchmark.txt";
-constexpr const char* settingsFileName = "settings.txt";
 
 } // namespace
-
-std::filesystem::path settingsFilePath() {
-    return preferenceDirectory() / settingsFileName;
-}
-
-std::filesystem::path preferenceDirectory() {
-    char* directory = SDL_GetPrefPath(organizationName, applicationName);
-    if (!directory) {
-        return std::filesystem::temp_directory_path() / applicationName;
-    }
-    const std::filesystem::path path(reinterpret_cast<const char8_t*>(directory));
-    SDL_free(directory);
-    return path;
-}
 
 std::filesystem::path MachineProfile::filePath() const {
     return preferenceDirectory() / profileFileName;

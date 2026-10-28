@@ -22,5 +22,7 @@ struct SettingsPanelEdit {
 };
 
 // benchmarkScores: the machine benchmark's last results, shown muted next to each backend.
+// webGpuSupported: lets the Renderer row offer WebGPU only in a build that links it.
 SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind selectedBackend,
-                                    std::span<const CandidateResult> benchmarkScores, float& scroll);
+                                    std::span<const CandidateResult> benchmarkScores, bool webGpuSupported,
+                                    float& scroll);
