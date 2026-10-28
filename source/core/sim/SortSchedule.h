@@ -6,7 +6,7 @@
 
 class SortSchedule {
 public:
-    static constexpr std::array<int, 3> intervalCandidates{0, 8, 16};
+    static constexpr std::array<int, 3> intervalCandidates{8, 16, 32};
     static constexpr int warmupTicks = 16;
     static constexpr int measuredTicks = 32;
     static constexpr int ticksBetweenTrials = 1200;
