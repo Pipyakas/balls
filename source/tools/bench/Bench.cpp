@@ -284,7 +284,7 @@ void printComposerParts(const DeviceComposer& composer) {
             std::printf("        %-12s parked: slower composed than without it\n", composer.partLabel(part).c_str());
         }
     }
-    std::printf("        brick budgets %.3f ms in the last tick\n", composer.brickBudgetMs());
+    std::printf("        brick budgets %.3f ms per step on average\n", composer.averageBrickBudgetMs());
 }
 
 void runRawStep(const BrickLayout& layout, BackendKind kind, size_t ballCount, int ticks, bool collisions,
@@ -348,6 +348,9 @@ void runFullSimulation(const BrickLayout& layout, BackendKind kind, size_t ballC
                 targetLabel(kind).c_str(), collisions ? 1 : 0, ballCount,
                 seconds * 1000.0 / ticks, simulation.backend().ballCount(),
                 simulation.board().aliveBrickCount());
+    if (const auto* composer = dynamic_cast<const DeviceComposer*>(&simulation.backend())) {
+        printComposerParts(*composer);
+    }
 }
 
 void runScatteredSimulation(const BrickLayout& layout, BackendKind kind, size_t ballCount, int ticks,

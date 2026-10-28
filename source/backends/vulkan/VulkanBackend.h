@@ -124,6 +124,7 @@ private:
     nvrhi::BufferHandle cellWords;
     nvrhi::BufferHandle targetCells;
     nvrhi::BufferHandle brickHitsLeft;
+    bool brickHitsPending = false;
     nvrhi::BufferHandle killedIndices;
     nvrhi::BufferHandle holes;
     nvrhi::BufferHandle counters;

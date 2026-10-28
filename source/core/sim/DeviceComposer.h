@@ -12,6 +12,8 @@ struct DeviceComposerTuning {
     size_t minimumComposedBalls = 262144;
     size_t minimumBallsToMeasure = 65536;
     size_t minimumRebalanceBalls = 131072;
+    // Off only for measurements that need every part stepping (BALLS_COMPOSER_NO_PARK=1).
+    bool parkLosingParts = true;
 };
 
 // The Hybrid backend: one backend per chosen physical device (the CPU, each GPU), all stepping at the same time on
@@ -70,6 +72,8 @@ public:
     bool partParked(size_t part) const { return parts[part].parked; }
     // Host time this step spent splitting and merging brick hit budgets (0 with fewer than two device parts).
     double brickBudgetMs() const { return lastBudgetMs; }
+    // Mean of brickBudgetMs over the steps that resolved hits on two or more device parts.
+    double averageBrickBudgetMs() const { return budgetSteps > 0 ? budgetMsTotal / static_cast<double>(budgetSteps) : 0.0; }
 
 private:
     struct Part {
@@ -104,11 +108,12 @@ private:
     int losingSteps = 0;
     // Brick budgets, used when two or more parts resolve hits on the device.
     std::vector<int32_t> brickHits;
-    bool budgetsStale = false;
     uint32_t budgetEpoch = 0;
     std::vector<int32_t> mergedHitsLeft;
     DeviceHitResults mergedHits;
     double lastBudgetMs = 0.0;
+    double budgetMsTotal = 0.0;
+    size_t budgetSteps = 0;
     std::vector<uint32_t> merged;
     CompactBalls movedBalls;
     int gridWidth = 0;

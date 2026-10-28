@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <format>
 #include <mutex>
 
@@ -211,7 +212,10 @@ BackendHandle createComposedBackend(std::span<const BackendPick> picks) {
     if (parts.size() == 1) {
         return std::move(parts.front().backend);
     }
-    return DeviceComposer::create(std::move(parts));
+    DeviceComposerTuning tuning;
+    const char* noPark = std::getenv("BALLS_COMPOSER_NO_PARK");
+    tuning.parkLosingParts = !(noPark && std::string_view(noPark) == "1");
+    return DeviceComposer::create(std::move(parts), tuning);
 }
 
 std::vector<BackendPick> displayedPicks(BackendKind running) {

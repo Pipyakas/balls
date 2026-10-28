@@ -106,7 +106,6 @@ void DeviceComposer::uploadBoard(const BoardUpload& board) {
     }
     if (deviceParts >= 2 && !board.brickHitsLeft.empty()) {
         brickHits.assign(board.brickHitsLeft.begin(), board.brickHitsLeft.end());
-        budgetsStale = true;
     }
 }
 
@@ -244,7 +243,7 @@ void DeviceComposer::updateShares() {
 // composed step slower than the lead part would be on its own; such a part is parked: its balls move away and it
 // stops stepping. Compared on smoothed times, once the shares have settled.
 void DeviceComposer::parkLosingParts(double wallMs) {
-    if (shareMeasurements < settlingMeasurements) {
+    if (!settings.parkLosingParts || shareMeasurements < settlingMeasurements) {
         return;
     }
     const auto lead = std::ranges::max_element(parts, {}, &Part::share);
@@ -288,34 +287,37 @@ void DeviceComposer::parkLosingParts(double wallMs) {
     soloEwma = 0.0;
 }
 
-// Splits every brick's remaining hits between the device-resolving parts in proportion to their balls, so their
-// budgets add up to exactly what the brick has. The units left after rounding go to a part drawn by hash, so on
-// average every part gets its proportional chance at the last hit of a brick.
+// Splits a brick's remaining hits between the device-resolving parts in proportion to their shares of the balls,
+// so their budgets add up to exactly what the brick has. The units left after rounding go to a part drawn by hash,
+// so on average every part gets its proportional chance at the last hit of a brick. Every brick is drawn again each
+// tick: a brick's last hit drawn to a part whose balls never reach it would otherwise stay there and keep the brick
+// alive. Only parts whose budget changed are sent it: the others' device copies already match.
 void DeviceComposer::splitBrickBudgets() {
     std::vector<double> weights(deviceParts);
     double totalWeight = 0.0;
     for (size_t index = 0; index < deviceParts; ++index) {
-        weights[index] = static_cast<double>(parts[index].backend->ballCount());
+        weights[index] = parts[index].backend->ballCount() > 0 ? parts[index].share : 0.0;
         totalWeight += weights[index];
     }
     if (totalWeight <= 0.0) {
         std::ranges::fill(weights, 1.0);
         totalWeight = static_cast<double>(deviceParts);
     }
+    std::vector<bool> changed(deviceParts, false);
     for (size_t index = 0; index < deviceParts; ++index) {
-        parts[index].budget.assign(brickHits.size(), 0);
+        if (parts[index].budget.size() != brickHits.size()) {
+            parts[index].budget.assign(brickHits.size(), 0);
+            changed[index] = true;
+        }
     }
     ++budgetEpoch;
+    std::vector<int32_t> split(deviceParts);
     for (size_t brick = 0; brick < brickHits.size(); ++brick) {
-        const int32_t hits = brickHits[brick];
-        if (hits <= 0) {
-            continue;
-        }
+        const int32_t hits = std::max(brickHits[brick], 0);
         int32_t assigned = 0;
         for (size_t index = 0; index < deviceParts; ++index) {
-            const auto share = static_cast<int32_t>(static_cast<double>(hits) * weights[index] / totalWeight);
-            parts[index].budget[brick] = share;
-            assigned += share;
+            split[index] = static_cast<int32_t>(static_cast<double>(hits) * weights[index] / totalWeight);
+            assigned += split[index];
         }
         for (int32_t unit = 0; assigned < hits; ++unit, ++assigned) {
             const uint32_t draw = mixHash(static_cast<uint32_t>(brick) ^ mixHash(budgetEpoch + static_cast<uint32_t>(unit) * 0x51ed27u));
@@ -328,13 +330,18 @@ void DeviceComposer::splitBrickBudgets() {
                 }
                 pick -= weights[index];
             }
-            ++parts[chosen].budget[brick];
+            ++split[chosen];
+        }
+        for (size_t index = 0; index < deviceParts; ++index) {
+            changed[index] = changed[index] || parts[index].budget[brick] != split[index];
+            parts[index].budget[brick] = split[index];
         }
     }
     for (size_t index = 0; index < deviceParts; ++index) {
-        parts[index].backend->uploadBrickHits(parts[index].budget);
+        if (changed[index]) {
+            parts[index].backend->uploadBrickHits(parts[index].budget);
+        }
     }
-    budgetsStale = false;
 }
 
 // What each device part consumed from its budget comes off the true counts. CUDA lists the bricks it hit, Vulkan
@@ -351,16 +358,23 @@ void DeviceComposer::mergeDeviceHits() {
         for (int color = 0; color < ballColorCount; ++color) {
             mergedHits.killsByColor[static_cast<size_t>(color)] += results.killsByColor[static_cast<size_t>(color)];
         }
-        const std::vector<int32_t>& budget = parts[index].budget;
+        // The budget follows the device's own copy, so the next split sends only what differs from it.
+        std::vector<int32_t>& budget = parts[index].budget;
         if (!results.brickHitsLeft.empty()) {
             const size_t bricks = std::min({results.brickHitsLeft.size(), budget.size(), brickHits.size()});
             for (size_t brick = 0; brick < bricks; ++brick) {
-                brickHits[brick] -= std::max(budget[brick] - results.brickHitsLeft[brick], 0);
+                if (const int32_t consumed = budget[brick] - results.brickHitsLeft[brick]; consumed > 0) {
+                    brickHits[brick] -= consumed;
+                    budget[brick] -= consumed;
+                }
             }
         } else {
             for (const uint32_t brick : results.hitBricks) {
                 if (brick < brickHits.size()) {
                     --brickHits[brick];
+                    if (brick < budget.size()) {
+                        --budget[brick];
+                    }
                 }
             }
         }
@@ -374,7 +388,6 @@ void DeviceComposer::mergeDeviceHits() {
     mergedHitsLeft = brickHits;
     mergedHits.brickHitsLeft = mergedHitsLeft;
     mergedHits.killed = killed;
-    budgetsStale = true;
 }
 
 DeviceHitResults DeviceComposer::deviceHitResults() const {
@@ -393,7 +406,7 @@ void DeviceComposer::step(const StepParams& params, std::vector<BallHit>& hits) 
     stepGridWidth = gridWidth;
     stepGridHeight = gridHeight;
     lastBudgetMs = 0.0;
-    if (deviceParts >= 2 && budgetsStale && !brickHits.empty()) {
+    if (deviceParts >= 2 && !brickHits.empty()) {
         const Clock::time_point start = Clock::now();
         splitBrickBudgets();
         lastBudgetMs += millisecondsSince(start);
@@ -428,6 +441,8 @@ void DeviceComposer::step(const StepParams& params, std::vector<BallHit>& hits) 
         const Clock::time_point start = Clock::now();
         mergeDeviceHits();
         lastBudgetMs += millisecondsSince(start);
+        budgetMsTotal += lastBudgetMs;
+        ++budgetSteps;
     }
     uint32_t offset = 0;
     for (const Part& part : parts) {
