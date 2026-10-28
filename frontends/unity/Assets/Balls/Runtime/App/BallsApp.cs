@@ -352,6 +352,29 @@ namespace Balls.App
             return true;
         }
 
+        /// <summary>Copies the board cells into <paramref name="destination"/>; false while no session is published.</summary>
+        public bool TryReadCells(List<CellElement> destination)
+        {
+            destination.Clear();
+            World world = World.DefaultGameObjectInjectionWorld;
+            if (world == null)
+            {
+                return false;
+            }
+            var em = world.EntityManager;
+            using var query = em.CreateEntityQuery(typeof(BoardInfoData));
+            if (query.IsEmptyIgnoreFilter)
+            {
+                return false;
+            }
+            var buffer = em.GetBuffer<CellElement>(query.GetSingletonEntity(), true);
+            for (int index = 0; index < buffer.Length; ++index)
+            {
+                destination.Add(buffer[index]);
+            }
+            return true;
+        }
+
         public bool TryReadLaunchers(out Unity.Collections.NativeArray<LauncherElement> copy, out Unity.Collections.Allocator allocator)
         {
             copy = default;

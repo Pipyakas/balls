@@ -24,6 +24,30 @@ namespace Balls.Rendering
 
         private static Mesh unitDisc;
 
+        private static Mesh unitTriangle;
+
+        /// <summary>The launch-point marker: apex up, flat base below the centre, spanning -1..1 across.</summary>
+        public static Mesh UnitTriangle
+        {
+            get
+            {
+                if (unitTriangle == null)
+                {
+                    var mesh = new Mesh { name = "BallsUnitTriangle" };
+                    mesh.vertices = new[]
+                    {
+                        new Vector3(0f, 0.6f, 0f),
+                        new Vector3(-1f, -0.4f, 0f),
+                        new Vector3(1f, -0.4f, 0f),
+                    };
+                    mesh.triangles = new[] { 0, 2, 1 };
+                    mesh.RecalculateBounds();
+                    unitTriangle = mesh;
+                }
+                return unitTriangle;
+            }
+        }
+
         /// <summary>A 32-segment disc of radius 1, for balls; the mesh carries the shape, not the material.</summary>
         public static Mesh UnitDisc
         {

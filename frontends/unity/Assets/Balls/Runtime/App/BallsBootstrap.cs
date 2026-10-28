@@ -154,9 +154,12 @@ namespace Balls.App
             if (autoPlay && !autoPlayed && now - startedAt > 1.5f)
             {
                 autoPlayed = true;
-                int mode = performanceMode ? BallsApp.PerformanceMode : BallsApp.NormalMode;
-                app.StartGameplay(mode, levelName, backendKind);
-                if (performanceMode)
+                if (!app.Running)
+                {
+                    int mode = performanceMode ? BallsApp.PerformanceMode : BallsApp.NormalMode;
+                    app.StartGameplay(mode, levelName, backendKind);
+                }
+                if (app.Mode == BallsApp.PerformanceMode)
                 {
                     BallsInput.RequestAutoRelease();
                 }

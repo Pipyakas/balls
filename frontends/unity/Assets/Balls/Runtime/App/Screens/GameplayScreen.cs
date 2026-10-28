@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Balls.Ecs;
 using Balls.Game;
 using Balls.Native;
@@ -21,6 +22,20 @@ namespace Balls.App.Screens
         private const float PortraitDebugHeight = 48f;
         private const float LauncherBackendHeight = 24f + BallsNative.BackendCount * 38f + 12f;
         private const float LauncherHeaderHeight = 24f;
+        private const float BrickLabelShare = 0.55f;
+        private const float MinimumLabelPixels = 9f;
+        private const float ShadowMinimumCellPixels = 28f;
+        private static readonly string[] HitLabels = new string[128];
+
+        /// <summary>Hit counts as strings, built once, so the per-frame labels allocate nothing.</summary>
+        private static string HitLabel(int hits)
+        {
+            if (hits < 0 || hits >= HitLabels.Length)
+            {
+                return hits.ToString();
+            }
+            return HitLabels[hits] ??= hits.ToString();
+        }
         private const float TwoColumnWidth = 2f * 220f + 16f;
         private const float ProbeContentHeight = 204f;
         private const float SpawnContentHeight = 158f;
@@ -39,6 +54,7 @@ namespace Balls.App.Screens
         private float lastLayoutHeight = -1f;
 
         private readonly LevelWatcher watcher = new();
+        private readonly List<CellElement> labelCells = new();
         private bool paused;
         private bool settingsOpen;
         private bool wonShown;
@@ -110,6 +126,7 @@ namespace Balls.App.Screens
             EnsureLayout(board);
 
             RefitCamera(board);
+            DrawBrickLabels(board);
 
             DrawHeader(session, board);
             if (layout.Portrait)
@@ -262,6 +279,41 @@ namespace Balls.App.Screens
             camera.nearClipPlane = 0.01f;
             camera.farClipPlane = 100f;
             _ = board;
+        }
+
+        /// <summary>Remaining hits on every brick, centred, with a drop shadow; hidden once they would be under 9 px.</summary>
+        private void DrawBrickLabels(BoardInfoData board)
+        {
+            float cell = layout.CellSize;
+            float labelSize = cell * BrickLabelShare;
+            if (Event.current.type != EventType.Repaint || labelSize * App.Theme.Scale < MinimumLabelPixels ||
+                !App.TryReadCells(labelCells))
+            {
+                return;
+            }
+            Rect boardRect = layout.BoardRect;
+            int size = Mathf.RoundToInt(labelSize);
+            bool withShadow = cell * App.Theme.Scale >= ShadowMinimumCellPixels;
+            GUIStyle shadow = App.Theme.TextStyle(size, Palette.BoardBackdrop, true, TextAnchor.MiddleCenter);
+            GUIStyle text = App.Theme.TextStyle(size, Color.white, true, TextAnchor.MiddleCenter);
+            for (int index = 0; index < labelCells.Count; ++index)
+            {
+                CellElement brick = labelCells[index];
+                if (brick.brick < 0 || brick.hitsLeft <= 0)
+                {
+                    continue;
+                }
+                int column = index % board.paddedWidth - 1;
+                int row = index / board.paddedWidth - 1;
+                float x = boardRect.x + column * cell;
+                float y = boardRect.yMax - (row + 1f + brick.rise) * cell;
+                string label = HitLabel(brick.hitsLeft);
+                if (withShadow)
+                {
+                    GUI.Label(App.Theme.Units(x + 1.5f, y + 1.5f, cell, cell), label, shadow);
+                }
+                GUI.Label(App.Theme.Units(x, y, cell, cell), label, text);
+            }
         }
 
         private void DrawHeader(SessionInfo session, BoardInfoData board)
