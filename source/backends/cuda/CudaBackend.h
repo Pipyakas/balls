@@ -10,12 +10,12 @@
 
 class CudaBackend final : public PhysicsBackend {
 public:
-    CudaBackend();
+    explicit CudaBackend(int deviceOrdinal = 0);
     ~CudaBackend() override;
     CudaBackend(const CudaBackend&) = delete;
     CudaBackend& operator=(const CudaBackend&) = delete;
 
-    static std::string unavailableReason();
+    static std::string unavailableReason(int deviceOrdinal = 0);
     static GpuRoofline measureRoofline(size_t bufferBytes);
     static size_t streamedBytesPerBall(bool gridActive);
 
@@ -39,6 +39,7 @@ public:
     std::string_view faultMessage() const override { return fault; }
     bool resolvesHitsOnDevice() const override { return true; }
     DeviceHitResults deviceHitResults() const override;
+    void uploadBrickHits(std::span<const int32_t> hitsLeft) override;
     bool shareRenderBuffer(unsigned int openGlBuffer, size_t capacityBytes) override;
     void setVisibilityGrid(int width, int height) override;
     double deviceStepMs() const override { return lastStepKernelMs; }
@@ -82,7 +83,6 @@ private:
     void ensureArray(DeviceArray& array, size_t bytes);
     void upload(DeviceArray& array, const void* data, size_t bytes);
     void compactKilledBalls(unsigned int killed);
-    void uploadBrickHits(std::span<const int32_t> hitsLeft);
     void uploadWholeBoard(const BoardUpload& board);
     void applyChangedCellWords(const BoardUpload& board);
     void releaseRenderBuffer();

@@ -24,6 +24,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <format>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -339,6 +340,25 @@ std::vector<GpuAdapterInfo> enumerateVulkanAdapters() {
                     if ((candidate.flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0) {
                         adapter.deviceLocalBytes = std::max(adapter.deviceLocalBytes,
                                                             static_cast<uint64_t>(candidate.size));
+                    }
+                }
+                if (hasVulkan11) {
+                    VkPhysicalDeviceIDProperties identity{};
+                    identity.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES;
+                    VkPhysicalDevicePCIBusInfoPropertiesEXT pciBusInfo{};
+                    pciBusInfo.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PCI_BUS_INFO_PROPERTIES_EXT;
+                    const bool hasPciBusInfo = hasExtension(deviceExtensions, VK_EXT_PCI_BUS_INFO_EXTENSION_NAME);
+                    identity.pNext = hasPciBusInfo ? &pciBusInfo : nullptr;
+                    VkPhysicalDeviceProperties2 identityProperties{};
+                    identityProperties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+                    identityProperties.pNext = &identity;
+                    getProperties2(device, &identityProperties);
+                    std::copy(std::begin(identity.deviceUUID), std::end(identity.deviceUUID), adapter.uuid.begin());
+                    adapter.hasUuid = std::ranges::any_of(adapter.uuid, [](uint8_t byte) { return byte != 0; });
+                    if (hasPciBusInfo) {
+                        adapter.pciDomain = static_cast<int>(pciBusInfo.pciDomain);
+                        adapter.pciBus = static_cast<int>(pciBusInfo.pciBus);
+                        adapter.pciDevice = static_cast<int>(pciBusInfo.pciDevice);
                     }
                 }
                 adapters.push_back(std::move(adapter));

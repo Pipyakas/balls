@@ -3,9 +3,10 @@
 A ball-bouncing, brick-breaking color game for Windows, written in C++20.
 It has an engine-agnostic core (`source/core/`) and an SDL3 front end (`source/frontends/sdl/`) with Dear ImGui for text and
 widgets. Rendering sits behind `IRenderer`: NVRHI (Direct3D 12 or Vulkan) on Windows, Linux and macOS (via
-MoltenVK), and SDL_GPU for Android and other SDL targets. The physics can run on four
-interchangeable backends: a scalar reference, AVX2 multithreaded, CUDA, and CUDA+AVX2, which splits the balls
-between those two (see [data/docs/hybrid-physics.md](data/docs/hybrid-physics.md)).
+MoltenVK), and SDL_GPU for Android and other SDL targets. The physics can run on
+interchangeable backends: a scalar reference, AVX2 multithreaded, CUDA, Vulkan compute, CUDA+AVX2, a fixed split
+of the balls between those two, and Hybrid, which runs one backend on each device the player picks (the CPU and
+every GPU) and splits the balls between all of them (see [data/docs/hybrid-physics.md](data/docs/hybrid-physics.md)).
 
 ## Features
 
@@ -14,7 +15,8 @@ between those two (see [data/docs/hybrid-physics.md](data/docs/hybrid-physics.md
   bounce they home toward the nearest brick of their color.
 - **Performance mode.** Start with one click and launchers release automatically. Spawn speed can be set to
   10 / 50 / 200 / 1000 / 2000 balls per second or Max. A ball-count multiplier (x1 to x1000) scales the stress
-  test. You can switch the physics backend live with F1 (Scalar), F2 (AVX2), F3 (CUDA) or F4 (CUDA+AVX2).
+  test. You can switch the physics backend live from the control gadget's Advanced Settings, and pick one
+  backend per device for Hybrid (for example AVX2 on the CPU, CUDA on an RTX card and Vulkan on a Radeon).
 - **Three-section screen.** The main board, the user interaction section (the only place that accepts gameplay
   input) and a debug panel. The debug panel shows FPS, min FPS, total objects, the ball count per color and the
   backend.
@@ -80,7 +82,8 @@ build/win32/bin/Release/balls.exe
 
 Requirements: a C++20 compiler (GCC 12+ or Clang 15+), CMake 3.25+, Ninja or Make, and internet access on first
 configure (SDL 3.2.30, Dear ImGui 1.93.0 and NVRHI with the Vulkan headers are downloaded). Vulkan drivers are
-needed at runtime on Linux; macOS uses MoltenVK. There is no CUDA backend off Windows.
+needed at runtime on Linux; macOS uses MoltenVK. The CUDA backend is available on Windows and Linux (via
+scripts/FetchCudaSdk.sh); macOS has no CUDA backend.
 
 ```sh
 ./build.sh                                        # SDL + NVRHI into dist/linux-sdl
@@ -149,9 +152,24 @@ cmake --build build/win32 --config Release --target balls_physics_cuda
 
 Every time a backend is selected the game loads a fresh shadow copy of its DLL from
 `%TEMP%\balls\physics-plugins`, so a plugin can be rebuilt while the game runs and
-picked up with F1-F4 (or `/backend?kind=cuda` on the control API). Plugins only see
+picked up by selecting the backend again (or `/backend?kind=cuda` on the control API). Plugins only see
 `source/core/sim/PhysicsBackend.h` and `source/core/sim/kernels/BallStepCore.h`. The build uses the shared MSVC
 runtime and copies its DLLs next to the executable.
+
+### Devices and Hybrid
+
+Each plugin lists the devices it can run on, and the game merges them into physical devices: `cpu`, then
+`gpu0`, `gpu1`, ... ordered by PCI location, with a GPU that both CUDA and Vulkan see listed once (matched by
+UUID). `balls_bench --devices` prints them. A selection gives each device at most one backend:
+
+```powershell
+balls.exe --backend "AVX2@cpu+CUDA@gpu0+Vulkan@gpu1"   # Hybrid over three devices
+balls.exe --backend "vulkan@6700"                       # one backend pinned to a device (name substring)
+balls_bench.exe --grid --balls 32000000 --backend "cuda,cuda+avx2,cuda@gpu0+vulkan@gpu1"
+```
+
+The same text works in `/backend?kind=` and is what Settings saves. `--backend hybrid` composes the best backend
+on the CPU and every discrete GPU.
 
 ## Controls
 
@@ -161,7 +179,6 @@ runtime and copies its DLLs next to the executable.
 | Performance mode | Start button / Space | Begin automatic release |
 | Any game | Esc / P | Pause menu |
 | Any game | R | Restart level |
-| Any game | F1 / F2 / F3 / F4 | Scalar / AVX2 / CUDA / CUDA+AVX2 physics |
 | Editor | L-drag / R-drag | Apply tool / erase |
 | Editor | 1-7, P/E/X/K | Color, tool |
 | Editor | Ctrl+Z / Ctrl+Y / Ctrl+S | Undo / redo / save |

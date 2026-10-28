@@ -1,6 +1,7 @@
 #include "screens/SettingsPanel.h"
 
 #include "render/Palette.h"
+#include "screens/DevicePicker.h"
 #include "sim/BackendFactory.h"
 #include "sim/BackendWorker.h"
 #include "ui/Widgets.h"
@@ -26,10 +27,12 @@ constexpr float backHeight = 56.0f;
 constexpr float scoreInset = 16.0f;
 constexpr float runBenchmarkWidth = 240.0f;
 constexpr double ballStepsPerMillion = 1e6;
+constexpr DevicePickerStyle devicePickerStyle{optionHeight, optionGap, 0.34f, hintSize};
 
 std::string benchmarkScore(std::span<const CandidateResult> scores, BackendKind kind) {
+    const std::string shown = kind == BackendKind::Hybrid ? formatBackendPicks(displayedPicks(kind)) : std::string{};
     const auto found = std::ranges::find_if(scores, [&](const CandidateResult& result) {
-        return result.candidate.kind == kind;
+        return result.candidate.kind == kind && result.candidate.picks == shown;
     });
     if (found == scores.end()) {
         return {};
@@ -84,6 +87,7 @@ float settingsContentHeight() {
     height += blockHeight;
     height += sectionHeight + sectionHeight + (optionHeight + optionGap) * selectableBackends().size() -
               optionGap + blockGap - optionGap;
+    height += sectionHeight + devicePickerHeight(devicePickerStyle) + hintGap + hintHeight * 2.0f + blockGap;
     height += backHeight;
     return height;
 }
@@ -207,6 +211,24 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
         cursor += optionHeight + optionGap;
     }
     cursor += blockGap - optionGap;
+
+    ui::drawText("Devices", {innerX, cursor}, sectionSize, palette::text);
+    cursor += sectionHeight;
+    const std::vector<BackendPick> picks = displayedPicks(selectedBackend);
+    if (const auto changed = drawDevicePicker({innerX, cursor, innerWidth, devicePickerHeight(devicePickerStyle)},
+                                              picks, devicePickerStyle)) {
+        setBackendPicks(*changed);
+        refreshBackendStatuses();
+        edit.backend = kindForPicks(*changed);
+        edit.changed = true;
+    }
+    cursor += devicePickerHeight(devicePickerStyle) + hintGap;
+    ui::drawText("One backend per device. Two or more devices run as Hybrid,", {innerX, cursor}, hintSize,
+                 palette::textMuted);
+    cursor += hintHeight;
+    ui::drawText("splitting the balls between them; one runs that backend alone.", {innerX, cursor}, hintSize,
+                 palette::textMuted);
+    cursor += hintHeight + blockGap;
 
     if (ui::button({innerX, cursor, innerWidth, backHeight}, "Back")) {
         edit.backPressed = true;

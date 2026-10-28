@@ -99,12 +99,12 @@ unsigned int blocksFor(size_t threads) {
 
 }
 
-std::string CudaBackend::unavailableReason() {
-    const CudaDriver& driver = CudaDriver::instance();
+std::string CudaBackend::unavailableReason(int deviceOrdinal) {
+    const CudaDriver& driver = CudaDriver::forDevice(deviceOrdinal);
     return driver.isReady() ? std::string{} : driver.error();
 }
 
-CudaBackend::CudaBackend() : driver(CudaDriver::instance()) {
+CudaBackend::CudaBackend(int deviceOrdinal) : driver(CudaDriver::forDevice(deviceOrdinal)) {
     driver.makeCurrent();
     stepFunction = driver.function("stepBallsKernel");
     collectHolesFunction = driver.function("collectHolesKernel");
@@ -410,6 +410,10 @@ void CudaBackend::uploadWholeBoard(const BoardUpload& board) {
 }
 
 void CudaBackend::uploadBrickHits(std::span<const int32_t> hitsLeft) {
+    if (isFaulted()) {
+        return;
+    }
+    driver.makeCurrent();
     hostBrickHitsLeft.assign(hitsLeft.begin(), hitsLeft.end());
     brickCount = hostBrickHitsLeft.size();
     hostBrickHitsLeft.push_back(0);
@@ -535,6 +539,7 @@ void CudaBackend::renderFreeFlight(const StepParams& params) {
 }
 
 void CudaBackend::materializeFreeFlight() {
+    driver.makeCurrent();
     if (!frozen) {
         return;
     }
@@ -892,6 +897,7 @@ std::vector<BallSpawn> CudaBackend::takeTail(size_t tailCount) {
 }
 
 bool CudaBackend::takeCompactTail(size_t tailCount, CompactBalls& taken) {
+    driver.makeCurrent();
     materializeFreeFlight();
     if (isFaulted()) {
         return false;
@@ -916,6 +922,7 @@ bool CudaBackend::takeCompactTail(size_t tailCount, CompactBalls& taken) {
 }
 
 bool CudaBackend::addCompact(const CompactBalls& added) {
+    driver.makeCurrent();
     materializeFreeFlight();
     const size_t addedCount = std::min(added.position.size(), added.state.size());
     if (isFaulted()) {
@@ -945,6 +952,7 @@ bool CudaBackend::addCompact(const CompactBalls& added) {
 }
 
 std::vector<BallSpawn> CudaBackend::exportRange(size_t first) {
+    driver.makeCurrent();
     materializeFreeFlight();
     if (isFaulted() || first >= count) {
         return {};

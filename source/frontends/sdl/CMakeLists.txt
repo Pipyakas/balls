@@ -120,6 +120,7 @@ set(BALLS_SDL_SOURCES
     screens/MachineBenchmarkScreen.cpp
     screens/LevelSelectScreen.cpp
     screens/SettingsPanel.cpp
+    screens/DevicePicker.cpp
     screens/SettingsScreen.cpp
     screens/GameplayScreen.cpp
     screens/DebugPanel.cpp

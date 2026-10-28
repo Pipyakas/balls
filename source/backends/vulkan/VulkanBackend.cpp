@@ -414,6 +414,7 @@ void VulkanBackend::uploadBoard(const BoardUpload& board) {
     const bool hitsChanged = !board.brickHitsLeft.empty();
     if (hitsChanged) {
         hostBrickHitsLeft.assign(board.brickHitsLeft.begin(), board.brickHitsLeft.end());
+        brickHitsPending = false;
     }
     brickCount = hostBrickHitsLeft.size();
     BallCount possibleKills = 0;
@@ -533,6 +534,10 @@ void VulkanBackend::step(const StepParams& params, std::vector<BallHit>& hits) {
     const std::array<uint32_t, maximumSortCells> zeroCursors{};
 
     commands->open();
+    if (brickHitsPending && brickCount > 0) {
+        commands->writeBuffer(brickHitsLeft, hostBrickHitsLeft.data(), brickCount * sizeof(uint32_t));
+    }
+    brickHitsPending = false;
     commands->writeBuffer(counters, zeroCounters.data(), sizeof(zeroCounters));
     commands->writeBuffer(stepConstants, &stepData, sizeof(stepData));
     commands->writeBuffer(countConstants, &countData, sizeof(countData));
@@ -625,6 +630,16 @@ void VulkanBackend::compactKilledBalls(uint32_t killed) {
         std::memcpy(hostBrickHitsLeft.data(), mappedHits, brickCount * sizeof(uint32_t));
         device->unmapBuffer(hitsReadback);
     }
+}
+
+// Written at the start of the next step's command list rather than in a submission of its own: the composer sends
+// new budgets most ticks, and a separate submit-and-wait cost about a millisecond each.
+void VulkanBackend::uploadBrickHits(std::span<const int32_t> hitsLeft) {
+    if (isFaulted() || !brickHitsLeft || hitsLeft.size() != brickCount) {
+        return;
+    }
+    hostBrickHitsLeft.assign(hitsLeft.begin(), hitsLeft.end());
+    brickHitsPending = true;
 }
 
 DeviceHitResults VulkanBackend::deviceHitResults() const {

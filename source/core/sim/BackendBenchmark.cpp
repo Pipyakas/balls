@@ -1,10 +1,13 @@
 #include "sim/BackendBenchmark.h"
 
 #include "common/BallColor.h"
+#include "sim/BackendSelection.h"
 #include "sim/BackendWorker.h"
+#include "sim/DeviceInventory.h"
 #include "sim/Simulation.h"
 
 #include <algorithm>
+#include <bit>
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
@@ -31,32 +34,6 @@ constexpr double warmupShare = 0.3;
 constexpr char fieldSeparator = '\t';
 
 double secondsSince(Clock::time_point start) { return std::chrono::duration<double>(Clock::now() - start).count(); }
-
-std::string trimmed(std::string text) {
-    const auto first = text.find_first_not_of(' ');
-    const auto last = text.find_last_not_of(' ');
-    return first == std::string::npos ? std::string{} : text.substr(first, last - first + 1);
-}
-
-std::string cpuBrand() {
-#if defined(_WIN32) || defined(__x86_64__) || defined(__i386__)
-    constexpr unsigned firstBrandLeaf = 0x80000002u;
-    constexpr unsigned brandLeafCount = 3;
-    char brand[brandLeafCount * 16 + 1] = {};
-    for (unsigned leaf = 0; leaf < brandLeafCount; ++leaf) {
-        unsigned registers[4] = {};
-#if defined(_WIN32)
-        __cpuid(reinterpret_cast<int*>(registers), static_cast<int>(firstBrandLeaf + leaf));
-#else
-        __get_cpuid(firstBrandLeaf + leaf, &registers[0], &registers[1], &registers[2], &registers[3]);
-#endif
-        std::memcpy(brand + leaf * 16, registers, 16);
-    }
-    return trimmed(brand);
-#else
-    return "unknown CPU";
-#endif
-}
 
 std::vector<std::string> gpuIdentities() {
     std::vector<std::string> gpus;
@@ -118,12 +95,49 @@ std::optional<CandidateStatus> parseStatus(std::string_view name) {
     return std::nullopt;
 }
 
-std::optional<BackendKind> kindNamed(std::string_view name) { return backendKindFromName(name); }
-
 std::string candidateLabel(BackendKind kind, std::string_view computeGpu) {
     return computeGpu.empty() ? std::string(backendKindName(kind))
                               : std::format("{} ({})", backendKindName(kind), computeGpu);
 }
+
+std::string picksCandidateLabel(std::span<const BackendPick> picks) {
+    return picks.size() == 1 ? backendPicksLabel(picks) : "Hybrid: " + backendPicksLabel(picks);
+}
+
+// A record's backend column: a kind name, or picks for candidates that ran on chosen devices.
+std::optional<BenchmarkCandidate> candidateNamed(std::string_view name, const std::string& computeGpu) {
+    const std::optional<StoredBackend> stored = parseStoredBackend(name);
+    if (!stored) {
+        return std::nullopt;
+    }
+    if (!stored->picks.empty()) {
+        return BenchmarkCandidate{stored->kind, computeGpu, picksCandidateLabel(stored->picks),
+                                  formatBackendPicks(stored->picks)};
+    }
+    return BenchmarkCandidate{stored->kind, computeGpu, candidateLabel(stored->kind, computeGpu), {}};
+}
+
+std::string candidateColumn(const BenchmarkCandidate& candidate) {
+    return candidate.picks.empty() ? std::string(backendKindName(candidate.kind)) : candidate.picks;
+}
+
+// Runs a candidate with its picks as the process-wide ones, and puts the player's picks back afterwards.
+class CandidatePicks {
+public:
+    explicit CandidatePicks(const BenchmarkCandidate& candidate) : saved(backendPicks()) {
+        std::vector<BackendPick> picks;
+        if (!candidate.picks.empty()) {
+            picks = parseBackendPicks(candidate.picks).value_or(std::vector<BackendPick>{});
+        }
+        setBackendPicks(std::move(picks));
+    }
+    ~CandidatePicks() { setBackendPicks(saved); }
+    CandidatePicks(const CandidatePicks&) = delete;
+    CandidatePicks& operator=(const CandidatePicks&) = delete;
+
+private:
+    std::vector<BackendPick> saved;
+};
 
 std::vector<std::string> splitFields(const std::string& line) {
     std::vector<std::string> fields;
@@ -144,13 +158,51 @@ std::string withoutSeparators(std::string text) {
 }
 
 HardwareFingerprint currentHardwareFingerprint(std::string_view gameVersion) {
-    return {cpuBrand(), std::max(1u, std::thread::hardware_concurrency()), gpuIdentities(), std::string(gameVersion)};
+    return {cpuBrandName(), std::max(1u, std::thread::hardware_concurrency()), gpuIdentities(), std::string(gameVersion)};
 }
 
 std::vector<BenchmarkCandidate> benchmarkCandidates() {
+    constexpr size_t maximumComposedDevices = 6;
     std::vector<BenchmarkCandidate> candidates;
     for (const BackendKind kind : selectableBackends()) {
-        candidates.push_back({kind, {}, candidateLabel(kind, {})});
+        if (kind != BackendKind::Hybrid) {
+            candidates.push_back({kind, {}, candidateLabel(kind, {}), {}});
+        }
+    }
+    const std::vector<PhysicalDevice>& devices = physicalDevices();
+    std::vector<BackendPick> fastest;
+    for (const PhysicalDevice& device : devices) {
+        bool first = true;
+        for (const BackendKind kind : pickableKinds(device)) {
+            const DeviceBackendOption* option = device.option(kind);
+            if (!option || !deviceBackendStatus(kind, option->pluginDevice).available) {
+                continue;
+            }
+            if (first) {
+                fastest.push_back({kind, device.id});
+                first = false;
+            }
+            const PhysicalDevice* defaultDevice = defaultDeviceFor(kind);
+            if (defaultDevice && defaultDevice->id != device.id) {
+                const std::vector<BackendPick> single{{kind, device.id}};
+                candidates.push_back({kind, {}, picksCandidateLabel(single), formatBackendPicks(single)});
+            }
+        }
+    }
+    if (fastest.size() >= 2 && fastest.size() <= maximumComposedDevices) {
+        for (uint32_t mask = 1; mask < (1u << fastest.size()); ++mask) {
+            if (std::popcount(mask) < 2) {
+                continue;
+            }
+            std::vector<BackendPick> picks;
+            for (size_t index = 0; index < fastest.size(); ++index) {
+                if ((mask >> index) & 1u) {
+                    picks.push_back(fastest[index]);
+                }
+            }
+            candidates.push_back(
+                {BackendKind::Hybrid, {}, picksCandidateLabel(picks), formatBackendPicks(picks)});
+        }
     }
     return candidates;
 }
@@ -231,12 +283,12 @@ std::string serializeBenchmarkRecord(const BenchmarkRecord& record) {
     text += std::format("version{}{}\n", fieldSeparator, withoutSeparators(record.fingerprint.gameVersion));
     text += std::format("complete{}{}\n", fieldSeparator, record.complete ? 1 : 0);
     if (record.winner) {
-        text += std::format("winner{0}{1}{0}{2}\n", fieldSeparator, backendKindName(record.winner->kind),
+        text += std::format("winner{0}{1}{0}{2}\n", fieldSeparator, candidateColumn(*record.winner),
                             withoutSeparators(record.winner->computeGpu));
     }
     for (const CandidateResult& result : record.results) {
         text += std::format("result{0}{1}{0}{2}{0}{3}{0}{4:.0f}{0}{5}{0}{6:.0f}{0}{7:.0f}\n", fieldSeparator,
-                            backendKindName(result.candidate.kind), withoutSeparators(result.candidate.computeGpu),
+                            candidateColumn(result.candidate), withoutSeparators(result.candidate.computeGpu),
                             statusName(result.status), result.ballStepsPerSecond, withoutSeparators(result.failure),
                             result.estimatedBalls, result.ballCapacity);
     }
@@ -267,16 +319,13 @@ std::optional<BenchmarkRecord> parseBenchmarkRecord(std::string_view text) {
         } else if (key == "complete") {
             record.complete = value == "1";
         } else if (key == "winner") {
-            if (const auto kind = kindNamed(value)) {
-                const std::string gpu = fields.size() > 2 ? fields[2] : std::string{};
-                record.winner = BenchmarkCandidate{*kind, gpu, candidateLabel(*kind, gpu)};
-            }
+            record.winner = candidateNamed(value, fields.size() > 2 ? fields[2] : std::string{});
         } else if (key == "result" && fields.size() >= 5) {
-            const auto kind = kindNamed(fields[1]);
+            const auto candidate = candidateNamed(fields[1], fields[2]);
             const auto status = parseStatus(fields[3]);
-            if (kind && status) {
+            if (candidate && status) {
                 CandidateResult result;
-                result.candidate = {*kind, fields[2], candidateLabel(*kind, fields[2])};
+                result.candidate = *candidate;
                 result.status = *status;
                 result.ballStepsPerSecond = std::strtod(fields[4].c_str(), nullptr);
                 result.failure = fields.size() > 5 ? fields[5] : std::string{};
@@ -361,6 +410,7 @@ void BackendBenchmark::run() {
 
 void BackendBenchmark::runCandidate(size_t index, std::optional<long long> referenceHits) {
     const BackendKind kind = candidateResults[index].candidate.kind;
+    const CandidatePicks picks(candidateResults[index].candidate);
     if (!isBackendAvailable(kind)) {
         update(index, [&](CandidateResult& result) {
             result.status = CandidateStatus::Unavailable;

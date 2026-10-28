@@ -70,4 +70,6 @@ BackendStatus backendStatus(BackendKind kind);
 // collisions, so it is left out whenever any other backend is available.
 std::vector<BackendKind> selectableBackends();
 bool isBackendSelectable(BackendKind kind);
+// The same for one backend on one plugin device (DeviceBackendOption), cached like backendStatus.
+BackendStatus deviceBackendStatus(BackendKind kind, int pluginDevice);
 void refreshBackendStatuses();

@@ -82,3 +82,28 @@ BALLS_PLUGIN_EXPORT PhysicsBackend* ballsCreateBackend(const char* kindName) {
 }
 
 BALLS_PLUGIN_EXPORT void ballsDestroyBackend(PhysicsBackend* backend) { delete backend; }
+
+// The CPU plugin runs on one device, the processor the game runs on; the host names it.
+BALLS_PLUGIN_EXPORT int ballsDeviceCount(const char* kindName) {
+    const std::string_view kind(kindName);
+    return kind == scalarName || kind == avx2Name ? 1 : 0;
+}
+
+BALLS_PLUGIN_EXPORT int ballsDeviceInfo(const char* kindName, int device, PhysicsDeviceInfo* info) {
+    if (device != 0 || ballsDeviceCount(kindName) == 0 || !info) {
+        return 0;
+    }
+    *info = PhysicsDeviceInfo{};
+    info->type = PhysicsDeviceType::Cpu;
+    return 1;
+}
+
+BALLS_PLUGIN_EXPORT const char* ballsDeviceUnavailableReason(const char* kindName, int device) {
+    return device == 0 ? ballsBackendUnavailableReason(kindName) : unknownKind;
+}
+
+BALLS_PLUGIN_EXPORT const char* ballsDeviceDetail(const char* kindName, int) { return ballsBackendDetail(kindName); }
+
+BALLS_PLUGIN_EXPORT PhysicsBackend* ballsCreateBackendOnDevice(const char* kindName, int device) {
+    return device == 0 ? ballsCreateBackend(kindName) : nullptr;
+}

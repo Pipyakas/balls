@@ -35,6 +35,7 @@ public:
     std::string_view faultMessage() const override { return fault; }
     bool resolvesHitsOnDevice() const override { return true; }
     DeviceHitResults deviceHitResults() const override;
+    void uploadBrickHits(std::span<const int32_t> hitsLeft) override;
     void setVisibilityGrid(int, int) override {}
     double deviceStepMs() const override { return lastStepKernelMs; }
 
@@ -123,6 +124,7 @@ private:
     nvrhi::BufferHandle cellWords;
     nvrhi::BufferHandle targetCells;
     nvrhi::BufferHandle brickHitsLeft;
+    bool brickHitsPending = false;
     nvrhi::BufferHandle killedIndices;
     nvrhi::BufferHandle holes;
     nvrhi::BufferHandle counters;
