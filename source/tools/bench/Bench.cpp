@@ -10,7 +10,6 @@
 #include "sim/DeviceComposer.h"
 #include "sim/DeviceInventory.h"
 #include "sim/EdgeCaseSweep.h"
-#include "sim/HybridBackend.h"
 #include "sim/PhysicsAccuracy.h"
 #include "sim/Simulation.h"
 
@@ -369,9 +368,12 @@ int traceEdgeCases(const BenchOptions& options) {
                     const double ms = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
                     pacer.reportFrame(ms / 1e3, simulation.liveBallCount());
                     std::string split = frame % 50 == 0 ? memoryReport() : std::string();
-                    if (const auto* hybrid = dynamic_cast<const HybridBackend*>(&simulation.backend())) {
-                        split += std::format("  cpu {:10} balls {:6.2f} ms  gpu {:6.2f} ms", hybrid->cpuBallCount(),
-                                             hybrid->cpuStepMs(), hybrid->gpuStepMs());
+                    if (const auto* composer = dynamic_cast<const DeviceComposer*>(&simulation.backend())) {
+                        for (size_t part = 0; part < composer->partCount(); ++part) {
+                            split += std::format("  {} {} balls {:.2f} ms{}", composer->partLabel(part),
+                                                 composer->partBallCount(part), composer->partStepMs(part),
+                                                 composer->partParked(part) ? " parked" : "");
+                        }
                     }
                     std::printf("frame %4d %8.2f ms  spawn %6.2f ms (%9llu)  live %10llu  device %6.2f ms%s\n", frame,
                                 ms, spawnMs, static_cast<unsigned long long>(launched),
@@ -591,11 +593,6 @@ void runScatteredSimulation(const BrickLayout& layout, BackendKind kind, size_t 
         targetLabel(kind).c_str(), collisions ? 1 : 0, ballCount, seconds * 1000.0 / ticks,
         static_cast<double>(ballCount) * ticks / seconds / 1e6, bricksBefore,
         simulation.board().aliveBrickCount());
-    if (const auto* hybrid = dynamic_cast<const HybridBackend*>(&simulation.backend())) {
-        std::printf("        cpu share %5.1f%%  cpu step %6.3f ms  gpu step %6.3f ms\n",
-                    100.0 * static_cast<double>(hybrid->cpuBallCount()) / static_cast<double>(hybrid->ballCount()),
-                    hybrid->cpuStepMs(), hybrid->gpuStepMs());
-    }
     if (const auto* composer = dynamic_cast<const DeviceComposer*>(&simulation.backend())) {
         printComposerParts(*composer);
     }

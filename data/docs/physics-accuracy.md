@@ -26,7 +26,7 @@ Empty box, mean / worst distance from the reference after 10 s, in cells:
 |---|---|---|
 | Scalar | 0.0004 / 0.002 | 0.0004 / 0.002 |
 | AVX2 | 0.009 / 0.025 | 0.011 / 0.040 |
-| CUDA, CUDA+AVX2 | 0.009 / 0.025 | 0.009 / 0.025 |
+| CUDA, Hybrid (AVX2 + CUDA) | 0.009 / 0.025 | 0.009 / 0.025 |
 | Vulkan | 0.011 / 0.039 | 0.011 / 0.039 |
 
 The compact backends store a direction in 13 bits per axis, so a ball's heading is off by up to about 1/8000 of a

@@ -129,7 +129,7 @@ TEST_CASE("three device-resolving parts split brick budgets exactly") {
     runAndCheckHitAccounting(composed({fakeDevice, fakeDevice, fakeDevice}), true);
 }
 
-TEST_CASE("a device part and a host part share bricks like the CUDA+AVX2 pair") {
+TEST_CASE("a device part and a host part share bricks") {
     runAndCheckHitAccounting(composed({fakeDevice, [] { return createBackend(BackendKind::Scalar); }}), true);
 }
 
@@ -177,6 +177,6 @@ TEST_CASE("backend picks round-trip through their text form") {
     const std::vector<BackendPick> twice{{BackendKind::Avx2, "cpu"}, {BackendKind::Scalar, "cpu"}};
     EXPECT(backendPicksProblem(twice).find("two backends") != std::string::npos);
     EXPECT(parseStoredBackend("AVX2@cpu")->kind == BackendKind::Avx2);
-    EXPECT(parseStoredBackend("CUDA+AVX2")->kind == BackendKind::CudaAvx2);
+    EXPECT(parseStoredBackend("CUDA+AVX2")->kind == BackendKind::Hybrid);
     EXPECT(storedBackendName(BackendKind::Vulkan) == "Vulkan");
 }

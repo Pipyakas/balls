@@ -17,7 +17,6 @@ add_library(balls_core STATIC
     sim/DeviceComposer.cpp
     sim/BackendSelection.cpp
     sim/BackendWorker.cpp
-    sim/HybridBackend.cpp
     sim/BackendBenchmark.cpp
     sim/PhysicsAccuracy.cpp
     sim/ReferenceBackend.cpp

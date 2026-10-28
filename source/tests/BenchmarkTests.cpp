@@ -34,7 +34,7 @@ TEST_CASE("the fastest finished candidate wins and failed ones are never chosen"
         result(BackendKind::Scalar, CandidateStatus::Done, 50e6),
         result(BackendKind::Avx2, CandidateStatus::Done, 900e6),
         result(BackendKind::Cuda, CandidateStatus::Failed, 9e9, "timed out after 5 s"),
-        result(BackendKind::CudaAvx2, CandidateStatus::Unavailable, 0.0),
+        result(BackendKind::Hybrid, CandidateStatus::Unavailable, 0.0),
     };
     EXPECT(bestCandidate(results) == std::optional<size_t>(1));
     EXPECT(chooseDefaultBackend(results, everythingAvailable).kind == BackendKind::Avx2);
@@ -110,11 +110,11 @@ TEST_CASE("the benchmark runner scores Scalar on a small workload") {
 TEST_CASE("the backend that can hold the most balls at the target frame rate wins, not the fastest at one count") {
     std::vector<CandidateResult> results{
         result(BackendKind::Cuda, CandidateStatus::Done, 11.6e9),
-        result(BackendKind::CudaAvx2, CandidateStatus::Done, 11.4e9),
+        result(BackendKind::Hybrid, CandidateStatus::Done, 11.4e9),
     };
     results[0].estimatedBalls = 390e6;
     results[1].estimatedBalls = 7.13e9;
-    EXPECT(chooseDefaultBackend(results, everythingAvailable).kind == BackendKind::CudaAvx2);
+    EXPECT(chooseDefaultBackend(results, everythingAvailable).kind == BackendKind::Hybrid);
 }
 
 TEST_CASE("a frame that does not grow with the ball count is limited by capacity, one that does by the budget") {
@@ -128,8 +128,8 @@ TEST_CASE("a frame that does not grow with the ball count is limited by capacity
 }
 
 TEST_CASE("estimated balls and capacity survive a save and load, and older records still parse") {
-    BenchmarkRecord record{sampleFingerprint(), {result(BackendKind::CudaAvx2, CandidateStatus::Done, 11e9)},
-                           BenchmarkCandidate{BackendKind::CudaAvx2, {}, "CUDA+AVX2"}, true};
+    BenchmarkRecord record{sampleFingerprint(), {result(BackendKind::Vulkan, CandidateStatus::Done, 11e9)},
+                           BenchmarkCandidate{BackendKind::Vulkan, {}, "Vulkan"}, true};
     record.results[0].estimatedBalls = 7.13e9;
     record.results[0].ballCapacity = 7.2e9;
     const auto loaded = parseBenchmarkRecord(serializeBenchmarkRecord(record));
@@ -140,11 +140,12 @@ TEST_CASE("estimated balls and capacity survive a save and load, and older recor
     EXPECT(older && older->results.size() == 1 && older->results[0].estimatedBalls == 0.0);
 }
 
-TEST_CASE("backend names parse loosely and the old Hybrid name reads as CUDA+AVX2") {
-    EXPECT(backendKindFromName("CUDA+AVX2") == BackendKind::CudaAvx2);
-    EXPECT(backendKindFromName("cuda-avx2") == BackendKind::CudaAvx2);
+TEST_CASE("backend names parse loosely and the retired CUDA+AVX2 pair's names read as Hybrid") {
+    EXPECT(backendKindFromName("CUDA+AVX2") == BackendKind::Hybrid);
+    EXPECT(backendKindFromName("cuda-avx2") == BackendKind::Hybrid);
     EXPECT(backendKindFromName("Hybrid") == BackendKind::Hybrid);
-    EXPECT(parseStoredBackend("Hybrid")->kind == BackendKind::CudaAvx2);
+    EXPECT(parseStoredBackend("Hybrid")->kind == BackendKind::Hybrid);
+    EXPECT(parseStoredBackend("CUDA+AVX2")->kind == BackendKind::Hybrid);
     EXPECT(backendKindFromName("vulkan") == BackendKind::Vulkan);
     EXPECT(!backendKindFromName("cuda+vulkan").has_value());
 }

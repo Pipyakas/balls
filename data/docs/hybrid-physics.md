@@ -1,10 +1,13 @@
-# Hybrid and CUDA+AVX2 split physics
+# Hybrid split physics
 
-Two backends split the balls between devices. `CUDA+AVX2` is the fixed pair described first. `Hybrid` is the
-general device composer: one backend on each device the player picks, described in
-[The device composer](#the-device-composer).
+`Hybrid` (`DeviceComposer`) splits the balls between devices: one backend on each device the player picks, described
+in [The device composer](#the-device-composer). It replaced the fixed `CUDA+AVX2` pair (`HybridBackend`), which was
+removed once the composer matched it on the target PC ([the comparison](#the-composer-against-the-cudaavx2-pair-on-the-scoring-pc)).
+The pair's old names (`CUDA+AVX2`, `cuda-avx2`, and `Hybrid` in a settings or profile file written before the
+composer) now select Hybrid over AVX2 on the CPU and CUDA on the default GPU. The pair's section is kept as history:
+what made its CPU side worth adding still holds for the composer's CPU part.
 
-## CUDA+AVX2
+## History: the CUDA+AVX2 pair
 
 Balls never collide with each other, so the ball set can be split between devices. The `CUDA+AVX2` backend
 (F4, `/backend?kind=cuda-avx2`; called `Hybrid` until the general device composer took that name) keeps most balls on CUDA and a share on the AVX2 backend, steps both at the same
@@ -93,10 +96,19 @@ bytes), so a selection can give it only one backend. `balls_bench --devices` pri
   millisecond, smoothed, starting from a guess (GPU 1, Vulkan 0.8, iGPU 0.2, CPU 0.1). Balls move between parts as
   8-byte records, up to 4M per step, when a part is more than 2% or 131072 balls off its target.
 - Below 262144 balls everything runs on the lead part.
-- A part whose fixed cost per step exceeds what its share saves is parked: when the composed step stays more than
-  3% slower than the lead part alone would be for all balls, for 60 settled steps, the slowest part's balls move
-  away and it stops stepping. On an RTX 3070 laptop this parks the CPU and the iGPU, which otherwise made the
-  composer slower than CUDA alone.
+- A GPU part whose fixed cost per step exceeds what its share saves can be parked. When the composed step stays
+  more than 3% slower than the lead part alone would be for all balls (its time extrapolated linearly), for 60
+  settled steps, the slowest other GPU part goes on trial: the step time per ball is measured for 120 steps with
+  it, then for 120 without it once its balls have moved away (steps that moved balls are left out). It stays
+  parked only if that is 3% faster; otherwise it comes back and is not tried again for 3600 steps. On an RTX 3070
+  laptop the earlier, untested park removed the iGPU, which otherwise made the composer slower than CUDA alone.
+- The CPU is never parked beside a GPU, as the pair never parked it. On the target PC the extrapolation, and even
+  the measured trial, parked it on brick-heavy boards where it was helping: the step time leaves out what the
+  CPU's share saves elsewhere in the frame.
+- Board changes reach the parts as sparse brick-hit and target-field updates when at most one part resolves hits on
+  the device; with two or more, each holds its own brick budget, so they take whole boards. The parts follow
+  Settings > Advanced > Draw the board, and each samples the visibility grid in proportion to its share of the
+  balls.
 - Snapshots: each part fills the same visibility grid; part k wins an occupied slot with probability (its balls) /
   (balls of parts 0..k), so every slot shows a ball from a part in proportion to that part's balls.
 - Capacity is the sum of the parts'; a part whose backend reports no limit (Vulkan) is counted at its device memory
@@ -162,7 +174,7 @@ and wins with "no limit"; Hybrid CUDA + Vulkan scores 2.3 B (capped by device me
 ### The composer against the CUDA+AVX2 pair on the target PC
 
 i9-14900K with a GTX 1650 (one GPU, so the only set is `AVX2@cpu+CUDA@gpu0`). Edge sweep (`balls_bench
---edge-cases`, the game's visibility grid, 120 Hz ticks), balls held at 60 FPS:
+--edge-cases`, the game's visibility grid, 120 Hz ticks), balls held at 60 FPS. First, the composer as merged:
 
 | Board | CUDA | CUDA+AVX2 | Hybrid AVX2 + CUDA |
 |---|---|---|---|
@@ -182,3 +194,16 @@ i9-14900K with a GTX 1650 (one GPU, so the only set is `AVX2@cpu+CUDA@gpu0`). Ed
 `balls_bench --grid` raw steps (1000-brick level, no `Simulation`) rank them the other way: CUDA 7.0-7.5 G
 ball-steps/s, composer 6.6-7.1 G, pair 3.8-4.0 G. Raw steps skip the board updates, launch pacing and drawing the
 game does, so the edge sweep is the one that reflects play.
+
+What closed the gap, in order:
+
+| Change | Effect on the target PC |
+|---|---|
+| Sparse board updates, draw toggle, render sample share | 2048 boards even with the pair (Tough 180-196M against 186-196M) |
+| Windows core parking off on the target PC (a power-plan setting, not code) | less run-to-run noise |
+| Never park the CPU beside a GPU | Tough and Checker 128 off CUDA-alone counts (about 100M) |
+
+After all three, Tough, Checker and LoneBrick at 128 and 512, two rounds with the order of the two swapped: the
+composer held 1758M balls in total against the pair's 1728M. Per board the two were within the run-to-run noise
+(about 15%), the composer ahead on Checker (100-175M against 89-131M) and behind on Tough 512 (146-151M against
+163-167M). Holding a half-share cap on the CPU, as the pair did, changed nothing. The pair was then removed.

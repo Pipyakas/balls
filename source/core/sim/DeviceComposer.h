@@ -27,7 +27,7 @@ struct DeviceComposerTuning {
 // counts. With two or more such parts each brick's remaining hits are split between them every tick as a budget
 // (proportional to their ball counts), so the parts together never consume more hits than the brick has; the
 // composer adds up what each consumed and reports the true counts. Host-reporting parts (CPU) hand their hits to
-// Simulation, which accepts them against what the devices left, as it does for the CUDA+AVX2 pair.
+// Simulation, which accepts them against what the devices left.
 class DeviceComposer final : public PhysicsBackend {
 public:
     struct PartSpec {
@@ -72,6 +72,7 @@ public:
     double partStepMs(size_t part) const { return parts[part].lastMs; }
     double partShare(size_t part) const { return parts[part].share; }
     bool partParked(size_t part) const { return parts[part].parked; }
+    bool partOnHost(size_t part) const { return !parts[part].resolvesOnDevice; }
     size_t unparkedCount() const { return unparks; }
     // Host time this step spent splitting and merging brick hit budgets (0 with fewer than two device parts).
     double brickBudgetMs() const { return lastBudgetMs; }

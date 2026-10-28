@@ -14,7 +14,8 @@ namespace {
 
 constexpr char pickSeparator = '+';
 constexpr char deviceSeparator = '@';
-constexpr std::string_view legacyCudaAvx2Name = "hybrid";
+// Before the composer took the name, a saved "Hybrid" meant the fixed CUDA+AVX2 pair it replaced.
+constexpr std::string_view legacyPairName = "hybrid";
 constexpr double cpuPartWeight = 0.1;
 constexpr double integratedGpuPartWeight = 0.2;
 constexpr double vulkanPartWeight = 0.8;
@@ -65,7 +66,18 @@ double partWeight(BackendKind kind, const PhysicalDevice& device) {
     return kind == BackendKind::Cuda ? cudaPartWeight : vulkanPartWeight;
 }
 
-bool isPartKind(BackendKind kind) { return kind != BackendKind::Hybrid && kind != BackendKind::CudaAvx2; }
+bool isPartKind(BackendKind kind) { return kind != BackendKind::Hybrid; }
+
+// What the retired CUDA+AVX2 pair ran: AVX2 on the CPU and CUDA on its default GPU. Empty when either is missing,
+// which leaves Hybrid to compose its defaults.
+std::vector<BackendPick> retiredPairPicks() {
+    const PhysicalDevice* cpu = defaultDeviceFor(BackendKind::Avx2);
+    const PhysicalDevice* gpu = defaultDeviceFor(BackendKind::Cuda);
+    if (!cpu || !gpu) {
+        return {};
+    }
+    return {{BackendKind::Avx2, cpu->id}, {BackendKind::Cuda, gpu->id}};
+}
 
 }
 
@@ -226,9 +238,6 @@ std::vector<BackendPick> displayedPicks(BackendKind running) {
     if (running == BackendKind::Hybrid) {
         return hybridPicks();
     }
-    if (running == BackendKind::CudaAvx2) {
-        return {};
-    }
     for (const BackendPick& pick : picks) {
         if (pick.kind == running) {
             return {pick};
@@ -292,10 +301,10 @@ std::optional<StoredBackend> parseStoredBackend(std::string_view text) {
     std::string lowered(text);
     std::ranges::transform(lowered, lowered.begin(),
                            [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
-    if (lowered == legacyCudaAvx2Name) {
-        return StoredBackend{BackendKind::CudaAvx2, {}};
-    }
     const std::optional<BackendKind> kind = backendKindFromName(text);
+    if (lowered == legacyPairName || kind == BackendKind::Hybrid) {
+        return StoredBackend{BackendKind::Hybrid, retiredPairPicks()};
+    }
     if (!kind) {
         return std::nullopt;
     }
@@ -303,9 +312,6 @@ std::optional<StoredBackend> parseStoredBackend(std::string_view text) {
 }
 
 std::string storedBackendName(BackendKind kind) {
-    if (kind == BackendKind::CudaAvx2) {
-        return std::string(backendKindName(kind));
-    }
     const std::vector<BackendPick> picks = backendPicks();
     if (!picks.empty() && kindForPicks(picks) == kind) {
         return formatBackendPicks(picks);

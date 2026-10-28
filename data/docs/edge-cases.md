@@ -46,7 +46,8 @@ single frame seen. `--trace-frames N --balls N` (or `--trace-spawn-to N`) prints
 ## Results on the target PC
 
 i9-14900K, 64 GB, GTX 1650. Balls held at 60 FPS; "(mem)" means the backend was full (memory, not time, was the
-limit).
+limit). "Hybrid" in this section and the CPU tuning sweep is the fixed CUDA+AVX2 pair, which had that name
+then; the device composer that now carries the name matches it ([hybrid-physics.md](hybrid-physics.md)).
 
 | Board | AVX2 | CUDA | Hybrid | Best | Worst frame (best) |
 |---|---|---|---|---|---|

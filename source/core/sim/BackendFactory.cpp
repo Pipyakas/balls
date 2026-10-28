@@ -1,7 +1,6 @@
 #include "sim/BackendFactory.h"
 
 #include "sim/BackendSelection.h"
-#include "sim/HybridBackend.h"
 
 #include <algorithm>
 #include <atomic>
@@ -196,8 +195,6 @@ std::string_view backendKindName(BackendKind kind) {
         return "AVX2";
     case BackendKind::Cuda:
         return "CUDA";
-    case BackendKind::CudaAvx2:
-        return "CUDA+AVX2";
     case BackendKind::Vulkan:
         return "Vulkan";
     case BackendKind::Hybrid:
@@ -207,6 +204,8 @@ std::string_view backendKindName(BackendKind kind) {
 }
 
 namespace {
+
+constexpr std::string_view retiredPairName = "cudaavx2";
 
 std::string normalizedKindName(std::string_view name) {
     std::string normalized;
@@ -222,6 +221,9 @@ std::string normalizedKindName(std::string_view name) {
 
 std::optional<BackendKind> backendKindFromName(std::string_view name) {
     const std::string wanted = normalizedKindName(name);
+    if (wanted == retiredPairName) {
+        return BackendKind::Hybrid;
+    }
     const auto match = std::ranges::find_if(
         allBackendKinds, [&](BackendKind kind) { return normalizedKindName(backendKindName(kind)) == wanted; });
     return match == allBackendKinds.end() ? std::nullopt : std::optional(*match);
@@ -261,10 +263,6 @@ std::string backendUnavailableReason(BackendKind kind) {
     if (const std::optional<int> device = pickedPluginDevice(kind)) {
         return backendUnavailableReasonOnDevice(kind, *device);
     }
-    if (kind == BackendKind::CudaAvx2) {
-        const std::string gpuReason = backendUnavailableReason(BackendKind::Cuda);
-        return gpuReason.empty() ? backendUnavailableReason(BackendKind::Avx2) : gpuReason;
-    }
     const PluginModule& plugin = queryPlugin(kind);
     if (!plugin.error.empty()) {
         return plugin.error;
@@ -279,9 +277,6 @@ std::string backendDetail(BackendKind kind) {
     }
     if (const std::optional<int> device = pickedPluginDevice(kind)) {
         return backendDetailOnDevice(kind, *device);
-    }
-    if (kind == BackendKind::CudaAvx2) {
-        return std::format("{} + {}", backendDetail(BackendKind::Cuda), backendDetail(BackendKind::Avx2));
     }
     const PluginModule& plugin = queryPlugin(kind);
     if (!plugin.error.empty()) {
@@ -299,9 +294,6 @@ BackendHandle createBackend(BackendKind kind) {
     if (const std::optional<int> device = pickedPluginDevice(kind)) {
         return createBackendOnDevice(kind, *device);
     }
-    if (kind == BackendKind::CudaAvx2) {
-        return HybridBackend::create(createBackend(BackendKind::Cuda), createBackend(BackendKind::Avx2));
-    }
     const std::shared_ptr<PluginModule> plugin = loadPlugin(backendPluginFileName(kind), true);
     if (plugin->error.empty()) {
         applyComputeGpuPreference(*plugin);
@@ -315,7 +307,7 @@ BackendHandle createBackend(BackendKind kind) {
 
 std::vector<PhysicsDeviceInfo> backendDevices(BackendKind kind) {
     std::vector<PhysicsDeviceInfo> devices;
-    if (kind == BackendKind::CudaAvx2 || kind == BackendKind::Hybrid) {
+    if (kind == BackendKind::Hybrid) {
         return devices;
     }
     const PluginModule& plugin = queryPlugin(kind);
@@ -335,7 +327,7 @@ std::vector<PhysicsDeviceInfo> backendDevices(BackendKind kind) {
 }
 
 std::string backendUnavailableReasonOnDevice(BackendKind kind, int device) {
-    if (kind == BackendKind::CudaAvx2 || kind == BackendKind::Hybrid) {
+    if (kind == BackendKind::Hybrid) {
         return "not a single-device backend";
     }
     const PluginModule& plugin = queryPlugin(kind);
@@ -344,7 +336,7 @@ std::string backendUnavailableReasonOnDevice(BackendKind kind, int device) {
 }
 
 std::string backendDetailOnDevice(BackendKind kind, int device) {
-    if (kind == BackendKind::CudaAvx2 || kind == BackendKind::Hybrid) {
+    if (kind == BackendKind::Hybrid) {
         return {};
     }
     const PluginModule& plugin = queryPlugin(kind);
@@ -352,7 +344,7 @@ std::string backendDetailOnDevice(BackendKind kind, int device) {
 }
 
 BackendHandle createBackendOnDevice(BackendKind kind, int device) {
-    if (kind == BackendKind::CudaAvx2 || kind == BackendKind::Hybrid) {
+    if (kind == BackendKind::Hybrid) {
         return BackendHandle(nullptr, BackendRelease{});
     }
     const std::shared_ptr<PluginModule> plugin = loadPlugin(backendPluginFileName(kind), true);

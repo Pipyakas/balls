@@ -17,7 +17,7 @@ TEST_CASE("settings survive a serialize and parse round trip") {
         .ballCollisions = true,
         .layout = LayoutOrientation::Portrait,
         .vsync = true,
-        .defaultBackend = "CUDA+AVX2",
+        .defaultBackend = "AVX2@cpu+CUDA@gpu0",
         .renderer = "webgpu",
         .graphicsApi = "vulkan",
         .advancedSettings = true,

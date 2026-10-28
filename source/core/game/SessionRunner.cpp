@@ -2,7 +2,7 @@
 
 #include "common/WorkerPool.h"
 
-#include "sim/HybridBackend.h"
+#include "sim/DeviceComposer.h"
 
 #include <algorithm>
 #include <thread>
@@ -155,6 +155,20 @@ void captureBalls(Simulation& simulation, float slotCells, bool drawing, FieldSi
     frame.packed.assign(snapshot.packed, snapshot.packed + snapshot.count);
 }
 
+HybridSplit hostDeviceSplit(const DeviceComposer& composer) {
+    HybridSplit split;
+    split.totalBalls = composer.ballCount();
+    for (size_t part = 0; part < composer.partCount(); ++part) {
+        if (composer.partOnHost(part)) {
+            split.cpuBalls += composer.partBallCount(part);
+            split.cpuStepMs = std::max(split.cpuStepMs, composer.partStepMs(part));
+        } else {
+            split.gpuStepMs = std::max(split.gpuStepMs, composer.partStepMs(part));
+        }
+    }
+    return split;
+}
+
 void fillView(GameSession& session, SessionView& view, const SessionView* previous, uint64_t& boardRevision,
               float slotCells, bool drawing, FieldSize& field) {
     Simulation& simulation = session.simulation();
@@ -176,8 +190,8 @@ void fillView(GameSession& session, SessionView& view, const SessionView* previo
     view.refilling = session.ballsLeftToRefill();
     view.backendFault = session.lastBackendFault();
     view.deviceStepMs = simulation.backend().deviceStepMs();
-    if (const auto* hybrid = dynamic_cast<const HybridBackend*>(&simulation.backend())) {
-        view.hybrid = HybridSplit{hybrid->cpuBallCount(), hybrid->ballCount(), hybrid->cpuStepMs(), hybrid->gpuStepMs()};
+    if (const auto* composer = dynamic_cast<const DeviceComposer*>(&simulation.backend())) {
+        view.hybrid = hostDeviceSplit(*composer);
     } else {
         view.hybrid.reset();
     }

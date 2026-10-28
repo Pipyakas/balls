@@ -4,9 +4,8 @@ A ball-bouncing, brick-breaking color game for Windows, written in C++20.
 It has an engine-agnostic core (`source/core/`) and an SDL3 front end (`source/frontends/sdl/`) with Dear ImGui for text and
 widgets. Rendering sits behind `IRenderer`: NVRHI (Direct3D 12 or Vulkan) on Windows, Linux and macOS (via
 MoltenVK), and SDL_GPU for Android and other SDL targets. The physics can run on
-interchangeable backends: a scalar reference, AVX2 multithreaded, CUDA, Vulkan compute, CUDA+AVX2, a fixed split
-of the balls between those two, and Hybrid, which runs one backend on each device the player picks (the CPU and
-every GPU) and splits the balls between all of them (see [data/docs/hybrid-physics.md](data/docs/hybrid-physics.md)).
+interchangeable backends: a scalar reference, AVX2 multithreaded, CUDA, Vulkan compute, and Hybrid, which runs one
+backend on each device the player picks (the CPU and every GPU) and splits the balls between all of them (see [data/docs/hybrid-physics.md](data/docs/hybrid-physics.md)).
 
 ## Features
 

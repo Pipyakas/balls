@@ -291,10 +291,10 @@ void DeviceComposer::updateShares() {
 // The trial's own measurements skip steps that moved balls between parts, and the baseline is taken after the
 // trigger rather than from the slow steps that set it off.
 //
-// The CPU is never parked beside a GPU, as the CUDA+AVX2 pair never parks it: the step time leaves out what the
-// CPU's share saves elsewhere in the frame. On the target PC (i9-14900K, GTX 1650), even the measured trial parked
-// it on Tough and Checker 128 (101-104M balls at 60 FPS against the pair's 119-125M), while never parking matched
-// the pair.
+// The CPU is never parked beside a GPU, as the CUDA+AVX2 pair this replaced never parked it: the step time leaves
+// out what the CPU's share saves elsewhere in the frame. On the target PC (i9-14900K, GTX 1650), even the measured
+// trial parked it on Tough and Checker 128 (101-104M balls at 60 FPS against the pair's 119-125M), while never
+// parking matched the pair.
 void DeviceComposer::parkLosingParts(double wallMs, bool movedBalls) {
     if (!settings.parkLosingParts) {
         return;
