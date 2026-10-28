@@ -172,7 +172,9 @@ std::shared_ptr<PluginModule> loadPlugin(std::string_view fileName, bool freshCo
 
 const PluginModule& queryPlugin(BackendKind kind) {
     static std::mutex mutex;
-    static std::map<std::string_view, std::shared_ptr<PluginModule>> cache;
+    // Never destroyed: unloading a GPU plugin from a static destructor at exit closes its devices after the
+    // drivers' own exit handlers ran, which crashes (seen with RADV and NVIDIA together).
+    static auto& cache = *new std::map<std::string_view, std::shared_ptr<PluginModule>>();
     std::lock_guard lock(mutex);
     const std::string_view fileName = backendPluginFileName(kind);
     auto& module = cache[fileName];
