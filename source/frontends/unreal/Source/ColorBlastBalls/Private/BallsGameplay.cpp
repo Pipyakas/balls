@@ -137,7 +137,27 @@ void FBallsGameplay::Tick(float DeltaSeconds, double FrameSeconds, double WorkSe
         return;
     }
     Session->reportFrameSeconds(FrameSeconds, WorkSeconds);
+    // A backend switch builds in the background; the balls stay with the old backend until it reports in.
+    Session->pollBackgroundWork();
     Session->update(DeltaSeconds);
+
+    if (const std::optional<BackendSwitchOutcome> Outcome = Session->takeBackendSwitchOutcome()) {
+        if (Outcome->succeeded) {
+            // A switch inside a game lasts for that game only; the Settings page owns the remembered default.
+            ShowToast(TEXT("Backend: ") + BallsText::FromUtf8(backendKindName(Outcome->kind)), false);
+            if (bCollisionsNeedScalar) {
+                bCollisionsNeedScalar = false;
+                Session->simulation().setBallCollisions(true);
+                ShowToast(TEXT("Ball collisions need the Scalar backend - switched to Scalar."), false);
+            }
+            ApplyDefaultBallLimit();
+        } else {
+            bCollisionsNeedScalar = false;
+            ShowToast(FString::Printf(TEXT("%s failed: %s"), *BallsText::FromUtf8(backendKindName(Outcome->kind)),
+                                      *BallsText::FromUtf8(Session->lastBackendFault())),
+                      true);
+        }
+    }
 
     const CapacityProbe& Probe = Session->capacityProbe();
     if (Probe.isActive()) {
@@ -169,10 +189,11 @@ void FBallsGameplay::ApplySettings() {
     Simulation& Sim = Session->simulation();
     const bool bWanted = App.GetSettings().ballCollisions;
     Sim.setBallCollisions(bWanted);
-    // Only the Scalar backend implements collisions; asking for them elsewhere moves the game to Scalar.
-    if (bWanted && !Sim.ballCollisionsActive() && Session->switchBackend(BackendKind::Scalar)) {
-        Session->simulation().setBallCollisions(true);
-        ShowToast(TEXT("Ball collisions need the Scalar backend - switched to Scalar."), false);
+    // Only the Scalar backend implements collisions; asking for them elsewhere moves the game to Scalar. The switch
+    // finishes on a later frame, so Tick reports it once the new backend has adopted the balls.
+    if (bWanted && !Sim.ballCollisionsActive() && Session->backend() != BackendKind::Scalar && isBackendAvailable(BackendKind::Scalar)) {
+        bCollisionsNeedScalar = true;
+        Session->requestBackend(BackendKind::Scalar);
     }
 }
 
@@ -212,14 +233,15 @@ void FBallsGameplay::SwitchBackend(BackendKind Kind) {
         return;
     }
     const FString Name = BallsText::FromUtf8(backendKindName(Kind));
-    if (Session->switchBackend(Kind)) {
-        ApplyDefaultBallLimit();
-        ShowToast(TEXT("Backend: ") + Name, false);
-    } else {
+    if (!isBackendAvailable(Kind)) {
         ShowToast(FString::Printf(TEXT("%s unavailable: %s"), *Name,
                                   *BallsText::FromUtf8(backendUnavailableReason(Kind))),
                   true);
+        return;
     }
+    // Building the backend takes long enough to run in the background, so the game keeps playing on the old one and
+    // Tick reports the switch when it lands.
+    Session->requestBackend(Kind);
 }
 
 void FBallsGameplay::Restart() {
