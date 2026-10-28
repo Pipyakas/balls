@@ -68,6 +68,8 @@ struct BoardUpload {
     std::span<const int32_t> brickHitsLeft;
     std::span<const int32_t> changedCells;
     bool onlyChangedCells = false;
+    // (brick, hits left) pairs for the bricks the host hit, sent instead of brickHitsLeft to backends that accept them.
+    std::span<const int32_t> brickHitUpdates;
 };
 
 struct GpuRoofline {
@@ -140,6 +142,7 @@ public:
     // The share of the visibility grid this backend's balls have to fill. Hybrid draws the CPU's balls over the GPU's
     // full grid, so the CPU side samples only in proportion to the balls it holds.
     virtual void setRenderSampleShare(double) {}
+    virtual bool acceptsBrickHitUpdates() const { return false; }
 };
 
 using CreateBackendFunction = PhysicsBackend* (*)(const char* kindName);

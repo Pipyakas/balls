@@ -73,6 +73,8 @@ private:
     SimulationTuning settings;
     BackendHandle physics;
     std::vector<int32_t> uploadedBrickHitsLeft;
+    std::vector<int32_t> hostHitBricks;
+    std::vector<int32_t> brickHitUpdates;
     BrickBoard brickBoard;
     TargetField targetField;
     uint64_t uploadedRevision = ~0ull;

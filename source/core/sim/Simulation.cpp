@@ -186,7 +186,23 @@ void Simulation::syncBoardIfChanged() {
         targetsUploadPending = targetField.requestRebuild(brickBoard) || targetsUploadPending;
     }
     const bool onlyChangedCells = uploadedRevision != ~0ull;
-    const bool sendHits = hostHitsPending || hitsUploadPending;
+    // Hybrid's CPU side reports its hits to the host every tick; on a board of millions of bricks re-sending every
+    // brick's count each time cost tens of milliseconds, so only the bricks hit are sent where the backend takes that.
+    constexpr size_t wholeUploadDivisor = 8;
+    const bool sendHitUpdates = hostHitsPending && !hitsUploadPending && physics->acceptsBrickHitUpdates() &&
+                                hostHitBricks.size() <= brickBoard.bricks().size() / wholeUploadDivisor;
+    const bool sendHits = (hostHitsPending || hitsUploadPending) && !sendHitUpdates;
+    brickHitUpdates.clear();
+    if (sendHitUpdates) {
+        std::ranges::sort(hostHitBricks);
+        const auto [first, last] = std::ranges::unique(hostHitBricks);
+        hostHitBricks.erase(first, last);
+        for (const int32_t brick : hostHitBricks) {
+            brickHitUpdates.push_back(brick);
+            brickHitUpdates.push_back(std::max(brickBoard.bricks()[brick].hitsLeft, 0));
+        }
+    }
+    hostHitBricks.clear();
     if (sendHits) {
         uploadedBrickHitsLeft = brickBoard.hitsLeftPerBrick();
     }
@@ -197,7 +213,8 @@ void Simulation::syncBoardIfChanged() {
     const std::span<const int32_t> targets =
         targetsUploadPending ? std::span<const int32_t>(targetField.targetCells()) : std::span<const int32_t>{};
     physics->uploadBoard({brickBoard.columns(), brickBoard.rows(), brickBoard.paddedCells(), brickBoard.brickColors(),
-                          targets, brickBoard.nearBrickFlags(), hitsLeft, brickBoard.changedCells(), onlyChangedCells});
+                          targets, brickBoard.nearBrickFlags(), hitsLeft, brickBoard.changedCells(), onlyChangedCells,
+                          brickHitUpdates});
     brickBoard.clearChangedCells();
     targetsUploadPending = false;
     uploadedRevision = brickBoard.revision();
@@ -238,6 +255,9 @@ void Simulation::resolveHits() {
         brickBoard.applyHit(hit.brick);
         anyDestroyed = anyDestroyed || !brickBoard.bricks()[hit.brick].isAlive();
         killedBalls.push_back(hit.ball);
+        if (physics->acceptsBrickHitUpdates()) {
+            hostHitBricks.push_back(static_cast<int32_t>(hit.brick));
+        }
         --statistics.ballsByColor[toIndex(brickBoard.bricks()[hit.brick].color)];
     }
     statistics.totalHits += killedBalls.size();

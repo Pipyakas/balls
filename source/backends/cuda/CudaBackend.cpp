@@ -214,6 +214,7 @@ CudaBackend::~CudaBackend() {
          {balls.position, balls.state, balls.packed, paddedCells.pointer,
           brickColors.pointer, targetCells.pointer, cellWords.pointer, brickHitsLeft.pointer, killedIndices.pointer, holes.pointer,
           counters.pointer, gridSlots.pointer, gridPacked.pointer, cellCursors.pointer, cellWordUpdates.pointer,
+          brickHitUpdates.pointer,
           sortedPosition, sortedState}) {
         if (pointer) {
             api.memFree(pointer);
@@ -470,6 +471,17 @@ void CudaBackend::uploadBoard(const BoardUpload& board) {
     }
     if (!board.brickHitsLeft.empty()) {
         uploadBrickHits(board.brickHitsLeft);
+    }
+    if (!board.brickHitUpdates.empty() && brickHitsLeft.pointer != 0) {
+        upload(brickHitUpdates, board.brickHitUpdates.data(), board.brickHitUpdates.size_bytes());
+        CUdeviceptr updatesPointer = brickHitUpdates.pointer;
+        CUdeviceptr hitsPointer = brickHitsLeft.pointer;
+        int updateCount = static_cast<int>(board.brickHitUpdates.size() / 2);
+        void* arguments[] = {&updatesPointer, &updateCount, &hitsPointer};
+        launch(applyCellWordsFunction, static_cast<size_t>(updateCount), arguments, "apply brick hit updates");
+        for (size_t i = 0; i + 1 < board.brickHitUpdates.size(); i += 2) {
+            hostBrickHitsLeft[static_cast<size_t>(board.brickHitUpdates[i])] = board.brickHitUpdates[i + 1];
+        }
     }
     fieldWidth = static_cast<float>(board.columns);
     fieldHeight = static_cast<float>(board.rows);

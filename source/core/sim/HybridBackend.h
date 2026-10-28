@@ -23,6 +23,7 @@ public:
     BallTally truncate(size_t newCount) override;
     std::string_view faultMessage() const override;
     bool resolvesHitsOnDevice() const override { return true; }
+    bool acceptsBrickHitUpdates() const override { return gpu->acceptsBrickHitUpdates(); }
     DeviceHitResults deviceHitResults() const override { return gpu->deviceHitResults(); }
     void setVisibilityGrid(int width, int height) override;
     double deviceStepMs() const override { return gpu->deviceStepMs(); }
