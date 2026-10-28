@@ -87,6 +87,8 @@ private:
         double share = 0.0;
         double lastMs = 0.0;
         size_t steppedBalls = 0;
+        size_t windowBalls = 0;
+        double windowMs = 0.0;
         std::vector<BallHit> hits;
         std::vector<int32_t> budget;
     };
@@ -105,6 +107,7 @@ private:
     std::vector<Part> parts;
     size_t deviceParts = 0;
     int shareMeasurements = 0;
+    int windowSteps = 0;
     // Brick budgets, used when two or more parts resolve hits on the device.
     std::vector<int32_t> brickHits;
     uint32_t budgetEpoch = 0;

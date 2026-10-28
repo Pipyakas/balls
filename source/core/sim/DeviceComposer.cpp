@@ -18,6 +18,11 @@ constexpr double minimumShare = 0.01;
 constexpr double shareSmoothing = 0.1;
 constexpr double settlingSmoothing = 0.35;
 constexpr int settlingMeasurements = 24;
+// Steps whose times are added up before a share is measured from them. One step's time on a board where most balls
+// hit bricks varies threefold for the CPU (hits, freshly moved unsorted balls), and shares measured per step made the
+// CPU's balls swing between 4M and 21M of 60M from frame to frame on the target PC, each swing a costly move.
+constexpr int settlingWindowSteps = 4;
+constexpr int settledWindowSteps = 16;
 constexpr double slotSelectionRange = 4294967296.0;
 
 using Clock = std::chrono::steady_clock;
@@ -241,29 +246,45 @@ void DeviceComposer::rebalance() {
 // Each measured part's share becomes its throughput over the measured parts' total, smoothed; parts with too few
 // balls to time keep theirs.
 void DeviceComposer::updateShares() {
+    for (Part& part : parts) {
+        part.windowBalls += part.steppedBalls;
+        part.windowMs += part.lastMs;
+    }
+    const bool settling = shareMeasurements < settlingMeasurements;
+    if (++windowSteps < (settling ? settlingWindowSteps : settledWindowSteps)) {
+        return;
+    }
+    windowSteps = 0;
     double measuredShare = 0.0;
     double measuredSpeed = 0.0;
     size_t measured = 0;
     const auto measurable = [this](const Part& part) {
-        return part.steppedBalls >= settings.minimumBallsToMeasure && part.lastMs > 0.0;
+        return part.windowBalls >= settings.minimumBallsToMeasure && part.windowMs > 0.0;
     };
+    const auto speed = [](const Part& part) { return static_cast<double>(part.windowBalls) / part.windowMs; };
     for (const Part& part : parts) {
         if (measurable(part)) {
             measuredShare += part.share;
-            measuredSpeed += static_cast<double>(part.steppedBalls) / part.lastMs;
+            measuredSpeed += speed(part);
             ++measured;
         }
     }
     if (measured < 2 || measuredSpeed <= 0.0) {
+        for (Part& part : parts) {
+            part.windowBalls = 0;
+            part.windowMs = 0.0;
+        }
         return;
     }
     const double smoothing = shareMeasurements < settlingMeasurements ? settlingSmoothing : shareSmoothing;
     ++shareMeasurements;
     for (Part& part : parts) {
         if (measurable(part)) {
-            const double balanced = measuredShare * (static_cast<double>(part.steppedBalls) / part.lastMs) / measuredSpeed;
+            const double balanced = measuredShare * speed(part) / measuredSpeed;
             part.share += smoothing * (std::max(balanced, minimumShare) - part.share);
         }
+        part.windowBalls = 0;
+        part.windowMs = 0.0;
     }
     const double total = std::accumulate(parts.begin(), parts.end(), 0.0,
                                          [](double sum, const Part& part) { return sum + part.share; });
