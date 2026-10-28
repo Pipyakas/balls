@@ -190,6 +190,7 @@ private:
 
     std::vector<RendererRect> pendingRects;
     BallDrawRequest pendingBalls;
+    std::vector<uint32_t> ballWords;
     bool hasBalls = false;
     size_t gridCells = 0;
     uint32_t gridWidth = 0;
@@ -434,9 +435,15 @@ void SdlGpuRenderer::drawRects(std::span<const RendererRect> rects) {
     pendingRects.insert(pendingRects.end(), rects.begin(), rects.end());
 }
 
+// The ball words live in the physics backend, which a control request or a UI action later in the same frame may
+// reallocate or free, so they are copied out when handed over.
 void SdlGpuRenderer::drawBalls(const BallDrawRequest& request) {
     pendingBalls = request;
     hasBalls = request.count > 0 && request.packed;
+    if (hasBalls) {
+        ballWords.assign(request.packed, request.packed + request.count);
+        pendingBalls.packed = ballWords.data();
+    }
 }
 
 void SdlGpuRenderer::uploadFrameData(SDL_GPUCommandBuffer* commandBuffer) {

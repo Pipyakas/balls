@@ -124,6 +124,8 @@ private:
     std::unique_ptr<GraphicsDevice> graphics;
     nvrhi::IDevice* device;
     nvrhi::CommandListHandle commandList;
+    nvrhi::CommandListHandle ballUploadList;
+    bool ballsUploaded = false;
     ImguiNvrhi imgui;
     bool imguiReady = false;
 
@@ -261,6 +263,7 @@ bool NvrhiRenderer::createPipelines(std::string& error) {
 
 bool NvrhiRenderer::initialize(GraphicsApi api, std::string& error) {
     commandList = device->createCommandList();
+    ballUploadList = device->createCommandList();
     for (size_t slot = 0; slot < framesInFlight; ++slot) {
         frameEvents[slot] = device->createEventQuery();
         frameTimers[slot] = device->createTimerQuery();
@@ -401,9 +404,20 @@ void NvrhiRenderer::drawRects(std::span<const RendererRect> rects) {
     pendingRects.insert(pendingRects.end(), rects.begin(), rects.end());
 }
 
+// The ball words live in the physics backend, which a control request or a UI action later in the same frame may
+// reallocate or free, so they are copied out here: writeBuffer copies into upload memory when it is called.
 void NvrhiRenderer::drawBalls(const BallDrawRequest& request) {
     pendingBalls = request;
     hasBalls = request.count > 0 && request.packed;
+    if (!hasBalls) {
+        return;
+    }
+    ensureBuffer(ballBuffer, ballCapacity, request.count * storageWord, storageWord, false, false, "balls");
+    ballUploadList->open();
+    ballUploadList->writeBuffer(ballBuffer, request.packed, request.count * storageWord);
+    ballUploadList->close();
+    pendingBalls.packed = nullptr;
+    ballsUploaded = true;
 }
 
 void NvrhiRenderer::dispatch(nvrhi::IComputePipeline* pipeline, nvrhi::IBindingSet* inputs, nvrhi::IBindingSet* outputs,
@@ -524,9 +538,6 @@ void NvrhiRenderer::endFrame(ClearColor clearColor) {
     if (!pendingRects.empty()) {
         ensureBuffer(rectBuffer, rectCapacity, pendingRects.size() * sizeof(RendererRect), rectStride, false, false, "rects");
     }
-    if (hasBalls) {
-        ensureBuffer(ballBuffer, ballCapacity, pendingBalls.count * storageWord, storageWord, false, false, "balls");
-    }
     ensureBindingSets();
     commandList->open();
     commandList->beginTimerQuery(frameTimers[frameSlot]);
@@ -537,7 +548,6 @@ void NvrhiRenderer::endFrame(ClearColor clearColor) {
         commandList->writeBuffer(rectBuffer, pendingRects.data(), pendingRects.size() * sizeof(RendererRect));
     }
     if (hasBalls) {
-        commandList->writeBuffer(ballBuffer, pendingBalls.packed, pendingBalls.count * storageWord);
         runBallVisibility();
     }
     drawScene(clearColor);
@@ -556,6 +566,10 @@ void NvrhiRenderer::endFrame(ClearColor clearColor) {
     }
     commandList->endTimerQuery(frameTimers[frameSlot]);
     commandList->close();
+    if (ballsUploaded) {
+        device->executeCommandList(ballUploadList);
+        ballsUploaded = false;
+    }
     device->executeCommandList(commandList);
     device->setEventQuery(frameEvents[frameSlot], nvrhi::CommandQueue::Graphics);
     frameSubmitted[frameSlot] = true;
