@@ -3,6 +3,7 @@
 #include "sim/PhysicsBackend.h"
 #include "sim/SortSchedule.h"
 #include "cuda/CudaDriver.h"
+#include "cuda/GrowableDeviceArray.h"
 
 #include <array>
 #include <string>
@@ -78,6 +79,9 @@ private:
     bool launch(CUfunction function, size_t threads, void** arguments, const char* what);
     bool ensureBallCapacity(size_t required);
     bool growThroughHost(size_t wanted);
+    bool reserveGrowableArrays();
+    uint32_t* uploadStaging(size_t balls);
+    bool growInPlaceTo(size_t required);
     void ensurePackedCapacity(size_t required);
     void ensureArray(DeviceArray& array, size_t bytes);
     void upload(DeviceArray& array, const void* data, size_t bytes);
@@ -132,6 +136,17 @@ private:
     CUdeviceptr sortedPosition = 0;
     CUdeviceptr sortedState = 0;
     size_t sortedCapacity = 0;
+    // Where the driver can map memory onto reserved addresses, the ball and sort arrays grow in place.
+    bool growInPlace = false;
+    // Launched balls are encoded into pinned memory and copied without waiting for the step still running on the GPU;
+    // the event marks when the staging memory may be written again.
+    uint32_t* staging = nullptr;
+    size_t stagingBalls = 0;
+    CUevent stagingRead = nullptr;
+    GrowableDeviceArray positionArray;
+    GrowableDeviceArray stateArray;
+    GrowableDeviceArray sortedPositionArray;
+    GrowableDeviceArray sortedStateArray;
     SortSchedule sortSchedule;
     int sortColumns = 1;
     int sortRows = 1;

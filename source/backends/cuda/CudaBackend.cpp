@@ -13,6 +13,7 @@ constexpr unsigned int writeDiscardFlag = 0x02;
 constexpr size_t stateArrayCount = 2;
 constexpr size_t capacityGranule = size_t{1} << 20;
 constexpr size_t growthDivisor = 4;
+constexpr size_t growInPlaceBalls = size_t{1} << 24;
 constexpr size_t heldBytesPerBall = 8;
 // Kept free for the visibility grid, the render interop buffer and the driver.
 constexpr size_t deviceMemoryReserve = size_t{256} << 20;
@@ -145,11 +146,13 @@ CudaBackend::CudaBackend() : driver(CudaDriver::instance()) {
         fault = "CUDA kernels missing from module";
         return;
     }
+    growInPlace = reserveGrowableArrays();
     ensureBallCapacity(initialBallCapacity);
     ensureArray(counters, sizeof(FrameCounters));
     if (driver.api().eventCreate) {
         driver.api().eventCreate(&stepStarted, CU_EVENT_DEFAULT);
         driver.api().eventCreate(&stepFinished, CU_EVENT_DEFAULT);
+        driver.api().eventCreate(&stagingRead, CU_EVENT_DISABLE_TIMING);
     }
 }
 
@@ -214,10 +217,19 @@ CudaBackend::~CudaBackend() {
     driver.makeCurrent();
     releaseRenderBuffer();
     const auto& api = driver.api();
-    for (CUevent event : {stepStarted, stepFinished}) {
+    if (staging) {
+        api.memFreeHost(staging);
+    }
+    for (CUevent event : {stepStarted, stepFinished, stagingRead}) {
         if (event && api.eventDestroy) {
             api.eventDestroy(event);
         }
+    }
+    if (growInPlace) {
+        for (GrowableDeviceArray* array : {&positionArray, &stateArray, &sortedPositionArray, &sortedStateArray}) {
+            array->release();
+        }
+        balls.position = balls.state = sortedPosition = sortedState = 0;
     }
     for (CUdeviceptr pointer :
          {balls.position, balls.state, balls.packed, paddedCells.pointer,
@@ -296,6 +308,9 @@ bool CudaBackend::ensureBallCapacity(size_t required) {
     if (required <= capacity) {
         return true;
     }
+    if (growInPlace) {
+        return growInPlaceTo(required);
+    }
     releaseSortBuffers();
     const auto& api = driver.api();
     const auto roundUp = [](size_t balls) { return (balls + capacityGranule - 1) / capacityGranule * capacityGranule; };
@@ -325,6 +340,79 @@ bool CudaBackend::ensureBallCapacity(size_t required) {
         return true;
     }
     return growThroughHost(roundUp(required));
+}
+
+// Pinned memory for three words a ball, or null where the driver can't copy from it asynchronously. Waits only for
+// the previous upload to have been read, which the GPU does long before the next frame's launches.
+uint32_t* CudaBackend::uploadStaging(size_t balls) {
+    const auto& api = driver.api();
+    if (!api.memcpyHostToDeviceAsync || !stagingRead || balls == 0) {
+        return nullptr;
+    }
+    api.eventSynchronize(stagingRead);
+    if (stagingBalls < balls) {
+        constexpr size_t minimumStagingBalls = size_t{1} << 16;
+        const size_t wanted = std::max({balls, stagingBalls * 2, minimumStagingBalls});
+        if (staging) {
+            api.memFreeHost(staging);
+        }
+        staging = nullptr;
+        stagingBalls = 0;
+        void* memory = nullptr;
+        if (api.memAllocHost(&memory, wanted * 3 * sizeof(uint32_t)) != CUDA_SUCCESS) {
+            return nullptr;
+        }
+        staging = static_cast<uint32_t*>(memory);
+        stagingBalls = wanted;
+    }
+    return staging;
+}
+
+// Each array may grow to all of device memory; addresses cost nothing until memory is mapped onto them.
+bool CudaBackend::reserveGrowableArrays() {
+    if (!GrowableDeviceArray::supported(driver)) {
+        return false;
+    }
+    size_t freeBytes = 0;
+    size_t totalBytes = 0;
+    if (driver.api().memGetInfo(&freeBytes, &totalBytes) != CUDA_SUCCESS) {
+        return false;
+    }
+    for (GrowableDeviceArray* array : {&positionArray, &stateArray, &sortedPositionArray, &sortedStateArray}) {
+        if (!array->reserve(driver, totalBytes)) {
+            for (GrowableDeviceArray* reserved : {&positionArray, &stateArray, &sortedPositionArray, &sortedStateArray}) {
+                reserved->release();
+            }
+            return false;
+        }
+    }
+    balls.position = positionArray.pointer();
+    balls.state = stateArray.pointer();
+    sortedPosition = sortedPositionArray.pointer();
+    sortedState = sortedStateArray.pointer();
+    return true;
+}
+
+// Mapped memory grows in fixed steps: nothing is copied, so there is no reason to grow geometrically, and mapping a
+// quarter of a large array at once took one frame 165 ms.
+// Balls come before sorting: when memory runs out, the sort buffers give theirs back and the growth is tried again.
+bool CudaBackend::growInPlaceTo(size_t required) {
+    const auto roundUp = [](size_t balls) { return (balls + capacityGranule - 1) / capacityGranule * capacityGranule; };
+    const auto grow = [&](size_t wanted) {
+        return positionArray.growTo(wanted * 4) && stateArray.growTo(wanted * 4);
+    };
+    for (const size_t wanted : {roundUp(std::max(required, capacity + growInPlaceBalls)), roundUp(required)}) {
+        if (grow(wanted)) {
+            capacity = wanted;
+            return true;
+        }
+        releaseSortBuffers();
+        if (grow(wanted)) {
+            capacity = wanted;
+            return true;
+        }
+    }
+    return false;
 }
 
 // Near the top of device memory the old and new arrays do not fit side by side, so the balls wait in host memory
@@ -457,7 +545,11 @@ void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {
         return;
     }
     const size_t added = std::min(spawns.size(), capacity - count);
-    std::vector<uint32_t> position(added), state(added), packed(added);
+    uint32_t* pinned = uploadStaging(added);
+    std::vector<uint32_t> pageable(pinned ? 0 : added * 3);
+    uint32_t* const position = pinned ? pinned : pageable.data();
+    uint32_t* const state = position + added;
+    uint32_t* const packed = state + added;
     ballSpeed = std::max(std::hypot(spawns.front().vx, spawns.front().vy), 1e-6f);
     const float inverseSpeedScale = 1.0f / ballSpeed;
     const unsigned int ticksSinceEpoch = clockTick - freeFlightEpoch;
@@ -493,10 +585,19 @@ void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {
     });
     const auto& api = driver.api();
     const size_t offset = count * 4;
-    succeeded(api.memcpyHostToDevice(balls.position + offset, position.data(), added * 4), "upload position");
-    succeeded(api.memcpyHostToDevice(balls.state + offset, state.data(), added * 4), "upload state");
-    if (count + added <= packedCapacity) {
-        succeeded(api.memcpyHostToDevice(balls.packed + offset, packed.data(), added * 4), "upload packed");
+    const bool withPacked = count + added <= packedCapacity;
+    if (pinned) {
+        succeeded(api.memcpyHostToDeviceAsync(balls.position + offset, position, added * 4, nullptr), "upload position") &&
+            succeeded(api.memcpyHostToDeviceAsync(balls.state + offset, state, added * 4, nullptr), "upload state") &&
+            (!withPacked ||
+             succeeded(api.memcpyHostToDeviceAsync(balls.packed + offset, packed, added * 4, nullptr), "upload packed"));
+        api.eventRecord(stagingRead, nullptr);
+    } else {
+        succeeded(api.memcpyHostToDevice(balls.position + offset, position, added * 4), "upload position");
+        succeeded(api.memcpyHostToDevice(balls.state + offset, state, added * 4), "upload state");
+        if (withPacked) {
+            succeeded(api.memcpyHostToDevice(balls.packed + offset, packed, added * 4), "upload packed");
+        }
     }
     count += added;
     snapshotFresh = false;
@@ -642,6 +743,10 @@ void CudaBackend::step(const StepParams& params, std::vector<BallHit>&) {
     if (sorting) {
         std::swap(balls.position, sortedPosition);
         std::swap(balls.state, sortedState);
+        if (growInPlace) {
+            std::swap(positionArray, sortedPositionArray);
+            std::swap(stateArray, sortedStateArray);
+        }
     }
     if (stepFinished) {
         api.eventRecord(stepFinished, nullptr);
@@ -818,6 +923,12 @@ bool CudaBackend::downloadGrid() {
 }
 
 void CudaBackend::releaseSortBuffers() {
+    if (growInPlace) {
+        sortedPositionArray.shrinkTo(0);
+        sortedStateArray.shrinkTo(0);
+        sortedCapacity = 0;
+        return;
+    }
     for (CUdeviceptr* buffer : {&sortedPosition, &sortedState}) {
         if (*buffer) {
             driver.api().memFree(*buffer);
@@ -828,6 +939,17 @@ void CudaBackend::releaseSortBuffers() {
 }
 
 bool CudaBackend::ensureSortBuffers() {
+    if (growInPlace) {
+        if (sortedCapacity == capacity) {
+            return true;
+        }
+        if (sortedPositionArray.growTo(capacity * 4) && sortedStateArray.growTo(capacity * 4)) {
+            sortedCapacity = capacity;
+            return true;
+        }
+        releaseSortBuffers();
+        return false;
+    }
     if (sortedCapacity == capacity && sortedPosition && sortedState) {
         return true;
     }

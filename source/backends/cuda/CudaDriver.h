@@ -22,6 +22,7 @@ struct CudaDriverApi {
     decltype(&::cuMemAllocHost_v2) memAllocHost = nullptr;
     decltype(&::cuMemFreeHost) memFreeHost = nullptr;
     decltype(&::cuMemcpyHtoD_v2) memcpyHostToDevice = nullptr;
+    decltype(&::cuMemcpyHtoDAsync_v2) memcpyHostToDeviceAsync = nullptr;
     decltype(&::cuMemcpyDtoH_v2) memcpyDeviceToHost = nullptr;
     decltype(&::cuMemcpyDtoD_v2) memcpyDeviceToDevice = nullptr;
     decltype(&::cuMemsetD32_v2) memsetD32 = nullptr;
@@ -34,6 +35,14 @@ struct CudaDriverApi {
     decltype(&::cuEventElapsedTime) eventElapsedTime = nullptr;
     decltype(&::cuEventDestroy_v2) eventDestroy = nullptr;
     decltype(&::cuDeviceGetAttribute) deviceGetAttribute = nullptr;
+    decltype(&::cuMemAddressReserve) memAddressReserve = nullptr;
+    decltype(&::cuMemAddressFree) memAddressFree = nullptr;
+    decltype(&::cuMemCreate) memCreate = nullptr;
+    decltype(&::cuMemRelease) memRelease = nullptr;
+    decltype(&::cuMemMap) memMap = nullptr;
+    decltype(&::cuMemUnmap) memUnmap = nullptr;
+    decltype(&::cuMemSetAccess) memSetAccess = nullptr;
+    decltype(&::cuMemGetAllocationGranularity) memGetAllocationGranularity = nullptr;
     CUresult(CUDAAPI* graphicsGlRegisterBuffer)(CUgraphicsResource*, unsigned int, unsigned int) = nullptr;
     decltype(&::cuGraphicsUnregisterResource) graphicsUnregisterResource = nullptr;
     decltype(&::cuGraphicsMapResources) graphicsMapResources = nullptr;
@@ -49,6 +58,7 @@ public:
     const std::string& error() const { return errorMessage; }
     const std::string& deviceName() const { return gpuName; }
     int deviceAttribute(CUdevice_attribute attribute) const;
+    CUdevice cudaDevice() const { return device; }
     const CudaDriverApi& api() const { return functions; }
     CUfunction function(const char* name) const;
     void makeCurrent() const;
