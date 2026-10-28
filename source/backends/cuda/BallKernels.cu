@@ -145,17 +145,36 @@ __device__ __forceinline__ void bidForSlot(unsigned int packed, unsigned int ind
     }
 }
 
-__device__ __forceinline__ bool tryConsumeHit(int* hitsLeft) {
-    int current = *hitsLeft;
-    while (current > 0) {
-        const int previous = atomicCAS(hitsLeft, current, current - 1);
-        if (previous == current) {
-            return true;
-        }
-        current = previous;
+// A ball takes a hit by subtracting first and refunding when the brick had none left, which gives out exactly the
+// brick's hits without a compare-and-swap loop. When a launch wave reaches a row of bricks, hundreds of thousands of
+// balls hit the same few in one tick; their CAS retries serialized into 150 ms steps. Lanes of a warp hitting the same
+// brick also share one atomic where the GPU can group them.
+#if defined(BALLS_RANK_WITH_ATOMICS)
+__device__ __forceinline__ bool consumeBrickHit(int* brickHitsLeft, int brick) {
+    if (atomicSub(&brickHitsLeft[brick], 1) > 0) {
+        return true;
     }
+    atomicAdd(&brickHitsLeft[brick], 1);
     return false;
 }
+#else
+__device__ __forceinline__ bool consumeBrickHit(int* brickHitsLeft, int brick) {
+    const unsigned int peers = __match_any_sync(__activemask(), brick);
+    const int lane = static_cast<int>(threadIdx.x) & 31;
+    const int leader = __ffs(peers) - 1;
+    const int wanted = __popc(peers);
+    int granted = 0;
+    if (lane == leader) {
+        const int previous = atomicSub(&brickHitsLeft[brick], wanted);
+        granted = max(0, min(previous, wanted));
+        if (granted < wanted) {
+            atomicAdd(&brickHitsLeft[brick], wanted - granted);
+        }
+    }
+    granted = __shfl_sync(peers, granted, leader);
+    return __popc(peers & ((1u << lane) - 1u)) < granted;
+}
+#endif
 
 extern "C" __global__ void gridToRenderKernel(const unsigned long long* slots, int cells, unsigned int* renderSlots) {
     const int index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -328,7 +347,7 @@ __device__ __forceinline__ void stepOneBall(unsigned int target, unsigned int st
     } else if (target < packedCapacity) {
         packedOut[target] = packed;
     }
-    if (brick != noBrickHit && tryConsumeHit(&brickHitsLeft[brick])) {
+    if (brick != noBrickHit && consumeBrickHit(brickHitsLeft, static_cast<int>(brick))) {
         const unsigned int slot = atomicAdd(&counters->killedCount, 1u);
         if (slot < killedCapacity) {
             outState[target] = deadColor << colorShift;
