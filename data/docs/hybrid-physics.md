@@ -158,3 +158,27 @@ The machine benchmark (balls at 60 FPS) is dominated by free flight there: the b
 growing with the ball count, so the score is the memory a backend can hold. Vulkan alone reports no memory limit
 and wins with "no limit"; Hybrid CUDA + Vulkan scores 2.3 B (capped by device memory), CUDA+AVX2 3.1 B
 (including CPU RAM).
+
+### The composer against the CUDA+AVX2 pair on the target PC
+
+i9-14900K with a GTX 1650 (one GPU, so the only set is `AVX2@cpu+CUDA@gpu0`). Edge sweep (`balls_bench
+--edge-cases`, the game's visibility grid, 120 Hz ticks), balls held at 60 FPS:
+
+| Board | CUDA | CUDA+AVX2 | Hybrid AVX2 + CUDA |
+|---|---|---|---|
+| LoneBrick 128 / 512 / 2048 | 117 / 117 / 120 M | 168 / 192 / 195 M | 176 / 186 / 189 M |
+| Tough 128 / 512 / 2048 | 99 / 103 / 111 M | 120 / 169 / 185 M | 97 / 140 / **10** M |
+| Checker 128 / 512 / 2048 | 86 / 96 / 103 M | 90 / 130 / 191 M | 87 / 94 / 123 M |
+| Empty 128 / 512 / 2048 | 369 / 369 / 336 M (memory) | 7.1 / 6.0 / 6.9 B | 6.9 / 6.1 / 6.9 B |
+
+- Free flight and a lone brick: the composer matches the pair within run-to-run noise (about 10%).
+- Boards where most balls hit bricks every tick: the composer falls back to about CUDA alone, while the pair gains
+  20-65%. The pair takes the board's changes as sparse brick-hit and target-field updates
+  (`acceptsSparseBoardUpdates`); the composer does not forward them, so every changed tick re-uploads the whole
+  board. On Tough 2048 (4M bricks, all hit constantly) that upload is the frame, and the composer holds 10M.
+- The composer also does not forward `setDrawing` (Settings > Advanced > Draw the board) or the CPU's render
+  sample share.
+
+`balls_bench --grid` raw steps (1000-brick level, no `Simulation`) rank them the other way: CUDA 7.0-7.5 G
+ball-steps/s, composer 6.6-7.1 G, pair 3.8-4.0 G. Raw steps skip the board updates, launch pacing and drawing the
+game does, so the edge sweep is the one that reflects play.
