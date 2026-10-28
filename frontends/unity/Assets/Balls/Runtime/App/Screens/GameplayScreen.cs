@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Balls.Ecs;
 using Balls.Game;
@@ -39,7 +40,6 @@ namespace Balls.App.Screens
         private const float TwoColumnWidth = 2f * 220f + 16f;
         private const float ProbeContentHeight = 204f;
         private const float SpawnContentHeight = 158f;
-        private const float GpuChoicesHeight = 84f;
         private const int LauncherBallsPerLauncher = 1;
 
         private CoreLayout layout;
@@ -538,7 +538,7 @@ namespace Balls.App.Screens
             Rect inner = widgets.Gadget(gadget, null);
             bool compactLayout = inner.width < TwoColumnWidth;
             float physicsHeight = 24f + AvailableBackendCount() * 38f;
-            float gpuHeight = GpuChoicesHeight;
+            float gpuHeight = GpuChoicesHeight();
             float contentHeight = 52f + ProbeContentHeight + SpawnContentHeight +
                                   (compactLayout ? physicsHeight + gpuHeight : Mathf.Max(physicsHeight, gpuHeight)) + 48f;
             float y = 0f;
@@ -547,7 +547,7 @@ namespace Balls.App.Screens
                 y = content.y;
                 bool compact = compactLayout;
                 float physicsHeight = 24f + AvailableBackendCount() * 38f;
-                float gpuHeight = GpuChoicesHeight;
+                float gpuHeight = GpuChoicesHeight();
                 y += DrawReleaseAndProbe(widgets, backend, session, content, y);
                 y += DrawSpawnControls(widgets, backend, content, y);
                 if (compact)
@@ -653,15 +653,71 @@ namespace Balls.App.Screens
             }
         }
 
-        private static void DrawGpuChoices(Widgets widgets, Rect area)
+        /// <summary>
+        /// The GPU rows: the render adapter is Unity's, so its row names the adapter in use; the compute adapter is the
+        /// Vulkan plugin's and is chosen here, like the SDL front end's list.
+        /// </summary>
+        private void DrawGpuChoices(Widgets widgets, Rect area)
         {
             widgets.Label(new Rect(area.x, area.y, area.width, 22f), "Render GPU", TypeSizes.Small,
                 Palette.Accent, TextAnchor.UpperLeft, true);
-            widgets.Muted(new Rect(area.x, area.y + 22f, area.width, 18f), "Automatic", TypeSizes.Small);
-            widgets.Label(new Rect(area.x, area.y + 40f, area.width, 22f), "Compute GPU (Vulkan)", TypeSizes.Small,
+            string renderGpu = widgets.Ellipsize($"{SystemInfo.graphicsDeviceName} (Automatic)", TypeSizes.Small,
+                area.width - 4f);
+            widgets.Muted(new Rect(area.x, area.y + 22f, area.width, 18f), renderGpu, TypeSizes.Small);
+            float y = area.y + 44f;
+            widgets.Label(new Rect(area.x, y, area.width, 22f), "Compute GPU (Vulkan)", TypeSizes.Small,
                 Palette.Accent, TextAnchor.UpperLeft, true);
-            widgets.Muted(new Rect(area.x, area.y + 62f, area.width, 18f), "Automatic", TypeSizes.Small);
+            y += 24f;
+            string current = BallsNative.ComputeGpu;
+            bool automatic = current.Length == 0 || current.Equals("auto", StringComparison.OrdinalIgnoreCase);
+            if (widgets.OptionRow(new Rect(area.x, y, area.width, 34f), "Automatic", automatic) && !automatic)
+            {
+                ApplyComputeGpu("auto", "Automatic");
+            }
+            y += 38f;
+            foreach (BallsNative.PhysicsDevice device in BallsNative.Devices)
+            {
+                if (!device.vulkan)
+                {
+                    continue;
+                }
+                bool selected = !automatic && current.Equals(device.id, StringComparison.OrdinalIgnoreCase);
+                string detail = device.memoryBytes > 0 ? $"{device.memoryBytes / (1024UL * 1024UL * 1024UL)} GB" : null;
+                if (widgets.OptionRow(new Rect(area.x, y, area.width, 34f), device.name, selected, true, detail))
+                {
+                    ApplyComputeGpu(device.id, device.name);
+                }
+                y += 38f;
+            }
         }
+
+        private void ApplyComputeGpu(string preference, string label)
+        {
+            if (BallsNative.SetComputeGpu(preference))
+            {
+                App.Toast($"Compute GPU: {label}");
+            }
+            else
+            {
+                App.Toast($"No {label} for the Vulkan backend", true);
+            }
+        }
+
+        private int VulkanDeviceCount()
+        {
+            int count = 0;
+            foreach (BallsNative.PhysicsDevice device in BallsNative.Devices)
+            {
+                if (device.vulkan)
+                {
+                    ++count;
+                }
+            }
+            return count;
+        }
+
+        /// <summary>The two GPU headings, plus Automatic and every Vulkan GPU the plugins listed.</summary>
+        private float GpuChoicesHeight() => 44f + 24f + 38f * (1 + VulkanDeviceCount());
 
         private int AvailableBackendCount()
         {

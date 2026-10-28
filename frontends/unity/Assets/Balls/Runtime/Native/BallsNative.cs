@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
 namespace Balls.Native
@@ -53,6 +54,86 @@ namespace Balls.Native
         [DllImport(Library)] public static extern int balls_backend_detail(int kind, byte[] buffer, int size);
 
         [DllImport(Library)] public static extern int balls_fastest_cpu_backend();
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct DeviceRecord
+        {
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string id;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string name;
+            public int type;
+            public ulong memoryBytes;
+            public int vulkanDevice;
+            public int cudaDevice;
+        }
+
+        [DllImport(Library)] private static extern int balls_devices_find(IntPtr devices, int capacity);
+        [DllImport(Library)] private static extern int balls_compute_gpu(byte[] buffer, int size);
+        [DllImport(Library)] private static extern int balls_set_compute_gpu(string preference);
+
+        /// <summary>One device the physics can run on: the CPU, or a GPU the CUDA or Vulkan plugin listed.</summary>
+        public readonly struct PhysicsDevice
+        {
+            public readonly string id;
+            public readonly string name;
+            public readonly int type;
+            public readonly ulong memoryBytes;
+            public readonly bool vulkan;
+
+            internal PhysicsDevice(DeviceRecord record)
+            {
+                id = record.id;
+                name = record.name;
+                type = record.type;
+                memoryBytes = record.memoryBytes;
+                vulkan = record.vulkanDevice >= 0;
+            }
+        }
+
+        private static List<PhysicsDevice> devices;
+
+        /// <summary>
+        /// Every device the plugins report, the CPU first. Enumerated once: the first call opens the GPU drivers.
+        /// </summary>
+        public static IReadOnlyList<PhysicsDevice> Devices => devices ??= ReadDevices();
+
+        private static List<PhysicsDevice> ReadDevices()
+        {
+            var found = new List<PhysicsDevice>();
+            int count = balls_devices_find(IntPtr.Zero, 0);
+            if (count <= 0)
+            {
+                return found;
+            }
+            int stride = Marshal.SizeOf<DeviceRecord>();
+            IntPtr buffer = Marshal.AllocHGlobal(stride * count);
+            try
+            {
+                int written = balls_devices_find(buffer, count);
+                for (int index = 0; index < written; ++index)
+                {
+                    found.Add(new PhysicsDevice(Marshal.PtrToStructure<DeviceRecord>(buffer + index * stride)));
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+            return found;
+        }
+
+        /// <summary>The adapter the Vulkan physics plugin runs on: "auto", an index or a name substring.</summary>
+        public static string ComputeGpu
+        {
+            get
+            {
+                var buffer = new byte[128];
+                int length = balls_compute_gpu(buffer, buffer.Length);
+                return length > 0 ? System.Text.Encoding.UTF8.GetString(buffer, 0, length) : "auto";
+            }
+        }
+
+        /// <summary>Returns false when the core did not match the preference, which leaves the old one in place.</summary>
+        public static bool SetComputeGpu(string preference) => balls_set_compute_gpu(preference) != 0;
 
         [DllImport(Library)] public static extern int balls_levels_find([MarshalAs(UnmanagedType.LPUTF8Str)] string directory, [Out] NativeLevelInfo[] levels, int capacity);
 

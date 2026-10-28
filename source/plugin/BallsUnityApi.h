@@ -212,6 +212,27 @@ BALLS_API int32_t balls_backend_reason(int32_t kind, char* buffer, int32_t size)
 BALLS_API int32_t balls_backend_detail(int32_t kind, char* buffer, int32_t size);
 BALLS_API int32_t balls_fastest_cpu_backend(void);
 
+// One physical device the physics can run on, the CPU first (see sim/DeviceInventory.h). ``type`` is the core's
+// PhysicsDeviceType: 0 CPU, 1 discrete GPU, 2 integrated GPU, 3 other GPU, 4 NPU. A -1 device index means that
+// plugin cannot run on it.
+typedef struct BallsDeviceInfo {
+    char id[32];
+    char name[256];
+    int32_t type;
+    uint64_t memoryBytes;
+    int32_t vulkanDevice;
+    int32_t cudaDevice;
+} BallsDeviceInfo;
+
+// Fills up to ``capacity`` devices and returns how many were written, or the total with a null pointer. The list is
+// built once per process: the plugins open their drivers to answer, so calling this from OnGUI every frame is cheap
+// but the first call is not.
+BALLS_API int32_t balls_devices_find(BallsDeviceInfo* devices, int32_t capacity);
+// The adapter the Vulkan physics plugin runs on: "auto" (default), an index, "integrated"/"discrete", or a name
+// substring; ignored by backends with no adapter choice.
+BALLS_API int32_t balls_compute_gpu(char* buffer, int32_t size);
+BALLS_API int32_t balls_set_compute_gpu(const char* preference);
+
 // --- Levels and settings -------------------------------------------------------------------------------------
 
 // Fills up to capacity entries and returns how many levels the directory holds.

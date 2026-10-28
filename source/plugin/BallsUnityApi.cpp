@@ -9,10 +9,12 @@
 #include "level/LevelWriter.h"
 #include "sim/BackendBenchmark.h"
 #include "sim/BackendFactory.h"
+#include "sim/DeviceInventory.h"
 #include "sim/Simulation.h"
 #include "ui/GameplayLayout.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <memory>
 #include <optional>
@@ -210,6 +212,60 @@ int32_t balls_backend_detail(int32_t kind, char* buffer, int32_t size) {
 
 int32_t balls_fastest_cpu_backend(void) {
     return fromBackendKind(fastestAvailableCpuBackend());
+}
+
+int32_t balls_devices_find(BallsDeviceInfo* devices, int32_t capacity) {
+    // physicalDevices() opens the GPU drivers on its first call, so it is asked once per process and cached there.
+    const std::vector<PhysicalDevice>& found = physicalDevices();
+    const int32_t count = static_cast<int32_t>(found.size());
+    if (devices == nullptr) {
+        return count;
+    }
+    const int32_t written = std::min(count, std::max(capacity, 0));
+    for (int32_t index = 0; index < written; ++index) {
+        const PhysicalDevice& device = found[static_cast<size_t>(index)];
+        BallsDeviceInfo& out = devices[index];
+        std::memset(&out, 0, sizeof out);
+        copyName(device.id, out.id, sizeof out.id);
+        copyName(device.name, out.name, sizeof out.name);
+        out.type = static_cast<int32_t>(device.type);
+        out.memoryBytes = device.memoryBytes;
+        out.vulkanDevice = -1;
+        out.cudaDevice = -1;
+        if (const DeviceBackendOption* option = device.option(BackendKind::Vulkan)) {
+            out.vulkanDevice = option->pluginDevice;
+        }
+        if (const DeviceBackendOption* option = device.option(BackendKind::Cuda)) {
+            out.cudaDevice = option->pluginDevice;
+        }
+    }
+    return written;
+}
+
+int32_t balls_compute_gpu(char* buffer, int32_t size) {
+    return writeText(computeGpuPreference(), buffer, size);
+}
+
+int32_t balls_set_compute_gpu(const char* preference) {
+    if (preference == nullptr) {
+        return 0;
+    }
+    // The core takes "auto", "integrated"/"discrete", an adapter index or a name, and ignores what it cannot match;
+    // answer the host for it, so a typo is told rather than silently leaving the old adapter in place.
+    const std::string wanted(preference);
+    std::string lowered;
+    lowered.reserve(wanted.size());
+    for (char letter : wanted) {
+        lowered.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(letter))));
+    }
+    const bool automatic = lowered.empty() || lowered == "auto" || lowered == "integrated" || lowered == "discrete";
+    const bool numeric = !lowered.empty() &&
+                         std::all_of(lowered.begin(), lowered.end(), [](char letter) { return letter >= '0' && letter <= '9'; });
+    if (!automatic && !numeric && findPhysicalDevice(wanted) == nullptr) {
+        return 0;
+    }
+    setComputeGpuPreference(wanted);
+    return 1;
 }
 
 int32_t balls_levels_find(const char* directory, BallsLevelInfo* levels, int32_t capacity) {

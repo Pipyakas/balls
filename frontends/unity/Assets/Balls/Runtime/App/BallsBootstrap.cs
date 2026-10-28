@@ -131,6 +131,12 @@ namespace Balls.App
                     case "-balls-parity":
                         parityRun = true;
                         break;
+                    case "-BallsGpu" when index + 1 < args.Length:
+                        if (!BallsNative.SetComputeGpu(args[index + 1]))
+                        {
+                            Debug.LogWarning($"balls: no compute GPU matches '{args[index + 1]}'");
+                        }
+                        break;
                     case "-balls-switch" when index + 1 < args.Length:
                         if (BallsNative.TryBackendKind(args[index + 1], out int kind))
                         {
