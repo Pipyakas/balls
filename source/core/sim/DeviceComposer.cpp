@@ -586,6 +586,70 @@ std::vector<BallSpawn> DeviceComposer::takeTail(size_t count) {
     return balls;
 }
 
+bool DeviceComposer::takeCompactTail(size_t count, CompactBalls& taken) {
+    size_t remaining = std::min(count, ballCount());
+    std::vector<uint32_t> positions;
+    std::vector<uint32_t> states;
+    for (size_t index = parts.size(); index-- > 0 && remaining > 0;) {
+        const size_t take = std::min(remaining, parts[index].backend->ballCount());
+        if (take == 0) {
+            continue;
+        }
+        CompactBalls partBalls;
+        if (!parts[index].backend->takeCompactTail(take, partBalls)) {
+            return false;
+        }
+        positions.insert(positions.end(), partBalls.position.begin(), partBalls.position.end());
+        states.insert(states.end(), partBalls.state.begin(), partBalls.state.end());
+        remaining -= take;
+    }
+    taken.position = std::move(positions);
+    taken.state = std::move(states);
+    return true;
+}
+
+bool DeviceComposer::addCompact(const CompactBalls& added) {
+    const size_t addedCount = std::min(added.position.size(), added.state.size());
+    if (addedCount == 0) {
+        return true;
+    }
+    const std::vector<size_t> targets = targetCounts(ballCount() + addedCount);
+    std::vector<size_t> take(parts.size(), 0);
+    size_t left = addedCount;
+    for (size_t index = 0; index < parts.size() && left > 0; ++index) {
+        const size_t count = parts[index].backend->ballCount();
+        const size_t wanted = targets[index] > count ? targets[index] - count : 0;
+        take[index] = std::min({wanted, left});
+        left -= take[index];
+    }
+    std::vector<size_t> byShare(parts.size());
+    std::iota(byShare.begin(), byShare.end(), size_t{0});
+    std::ranges::stable_sort(byShare, [&](size_t a, size_t b) { return parts[a].share > parts[b].share; });
+    for (const size_t index : byShare) {
+        if (left == 0) {
+            break;
+        }
+        take[index] += left;
+        left = 0;
+    }
+    size_t offset = 0;
+    for (size_t index = 0; index < parts.size(); ++index) {
+        if (take[index] == 0) {
+            continue;
+        }
+        CompactBalls slice;
+        slice.position.assign(added.position.begin() + static_cast<std::ptrdiff_t>(offset),
+                              added.position.begin() + static_cast<std::ptrdiff_t>(offset + take[index]));
+        slice.state.assign(added.state.begin() + static_cast<std::ptrdiff_t>(offset),
+                           added.state.begin() + static_cast<std::ptrdiff_t>(offset + take[index]));
+        if (!parts[index].backend->addCompact(slice)) {
+            return false;
+        }
+        offset += take[index];
+    }
+    return offset == addedCount;
+}
+
 void DeviceComposer::clear() {
     for (Part& part : parts) {
         part.backend->clear();

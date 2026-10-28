@@ -1,7 +1,9 @@
 add_library(balls_physics_vulkan SHARED
     VulkanBackend.cpp
     VulkanComputeDevice.cpp
+    VulkanMultiBackend.cpp
     VulkanPlugin.cpp
+    ${BALLS_SOURCE_DIR}/core/sim/DeviceComposer.cpp
     ${BALLS_SOURCE_DIR}/core/common/DynamicLibrary.cpp
     ${BALLS_SOURCE_DIR}/core/gpu/GpuAdapters.cpp
     ${BALLS_SOURCE_DIR}/tools/gpucompute/BallStepVariants.cpp

@@ -1,6 +1,7 @@
 #include "sim/BackendFactory.h"
 
 #include "sim/BackendSelection.h"
+#include "sim/DeviceInventory.h"
 #include "sim/HybridBackend.h"
 
 #include <algorithm>
@@ -57,6 +58,7 @@ struct PluginModule {
     std::shared_ptr<DynamicLibrary> library;
     CreateBackendFunction create = nullptr;
     CreateBackendOnDeviceFunction createOnDevice = nullptr;
+    CreateBackendOnDevicesFunction createOnDevices = nullptr;
     DestroyBackendFunction destroy = nullptr;
     DeviceCountFunction deviceCount = nullptr;
     DeviceInfoFunction deviceInfo = nullptr;
@@ -164,6 +166,7 @@ std::shared_ptr<PluginModule> loadPlugin(std::string_view fileName, bool freshCo
     library.resolve("ballsStreamedBytesPerBall", module->streamedBytes);
     library.resolve("ballsSetComputeGpu", module->setComputeGpu);
     library.resolve("ballsReleaseIdleDevice", module->releaseIdleDevice);
+    library.resolve("ballsCreateBackendOnDevices", module->createOnDevices);
     if (interfaceVersion && interfaceVersion() != physicsPluginInterfaceVersion) {
         module->error = std::format("{} was built for plugin interface {} (expected {})", fileName, interfaceVersion(),
                                     physicsPluginInterfaceVersion);
@@ -314,6 +317,31 @@ BackendHandle createBackend(BackendKind kind) {
     if (kind == BackendKind::CudaAvx2) {
         return HybridBackend::create(createBackend(BackendKind::Cuda), createBackend(BackendKind::Avx2));
     }
+    if (kind == BackendKind::VulkanMulti) {
+        const std::vector<BackendPick> picks = backendPicks();
+        if (picks.size() == 1 && picks.front().kind == BackendKind::VulkanMulti) {
+            // claimed devices -> plugin device indices
+            std::vector<int> pluginDevices;
+            std::string claimed = picks.front().device;
+            size_t pos = 0;
+            while (true) {
+                const size_t next = claimed.find('|', pos);
+                const std::string token = claimed.substr(pos, next == std::string::npos ? std::string::npos : next - pos);
+                const PhysicalDevice* device = findPhysicalDevice(token);
+                if (device && device->option(BackendKind::Vulkan)) {
+                    pluginDevices.push_back(device->option(BackendKind::Vulkan)->pluginDevice);
+                }
+                if (next == std::string::npos) {
+                    break;
+                }
+                pos = next + 1;
+            }
+            if (!pluginDevices.empty()) {
+                return createBackendOnDevices(BackendKind::VulkanMulti, pluginDevices.data(),
+                                             static_cast<int>(pluginDevices.size()));
+            }
+        }
+    }
     const std::shared_ptr<PluginModule> plugin = loadPlugin(backendPluginFileName(kind), true);
     if (plugin->error.empty()) {
         applyComputeGpuPreference(*plugin);
@@ -347,7 +375,7 @@ std::vector<PhysicsDeviceInfo> backendDevices(BackendKind kind) {
 }
 
 std::string backendUnavailableReasonOnDevice(BackendKind kind, int device) {
-    if (kind == BackendKind::CudaAvx2 || kind == BackendKind::Hybrid) {
+    if (kind == BackendKind::CudaAvx2 || kind == BackendKind::Hybrid || kind == BackendKind::VulkanMulti) {
         return "not a single-device backend";
     }
     const PluginModule& plugin = queryPlugin(kind);
@@ -356,7 +384,7 @@ std::string backendUnavailableReasonOnDevice(BackendKind kind, int device) {
 }
 
 std::string backendDetailOnDevice(BackendKind kind, int device) {
-    if (kind == BackendKind::CudaAvx2 || kind == BackendKind::Hybrid) {
+    if (kind == BackendKind::CudaAvx2 || kind == BackendKind::Hybrid || kind == BackendKind::VulkanMulti) {
         return {};
     }
     const PluginModule& plugin = queryPlugin(kind);
@@ -364,7 +392,7 @@ std::string backendDetailOnDevice(BackendKind kind, int device) {
 }
 
 BackendHandle createBackendOnDevice(BackendKind kind, int device) {
-    if (kind == BackendKind::CudaAvx2 || kind == BackendKind::Hybrid) {
+    if (kind == BackendKind::CudaAvx2 || kind == BackendKind::Hybrid || kind == BackendKind::VulkanMulti) {
         return BackendHandle(nullptr, BackendRelease{});
     }
     const std::shared_ptr<PluginModule> plugin = loadPlugin(backendPluginFileName(kind), true);
@@ -373,6 +401,23 @@ BackendHandle createBackendOnDevice(BackendKind kind, int device) {
         return BackendHandle(nullptr, BackendRelease{});
     }
     PhysicsBackend* backend = plugin->createOnDevice(name.c_str(), device);
+    return BackendHandle(backend, BackendRelease{plugin->destroy, plugin->library});
+}
+
+BackendHandle createBackendOnDevices(BackendKind kind, const int* devices, int count) {
+    if (kind == BackendKind::CudaAvx2 || kind == BackendKind::Hybrid) {
+        return BackendHandle(nullptr, BackendRelease{});
+    }
+    const std::shared_ptr<PluginModule> plugin = loadPlugin(backendPluginFileName(kind), true);
+    const std::string name = kindArgument(kind);
+    if (!plugin->error.empty() || !plugin->createOnDevices) {
+        return BackendHandle(nullptr, BackendRelease{});
+    }
+    applyComputeGpuPreference(*plugin);
+    if (std::string_view(plugin->unavailableReason(name.c_str())) != "") {
+        return BackendHandle(nullptr, BackendRelease{});
+    }
+    PhysicsBackend* backend = plugin->createOnDevices(name.c_str(), devices, count);
     return BackendHandle(backend, BackendRelease{plugin->destroy, plugin->library});
 }
 

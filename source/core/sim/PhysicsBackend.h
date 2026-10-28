@@ -156,6 +156,7 @@ using DeviceCountFunction = int (*)(const char* kindName);
 using DeviceInfoFunction = int (*)(const char* kindName, int device, PhysicsDeviceInfo* info);
 using DeviceTextFunction = const char* (*)(const char* kindName, int device);
 using CreateBackendOnDeviceFunction = PhysicsBackend* (*)(const char* kindName, int device);
+using CreateBackendOnDevicesFunction = PhysicsBackend* (*)(const char* kindName, const int* devices, int count);
 using DestroyBackendFunction = void (*)(PhysicsBackend* backend);
 using BackendTextFunction = const char* (*)(const char* kindName);
 using SetComputeGpuFunction = void (*)(const char* preference);
