@@ -24,7 +24,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <format>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -505,7 +507,9 @@ std::vector<GpuAdapterInfo> enumerateD3d12Adapters() {
 
 }
 
-std::vector<GpuAdapterInfo> enumerateGpuAdapters(GpuApi api) {
+namespace {
+
+std::vector<GpuAdapterInfo> enumerateUncached(GpuApi api) {
     if (api == GpuApi::Vulkan) {
         return enumerateVulkanAdapters();
     }
@@ -517,6 +521,19 @@ std::vector<GpuAdapterInfo> enumerateGpuAdapters(GpuApi api) {
     (void)api;
 #endif
     return {};
+}
+
+} // namespace
+
+std::vector<GpuAdapterInfo> enumerateGpuAdapters(GpuApi api) {
+    static std::mutex mutex;
+    static std::map<GpuApi, std::vector<GpuAdapterInfo>> cache;
+    std::lock_guard lock(mutex);
+    const auto found = cache.find(api);
+    if (found != cache.end()) {
+        return found->second;
+    }
+    return cache[api] = enumerateUncached(api);
 }
 
 GpuVendor vendorFromPciId(uint32_t vendorId) {
