@@ -20,6 +20,7 @@ TEST_CASE("settings survive a serialize and parse round trip") {
         .defaultBackend = "Hybrid",
         .renderer = "webgpu",
         .graphicsApi = "vulkan",
+        .advancedSettings = true,
     };
     EXPECT(parseSettings(serializeSettings(original)) == original);
 }

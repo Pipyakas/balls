@@ -226,6 +226,33 @@ bool dropdown(Rect rect, std::string_view current, bool& open) {
     return open;
 }
 
+bool collapsingHeader(Rect rect, std::string_view label, bool open) {
+    constexpr float chevronHalfWidth = 6.0f;
+    constexpr float chevronHalfHeight = 3.5f;
+    constexpr float labelSize = 20.0f;
+    const bool hovered = isHovered(rect);
+    const bool pressed = hovered && input::mouseDown(input::MouseButton::Left);
+    if (hovered) {
+        gfx::fillRounded(rect, style::buttonRoundness * style::roundnessScale,
+                         pressed ? palette::controlPressed : palette::controlHover);
+    }
+    gfx::drawLine({rect.x, rect.y}, {rect.x + rect.width, rect.y}, style::borderWidth, palette::frame);
+    const Color color = hovered ? palette::accent : palette::text;
+    const Vec2 center{rect.x + chevronHalfWidth + 4.0f, rect.y + rect.height * 0.5f};
+    if (open) {
+        gfx::fillTriangle({center.x - chevronHalfWidth, center.y - chevronHalfHeight},
+                          {center.x + chevronHalfWidth, center.y - chevronHalfHeight},
+                          {center.x, center.y + chevronHalfHeight}, color);
+    } else {
+        gfx::fillTriangle({center.x - chevronHalfHeight, center.y - chevronHalfWidth},
+                          {center.x + chevronHalfHeight, center.y}, {center.x - chevronHalfHeight, center.y + chevronHalfWidth},
+                          color);
+    }
+    const float labelX = center.x + chevronHalfWidth + 10.0f;
+    drawTextInRect(label, {labelX, rect.y, rect.x + rect.width - labelX, rect.height}, labelSize, color, Align::Left);
+    return hovered && input::mouseReleased(input::MouseButton::Left);
+}
+
 void scrollFrame(Rect area, float& scroll, float contentHeight, float& visibleHeight) {
     constexpr float wheelStep = 40.0f;
     visibleHeight = area.height;

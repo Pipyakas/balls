@@ -69,12 +69,13 @@ Color fpsColor(float fps) {
     return fps >= targetFps ? palette::success : palette::danger;
 }
 
-int debugRowCount(const Simulation& simulation) {
-    int rows = 12;
-    if (simulation.backend().deviceStepMs() > 0.0) {
+int debugRowCount(const Simulation& simulation, bool showBackend) {
+    constexpr int backendRows = 2;
+    int rows = 12 - (showBackend ? 0 : backendRows);
+    if (showBackend && simulation.backend().deviceStepMs() > 0.0) {
         rows += 1;
     }
-    if (dynamic_cast<const HybridBackend*>(&simulation.backend())) {
+    if (showBackend && dynamic_cast<const HybridBackend*>(&simulation.backend())) {
         rows += 2;
     }
     rows += 5;
@@ -83,10 +84,10 @@ int debugRowCount(const Simulation& simulation) {
 
 } // namespace
 
-void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& frames,
-                    DebugPanelState& state, std::string_view deviceDescription) {
+void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& frames, DebugPanelState& state,
+                    bool showBackend, std::string_view deviceDescription) {
     ui::drawPanel(area, palette::panel, 0.03f);
-    const float contentHeight = debugContentHeight(session.simulation());
+    const float contentHeight = debugContentHeight(session.simulation(), showBackend);
     float visibleHeight = 0.0f;
     ui::scrollFrame(area, state.scroll, contentHeight, visibleHeight);
     const Rect inner{area.x, area.y - state.scroll, area.width, contentHeight};
@@ -110,10 +111,11 @@ void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& f
     writer.row("CPU", std::format("{:.2f} ms", sample.cpuMs));
     writer.row("  Physics", std::format("{:.2f} ms  x{}", stats.lastFramePhysicsMs, stats.ticksLastFrame));
     writer.row("GPU", std::format("{:.2f} ms", sample.gpuMs));
-    if (const double kernelMs = simulation.backend().deviceStepMs(); kernelMs > 0.0) {
+    if (const double kernelMs = simulation.backend().deviceStepMs(); showBackend && kernelMs > 0.0) {
         writer.row("  Physics kernel", std::format("{:.2f} ms", kernelMs));
     }
-    if (const auto* hybrid = dynamic_cast<const HybridBackend*>(&simulation.backend())) {
+    const auto* hybrid = showBackend ? dynamic_cast<const HybridBackend*>(&simulation.backend()) : nullptr;
+    if (hybrid) {
         writer.row("  CPU share",
                    std::format("{:.1f}%", 100.0 * static_cast<double>(hybrid->cpuBallCount()) /
                                               static_cast<double>(std::max<size_t>(hybrid->ballCount(), 1))));
@@ -126,11 +128,13 @@ void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& f
         writer.row("Probe", std::format("{} {:.0f}/{:.0f} fps", probePhaseName(probe.phase()),
                                         probe.lastFps(), probe.targetFps()));
     }
-    writer.row("Backend", backendKindName(session.backend()));
-    if (!deviceDescription.empty()) {
-        writer.row("Renderer", deviceDescription);
-    } else if (const std::string detail = backendDetail(session.backend()); !detail.empty()) {
-        writer.row("Device", detail);
+    if (showBackend) {
+        writer.row("Backend", backendKindName(session.backend()));
+        if (!deviceDescription.empty()) {
+            writer.row("Renderer", deviceDescription);
+        } else if (const std::string detail = backendDetail(session.backend()); !detail.empty()) {
+            writer.row("Device", detail);
+        }
     }
     const bool collisionsWanted = session.simulation().ballCollisionsRequested();
     const bool collisionsOn = session.simulation().ballCollisionsActive();
@@ -166,7 +170,7 @@ void drawDebugPanel(Rect area, const GameSession& session, const FrameTimings& f
     gfx::endClip();
 }
 
-void drawPortraitDebugStrip(Rect area, const GameSession& session, const FrameTimings& frames) {
+void drawPortraitDebugStrip(Rect area, const GameSession& session, const FrameTimings& frames, bool showBackend) {
     constexpr float labelSize = 15.0f;
     constexpr float valueSize = 18.0f;
     constexpr float horizontalPadding = 12.0f;
@@ -188,12 +192,13 @@ void drawPortraitDebugStrip(Rect area, const GameSession& session, const FrameTi
     };
     constexpr const char* labels[itemCount] = {"FPS",   "Min",    "Frame",  "GPU",
                                                "Balls", "Bricks", "Launch", "Backend"};
+    const int shownItems = showBackend ? itemCount : itemCount - 1;
     float widths[itemCount] = {};
     for (int index = 0; index < itemCount; ++index) {
         widths[index] = std::max(ui::measureText(labels[index], labelSize).x,
                                  ui::measureText(values[index], valueSize).x);
     }
-    int visibleCount = itemCount;
+    int visibleCount = shownItems;
     while (visibleCount > 0) {
         float needed = 0.0f;
         for (int index = 0; index < visibleCount; ++index) {
@@ -230,11 +235,11 @@ void drawPortraitDebugStrip(Rect area, const GameSession& session, const FrameTi
     gfx::endClip();
 }
 
-float debugContentHeight(const Simulation& simulation) {
+float debugContentHeight(const Simulation& simulation, bool showBackend) {
     constexpr float twoLineHeight = 22.0f + 26.0f;
     constexpr float headingHeight = 6.0f + 30.0f;
     constexpr float topPadding = 16.0f;
     constexpr int headingCount = 3;
-    return static_cast<float>(debugRowCount(simulation)) * twoLineHeight +
+    return static_cast<float>(debugRowCount(simulation, showBackend)) * twoLineHeight +
            static_cast<float>(headingCount) * headingHeight + topPadding + 7.0f * 26.0f;
 }

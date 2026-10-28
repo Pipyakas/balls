@@ -698,6 +698,9 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
         if (const auto vsync = request.integer("vsync")) {
             next.vsync = *vsync != 0;
         }
+        if (const auto advanced = request.integer("advanced")) {
+            next.advancedSettings = *advanced != 0;
+        }
         if (const auto renderer = request.text("renderer")) {
             next.renderer = normalizeRendererName(*renderer);
         }
@@ -818,13 +821,18 @@ void App::applySettings(const Settings& settings, std::optional<BackendKind> bac
     }
 }
 
+void App::setAdvancedSettingsOpen(bool open) {
+    currentSettings.advancedSettings = open;
+    static_cast<void>(saveSettings(settingsFilePath(), currentSettings));
+}
+
 std::string App::settingsJson() const {
     return std::format(
         "{{\"ballCollisions\":{},\"layout\":\"{}\",\"vsync\":{},\"defaultBackend\":\"{}\",\"renderer\":\"{}\","
-        "\"graphicsApi\":\"{}\"}}",
+        "\"graphicsApi\":\"{}\",\"advancedSettings\":{}}}",
         currentSettings.ballCollisions, orientationName(currentSettings.layout), currentSettings.vsync,
         jsonEscape(currentSettings.defaultBackend), normalizeRendererName(currentSettings.renderer),
-        normalizeGraphicsApiName(currentSettings.graphicsApi));
+        normalizeGraphicsApiName(currentSettings.graphicsApi), currentSettings.advancedSettings);
 }
 
 void App::notifySettingsConsumers() {

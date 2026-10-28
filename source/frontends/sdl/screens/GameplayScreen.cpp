@@ -34,6 +34,7 @@ constexpr float groupGap = 14.0f;
 constexpr float minimumControlColumnWidth = 220.0f;
 constexpr float controlColumnGap = 16.0f;
 constexpr float probeStatusHeight = 28.0f;
+constexpr float advancedHeaderHeight = 40.0f;
 constexpr float probeStatusSize = 17.0f;
 
 float listHeight(size_t rows) {
@@ -552,17 +553,25 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
                            probeStatusSize, palette::textMuted, ui::Align::Left);
     }
 
-    const float backendHeight = (controlRowHeight + controlGap) * allBackendKinds.size() - controlGap;
-    drawBackendList(group("Physics", backendHeight), session->backend());
-
-    if (const std::vector<int> choices = renderAdapterChoices(); !choices.empty()) {
-        drawAdapterList(group("Render GPU", listHeight(choices.size())), app.renderAdapters(), choices,
-                        app.renderAdapterIndex(), false);
+    // The section header spans both columns, under whichever column ended lower.
+    const float headerY = std::max(columnCursors[0], columnCursors[1]);
+    const bool advancedOpen = app.settings().advancedSettings;
+    if (ui::collapsingHeader({inner.x, headerY, contentWidth, advancedHeaderHeight}, "Advanced Settings", advancedOpen)) {
+        app.setAdvancedSettingsOpen(!advancedOpen);
     }
-    if (const std::vector<int> choices = computeAdapterChoices(); !choices.empty()) {
-        drawAdapterList(group("Compute GPU (Vulkan backend)", listHeight(choices.size())), app.computeAdapters(),
-                        choices, selectGpuAdapter(app.computeAdapters(), computeGpuPreference(), GpuRole::Compute),
-                        true);
+    columnCursors = {headerY + advancedHeaderHeight + groupGap, headerY + advancedHeaderHeight + groupGap};
+    if (advancedOpen) {
+        const float backendHeight = (controlRowHeight + controlGap) * allBackendKinds.size() - controlGap;
+        drawBackendList(group("Physics", backendHeight), session->backend());
+        if (const std::vector<int> choices = renderAdapterChoices(); !choices.empty()) {
+            drawAdapterList(group("Render GPU", listHeight(choices.size())), app.renderAdapters(), choices,
+                            app.renderAdapterIndex(), false);
+        }
+        if (const std::vector<int> choices = computeAdapterChoices(); !choices.empty()) {
+            drawAdapterList(group("Compute GPU (Vulkan backend)", listHeight(choices.size())), app.computeAdapters(),
+                            choices, selectGpuAdapter(app.computeAdapters(), computeGpuPreference(), GpuRole::Compute),
+                            true);
+        }
     }
     performanceControlsHeight = std::max(columnCursors[0], columnCursors[1]) - top - groupGap;
     ui::scrollHints(inner, controlsScroll, performanceControlsHeight, palette::panel);
@@ -571,8 +580,11 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
 
 float GameplayScreen::normalContentHeight() const {
     const float launcherHeight = 320.0f;
-    return launcherHeight + groupGap + groupLabelHeight +
-           (controlRowHeight + controlGap) * allBackendKinds.size() - controlGap;
+    const float advancedHeight = app.settings().advancedSettings
+                                     ? groupGap + groupLabelHeight +
+                                           (controlRowHeight + controlGap) * allBackendKinds.size() - controlGap
+                                     : 0.0f;
+    return launcherHeight + groupGap + advancedHeaderHeight + advancedHeight;
 }
 
 void GameplayScreen::drawPortraitLauncherRow(Rect area) {
@@ -638,11 +650,18 @@ void GameplayScreen::drawNormalControls(Rect area) {
         ui::drawTextInRect("All launchers released", launcherArea, 26.0f, palette::textMuted);
     }
     cursor += 320.0f + groupGap;
-    ui::drawText("Physics", {inner.x, cursor}, 20.0f, palette::textMuted);
-    cursor += groupLabelHeight;
-    drawBackendList(
-        {inner.x, cursor, width, (controlRowHeight + controlGap) * allBackendKinds.size() - controlGap},
-        session->backend());
+    const bool advancedOpen = app.settings().advancedSettings;
+    if (ui::collapsingHeader({inner.x, cursor, width, advancedHeaderHeight}, "Advanced Settings", advancedOpen)) {
+        app.setAdvancedSettingsOpen(!advancedOpen);
+    }
+    cursor += advancedHeaderHeight + groupGap;
+    if (advancedOpen) {
+        ui::drawText("Physics", {inner.x, cursor}, 20.0f, palette::textMuted);
+        cursor += groupLabelHeight;
+        drawBackendList(
+            {inner.x, cursor, width, (controlRowHeight + controlGap) * allBackendKinds.size() - controlGap},
+            session->backend());
+    }
     ui::scrollHints(inner, normalScroll, normalContentHeight(), palette::panel);
     gfx::endClip();
 }
@@ -738,12 +757,12 @@ void GameplayScreen::draw() {
     if (layout.isPortrait) {
         ui::drawPanel(layout.topGadget, palette::panel, 0.25f);
         drawHeader(layout);
-        drawPortraitDebugStrip(layout.debugSection, *session, app.frameTimings());
+        drawPortraitDebugStrip(layout.debugSection, *session, app.frameTimings(), app.settings().advancedSettings);
     }
     drawMainSection(layout);
     drawInteractionSection(layout);
     if (!layout.isPortrait) {
-        drawDebugPanel(layout.debugSection, *session, app.frameTimings(), debugState);
+        drawDebugPanel(layout.debugSection, *session, app.frameTimings(), debugState, app.settings().advancedSettings);
     }
     drawOverlay();
     drawToast();

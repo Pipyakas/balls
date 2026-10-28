@@ -48,6 +48,7 @@ public:
 
     const Settings& settings() const { return currentSettings; }
     void applySettings(const Settings& settings, std::optional<BackendKind> backend = std::nullopt);
+    void setAdvancedSettingsOpen(bool open);
     std::string settingsJson() const;
     // Whether this build links a WebGPU renderer, so the Settings page can offer it.
     bool isWebGpuSupported() const;
