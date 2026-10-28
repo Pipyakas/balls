@@ -191,7 +191,7 @@ void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, Le
             // so each frame advances exactly that much and reports the longer of it and the work it took. A
             // sleep's wake-up granularity (15.6 ms on Windows by default) then cannot read as a slow frame.
             const double targetSeconds = 1.0 / probe.targetFps();
-            session->reportFrameSeconds(std::max({lastWorkSeconds, targetSeconds, input.uiFrameSeconds}),
+            session->reportFrameSeconds(std::max({lastWorkSeconds, targetSeconds, input.uiWorkSeconds}),
                                         std::max(lastWorkSeconds, input.uiWorkSeconds));
             session->update(static_cast<float>(targetSeconds));
         } else if (!input.paused) {

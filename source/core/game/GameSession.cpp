@@ -172,6 +172,8 @@ void GameSession::pollBackgroundWork() {
 }
 
 void GameSession::adoptBackend(BackendKind kind, BackendHandle backend) {
+    // A probe measures one backend; carried over, it would count the switch as a slow frame and trim to nothing.
+    probe.cancel();
     BackendReplacement replacement = physicsSimulation.replaceBackend(std::move(backend));
     BackendWorker::shared().retire(std::move(replacement.retired));
     backendKind = kind;
