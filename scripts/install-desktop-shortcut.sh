@@ -9,7 +9,7 @@ binary="$root/dist/linux-sdl/balls"
 
 if [ ! -x "$binary" ]; then
     echo "Not built yet: $binary" >&2
-    echo "Run $root/build-linux-sdl.sh first." >&2
+    echo "Run $root/build.sh first." >&2
     exit 1
 fi
 

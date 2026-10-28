@@ -9,11 +9,9 @@ CMakeUserPresets.json
 __pycache__/
 
 # Android/Gradle build outputs
-/android/.gradle/
-/android/build/
-/android/app/build/
-/android/app/.cxx/
-/android/local.properties
+/source/frontends/sdl/android/.gradle/
+/source/frontends/sdl/android/build/
+/source/frontends/sdl/android/app/build/
+/source/frontends/sdl/android/app/.cxx/
+/source/frontends/sdl/android/local.properties
 
-# Android Studio writes each machine's SDK and NDK paths here.
-/android/local.properties

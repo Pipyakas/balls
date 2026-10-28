@@ -29,24 +29,34 @@ between CUDA and AVX2 (see [data/docs/hybrid-physics.md](data/docs/hybrid-physic
 Requirements: Windows 10/11 x64, Visual Studio 2022 (C++ workload), CMake 3.25+, Python 3 (only to fetch the CUDA
 compiler pieces) and internet access on first configure (SDL 3.2.30, Dear ImGui 1.93.0 and NVRHI with the Vulkan and DirectX headers are downloaded).
 
-`-DBALLS_FRONTEND=none` builds only the core, the physics plugins and the tools. `-DBALLS_RENDERER=nvrhi|sdlgpu`
-picks the renderer (default: `nvrhi`, or `sdlgpu` on Android). With NVRHI, Windows runs Direct3D 12 and
+`-DBALLS_FRONTEND=none` builds only the core, the physics plugins and the tools. `-DBALLS_RENDERER=nvrhi|webgpu|sdlgpu`
+picks the renderer (default: `nvrhi` on desktop, `webgpu` on Android). With NVRHI, Windows runs Direct3D 12 and
 `--api vulkan` switches to Vulkan; Linux and macOS always use Vulkan.
 
-Every front end has one build script per platform at the project root, named `build-<platform>-<frontend>`. It
-stages a self-contained runnable copy in `dist\<platform>-<frontend>\`, keeps CMake's intermediate files in
-`build\<platform>\`, and ends by printing the absolute path of the game it built, so you can start it from there.
-Started by double-click, the Windows script waits for a key before closing. Building stops a game instance still
-running from that `dist` folder first.
+`build.bat` (Windows) and `build.sh` (Linux) at the project root are the one entry point for every front end and
+platform:
 
-| Script | Output |
+| Command | Builds |
 |---|---|
-| `build-win32-sdl.bat` | `dist\win32-sdl\balls.exe` |
-| `build-linux-sdl.sh` | `dist/linux-sdl/balls` |
+| `build.bat`, or double-click it | the submission version, SDL + NVRHI, into `dist\win32-sdl\balls.exe` |
+| `build.bat --menu` | a numbered list of every front end and platform to pick from |
+| `build.bat sdl <variant>` | one variant directly, e.g. `build.bat sdl android` |
+| `./build.sh [--menu \| sdl <variant>]` | the same on Linux; the default is SDL + NVRHI (Vulkan) into `dist/linux-sdl/balls` |
 
-The UE front end and the Android package are built on their own machines; they add
-`build-win32-ue.bat` / `build-android-sdl.sh` in the same pattern, writing to `dist\win32-ue\` and
-`dist/android-sdl/`.
+Each front end owns its build in `source/frontends/<name>/build.bat` and `build.sh`, which can also be run on their
+own. The root scripts only dispatch to them, and the menu lists whatever each one reports with `--variants`, so a
+new front end adds its scripts to its own folder and appears in the menu. The SDL front end's variants:
+
+| Variant | Output |
+|---|---|
+| `win32-nvrhi` (default on Windows) | `dist\win32-sdl\balls.exe` |
+| `win32-webgpu`, `win32-sdlgpu` | `dist\win32-sdl-webgpu\`, `dist\win32-sdl-sdlgpu\` |
+| `linux-nvrhi` (default on Linux), `linux-webgpu`, `linux-sdlgpu` | `dist/linux-sdl/`, `dist/linux-sdl-webgpu/`, `dist/linux-sdl-sdlgpu/` |
+| `android` | `dist\android-sdl\balls.apk` (needs JDK 17, and `ANDROID_HOME` pointing at an SDK with NDK 27.2) |
+
+Every build keeps CMake's intermediate files under `build\`, stages a self-contained runnable copy under `dist\`,
+stops a game still running from that copy first, and ends by printing the absolute path of what it built.
+Started by double-click, the Windows scripts wait for a key before closing.
 
 The tests, benchmarks and tools below use the Windows CMake tree directly:
 
@@ -64,17 +74,14 @@ configure (SDL 3.2.30, Dear ImGui 1.93.0 and NVRHI with the Vulkan headers are d
 needed at runtime on Linux; macOS uses MoltenVK. There is no CUDA backend off Windows.
 
 ```sh
-./build.sh                     # Release, NVRHI renderer, no CUDA
-./build.sh --debug -j 8        # Debug build with all CPUs
-./build.sh --renderer sdlgpu   # SDL_GPU instead of NVRHI
-./run.sh                       # run from build/bin
-./run.sh --play normal DA_49Bricks --backend avx2
+./build.sh                                        # SDL + NVRHI into dist/linux-sdl
+dist/linux-sdl/balls                              # run the staged copy
+dist/linux-sdl/balls --play normal DA_49Bricks --backend avx2
 ```
 
-`./build.sh --clean` reconfigures from scratch, and anything after `--` is passed to CMake. Tests and the
-benchmark build next to the game: `build/bin/balls_tests`, `build/bin/balls_bench`.
+Tests and the benchmark build in the same CMake tree: `cmake --build build/linux --target balls_tests balls_bench`.
 
-To start it from the application menu or the desktop, run `tools/install-desktop-shortcut.sh` once; it writes a
+To start it from the application menu or the desktop, run `scripts/install-desktop-shortcut.sh` once; it writes a
 `.desktop` entry with this checkout's absolute paths.
 
 `FetchCudaSdk.ps1` downloads NVIDIA's NVRTC and runtime header wheels into `.deps/cuda`. The CUDA kernel is

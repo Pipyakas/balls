@@ -30,12 +30,14 @@ android {
             .dependsOn("externalNativeBuild${variant.name.capitalize()}")
     }
     sourceSets.main {
-        assets.srcDirs = ['src/main/assets']
-        jniLibs.srcDirs = ['src/main/jniLibs', '../../third_party/wgpu-native/android']
+        assets.srcDirs = ['../../../../../data/assets']
+        jniLibs.srcDirs = ['src/main/jniLibs', '../../../../../third_party/wgpu-native/android']
     }
     externalNativeBuild {
         cmake {
-            path '../../CMakeLists.txt'
+            path '../../../../../CMakeLists.txt'
+            // FetchContent's DOWNLOAD_EXTRACT_TIMESTAMP needs 3.24+, newer than the SDK's default CMake 3.22.
+            version '3.25.0+'
         }
     }
     lint {
