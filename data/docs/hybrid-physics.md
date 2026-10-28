@@ -125,3 +125,36 @@ Cost, launch level, 2M balls, CUDA (RTX 3070) and Vulkan (Radeon iGPU) both reso
 | All bricks split after any hit, Vulkan uploads in a submit of their own | 1.16 ms | 246 |
 | Staged Vulkan writes, only bricks that lost hits split again | 0.023 ms | 644 |
 | Staged Vulkan writes, all bricks redrawn every tick (current) | 0.013-0.044 ms | 216 |
+
+### Results on two GPUs
+
+Two-GPU desktop: Ryzen 7 7700 (8 cores, DDR5), RTX 2060 12 GB (CUDA, `gpu1`) and RX 6700 XT 12 GB (Vulkan through RADV,
+`gpu0`), Linux. `balls_bench --grid`: raw steps on the 1000-brick level with the game's visibility grid, 1500
+ticks, average including the first ticks while the shares settle. Physics FPS assumes two ticks per frame, as the
+machine benchmark does, and leaves out rendering (the two-GPU desktop has no game build).
+
+| Backend | 32M balls | 96M balls | Physics FPS at 96M |
+|---|---|---|---|
+| AVX2 | 1.12 G ball-steps/s | 1.16 G | 6 |
+| CUDA (RTX 2060) | 17.8 G | 19.0 G | 99 |
+| Vulkan (RX 6700 XT) | 15.4 G | 15.2 G | 79 |
+| CUDA+AVX2 | 15.9 G | 15.2 G | 79 |
+| Hybrid AVX2 + CUDA | 17.8 G (CPU parked) | 18.0 G (CPU parked) | 94 |
+| Hybrid CUDA + Vulkan (RX) | **28.2 G** | **30.0 G** | **156** |
+| Hybrid AVX2 + CUDA + Vulkan (RX) | 24.2 G (CPU parked) | 27.0 G (CPU parked) | 141 |
+| Hybrid Vulkan (RX) + Vulkan (RTX) | 23.5 G | 26.5 G | 138 |
+
+The two GPUs settle at about 58% / 42% (CUDA / RX) with equal step times; the composer adds about 0.1 ms per
+step over its slowest part. The CPU, at a fifteenth of a GPU's throughput, is parked in every set. The brick
+budgets cost 0.011-0.015 ms per step.
+
+Two things made the two-GPU split pay. Running a CUDA and a Vulkan benchmark in separate processes at the same time
+slows neither, but inside the composer the RX first ran four times slower per ball. The shares oscillated and
+the composer moved 109M balls in 265 of 1500 steps, each move leaving the receiving GPU's balls unsorted. Once the
+shares settle, a part now has to be 10% off its target before balls move, with 30 steps between moves. That took
+the pair of GPUs from 15.7 G to 28.2 G.
+
+The machine benchmark (balls at 60 FPS) is dominated by free flight there: the board clears and frames stop
+growing with the ball count, so the score is the memory a backend can hold. Vulkan alone reports no memory limit
+and wins with "no limit"; Hybrid CUDA + Vulkan scores 2.3 B (capped by device memory), CUDA+AVX2 3.1 B
+(including CPU RAM).
