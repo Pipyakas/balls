@@ -37,6 +37,10 @@ namespace Balls.App.Screens
         }
         private const float TwoColumnWidth = 2f * 220f + 16f;
         private const float ReleaseHeight = 62f;
+        private const float LauncherTapSlop = 8f;
+        private const float LauncherHoverBrighten = 0.25f;
+
+        private Vector2 launcherPressStart;
         private const int LauncherBallsPerLauncher = 1;
 
         private CoreLayout layout;
@@ -522,7 +526,7 @@ namespace Balls.App.Screens
                             continue;
                         }
                         Rect slot = new Rect(startX + column * (size + gap), startY + row * (size + gap), size, size);
-                        DrawLauncherSlot(widgets, launchers[index], slot, row == 0);
+                        DrawLauncherSlot(widgets, launchers[index], slot, row == 0, session);
                     }
                 }
             }
@@ -586,7 +590,7 @@ namespace Balls.App.Screens
                         {
                             continue;
                         }
-                        DrawLauncherSlot(widgets, launcher, slot, row == 0);
+                        DrawLauncherSlot(widgets, launcher, slot, row == 0, session);
                     }
                 }
             }
@@ -596,17 +600,35 @@ namespace Balls.App.Screens
             }
         }
 
-        private void DrawLauncherSlot(Widgets widgets, LauncherElement launcher, Rect slot, bool front)
+        private void DrawLauncherSlot(Widgets widgets, LauncherElement launcher, Rect slot, bool front,
+            SessionInfo session)
         {
+            Rect pixels = App.Theme.Units(slot.x, slot.y, slot.width, slot.height);
+            Event current = Event.current;
+            if (current.type == EventType.MouseDown)
+            {
+                launcherPressStart = current.mousePosition;
+            }
             Color color = Palette.Balls[Mathf.Clamp(launcher.color, 0, Palette.Balls.Length - 1)];
+            // Hover brightens only while the game runs unpaused; touch has no hover.
+            if (session.state == BallsNative.StateRunning && !paused && current.type == EventType.Repaint &&
+                pixels.Contains(current.mousePosition) && Input.touchCount == 0)
+            {
+                color = Color.Lerp(color, Color.white, LauncherHoverBrighten);
+            }
             float fade = front ? 1f : 0.55f;
             App.Theme.Frame(slot, UiTheme.WithAlpha(color, fade), UiTheme.WithAlpha(Color.white, 0.10f));
             widgets.Label(new Rect(slot.x, slot.y + slot.height * 0.5f - 12f, slot.width, 24f),
                 launcher.ballCount.ToString(), TypeSizes.Label, Palette.Background, TextAnchor.MiddleCenter, true);
 
-            if (GUI.Button(App.Theme.Units(slot.x, slot.y, slot.width, slot.height), GUIContent.none, GUIStyle.none))
+            if (GUI.Button(pixels, GUIContent.none, GUIStyle.none))
             {
-                BallsInput.ClickLauncher(launcher.column, launcher.row);
+                // Portrait releases on the tap's release; a press that travelled over 8 units was a drag, not a tap.
+                float travel = (current.mousePosition - launcherPressStart).magnitude / App.Theme.Scale;
+                if (!layout.Portrait || travel <= LauncherTapSlop)
+                {
+                    BallsInput.ClickLauncher(launcher.column, launcher.row);
+                }
             }
         }
 
@@ -920,7 +942,7 @@ namespace Balls.App.Screens
             bool probeShown = backend != null && backend.ProbePhase != 0;
             bool fault = backend != null && !string.IsNullOrEmpty(backend.LastFault);
             bool collisionsWanted = App.Settings != null && App.Settings.BallCollisions;
-            float contentHeight = 620f + (string.IsNullOrEmpty(device) ? 0f : 46f) + (probeShown ? 46f : 0f) +
+            float contentHeight = 666f + (string.IsNullOrEmpty(device) ? 0f : 46f) + (probeShown ? 46f : 0f) +
                                   (fault ? 52f : 0f);
             widgets.ScrollColumn(inner, contentHeight, ref debugScroll, content =>
             {
@@ -958,6 +980,9 @@ namespace Balls.App.Screens
                 }
                 if (advancedOpen)
                 {
+                    widgets.Readout(new Rect(content.x, y, content.width, 40f), "Renderer",
+                        widgets.Ellipsize(BallsApp.RendererText, TypeSizes.Value, content.width));
+                    y += 46f;
                     widgets.Readout(new Rect(content.x, y, content.width, 40f), "Ball collisions",
                         stats.collisions ? "On" : collisionsWanted ? "On (unsupported)" : "Off",
                         collisionsWanted && !stats.collisions ? Palette.Danger : (Color?)null);

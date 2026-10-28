@@ -166,6 +166,11 @@ namespace Balls.App
                         Error(request, 400, "mode must be normal or performance, and level is required");
                         return;
                     }
+                    if (!File.Exists(Path.Combine(app.LevelDirectoryFor(mode), level + "_Bricks.txt")))
+                    {
+                        Error(request, 404, $"no {(mode == BallsApp.PerformanceMode ? "performance" : "normal")} level named {level}");
+                        return;
+                    }
                     app.StartGameplay(mode, level, app.DefaultBackendKind);
                     Ok(request, "{\"ok\":true}");
                     return;
@@ -423,6 +428,7 @@ namespace Balls.App
                 text.Append(",\"backend\":").Append(Json(BallsNative.BackendName(session.backend)));
                 text.Append(",\"pendingBackend\":")
                     .Append(session.pendingBackend >= 0 ? Json(BallsNative.BackendName(session.pendingBackend)) : "null");
+                text.Append(",\"renderer\":").Append(Json(BallsApp.RendererText));
                 text.Append(",\"balls\":").Append(stats.liveBalls.ToString(CultureInfo.InvariantCulture));
                 text.Append(",\"bricks\":").Append(board.aliveBricks.ToString(CultureInfo.InvariantCulture));
                 text.Append(",\"fps\":").Append(stats.fps.ToString("F1", CultureInfo.InvariantCulture));

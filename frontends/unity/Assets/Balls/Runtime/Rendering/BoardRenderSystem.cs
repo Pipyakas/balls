@@ -9,16 +9,14 @@ using Unity.Entities;
 namespace Balls.Rendering
 {
     /// <summary>
-    /// Draws the board's cells and the launcher queue. Both are small (a level is at most a few thousand cells), so
-    /// they share one instanced draw with per-instance colour rather than a draw per colour.
+    /// Draws the board's cells. A level is at most a few thousand cells, so they share one instanced draw with
+    /// per-instance colour rather than a draw per colour. The launchers are not drawn here: the design puts them only in
+    /// the launcher gadget, which GameplayScreen draws.
     /// </summary>
     [Unity.Entities.UpdateAfter(typeof(Balls.App.SessionSystem))]
     public partial class BoardRenderSystem : SystemBase
     {
         private const float CellHalfSize = 0.46f;
-        private const float LauncherHalfSize = 0.42f;
-        private const float LauncherRowSpacing = 1.15f;
-        private const float LauncherFirstRowOffset = 0.9f;
 
         private GraphicsBuffer quads;
         private GraphicsBuffer args;
@@ -60,10 +58,7 @@ namespace Balls.Rendering
                 return;
             }
             var cells = SystemAPI.GetSingletonBuffer<CellElement>(true);
-            var launchers = SystemAPI.GetSingletonBuffer<LauncherElement>(true);
-
-            int needed = cells.Length + launchers.Length;
-            EnsureCapacity(needed);
+            EnsureCapacity(cells.Length);
 
             int count = 0;
             for (int index = 0; index < cells.Length; ++index)
@@ -88,25 +83,6 @@ namespace Balls.Rendering
                     color = new Vector4(color.r, color.g, color.b, 1f),
                 };
             }
-
-            for (int index = 0; index < launchers.Length; ++index)
-            {
-                LauncherElement launcher = launchers[index];
-                if (!launcher.present)
-                {
-                    continue;
-                }
-                Color color = BallPalette.For(launcher.color);
-                scratch[count++] = new QuadInstance
-                {
-                    center = new Unity.Mathematics.float2(
-                        launcher.column + 0.5f,
-                        board.rows + LauncherFirstRowOffset + launcher.row * LauncherRowSpacing + launcher.rise),
-                    size = new Unity.Mathematics.float2(LauncherHalfSize, LauncherHalfSize),
-                    color = new Vector4(color.r, color.g, color.b, 1f),
-                };
-            }
-
 
             if (count == 0)
             {
