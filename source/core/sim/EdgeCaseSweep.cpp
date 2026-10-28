@@ -23,6 +23,8 @@ struct SweepRun {
     double launchSeconds = 0.0;
     int colorIndex = 0;
     int frames = 0;
+    double tickBacklog = 0.0;
+    int ticksRun = 0;
 
     // One game frame: launch up to `wanted` more balls through the pacer, then step.
     double frame(BallCount wanted) {
@@ -34,7 +36,15 @@ struct SweepRun {
         pacer.recordSpawn(launched, spawnSeconds);
         launchSeconds += spawnSeconds;
         result.launchedBalls += launched;
-        simulation.tick(settings.ticksPerFrame);
+        // The game ticks at 120 Hz whatever the frame rate: two ticks a frame at 60 FPS, one at 120, one every other
+        // frame at 240.
+        tickBacklog += 1.0 / (settings.targetFps * simulation.tuning().tickSeconds);
+        const int ticks = static_cast<int>(tickBacklog);
+        tickBacklog -= ticks;
+        ticksRun += ticks;
+        if (ticks > 0) {
+            simulation.tick(ticks);
+        }
         const double frameSeconds = secondsSince(frameStart);
         pacer.reportFrame(frameSeconds, simulation.liveBallCount());
         if (++frames > settings.framesBeforeWorstCounts) {
@@ -94,8 +104,8 @@ struct SweepRun {
         const int settleTicks =
             static_cast<int>(crossingSeconds * settings.settleTravels / simulation.tuning().tickSeconds);
         const Clock::time_point settleStart = Clock::now();
-        for (int ticks = 0; ticks < settleTicks && secondsSince(settleStart) < longestSeconds;
-             ticks += settings.ticksPerFrame) {
+        const int settleEnd = ticksRun + settleTicks;
+        while (ticksRun < settleEnd && secondsSince(settleStart) < longestSeconds) {
             replace();
         }
         double settledSeconds = 0.0;

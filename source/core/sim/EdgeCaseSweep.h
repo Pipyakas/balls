@@ -9,7 +9,6 @@
 struct EdgeSweepSettings {
     double targetFps = 60.0;
     double frameBudgetShare = 0.8;
-    int ticksPerFrame = 2;
     int framesPerWindow = 30;
     int framesBeforeWorstCounts = 10;
     double caseSeconds = 40.0;

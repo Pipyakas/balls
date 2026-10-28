@@ -342,10 +342,10 @@ int runEdgeCases(const BenchOptions& options) {
                 }
                 const EdgeSweepResult result = sweepEdgeCase(bricks, kind, settings);
                 const std::string backendName(backendKindName(kind));
-                std::printf("%-28s %-7s ~%-7s at 60 FPS  (filled %s at %.1f ms, settled %.1f ms, worst frame %.1f ms, "
+                std::printf("%-28s %-7s ~%-7s at %.0f FPS  (filled %s at %.1f ms, settled %.1f ms, worst frame %.1f ms, "
                             "%s launched)  bricks %d  launch %.0f ns/ball  stop: %s  %.0f s\n",
                             name.c_str(), backendName.c_str(), shortBallCount(result.ballsAtBudget).c_str(),
-                            shortBallCount(result.filledBalls).c_str(), result.windowFrameMs, result.settledFrameMs,
+                            options.targetFps, shortBallCount(result.filledBalls).c_str(), result.windowFrameMs, result.settledFrameMs,
                             result.worstFrameMs, shortBallCount(static_cast<double>(result.launchedBalls)).c_str(),
                             result.aliveBricks, result.launchNanosecondsPerBall, result.stopReason.c_str(),
                             result.seconds);
