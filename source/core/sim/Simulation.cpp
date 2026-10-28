@@ -313,13 +313,23 @@ void Simulation::resolveHits() {
 }
 
 void Simulation::tick(int substeps) {
+    using Clock = std::chrono::steady_clock;
+    const auto milliseconds = [](Clock::time_point from, Clock::time_point to) {
+        return std::chrono::duration<double, std::milli>(to - from).count();
+    };
     flushPendingSpawns();
+    const Clock::time_point syncStart = Clock::now();
     syncBoardIfChanged();
     hits.clear();
+    const Clock::time_point stepStart = Clock::now();
     physics->step(stepParams(substeps), hits);
+    const Clock::time_point stepEnd = Clock::now();
     elapsedTicks += static_cast<uint32_t>(substeps);
+    statistics.lastHostHits = hits.size();
+    Clock::time_point deviceHitsEnd = stepEnd;
     if (physics->resolvesHitsOnDevice()) {
         applyDeviceHits();
+        deviceHitsEnd = Clock::now();
         if (!hits.empty()) {
             resolveHits();
             hostHitsPending = !killedBalls.empty();
@@ -327,6 +337,11 @@ void Simulation::tick(int substeps) {
     } else {
         resolveHits();
     }
+    const Clock::time_point end = Clock::now();
+    statistics.lastSyncMs = milliseconds(syncStart, stepStart);
+    statistics.lastStepMs = milliseconds(stepStart, stepEnd);
+    statistics.lastDeviceHitsMs = milliseconds(stepEnd, deviceHitsEnd);
+    statistics.lastHostHitsMs = milliseconds(deviceHitsEnd, end);
 }
 
 void Simulation::advance(float frameSeconds) {

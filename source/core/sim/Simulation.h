@@ -37,6 +37,13 @@ struct SimulationStats {
     int ticksLastFrame = 0;
     BallCount totalBallsSpawned = 0;
     BallCount totalHits = 0;
+    // Where the last tick's time went on the calling thread: sending board changes, the backend step, and applying
+    // brick hits the device resolved and the ones the host resolves (balls of host-reporting backends).
+    double lastSyncMs = 0.0;
+    double lastStepMs = 0.0;
+    double lastDeviceHitsMs = 0.0;
+    double lastHostHitsMs = 0.0;
+    size_t lastHostHits = 0;
 };
 
 class WorkerPool;

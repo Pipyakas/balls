@@ -353,6 +353,8 @@ int traceEdgeCases(const BenchOptions& options) {
                             std::string(backendKindName(kind)).c_str(), balls);
                 SpawnPacer pacer;
                 int colorIndex = 0;
+                double sums[6]{};
+                int summed = 0;
                 for (int frame = 0; frame < options.traceFrames; ++frame) {
                     using Clock = std::chrono::steady_clock;
                     const auto start = Clock::now();
@@ -374,10 +376,28 @@ int traceEdgeCases(const BenchOptions& options) {
                                                  composer->partBallCount(part), composer->partStepMs(part));
                         }
                     }
-                    std::printf("frame %4d %8.2f ms  spawn %6.2f ms (%9llu)  live %10llu  device %6.2f ms%s\n", frame,
-                                ms, spawnMs, static_cast<unsigned long long>(launched),
-                                static_cast<unsigned long long>(simulation.liveBallCount()),
-                                simulation.backend().deviceStepMs(), split.c_str());
+                    const SimulationStats& stats = simulation.stats();
+                    std::printf("frame %4d %8.2f ms  spawn %6.2f ms (%9llu)  live %10llu  sync %5.2f step %6.2f "
+                                "device hits %5.2f host hits %5.2f (%zu)%s\n",
+                                frame, ms, spawnMs, static_cast<unsigned long long>(launched),
+                                static_cast<unsigned long long>(simulation.liveBallCount()), stats.lastSyncMs,
+                                stats.lastStepMs, stats.lastDeviceHitsMs, stats.lastHostHitsMs, stats.lastHostHits,
+                                split.c_str());
+                    if (frame >= options.traceFrames / 2) {
+                        const double values[6]{ms, stats.lastSyncMs, stats.lastStepMs, stats.lastDeviceHitsMs,
+                                               stats.lastHostHitsMs, static_cast<double>(stats.lastHostHits)};
+                        for (int i = 0; i < 6; ++i) {
+                            sums[i] += values[i];
+                        }
+                        ++summed;
+                    }
+                }
+                if (summed > 0) {
+                    std::printf("mean of last %d frames: frame %.2f ms  sync %.2f  step %.2f  device hits %.2f  host hits "
+                                "%.2f ms (%.0f)  live %llu\n",
+                                summed, sums[0] / summed, sums[1] / summed, sums[2] / summed, sums[3] / summed,
+                                sums[4] / summed, sums[5] / summed,
+                                static_cast<unsigned long long>(simulation.liveBallCount()));
                 }
             }
         }
