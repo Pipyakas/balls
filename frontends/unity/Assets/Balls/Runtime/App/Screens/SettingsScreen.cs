@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Balls.Native;
 using Balls.Ui;
 using UnityEngine;
@@ -14,6 +15,7 @@ namespace Balls.App.Screens
         private bool overlay;
         private System.Action overlayClosed;
         private Vector2 scroll;
+        private float measuredHeight = 730f;
 
         private static string[] BuildBackendNames()
         {
@@ -31,6 +33,9 @@ namespace Balls.App.Screens
             overlayClosed = closed;
             Draw();
         }
+
+        /// <summary>Scrolls the panel to its end, so a conformance screenshot can cover its last section.</summary>
+        public void ScrollToEnd() => scroll.y = 100000f;
 
         public override void HandleEscape()
         {
@@ -71,7 +76,9 @@ namespace Balls.App.Screens
                 panel.height - (overlay ? 132f : 86f));
             SettingsData settings = App.Settings;
 
-            widgets.ScrollColumn(inner, 730f, ref scroll, content =>
+            // The height is measured while drawing, so a section added later (the device rows) cannot fall outside
+            // the scroll range; the first frame after that uses the previous measurement.
+            widgets.ScrollColumn(inner, measuredHeight, ref scroll, content =>
             {
                 float y = content.y;
                 // Gameplay
@@ -95,7 +102,7 @@ namespace Balls.App.Screens
                     Apply(settings);
                 }
                 y += 40f;
-                widgets.Muted(new Rect(content.x, y, content.width, 40f),
+                widgets.Muted(new Rect(content.x, y, content.width, 60f),
                     "Testing only - the game rules have balls\npass through each other.", TypeSizes.Small);
                 y += 50f;
 
@@ -169,12 +176,91 @@ namespace Balls.App.Screens
                 {
                     App.Go<BenchmarkScreen>();
                 }
+                y += 56f;
+
+                y = DrawDevicePicks(widgets, content, y);
+                measuredHeight = Mathf.Max(730f, y - content.y + 24f);
             });
 
             Rect back = new Rect(panel.x + (panel.width - 200f) * 0.5f, panel.yMax - 68f, 200f, 56f);
             if (widgets.Button(back, "Back"))
             {
                 Close();
+            }
+        }
+
+        /// <summary>
+        /// The game's Devices rows: one per physical device, Off and one button per backend it runs. Each device takes at
+        /// most one backend, and two or more devices become the composer, which the core validates before it is stored.
+        /// </summary>
+        private float DrawDevicePicks(Widgets widgets, Rect content, float y)
+        {
+            widgets.Label(new Rect(content.x, y, content.width, 22f), "Devices", TypeSizes.Small, Palette.Accent,
+                TextAnchor.UpperLeft, true);
+            y += 26f;
+            List<BallsNative.Pick> picks = new(App.DefaultBackendKind >= 0
+                ? BallsNative.DisplayPicks(App.DefaultBackendKind)
+                : new List<BallsNative.Pick>());
+            foreach (BallsNative.PhysicsDevice device in BallsNative.Devices)
+            {
+                string chosen = null;
+                foreach (BallsNative.Pick pick in picks)
+                {
+                    if (pick.device == device.id)
+                    {
+                        chosen = BallsNative.BackendName(pick.kind);
+                    }
+                }
+                string name = device.type == 0 ? $"{device.name} (CPU)" : device.name;
+                widgets.Label(new Rect(content.x, y, content.width, 22f), name, TypeSizes.Small, Palette.Text,
+                    TextAnchor.UpperLeft, true);
+                y += 24f;
+                int[] kinds = BallsNative.PickableKinds(device.id);
+                float buttonWidth = (content.width - (kinds.Length) * 8f) / (kinds.Length + 1);
+                if (widgets.AccentButton(new Rect(content.x, y, buttonWidth, 32f), "Off", chosen == null,
+                        TypeSizes.Small))
+                {
+                    ApplyDevicePick(picks, device.id, -1);
+                }
+                for (int index = 0; index < kinds.Length; ++index)
+                {
+                    int kind = kinds[index];
+                    var button = new Rect(content.x + (index + 1) * (buttonWidth + 8f), y, buttonWidth, 32f);
+                    if (widgets.AccentButton(button, BallsNative.BackendName(kind), chosen == BallsNative.BackendName(kind),
+                            TypeSizes.Small))
+                    {
+                        ApplyDevicePick(picks, device.id, kind);
+                    }
+                }
+                y += 40f;
+            }
+            widgets.Muted(new Rect(content.x, y, content.width, 40f),
+                "One backend per device. Two or more devices\nrun as Hybrid, splitting the balls;\none runs that backend alone.",
+                TypeSizes.Small);
+            return y + 50f;
+        }
+
+        private void ApplyDevicePick(List<BallsNative.Pick> picks, string device, int kind)
+        {
+            picks.RemoveAll(pick => pick.device == device);
+            if (kind >= 0)
+            {
+                picks.Add(new BallsNative.Pick(device, kind));
+            }
+            if (picks.Count == 0)
+            {
+                // The design keeps the last device on, and the core refuses an empty list for the same reason.
+                App.Toast("The last device cannot be turned off", true);
+                return;
+            }
+            if (BallsNative.SetPicks(picks, out string problem))
+            {
+                Apply(App.Settings);
+                App.Toast(kind >= 0 ? $"Device: {BallsNative.BackendName(kind)}" : "Device off");
+            }
+            else
+            {
+                App.Toast($"Cannot use that backend: {problem}", true);
             }
         }
 

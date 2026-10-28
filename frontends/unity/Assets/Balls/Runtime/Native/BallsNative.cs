@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
 namespace Balls.Native
@@ -53,6 +54,244 @@ namespace Balls.Native
         [DllImport(Library)] public static extern int balls_backend_detail(int kind, byte[] buffer, int size);
 
         [DllImport(Library)] public static extern int balls_fastest_cpu_backend();
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct DeviceRecord
+        {
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string id;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string name;
+            public int type;
+            public ulong memoryBytes;
+            public int vulkanDevice;
+            public int cudaDevice;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct ImportRecord
+        {
+            public int status;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string name;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string message;
+            public int hasWarning;
+        }
+
+        [DllImport(Library)] private static extern int balls_devices_find(IntPtr devices, int capacity);
+
+        [DllImport(Library)] private static extern int balls_levels_import(int mode, string destination,
+            IntPtr[] picked, int pickedCount, [Out] ImportRecord[] results, int capacity, byte[] summary, int summarySize);
+
+        /// <summary>What happened to one level pair the importer was given.</summary>
+        public readonly struct LevelImport
+        {
+            public readonly int status;
+            public readonly string name;
+            public readonly string message;
+            public readonly bool hasWarning;
+
+            internal LevelImport(ImportRecord record)
+            {
+                status = record.status;
+                name = record.name;
+                message = record.message;
+                hasWarning = record.hasWarning != 0;
+            }
+
+            public bool Failed => status == 2;
+        }
+
+        /// <summary>
+        /// Copies level pairs into <paramref name="destination"/>; each pick may be either file of a pair or a folder of
+        /// pairs. Returns the toast-ready summary and every pair's outcome, plus the level to highlight in the list.
+        /// </summary>
+        public static bool ImportLevels(int mode, string destination, IReadOnlyList<string> picked, out List<LevelImport> results,
+            out string summary, out string highlight)
+        {
+            results = new List<LevelImport>();
+            summary = string.Empty;
+            highlight = null;
+            if (picked.Count == 0)
+            {
+                summary = "Import failed: no files";
+                return false;
+            }
+            var pointers = new IntPtr[picked.Count];
+            int capacity = Math.Max(8, picked.Count * 8);
+            var records = new ImportRecord[capacity];
+            var text = new byte[512];
+            try
+            {
+                for (int index = 0; index < picked.Count; ++index)
+                {
+                    pointers[index] = Marshal.StringToCoTaskMemUTF8(picked[index]);
+                }
+                int count = balls_levels_import(mode, destination, pointers, picked.Count, records, capacity, text, text.Length);
+                for (int index = 0; index < Math.Min(count, capacity); ++index)
+                {
+                    results.Add(new LevelImport(records[index]));
+                }
+                int end = Array.IndexOf(text, (byte)0);
+                summary = System.Text.Encoding.UTF8.GetString(text, 0, end < 0 ? text.Length : end);
+            }
+            finally
+            {
+                foreach (IntPtr pointer in pointers)
+                {
+                    if (pointer != IntPtr.Zero)
+                    {
+                        Marshal.FreeCoTaskMem(pointer);
+                    }
+                }
+            }
+            for (int index = results.Count - 1; index >= 0; --index)
+            {
+                if (!results[index].Failed)
+                {
+                    highlight = results[index].name;
+                    break;
+                }
+            }
+            return results.Count > 0 && results.Exists(result => !result.Failed);
+        }
+
+        [DllImport(Library)] private static extern int balls_compute_gpu(byte[] buffer, int size);
+        [DllImport(Library)] private static extern int balls_set_compute_gpu(string preference);
+
+        /// <summary>One device the physics can run on: the CPU, or a GPU the CUDA or Vulkan plugin listed.</summary>
+        public readonly struct PhysicsDevice
+        {
+            public readonly string id;
+            public readonly string name;
+            public readonly int type;
+            public readonly ulong memoryBytes;
+            public readonly bool vulkan;
+
+            internal PhysicsDevice(DeviceRecord record)
+            {
+                id = record.id;
+                name = record.name;
+                type = record.type;
+                memoryBytes = record.memoryBytes;
+                vulkan = record.vulkanDevice >= 0;
+            }
+        }
+
+        private static List<PhysicsDevice> devices;
+
+        /// <summary>
+        /// Every device the plugins report, the CPU first. Enumerated once: the first call opens the GPU drivers.
+        /// </summary>
+        public static IReadOnlyList<PhysicsDevice> Devices => devices ??= ReadDevices();
+
+        private static List<PhysicsDevice> ReadDevices()
+        {
+            var found = new List<PhysicsDevice>();
+            int count = balls_devices_find(IntPtr.Zero, 0);
+            if (count <= 0)
+            {
+                return found;
+            }
+            int stride = Marshal.SizeOf<DeviceRecord>();
+            IntPtr buffer = Marshal.AllocHGlobal(stride * count);
+            try
+            {
+                int written = balls_devices_find(buffer, count);
+                for (int index = 0; index < written; ++index)
+                {
+                    found.Add(new PhysicsDevice(Marshal.PtrToStructure<DeviceRecord>(buffer + index * stride)));
+                }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+            return found;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct PickRecord
+        {
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string device;
+            public int kind;
+        }
+
+        [DllImport(Library)] private static extern int balls_picks_display(int runningKind, [Out] PickRecord[] picks,
+            int capacity);
+
+        [DllImport(Library)] private static extern int balls_picks_set(PickRecord[] picks, int count, byte[] problem,
+            int problemSize);
+
+        [DllImport(Library)] private static extern int balls_pickable_kinds(string device, [Out] int[] kinds, int capacity);
+
+        /// <summary>One device and the backend that runs on it; two or more picks run the composer.</summary>
+        public readonly struct Pick
+        {
+            public readonly string device;
+            public readonly int kind;
+
+            internal Pick(PickRecord record)
+            {
+                device = record.device;
+                kind = record.kind;
+            }
+
+            public Pick(string deviceId, int backendKind)
+            {
+                this.device = deviceId;
+                kind = backendKind;
+            }
+        }
+
+        /// <summary>What the device rows show for the backend that is about to run: its picks, or the default ones.</summary>
+        public static IReadOnlyList<Pick> DisplayPicks(int runningKind)
+        {
+            var found = new List<Pick>();
+            var records = new PickRecord[16];
+            int count = balls_picks_display(runningKind, records, records.Length);
+            for (int index = 0; index < Math.Min(count, records.Length); ++index)
+            {
+                found.Add(new Pick(records[index]));
+            }
+            return found;
+        }
+
+        /// <summary>Replaces the picks; false leaves the old ones and gives the core's reason.</summary>
+        public static bool SetPicks(IReadOnlyList<Pick> picks, out string problem)
+        {
+            var records = new PickRecord[picks.Count];
+            for (int index = 0; index < picks.Count; ++index)
+            {
+                records[index] = new PickRecord { device = picks[index].device, kind = picks[index].kind };
+            }
+            var text = new byte[256];
+            int ok = balls_picks_set(records, records.Length, text, text.Length);
+            int end = Array.IndexOf(text, (byte)0);
+            problem = ok != 0 ? string.Empty : System.Text.Encoding.UTF8.GetString(text, 0, end < 0 ? text.Length : end);
+            return ok != 0;
+        }
+
+        /// <summary>The backends a device row offers, fastest first.</summary>
+        public static int[] PickableKinds(string device)
+        {
+            var kinds = new int[BallsNative.BackendCount];
+            int count = balls_pickable_kinds(device, kinds, kinds.Length);
+            var result = new int[Math.Max(count, 0)];
+            Array.Copy(kinds, result, result.Length);
+            return result;
+        }
+
+        /// <summary>The adapter the Vulkan physics plugin runs on: "auto", an index or a name substring.</summary>
+        public static string ComputeGpu
+        {
+            get
+            {
+                var buffer = new byte[128];
+                int length = balls_compute_gpu(buffer, buffer.Length);
+                return length > 0 ? System.Text.Encoding.UTF8.GetString(buffer, 0, length) : "auto";
+            }
+        }
+
+        /// <summary>Returns false when the core did not match the preference, which leaves the old one in place.</summary>
+        public static bool SetComputeGpu(string preference) => balls_set_compute_gpu(preference) != 0;
 
         [DllImport(Library)] public static extern int balls_levels_find([MarshalAs(UnmanagedType.LPUTF8Str)] string directory, [Out] NativeLevelInfo[] levels, int capacity);
 

@@ -77,8 +77,11 @@ namespace Balls.Ui
             return false;
         }
 
-        /// <summary>Cuts text that would overflow a right-aligned box to fit, so its start is not clipped.</summary>
-        private string Ellipsize(string text, int size, float widthUnits)
+        /// <summary>
+        /// Shortens text with an ellipsis until it fits the width, so a long level name keeps its tail visible
+        /// instead of being cut off by the rect.
+        /// </summary>
+        public string Ellipsize(string text, int size, float widthUnits)
         {
             GUIStyle style = theme.TextStyle(size, Palette.Text, false, TextAnchor.MiddleRight, true);
             float pixels = widthUnits * theme.Scale;
@@ -301,22 +304,27 @@ namespace Balls.Ui
         }
 
         /// <summary>
-        /// A gadget that scrolls when its content is taller than it, with a thin scrollbar kept clear of the content
-        /// by a gutter, as the design asks of both gadgets. The callback draws into `content`, whose y is advanced.
+        /// A gadget that scrolls when its content is taller than it. The design has no scrollbars: an edge with more
+        /// content beyond it fades into the panel over 40 units under a faded arrow pointing that way, so at the start
+        /// only the far edge shows one and at the end only the near edge. The wheel and a drag both scroll.
         /// </summary>
         public void ScrollColumn(Rect viewport, float contentHeight, ref Vector2 scroll, Action<Rect> draw)
         {
-            const float gutter = 10f;
-            const float barWidth = 4f;
-            Rect body = new Rect(viewport.x, viewport.y, viewport.width - gutter, viewport.height);
-            float max = Mathf.Max(0f, contentHeight - body.height);
-            if (max > 0f && Event.current.type == EventType.ScrollWheel &&
-                UnitsContains(body, Event.current.mousePosition))
+            float max = Mathf.Max(0f, contentHeight - viewport.height);
+            bool inside = UnitsContains(viewport, Event.current.mousePosition);
+            if (max > 0f && inside)
             {
-                scroll.y = Mathf.Clamp(scroll.y + Event.current.delta.y * 24f, 0f, max);
+                if (Event.current.type == EventType.ScrollWheel)
+                {
+                    scroll.y = Mathf.Clamp(scroll.y + Event.current.delta.y * 24f, 0f, max);
+                }
+                else if (Event.current.type == EventType.MouseDrag && Event.current.button == 0)
+                {
+                    scroll.y = Mathf.Clamp(scroll.y - Event.current.delta.y / theme.Scale, 0f, max);
+                }
             }
             scroll.y = Mathf.Clamp(scroll.y, 0f, max);
-            var content = new Rect(body.x, body.y - scroll.y, body.width, contentHeight);
+            var content = new Rect(viewport.x, viewport.y - scroll.y, viewport.width, contentHeight);
             if (max > 0f)
             {
                 // Clip to the viewport but keep absolute coordinates, so the callback lays out as if nothing scrolled.
@@ -330,18 +338,45 @@ namespace Balls.Ui
                 {
                     GUI.EndClip();
                 }
+                if (scroll.y > 0.5f)
+                {
+                    DrawScrollEdge(viewport, true, Palette.Panel);
+                }
+                if (scroll.y < max - 0.5f)
+                {
+                    DrawScrollEdge(viewport, false, Palette.Panel);
+                }
             }
             else
             {
                 draw(content);
             }
-            if (max > 0f)
+        }
+
+        /// <summary>A 40-unit fade into the panel colour with a 20 x 10 arrow in the text colour at 55%.</summary>
+        private void DrawScrollEdge(Rect viewport, bool top, Color background)
+        {
+            const float fade = 40f;
+            const int steps = 20;
+            float stepHeight = fade / steps;
+            for (int index = 0; index < steps; ++index)
             {
-                float trackHeight = body.height;
-                float thumbHeight = Mathf.Max(24f, trackHeight * body.height / contentHeight);
-                float thumb = body.y + (trackHeight - thumbHeight) * (scroll.y / max);
-                theme.Fill(new Rect(body.xMax + gutter - barWidth, body.y, barWidth, trackHeight), Palette.Control);
-                theme.Fill(new Rect(body.xMax + gutter - barWidth, thumb, barWidth, thumbHeight), Palette.TextDim);
+                float share = (index + 1f) / steps;
+                float y = top ? viewport.y + index * stepHeight : viewport.yMax - (index + 1) * stepHeight;
+                theme.Fill(new Rect(viewport.x, y, viewport.width, stepHeight + 0.5f),
+                    UiTheme.WithAlpha(background, share));
+            }
+            Color arrow = UiTheme.WithAlpha(Palette.Text, 0.55f);
+            float arrowWidth = 20f;
+            float arrowHeight = 10f;
+            float arrowY = top ? viewport.y + 6f : viewport.yMax - 6f - arrowHeight;
+            float arrowX = viewport.x + (viewport.width - arrowWidth) * 0.5f;
+            // A stepped triangle: ten rows, each narrower towards the point.
+            for (int row = 0; row < (int)arrowHeight; ++row)
+            {
+                float share = top ? (row + 1f) / arrowHeight : 1f - row / arrowHeight;
+                float width = arrowWidth * share;
+                theme.Fill(new Rect(arrowX + (arrowWidth - width) * 0.5f, arrowY + row, width, 1f), arrow);
             }
         }
 
