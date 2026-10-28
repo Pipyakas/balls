@@ -64,6 +64,7 @@ public:
     size_t partBallCount(size_t part) const { return parts[part].backend->ballCount(); }
     double partStepMs(size_t part) const { return parts[part].lastMs; }
     double partShare(size_t part) const { return parts[part].share; }
+    bool partParked(size_t part) const { return parts[part].parked; }
     // Host time this step spent splitting and merging brick hit budgets (0 with fewer than two device parts).
     double brickBudgetMs() const { return lastBudgetMs; }
 
@@ -72,6 +73,7 @@ private:
         BackendHandle backend;
         std::string label;
         bool resolvesOnDevice = false;
+        bool parked = false;
         double share = 0.0;
         double lastMs = 0.0;
         size_t steppedBalls = 0;
@@ -82,6 +84,7 @@ private:
     std::vector<size_t> targetCounts(size_t total) const;
     void rebalance();
     void updateShares();
+    void parkLosingParts(double wallMs);
     void splitBrickBudgets();
     void mergeDeviceHits();
     void overlay(const BallSnapshot& balls, uint32_t replaceBelow, uint32_t salt);
@@ -91,6 +94,9 @@ private:
     std::vector<Part> parts;
     size_t deviceParts = 0;
     int shareMeasurements = 0;
+    double wallEwma = 0.0;
+    double soloEwma = 0.0;
+    int losingSteps = 0;
     // Brick budgets, used when two or more parts resolve hits on the device.
     std::vector<int32_t> brickHits;
     bool budgetsStale = false;

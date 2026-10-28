@@ -15,6 +15,11 @@ constexpr double shareSmoothing = 0.1;
 constexpr double settlingSmoothing = 0.35;
 constexpr int settlingMeasurements = 24;
 constexpr double slotSelectionRange = 4294967296.0;
+// A part is parked once the composed step has been this much slower than the lead part alone would be, for this
+// many settled steps in a row: a CPU or small GPU whose fixed cost per step exceeds what its share saves.
+constexpr double parkMargin = 0.03;
+constexpr int parkAfterSteps = 60;
+constexpr double wallSmoothing = 0.1;
 
 using Clock = std::chrono::steady_clock;
 
@@ -200,8 +205,11 @@ void DeviceComposer::updateShares() {
     double measuredShare = 0.0;
     double measuredSpeed = 0.0;
     size_t measured = 0;
+    const auto measurable = [this](const Part& part) {
+        return !part.parked && part.steppedBalls >= settings.minimumBallsToMeasure && part.lastMs > 0.0;
+    };
     for (const Part& part : parts) {
-        if (part.steppedBalls >= settings.minimumBallsToMeasure && part.lastMs > 0.0) {
+        if (measurable(part)) {
             measuredShare += part.share;
             measuredSpeed += static_cast<double>(part.steppedBalls) / part.lastMs;
             ++measured;
@@ -213,7 +221,7 @@ void DeviceComposer::updateShares() {
     const double smoothing = shareMeasurements < settlingMeasurements ? settlingSmoothing : shareSmoothing;
     ++shareMeasurements;
     for (Part& part : parts) {
-        if (part.steppedBalls >= settings.minimumBallsToMeasure && part.lastMs > 0.0) {
+        if (measurable(part)) {
             const double balanced = measuredShare * (static_cast<double>(part.steppedBalls) / part.lastMs) / measuredSpeed;
             part.share += smoothing * (std::max(balanced, minimumShare) - part.share);
         }
@@ -223,6 +231,55 @@ void DeviceComposer::updateShares() {
     for (Part& part : parts) {
         part.share /= total;
     }
+}
+
+// Equal step times are the best split only while every part's time shrinks with its share. A part with a large
+// fixed cost per step (thread wake-ups, a whole visibility grid to fill, a driver round trip) can make the
+// composed step slower than the lead part would be on its own; such a part is parked: its balls move away and it
+// stops stepping. Compared on smoothed times, once the shares have settled.
+void DeviceComposer::parkLosingParts(double wallMs) {
+    if (shareMeasurements < settlingMeasurements) {
+        return;
+    }
+    const auto lead = std::ranges::max_element(parts, {}, &Part::share);
+    size_t stepped = 0;
+    for (const Part& part : parts) {
+        stepped += part.steppedBalls;
+    }
+    if (lead->steppedBalls < settings.minimumBallsToMeasure || lead->lastMs <= 0.0) {
+        return;
+    }
+    const double soloMs = lead->lastMs * static_cast<double>(stepped) / static_cast<double>(lead->steppedBalls);
+    wallEwma = wallEwma <= 0.0 ? wallMs : wallEwma + wallSmoothing * (wallMs - wallEwma);
+    soloEwma = soloEwma <= 0.0 ? soloMs : soloEwma + wallSmoothing * (soloMs - soloEwma);
+    losingSteps = wallEwma > soloEwma * (1.0 + parkMargin) ? losingSteps + 1 : 0;
+    if (losingSteps < parkAfterSteps) {
+        return;
+    }
+    Part* slowest = nullptr;
+    for (Part& part : parts) {
+        if (&part == &*lead || part.parked || part.lastMs <= 0.0) {
+            continue;
+        }
+        const double speed = static_cast<double>(part.steppedBalls) / part.lastMs;
+        if (!slowest || speed < static_cast<double>(slowest->steppedBalls) / slowest->lastMs) {
+            slowest = &part;
+        }
+    }
+    if (!slowest) {
+        return;
+    }
+    slowest->parked = true;
+    slowest->share = 0.0;
+    const double total = std::accumulate(parts.begin(), parts.end(), 0.0,
+                                         [](double sum, const Part& part) { return sum + part.share; });
+    for (Part& part : parts) {
+        part.share /= total;
+    }
+    shareMeasurements = 0;
+    losingSteps = 0;
+    wallEwma = 0.0;
+    soloEwma = 0.0;
 }
 
 // Splits every brick's remaining hits between the device-resolving parts in proportion to their balls, so their
@@ -322,6 +379,7 @@ DeviceHitResults DeviceComposer::deviceHitResults() const {
 }
 
 void DeviceComposer::step(const StepParams& params, std::vector<BallHit>& hits) {
+    const Clock::time_point stepStart = Clock::now();
     // In free flight no part steps, so there is no throughput to balance.
     if (!params.freeFlight) {
         rebalance();
@@ -358,6 +416,7 @@ void DeviceComposer::step(const StepParams& params, std::vector<BallHit>& hits) 
     }
     if (!params.freeFlight) {
         updateShares();
+        parkLosingParts(millisecondsSince(stepStart));
     }
     if (deviceParts >= 2) {
         const Clock::time_point start = Clock::now();
