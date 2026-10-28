@@ -39,6 +39,7 @@ crashlytics-build.properties
 
 # Native plugins are built by CMake, not committed as binaries.
 /Assets/Plugins/x86_64/*.dll
+/Assets/Plugins/x86_64/*.so
 /Assets/Plugins/x86_64/*.pdb
 !/Assets/Plugins/x86_64/.gitkeep
 
@@ -47,6 +48,7 @@ crashlytics-build.properties
 
 # Generated from data/assets by Balls/Set Up Project.
 /Assets/StreamingAssets/levels/
+/Assets/StreamingAssets/target-benchmark.txt
 
 # Editor and build logs, and performance-test drops.
 *.log
