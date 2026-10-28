@@ -313,6 +313,7 @@ void GameplayScreen::tickPhysics(const GameplayLayout& layout) {
     input.uiWorkSeconds = std::max(lastFrame.cpuMs, lastFrame.gpuMs) / millisecondsPerSecond;
     input.visibilitySlotCells = BallView::slotCells(layout.board, view->ballRadius);
     input.drawing = app.settings().drawBoard;
+    input.framesPerSecond = app.settings().physicsFramesPerSecond;
     runner->tick(input);
 }
 

@@ -22,6 +22,8 @@ struct PhysicsFrameInput {
     float visibilitySlotCells = 0.0f;
     // Off while the UI draws no board: the backend skips drawing work and no ball words are copied.
     bool drawing = true;
+    // Physics frames per second: 0 is one per tick, -1 is as fast as the thread can go.
+    int framesPerSecond = 0;
 };
 
 enum class SessionEventKind { BackendSwitched, BackendFailed };

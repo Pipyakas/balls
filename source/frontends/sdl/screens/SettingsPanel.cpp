@@ -87,6 +87,7 @@ float settingsContentHeight() {
               optionGap + blockGap - optionGap;
     height += sectionHeight + blockHeight;
     height += blockHeight;
+    height += blockHeight;
     height += backHeight;
     return height;
 }
@@ -269,6 +270,25 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
     }
     cursor += optionHeight + hintGap;
     ui::drawText("Contacts checked more often; costs that much more. Next level.", {innerX, cursor}, hintSize,
+                 palette::textMuted);
+    cursor += hintHeight + blockGap;
+
+    ui::drawText("Physics frames", {innerX, cursor}, sectionSize, palette::text);
+    cursor += sectionHeight;
+    const Rect frameOptions{innerX, cursor, innerWidth, optionHeight};
+    constexpr std::array<std::pair<int, const char*>, 5> frameRates{
+        {{0, "Per tick"}, {60, "60"}, {120, "120"}, {240, "240"}, {-1, "Uncapped"}}};
+    for (size_t i = 0; i < frameRates.size(); ++i) {
+        const auto& [rate, label] = frameRates[i];
+        if (ui::button(ui::columnSlice(frameOptions, static_cast<int>(i), static_cast<int>(frameRates.size()), optionGap),
+                       label, true, current.physicsFramesPerSecond == rate) &&
+            current.physicsFramesPerSecond != rate) {
+            edit.settings.physicsFramesPerSecond = rate;
+            edit.changed = true;
+        }
+    }
+    cursor += optionHeight + hintGap;
+    ui::drawText("How often physics runs and publishes a frame; the tick stays fixed.", {innerX, cursor}, hintSize,
                  palette::textMuted);
     cursor += hintHeight + blockGap;
 

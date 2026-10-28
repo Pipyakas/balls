@@ -772,6 +772,12 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
         if (const auto vsync = request.integer("vsync")) {
             next.vsync = *vsync != 0;
         }
+        if (const auto frames = request.integer("physicsFrames")) {
+            next.physicsFramesPerSecond = *frames;
+        }
+        if (const auto drawBoard = request.integer("drawBoard")) {
+            next.drawBoard = *drawBoard != 0;
+        }
         if (const auto advanced = request.integer("advanced")) {
             next.advancedSettings = *advanced != 0;
         }

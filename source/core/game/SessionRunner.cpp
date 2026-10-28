@@ -5,6 +5,12 @@
 #include <algorithm>
 #include <thread>
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
+
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -30,6 +36,53 @@ int& liveThreadCount() {
 double secondsBetween(Clock::time_point start, Clock::time_point end) {
     return std::chrono::duration<double>(end - start).count();
 }
+
+// Windows wakes a waiting thread on its 15.6 ms timer tick, so a physics frame asked for every 8.3 ms ran every 15.6
+// (64 a second) and one asked for every 16.7 ms every 31; raising the timer resolution is not honoured for a game
+// without a visible window. The physics thread instead sleeps in slices of at most a millisecond on a
+// high-resolution waitable timer, checking for commands between them, so a command still starts the next frame
+// within a millisecond.
+class PreciseSleeper {
+public:
+    PreciseSleeper() {
+#if defined(_WIN32)
+        timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+#endif
+    }
+    ~PreciseSleeper() {
+#if defined(_WIN32)
+        if (timer) {
+            CloseHandle(timer);
+        }
+#endif
+    }
+    PreciseSleeper(const PreciseSleeper&) = delete;
+    PreciseSleeper& operator=(const PreciseSleeper&) = delete;
+
+    void sleepFor(Clock::duration duration) {
+#if defined(_WIN32)
+        if (timer) {
+            constexpr long long hundredNanosecondsPerSecond = 10'000'000;
+            LARGE_INTEGER due{};
+            due.QuadPart = -std::chrono::duration_cast<std::chrono::duration<long long, std::ratio<1, hundredNanosecondsPerSecond>>>(
+                                duration)
+                                .count();
+            if (SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE)) {
+                WaitForSingleObject(timer, INFINITE);
+                return;
+            }
+        }
+#endif
+        std::this_thread::sleep_for(duration);
+    }
+
+private:
+#if defined(_WIN32)
+    HANDLE timer = nullptr;
+#endif
+};
+
+constexpr auto longestSleepSlice = std::chrono::milliseconds(1);
 
 } // namespace
 
@@ -139,6 +192,7 @@ void fillView(GameSession& session, SessionView& view, const SessionView* previo
 
 void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, LevelData level, BackendKind backend,
                 int ticksPerSecond) {
+    PreciseSleeper sleeper;
     auto session = std::make_unique<GameSession>(mode, std::move(level), backend, ticksPerSecond);
     uint64_t frameNumber = 0;
     uint64_t boardRevision = ~0ull;
@@ -150,8 +204,9 @@ void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, Le
     double lastWorkSeconds = 0.0;
     bool wasPaused = false;
     bool probing = false;
-    const auto tickPeriod = std::chrono::duration_cast<Clock::duration>(
-        std::chrono::duration<double>(session->simulation().tuning().tickSeconds));
+    const double tickSeconds = session->simulation().tuning().tickSeconds;
+    Clock::duration framePeriod = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(tickSeconds));
+    bool unpaced = false;
     for (;;) {
         std::vector<SessionRunner::Command> commands;
         PhysicsFrameInput input;
@@ -162,9 +217,18 @@ void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, Le
             // One frame per simulation tick: more would step nothing and only republish the same state. A command
             // wakes the thread at once. While the capacity probe runs, frames follow each other unpaced, so the
             // probe measures what the physics thread can do rather than the tick rate.
-            if (frameNumber > 0 && !probing) {
-                shared->wake.wait_until(lock, lastUpdate + tickPeriod,
-                                        [&] { return shared->stopping || !shared->commands.empty(); });
+            const int framesPerSecond = shared->input.framesPerSecond;
+            unpaced = framesPerSecond < 0;
+            framePeriod = std::chrono::duration_cast<Clock::duration>(
+                std::chrono::duration<double>(framesPerSecond > 0 ? 1.0 / framesPerSecond : tickSeconds));
+            if (frameNumber > 0 && !probing && !unpaced) {
+                const Clock::time_point due = lastUpdate + framePeriod;
+                for (Clock::time_point now = Clock::now();
+                     now < due && !shared->stopping && shared->commands.empty(); now = Clock::now()) {
+                    lock.unlock();
+                    sleeper.sleepFor(std::min<Clock::duration>(due - now, longestSleepSlice));
+                    lock.lock();
+                }
             }
             if (shared->stopping) {
                 break;
