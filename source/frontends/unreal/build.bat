@@ -108,6 +108,11 @@ rem The core reads level files from disk; packaged builds look in <project dir>\
 robocopy "%~dp0..\..\..\data\assets" "%DIST_DIR%\ColorBlastBalls\assets" /mir /njh /njs /nfl /ndl /np >nul
 if errorlevel 8 (cmd /c exit 1 & goto :eof)
 
+rem RADV crashes in the startup global compute PSO precache, so the Linux launcher turns it off on those machines only.
+if /i "%VARIANT%"=="linux" (
+    copy /y "%~dp0LaunchLinux.sh" "%DIST_DIR%\ColorBlastBalls.sh" >nul
+)
+
 echo.
 echo Built: %DIST_DIR%\%LAUNCHER%
 cmd /c exit 0
