@@ -52,6 +52,8 @@ public:
     const std::vector<int>& aliveBrickIndices() const { return aliveBricks; }
     const ColorTally& remainingHitsByColor() const { return remainingHits; }
     uint64_t revision() const { return changeRevision; }
+    // True while a hit flash or a falling brick still changes what is drawn from frame to frame.
+    bool isAnimating() const { return !animatingBricks.empty(); }
 
 private:
     int freeRowsAbove(int brickIndex) const;

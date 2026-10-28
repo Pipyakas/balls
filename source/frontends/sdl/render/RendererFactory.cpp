@@ -54,6 +54,24 @@ bool isNvrhiCompiledIn() {
 #endif
 }
 
+bool isRendererCompiledIn(std::string_view renderer) {
+    const std::string name = lowercase(renderer);
+    if (name.empty()) {
+        return true;
+    }
+    if (name == "nvrhi") {
+        return isNvrhiCompiledIn();
+    }
+    if (name == "webgpu") {
+        return isWebGpuCompiledIn();
+    }
+#if defined(BALLS_RENDERER_SDLGPU)
+    return name == "sdlgpu";
+#else
+    return false;
+#endif
+}
+
 SDL_WindowFlags rendererWindowFlags(std::string_view renderer, std::string_view api) {
     std::string r = lowercase(renderer);
     if (r.empty()) {
@@ -71,7 +89,10 @@ SDL_WindowFlags rendererWindowFlags(std::string_view renderer, std::string_view 
         return 0;
     }
 #if defined(BALLS_RENDERER_NVRHI) || defined(BALLS_WITH_NVRHI)
-    return windowFlagsFor(graphicsApiFor(api));
+    // SDL only creates Vulkan surfaces on windows that asked for Vulkan, so an NVRHI window always does: the player
+    // can switch from Direct3D 12 to Vulkan without the window being recreated.
+    (void)api;
+    return SDL_WINDOW_VULKAN;
 #else
     return 0;
 #endif
@@ -123,7 +144,11 @@ std::unique_ptr<IRenderer> createRenderer(SDL_Window* window, std::string_view r
 
 #if defined(BALLS_RENDERER_NVRHI) || defined(BALLS_WITH_NVRHI)
     if (r == "nvrhi") {
-        return createNvrhiRenderer(window, graphicsApiFor(api), gpuPreference, error);
+        auto renderer = createNvrhiRenderer(window, graphicsApiFor(api), gpuPreference, error);
+        if (renderer && !renderer->attachToWindow(error)) {
+            return nullptr;
+        }
+        return renderer;
     }
 #endif
 
@@ -134,5 +159,23 @@ std::unique_ptr<IRenderer> createRenderer(SDL_Window* window, std::string_view r
 #endif
 
     error = std::format("unknown or unsupported renderer '{}'", rendererName);
+    return nullptr;
+}
+
+std::unique_ptr<IRenderer> prepareRenderer(SDL_Window* window, std::string_view rendererName, std::string_view api,
+                                           std::string_view gpuPreference, std::string& error) {
+#if defined(BALLS_RENDERER_NVRHI) || defined(BALLS_WITH_NVRHI)
+    const std::string r = lowercase(rendererName);
+    const bool webGpuApi = api == "webgpu" || api.starts_with("webgpu-");
+    if (r == "nvrhi" || (r.empty() && !webGpuApi)) {
+        return createNvrhiRenderer(window, graphicsApiFor(api), gpuPreference, error);
+    }
+#else
+    (void)window;
+    (void)rendererName;
+    (void)api;
+    (void)gpuPreference;
+    (void)error;
+#endif
     return nullptr;
 }

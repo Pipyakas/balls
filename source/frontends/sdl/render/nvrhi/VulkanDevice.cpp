@@ -63,6 +63,8 @@ public:
 
     bool initialize(std::string& error);
     nvrhi::IDevice* device() const override { return nvrhiDevice; }
+    bool attach(std::string& error) override;
+    void detach() override { destroySwapchain(); }
     bool beginFrame() override;
     nvrhi::ITexture* backBuffer() const override { return backBuffers[imageIndex]; }
     void present() override;
@@ -423,9 +425,10 @@ void VulkanDevice::destroySwapchain() {
 }
 
 bool VulkanDevice::initialize(std::string& error) {
-    if (!createInstance(error) || !pickPhysicalDevice(error) || !createLogicalDevice(error)) {
-        return false;
-    }
+    return createInstance(error) && pickPhysicalDevice(error) && createLogicalDevice(error);
+}
+
+bool VulkanDevice::attach(std::string& error) {
     if (!createSwapchain()) {
         error = "vkCreateSwapchainKHR failed";
         return false;

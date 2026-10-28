@@ -47,7 +47,8 @@ struct GpuAdapterInfo {
 };
 
 // Every adapter the API exposes, in enumeration order. Loads the Vulkan loader / DXGI dynamically and returns an
-// empty list (never throws, never aborts) when the API is missing.
+// empty list (never throws, never aborts) when the API is missing. Enumerating opens a device per adapter, about
+// 200 ms, so the first list per API is kept for the rest of the run; safe to call from any thread.
 std::vector<GpuAdapterInfo> enumerateGpuAdapters(GpuApi api);
 
 GpuVendor vendorFromPciId(uint32_t vendorId);
