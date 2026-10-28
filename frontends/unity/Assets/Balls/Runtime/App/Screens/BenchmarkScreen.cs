@@ -19,6 +19,7 @@ namespace Balls.App.Screens
         private bool started;
         private float finishedAt = -1f;
         private bool loggedRows;
+        private bool recorded;
 
         public override void Enter()
         {
@@ -32,6 +33,7 @@ namespace Balls.App.Screens
             Debug.Log($"balls: benchmark handle={benchmark} dir={App.LevelDirectoryFor(BallsApp.PerformanceMode)} err='{BallsNative.LastError()}'");
             BallsNative.balls_benchmark_start(benchmark);
             started = true;
+            recorded = false;
             finishedAt = -1f;
             winner = -1;
         }
@@ -127,12 +129,29 @@ namespace Balls.App.Screens
                 loggedRows = true;
                 Debug.Log($"balls: benchmark rows={count} firstStatus={(count > 0 ? rows[0].status : -1)} label='{(count > 0 ? rows[0].Label : "")}'");
             }
+            if (!recorded && BallsNative.balls_benchmark_finished(benchmark) != 0)
+            {
+                recorded = true;
+                RecordScores(count);
+            }
             int currentWinner = BallsNative.balls_benchmark_winner(benchmark);
             if (currentWinner >= 0)
             {
                 winner = currentWinner;
             }
             return Mathf.Min(count, rows.Length);
+        }
+
+        private void RecordScores(int count)
+        {
+            for (int index = 0; index < count; ++index)
+            {
+                if (rows[index].status == 2 && rows[index].ballStepsPerSecond > 0.0)
+                {
+                    App.Profile.SetScore(BallsNative.BackendName(rows[index].kind), rows[index].ballStepsPerSecond);
+                }
+            }
+            App.Profile.Save();
         }
 
         private void Continue()
@@ -144,7 +163,7 @@ namespace Balls.App.Screens
                     App.Settings.DefaultBackend = BallsNative.BackendName(winner);
                     App.SaveSettings();
                 }
-                App.SwitchBackend(winner);
+                App.SetBackend(winner);
                 App.Toast($"Default backend: {BallsNative.BackendName(winner)}");
             }
             App.Go<MainMenuScreen>();

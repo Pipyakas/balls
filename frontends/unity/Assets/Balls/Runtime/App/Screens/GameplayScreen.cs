@@ -64,6 +64,7 @@ namespace Balls.App.Screens
         private int multiplierIndex;
         private int limitIndex;
         private bool autoLimit;
+        private bool probeRecorded;
         private GameBackend syncedBackend;
         private Vector2 interactionScroll;
         private Vector2 debugScroll;
@@ -100,6 +101,40 @@ namespace Balls.App.Screens
             multiplierIndex = backend.BallMultiplierIndex;
             limitIndex = backend.BallLimitIndex + 1;
             autoLimit = false;
+            probeRecorded = false;
+            ReapplySavedLimit(backend);
+        }
+
+        /// <summary>A capacity probe result saved for this backend becomes the Auto ball limit of a new Performance game.</summary>
+        private void ReapplySavedLimit(GameBackend backend)
+        {
+            string name = BallsNative.BackendName(backend.BackendKind);
+            if (backend.Mode != BallsApp.PerformanceMode || !App.Profile.TryLimit(name, out ulong balls, out double fps))
+            {
+                return;
+            }
+            backend.UseMachineLimit(balls);
+            limitIndex = 0;
+            autoLimit = true;
+            App.Toast($"{name} limit {balls:N0} balls @{fps:F0} FPS");
+        }
+
+        /// <summary>Saves a finished capacity probe per machine and backend so the next run starts from it.</summary>
+        private void RecordFinishedProbe(GameBackend backend)
+        {
+            const int probeDone = 4;
+            if (backend.ProbePhase != probeDone)
+            {
+                probeRecorded = false;
+                return;
+            }
+            if (probeRecorded || backend.ProbeBest == 0)
+            {
+                return;
+            }
+            probeRecorded = true;
+            App.Profile.SetLimit(BallsNative.BackendName(backend.BackendKind), backend.ProbeBest, backend.ProbeTargetFps);
+            App.Profile.Save();
         }
 
         public void OnRestarted()
@@ -123,6 +158,10 @@ namespace Balls.App.Screens
             // No full-window fill here: the board is drawn by the camera underneath this UI, and the gadgets and
             // header paint their own panels.
             SyncControls();
+            if (SessionSystem.Current?.Backend != null)
+            {
+                RecordFinishedProbe(SessionSystem.Current.Backend);
+            }
             EnsureLayout(board);
 
             RefitCamera(board);

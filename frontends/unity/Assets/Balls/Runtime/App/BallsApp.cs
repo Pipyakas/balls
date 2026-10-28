@@ -55,6 +55,31 @@ namespace Balls.App
 
         public SettingsData Settings { get; private set; }
 
+        public MachineProfile Profile { get; private set; } = new();
+
+        /// <summary>
+        /// Which backend a new game starts on: the Settings default, else the target PC winner, else the fastest CPU
+        /// backend that loads (AVX2, then Scalar). Switching inside a game never changes it.
+        /// </summary>
+        public int DefaultBackendKind => Settings != null ? Settings.BackendKind(FallbackBackend()) : FallbackBackend();
+
+        private static int FallbackBackend()
+        {
+            string winner = MachineProfile.TargetWinner();
+            if (winner != null)
+            {
+                for (int kind = 0; kind < BallsNative.BackendCount; ++kind)
+                {
+                    if (BallsNative.BackendName(kind).Equals(winner, StringComparison.OrdinalIgnoreCase) &&
+                        BallsNative.BackendAvailable(kind))
+                    {
+                        return kind;
+                    }
+                }
+            }
+            return BallsNative.BackendAvailable(BallsNative.BackendAvx2) ? BallsNative.BackendAvx2 : BallsNative.BackendScalar;
+        }
+
         public string StartupError { get; set; } = "";
 
         /// <summary>Set while a headless capture is pending, so screens stay put instead of auto-advancing.</summary>
@@ -263,6 +288,9 @@ namespace Balls.App
             Get<Screens.GameplayScreen>().OnRestarted();
         }
 
+        /// <summary>Sets the backend the next game starts on, without touching a running one.</summary>
+        public void SetBackend(int kind) => BackendKind = kind;
+
         public void SwitchBackend(int kind)
         {
             BackendKind = kind;
@@ -279,7 +307,8 @@ namespace Balls.App
                 settings = new NativeSettings { defaultBackend = new byte[64], orientation = 0 };
             }
             Settings = new SettingsData(settings, path);
-            BackendKind = Settings.BackendKind(BallsNative.BackendAvx2);
+            Profile = MachineProfile.Load();
+            BackendKind = DefaultBackendKind;
             return true;
         }
 
@@ -441,6 +470,10 @@ namespace Balls.App
                 else if (arg.Equals("-BallsEditor", StringComparison.OrdinalIgnoreCase))
                 {
                     Go<Screens.EditorScreen>();
+                }
+                else if (arg.Equals("-BallsSettings", StringComparison.OrdinalIgnoreCase))
+                {
+                    Go<Screens.SettingsScreen>();
                 }
             }
         }

@@ -108,7 +108,7 @@ namespace Balls.App.Screens
             Rect label = new Rect(row.x, row.y, row.width - 110f - 8f, row.height);
             if (widgets.Button(label, name, TypeSizes.Header))
             {
-                App.StartGameplay(App.Mode, name, App.BackendKind);
+                App.StartGameplay(App.Mode, name, App.DefaultBackendKind);
             }
             if (widgets.Button(edit, "Edit", TypeSizes.Label))
             {

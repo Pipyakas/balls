@@ -208,6 +208,11 @@ namespace Balls.Editor
                     File.Copy(file, Path.Combine(target, Path.GetFileName(file)), true);
                 }
             }
+            string targetRecord = Path.Combine(repositoryRoot, "data", "assets", "target-benchmark.txt");
+            if (File.Exists(targetRecord))
+            {
+                File.Copy(targetRecord, Path.Combine(Application.streamingAssetsPath, "target-benchmark.txt"), true);
+            }
             Debug.Log($"copied levels into {destination}");
         }
 

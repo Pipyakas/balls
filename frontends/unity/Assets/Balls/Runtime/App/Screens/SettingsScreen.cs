@@ -56,8 +56,10 @@ namespace Balls.App.Screens
             }
 
             float panelWidth = Mathf.Min(560f, width - 64f);
-            float panelHeight = Mathf.Min(560f, height - 120f);
-            Rect panel = new Rect((width - panelWidth) * 0.5f, (height - panelHeight) * 0.5f, panelWidth, panelHeight);
+            float panelTop = overlay ? 60f : 110f;
+            float panelHeight = Mathf.Min(780f, height - panelTop - 24f);
+            Rect panel = new Rect((width - panelWidth) * 0.5f, overlay ? (height - panelHeight) * 0.5f : panelTop,
+                panelWidth, panelHeight);
             theme.Frame(panel, Palette.Panel, Palette.Border);
             if (overlay)
             {
@@ -69,7 +71,7 @@ namespace Balls.App.Screens
                 panel.height - (overlay ? 132f : 86f));
             SettingsData settings = App.Settings;
 
-            widgets.ScrollColumn(inner, 570f, ref scroll, content =>
+            widgets.ScrollColumn(inner, 730f, ref scroll, content =>
             {
                 float y = content.y;
                 // Gameplay
@@ -93,9 +95,9 @@ namespace Balls.App.Screens
                     Apply(settings);
                 }
                 y += 40f;
-                widgets.Muted(new Rect(content.x, y, content.width, 22f),
-                    "Testing only — the game rules have balls pass through each other.", TypeSizes.Small);
-                y += 34f;
+                widgets.Muted(new Rect(content.x, y, content.width, 40f),
+                    "Testing only - the game rules have balls\npass through each other.", TypeSizes.Small);
+                y += 50f;
 
                 // Layout
                 widgets.Label(new Rect(content.x, y, content.width, 22f), "Layout orientation", TypeSizes.Small,
@@ -113,15 +115,28 @@ namespace Balls.App.Screens
                     }
                     y += 38f;
                 }
+                widgets.Muted(new Rect(content.x, y, content.width, 22f), "Auto follows the window shape.",
+                    TypeSizes.Small);
+                y += 34f;
 
                 // Display
                 widgets.Label(new Rect(content.x, y, content.width, 22f), "Display", TypeSizes.Small,
                     Palette.Accent, TextAnchor.UpperLeft, true);
                 y += 26f;
-                if (widgets.OptionRow(new Rect(content.x, y, content.width, 34f), settings.Vsync ? "VSync on" : "VSync off", true))
+                widgets.Label(new Rect(content.x, y, content.width, 22f), "VSync", TypeSizes.Small,
+                    Palette.Text, TextAnchor.UpperLeft, false);
+                y += 26f;
+                if (widgets.OptionRow(new Rect(content.x, y, content.width, 34f), "Off", !settings.Vsync))
                 {
-                    settings.Vsync = !settings.Vsync;
-                    QualitySettings.vSyncCount = settings.Vsync ? 1 : 0;
+                    settings.Vsync = false;
+                    QualitySettings.vSyncCount = 0;
+                    Apply(settings);
+                }
+                y += 38f;
+                if (widgets.OptionRow(new Rect(content.x, y, content.width, 34f), "On", settings.Vsync))
+                {
+                    settings.Vsync = true;
+                    QualitySettings.vSyncCount = 1;
                     Apply(settings);
                 }
                 y += 44f;
@@ -137,15 +152,14 @@ namespace Balls.App.Screens
                         continue;
                     }
                     bool available = BallsNative.BackendAvailable(kind);
-                    bool selected = settings.BackendKind(BallsNative.BackendAvx2) == kind;
-                    string detail = available
-                        ? BallsNative.BackendTextCached(kind, true)
-                        : BallsNative.BackendTextCached(kind, false);
+                    bool selected = App.DefaultBackendKind == kind;
+                    string detail = !available ? BallsNative.BackendTextCached(kind, false)
+                        : App.Profile.TryScore(BackendNames[kind], out double score) ? $"{score / 1e6:N0} M ball-steps/s"
+                        : BallsNative.BackendTextCached(kind, true);
                     if (widgets.OptionRow(new Rect(content.x, y, content.width, 34f), BackendNames[kind], selected,
                             available, detail) && available)
                     {
                         settings.DefaultBackend = BackendNames[kind];
-                        App.SwitchBackend(kind);
                         Apply(settings);
                     }
                     y += 38f;

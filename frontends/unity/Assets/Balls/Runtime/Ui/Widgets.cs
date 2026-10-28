@@ -317,7 +317,24 @@ namespace Balls.Ui
             }
             scroll.y = Mathf.Clamp(scroll.y, 0f, max);
             var content = new Rect(body.x, body.y - scroll.y, body.width, contentHeight);
-            draw(content);
+            if (max > 0f)
+            {
+                // Clip to the viewport but keep absolute coordinates, so the callback lays out as if nothing scrolled.
+                Rect pixels = theme.Units(viewport.x, viewport.y, viewport.width, viewport.height);
+                GUI.BeginClip(pixels, -pixels.position, Vector2.zero, false);
+                try
+                {
+                    draw(content);
+                }
+                finally
+                {
+                    GUI.EndClip();
+                }
+            }
+            else
+            {
+                draw(content);
+            }
             if (max > 0f)
             {
                 float trackHeight = body.height;
