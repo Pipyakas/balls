@@ -69,7 +69,7 @@ Color fpsColor(float fps) {
 }
 
 int debugRowCount(const SessionView& session, bool showBackend) {
-    constexpr int backendRows = 2;
+    constexpr int backendRows = 3;
     constexpr int physicsRateRows = 1;
     int rows = 12 + physicsRateRows - (showBackend ? 0 : backendRows);
     if (showBackend && session.deviceStepMs > 0.0) {
@@ -136,10 +136,12 @@ void drawDebugPanel(Rect area, const SessionView& session, const FrameTimings& f
             writer.row("Device", detail);
         }
     }
-    const bool collisionsWanted = session.collisionsRequested;
-    const bool collisionsOn = session.collisionsActive;
-    writer.row("Ball collisions", collisionsWanted ? (collisionsOn ? "On" : "On (unsupported)") : "Off",
-               collisionsWanted && !collisionsOn ? palette::danger : palette::text);
+    if (showBackend) {
+        const bool collisionsWanted = session.collisionsRequested;
+        const bool collisionsOn = session.collisionsActive;
+        writer.row("Ball collisions", collisionsWanted ? (collisionsOn ? "On" : "On (unsupported)") : "Off",
+                   collisionsWanted && !collisionsOn ? palette::danger : palette::text);
+    }
 
     writer.heading("Objects");
     const BallCount balls = stats.ballCount;

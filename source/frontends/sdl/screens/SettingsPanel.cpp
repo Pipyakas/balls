@@ -78,7 +78,6 @@ constexpr float blockHeight = sectionHeight + optionHeight + hintGap + hintHeigh
 float settingsContentHeight() {
     float height = panelPadding * 2.0f;
     height += titleHeight + blockGap;
-    height += sectionHeight + sectionHeight + optionHeight + hintGap + hintHeight + hintHeight + blockGap;
     height += blockHeight;
     height += sectionHeight + blockHeight;
     height += blockHeight;
@@ -103,31 +102,6 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
 
     ui::drawTextInRect("Settings", {innerX, cursor, innerWidth, titleHeight}, titleSize, palette::text);
     cursor += titleHeight + blockGap;
-
-    ui::drawText("Gameplay", {innerX, cursor}, sectionSize, palette::textMuted);
-    cursor += sectionHeight;
-    ui::drawText("Ball collisions", {innerX, cursor}, sectionSize, palette::text);
-    cursor += sectionHeight;
-    const Rect collisionOptions{innerX, cursor, innerWidth, optionHeight};
-    const bool collisionsPossible = isBackendSelectable(BackendKind::Scalar);
-    if (ui::button(ui::columnSlice(collisionOptions, 0, 2, optionGap), "Off", true,
-                   !current.ballCollisions) &&
-        current.ballCollisions) {
-        edit.settings.ballCollisions = false;
-        edit.changed = true;
-    }
-    if (ui::button(ui::columnSlice(collisionOptions, 1, 2, optionGap), "On", collisionsPossible, current.ballCollisions) &&
-        !current.ballCollisions) {
-        edit.settings.ballCollisions = true;
-        edit.changed = true;
-    }
-    cursor += optionHeight + hintGap;
-    ui::drawText("Testing only - the game rules have balls", {innerX, cursor}, hintSize,
-                 palette::textMuted);
-    cursor += hintHeight;
-    ui::drawText(collisionsPossible ? "pass through each other." : "pass through each other. Needs Scalar, not offered here.",
-                 {innerX, cursor}, hintSize, palette::textMuted);
-    cursor += hintHeight + blockGap;
 
     ui::drawText("Layout", {innerX, cursor}, sectionSize, palette::textMuted);
     cursor += sectionHeight;
