@@ -1,7 +1,7 @@
-# Hybrid CPU + GPU physics
+# CUDA+AVX2 split physics
 
-Balls never collide with each other, so the ball set can be split between devices. The `Hybrid` backend
-(F4, `/backend?kind=hybrid`) keeps most balls on CUDA and a share on the AVX2 backend, steps both at the same
+Balls never collide with each other, so the ball set can be split between devices. The `CUDA+AVX2` backend
+(F4, `/backend?kind=cuda-avx2`; called `Hybrid` until the general device composer took that name) keeps most balls on CUDA and a share on the AVX2 backend, steps both at the same
 time, and merges their results on the host. Measured on a GTX 1650 with an i5-12400F (6 cores, 12 threads,
 dual-channel DDR4-3200).
 
@@ -37,7 +37,7 @@ cache lines bounce between cores and halved CPU throughput.
 
 `balls_bench --scatter` (full `Simulation`, scattered balls, empty board after the first ticks):
 
-| Balls | CUDA | Hybrid | Gain |
+| Balls | CUDA | CUDA+AVX2 | Gain |
 |---|---|---|---|
 | 96M, 3000 ticks, 2 substeps | 10.29 ms/tick | 9.58 ms/tick | 7% (9.2 ms steady, 11%) |
 
@@ -46,7 +46,7 @@ In the game, hidden window, 140M balls, three alternating runs each:
 | Backend | FPS | Frame |
 |---|---|---|
 | CUDA | 67.4 | 14.83 ms |
-| Hybrid | 68.7 | 14.63 ms |
+| CUDA+AVX2 | 68.7 | 14.63 ms |
 
 In-game the gain shrinks to about 2%, within run-to-run noise, for two reasons:
 

@@ -33,15 +33,7 @@ std::optional<GameMode> parseGameMode(std::string_view text) {
     return std::nullopt;
 }
 
-std::optional<BackendKind> parseBackendKind(std::string_view text) {
-    const std::string name = lowercase(text);
-    for (BackendKind kind : allBackendKinds) {
-        if (lowercase(backendKindName(kind)) == name) {
-            return kind;
-        }
-    }
-    return std::nullopt;
-}
+std::optional<BackendKind> parseBackendKind(std::string_view text) { return backendKindFromName(text); }
 
 LaunchOptions parseLaunchOptions(int argumentCount, char** arguments) {
     LaunchOptions options;
