@@ -8,9 +8,9 @@
 
 GameSession::GameSession(GameMode mode, LevelData level, BackendKind backend)
     : gameMode(mode), levelData(std::move(level)), backendKind(backend),
-      physicsSimulation(createBackend(isBackendAvailable(backend) ? backend : BackendKind::Scalar)) {
+      physicsSimulation(createBackend(isBackendAvailable(backend) ? backend : fastestAvailableCpuBackend())) {
     if (!isBackendAvailable(backend)) {
-        backendKind = BackendKind::Scalar;
+        backendKind = fastestAvailableCpuBackend();
     }
     restart();
 }

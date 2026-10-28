@@ -1,6 +1,7 @@
 #include "sim/BackendBenchmark.h"
 
 #include "common/BallColor.h"
+#include "sim/BackendWorker.h"
 #include "sim/Simulation.h"
 
 #include <algorithm>
@@ -155,7 +156,7 @@ HardwareFingerprint currentHardwareFingerprint(std::string_view gameVersion) {
 
 std::vector<BenchmarkCandidate> benchmarkCandidates() {
     std::vector<BenchmarkCandidate> candidates;
-    for (const BackendKind kind : allBackendKinds) {
+    for (const BackendKind kind : selectableBackends()) {
         candidates.push_back({kind, {}, candidateLabel(kind, {})});
     }
     return candidates;

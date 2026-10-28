@@ -1,5 +1,6 @@
 #include "sim/BackendWorker.h"
 
+#include <algorithm>
 #include <map>
 
 std::optional<BackendHandle> BackendBuild::take() {
@@ -120,6 +121,28 @@ BackendStatus backendStatus(BackendKind kind) {
     BackendStatus status = queryStatus(kind);
     std::lock_guard lock(cache.mutex);
     return cache.statuses.try_emplace(kind, std::move(status)).first->second;
+}
+
+std::vector<BackendKind> selectableBackends() {
+    bool otherBackendAvailable = false;
+    for (const BackendKind kind : allBackendKinds) {
+        if (kind != BackendKind::Scalar && backendStatus(kind).available) {
+            otherBackendAvailable = true;
+            break;
+        }
+    }
+    std::vector<BackendKind> kinds;
+    for (const BackendKind kind : allBackendKinds) {
+        if (kind != BackendKind::Scalar || !otherBackendAvailable) {
+            kinds.push_back(kind);
+        }
+    }
+    return kinds;
+}
+
+bool isBackendSelectable(BackendKind kind) {
+    const std::vector<BackendKind> kinds = selectableBackends();
+    return std::find(kinds.begin(), kinds.end(), kind) != kinds.end();
 }
 
 void refreshBackendStatuses() {
