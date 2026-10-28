@@ -96,15 +96,10 @@ bytes), so a selection can give it only one backend. `balls_bench --devices` pri
   millisecond, smoothed, starting from a guess (GPU 1, Vulkan 0.8, iGPU 0.2, CPU 0.1). Balls move between parts as
   8-byte records, up to 4M per step, when a part is more than 2% or 131072 balls off its target.
 - Below 262144 balls everything runs on the lead part.
-- A GPU part whose fixed cost per step exceeds what its share saves can be parked. When the composed step stays
-  more than 3% slower than the lead part alone would be for all balls (its time extrapolated linearly), for 60
-  settled steps, the slowest other GPU part goes on trial: the step time per ball is measured for 120 steps with
-  it, then for 120 without it once its balls have moved away (steps that moved balls are left out). It stays
-  parked only if that is 3% faster; otherwise it comes back and is not tried again for 3600 steps. On an RTX 3070
-  laptop the earlier, untested park removed the iGPU, which otherwise made the composer slower than CUDA alone.
-- The CPU is never parked beside a GPU, as the pair never parked it. On the target PC the extrapolation, and even
-  the measured trial, parked it on brick-heavy boards where it was helping: the step time leaves out what the
-  CPU's share saves elsewhere in the frame.
+- Every picked device keeps stepping its share; the composer never drops one on its own. Choosing the devices is the
+  player's (Settings, `--backend`, `/backend?kind=`). It used to park a part it judged to slow the step, judged by
+  extrapolating the lead part's time; on the target PC that parked the CPU on brick-heavy boards where it was
+  helping, holding about CUDA-alone counts, so parking was removed.
 - Board changes reach the parts as sparse brick-hit and target-field updates when at most one part resolves hits on
   the device; with two or more, each holds its own brick budget, so they take whole boards. The parts follow
   Settings > Advanced > Draw the board, and each samples the visibility grid in proportion to its share of the
@@ -157,7 +152,8 @@ machine benchmark does, and leaves out rendering (the two-GPU desktop has no gam
 | Hybrid Vulkan (RX) + Vulkan (RTX) | 23.5 G | 26.5 G | 138 |
 
 The two GPUs settle at about 58% / 42% (CUDA / RX) with equal step times; the composer adds about 0.1 ms per
-step over its slowest part. The CPU, at a fifteenth of a GPU's throughput, is parked in every set. The brick
+step over its slowest part. The CPU, at a fifteenth of a GPU's throughput, was parked in every set (measured
+while the composer still parked parts). The brick
 budgets cost 0.011-0.015 ms per step.
 
 Two things made the two-GPU split pay. Running a CUDA and a Vulkan benchmark in separate processes at the same time
@@ -201,7 +197,7 @@ What closed the gap, in order:
 |---|---|
 | Sparse board updates, draw toggle, render sample share | 2048 boards even with the pair (Tough 180-196M against 186-196M) |
 | Windows core parking off on the target PC (a power-plan setting, not code) | less run-to-run noise |
-| Never park the CPU beside a GPU | Tough and Checker 128 off CUDA-alone counts (about 100M) |
+| Never park a picked device | Tough and Checker 128 off CUDA-alone counts (about 100M) |
 
 After all three, Tough, Checker and LoneBrick at 128 and 512, two rounds with the order of the two swapped: the
 composer held 1758M balls in total against the pair's 1728M. Per board the two were within the run-to-run noise

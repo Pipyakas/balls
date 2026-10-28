@@ -12,8 +12,6 @@ struct DeviceComposerTuning {
     size_t minimumComposedBalls = 262144;
     size_t minimumBallsToMeasure = 65536;
     size_t minimumRebalanceBalls = 131072;
-    // Off only for measurements that need every part stepping (BALLS_COMPOSER_NO_PARK=1).
-    bool parkLosingParts = true;
 };
 
 // The Hybrid backend: one backend per chosen physical device (the CPU, each GPU), all stepping at the same time on
@@ -71,9 +69,7 @@ public:
     size_t partBallCount(size_t part) const { return parts[part].backend->ballCount(); }
     double partStepMs(size_t part) const { return parts[part].lastMs; }
     double partShare(size_t part) const { return parts[part].share; }
-    bool partParked(size_t part) const { return parts[part].parked; }
     bool partOnHost(size_t part) const { return !parts[part].resolvesOnDevice; }
-    size_t unparkedCount() const { return unparks; }
     // Host time this step spent splitting and merging brick hit budgets (0 with fewer than two device parts).
     double brickBudgetMs() const { return lastBudgetMs; }
     // Mean of brickBudgetMs over the steps that resolved hits on two or more device parts.
@@ -88,7 +84,6 @@ private:
         std::string label;
         size_t memoryCapacity = 0;
         bool resolvesOnDevice = false;
-        bool parked = false;
         double share = 0.0;
         double lastMs = 0.0;
         size_t steppedBalls = 0;
@@ -99,8 +94,6 @@ private:
     std::vector<size_t> targetCounts(size_t total) const;
     void rebalance();
     void updateShares();
-    void parkLosingParts(double wallMs, bool movedBalls);
-    void setParked(Part& part, bool parked, double share);
     void splitBrickBudgets();
     void mergeDeviceHits();
     void overlay(const BallSnapshot& balls, uint32_t replaceBelow, uint32_t salt);
@@ -112,19 +105,6 @@ private:
     std::vector<Part> parts;
     size_t deviceParts = 0;
     int shareMeasurements = 0;
-    double wallEwma = 0.0;
-    double soloEwma = 0.0;
-    int losingSteps = 0;
-    // Parking is a trial: the step time per ball is measured with the part (Baseline), then without it once its
-    // balls have moved away (Without), and the part stays parked only if that is clearly faster.
-    enum class ParkTrial { None, Baseline, Draining, Without };
-    ParkTrial parkTrial = ParkTrial::None;
-    size_t trialPart = 0;
-    double trialShare = 0.0;
-    double trialMsPerBallSum = 0.0;
-    int trialSteps = 0;
-    double baselineMsPerBall = 0.0;
-    int parkRetryWait = 0;
     // Brick budgets, used when two or more parts resolve hits on the device.
     std::vector<int32_t> brickHits;
     uint32_t budgetEpoch = 0;
@@ -132,7 +112,6 @@ private:
     DeviceHitResults mergedHits;
     double lastBudgetMs = 0.0;
     double budgetMsTotal = 0.0;
-    size_t unparks = 0;
     size_t ballsMoved = 0;
     size_t movingSteps = 0;
     int stepsSinceMove = 0;

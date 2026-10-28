@@ -370,9 +370,8 @@ int traceEdgeCases(const BenchOptions& options) {
                     std::string split = frame % 50 == 0 ? memoryReport() : std::string();
                     if (const auto* composer = dynamic_cast<const DeviceComposer*>(&simulation.backend())) {
                         for (size_t part = 0; part < composer->partCount(); ++part) {
-                            split += std::format("  {} {} balls {:.2f} ms{}", composer->partLabel(part),
-                                                 composer->partBallCount(part), composer->partStepMs(part),
-                                                 composer->partParked(part) ? " parked" : "");
+                            split += std::format("  {} {} balls {:.2f} ms", composer->partLabel(part),
+                                                 composer->partBallCount(part), composer->partStepMs(part));
                         }
                     }
                     std::printf("frame %4d %8.2f ms  spawn %6.2f ms (%9llu)  live %10llu  device %6.2f ms%s\n", frame,
@@ -495,9 +494,6 @@ void printComposerParts(const DeviceComposer& composer) {
                     100.0 * static_cast<double>(composer.partBallCount(part)) /
                         static_cast<double>(std::max<size_t>(composer.ballCount(), 1)),
                     composer.partBallCount(part), composer.partStepMs(part));
-        if (composer.partParked(part)) {
-            std::printf("        %-12s parked: slower composed than without it\n", composer.partLabel(part).c_str());
-        }
     }
     std::printf("        brick budgets %.3f ms per step on average, %zu balls moved in %zu steps\n",
                 composer.averageBrickBudgetMs(), composer.movedBallCount(), composer.movingStepCount());
