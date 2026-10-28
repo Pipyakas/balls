@@ -259,6 +259,12 @@ void App::applyPendingRenderAdapter() {
 // prepared apart from the window is built on a worker thread while the current one keeps drawing; the frame only
 // pays for the swap-chain hand-over in adoptPreparedRenderer. Other renderers still switch on the frame.
 void App::switchRenderer(RendererTarget target) {
+    if (!isRendererCompiledIn(target.renderer)) {
+        // Tearing the working renderer down only to find the wanted one missing would cost a rebuild for nothing.
+        SDL_Log("Renderer %s is not in this build", target.renderer.c_str());
+        showToast(std::format("This build has no {} renderer", target.renderer), true);
+        return;
+    }
     if (preparing.valid()) {
         // The future of a std::async waits in its destructor, so an abandoned build finishes on its own thread.
         std::thread([abandoned = std::move(preparing)]() mutable { retireRenderer(abandoned.get().renderer); }).detach();
@@ -681,7 +687,7 @@ std::string App::stateJson() const {
         timings.workFramesPerSecond(), timings.worstWorkFpsLastSecond(), timings.shownFramesPerSecond(),
         sample.frameMs,
         sample.cpuMs, sample.gpuMs, sample.presentMs, backendKindName(backendChoice),
-        jsonEscape(backendDetail(BackendKind::Vulkan)), isVsyncEnabled(),
+        jsonEscape(backendStatus(BackendKind::Vulkan).detail), isVsyncEnabled(),
         jsonEscape(toast.secondsLeft > 0.0f ? toast.text : std::string{}), adapterNamesJson(renderAdapterList),
         adapterNamesJson(computeAdapterList), currentScreen->stateJson());
 }
@@ -780,7 +786,7 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
         std::optional<BackendKind> backend;
         if (const auto name = request.text("backend")) {
             backend = parseBackendKind(*name);
-            if (!backend || !isBackendAvailable(*backend)) {
+            if (!backend || !backendStatus(*backend).available) {
                 return ControlResponse::error(400, std::format("backend {} is not available", *name));
             }
         }

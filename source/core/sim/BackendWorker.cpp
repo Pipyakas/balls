@@ -1,5 +1,7 @@
 #include "sim/BackendWorker.h"
 
+#include <map>
+
 std::optional<BackendHandle> BackendBuild::take() {
     std::lock_guard lock(mutex);
     if (!finished || taken) {
@@ -64,6 +66,14 @@ void BackendWorker::retire(BackendHandle backend) {
     wake.notify_one();
 }
 
+void BackendWorker::run(std::function<void()> job) {
+    {
+        std::lock_guard lock(mutex);
+        jobs.push_back(std::move(job));
+    }
+    wake.notify_one();
+}
+
 void BackendWorker::run() {
     for (;;) {
         std::function<void()> job;
@@ -75,4 +85,49 @@ void BackendWorker::run() {
         }
         job();
     }
+}
+
+namespace {
+
+struct StatusCache {
+    std::mutex mutex;
+    std::map<BackendKind, BackendStatus> statuses;
+};
+
+StatusCache& statusCache() {
+    static StatusCache cache;
+    return cache;
+}
+
+BackendStatus queryStatus(BackendKind kind) {
+    BackendStatus status;
+    status.unavailableReason = backendUnavailableReason(kind);
+    status.available = status.unavailableReason.empty();
+    status.detail = status.available ? backendDetail(kind) : std::string{};
+    return status;
+}
+
+} // namespace
+
+BackendStatus backendStatus(BackendKind kind) {
+    StatusCache& cache = statusCache();
+    {
+        std::lock_guard lock(cache.mutex);
+        if (const auto found = cache.statuses.find(kind); found != cache.statuses.end()) {
+            return found->second;
+        }
+    }
+    BackendStatus status = queryStatus(kind);
+    std::lock_guard lock(cache.mutex);
+    return cache.statuses.try_emplace(kind, std::move(status)).first->second;
+}
+
+void refreshBackendStatuses() {
+    BackendWorker::shared().run([] {
+        for (const BackendKind kind : allBackendKinds) {
+            BackendStatus status = queryStatus(kind);
+            std::lock_guard lock(statusCache().mutex);
+            statusCache().statuses[kind] = std::move(status);
+        }
+    });
 }

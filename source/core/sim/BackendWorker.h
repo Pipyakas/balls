@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <thread>
 
 // One backend being built off the frame. The session that asked keeps it and polls it at the start of each update;
@@ -42,6 +43,7 @@ public:
 
     std::shared_ptr<BackendBuild> build(BackendKind kind);
     void retire(BackendHandle backend);
+    void run(std::function<void()> job);
 
 private:
     BackendWorker();
@@ -52,3 +54,15 @@ private:
     std::deque<std::function<void()>> jobs;
     std::thread thread;
 };
+
+// What the UI shows about a backend. Asking a GPU plugin can open a device, which the Vulkan plugin does again after
+// the compute GPU preference changes, so the UI reads this cache instead: the first call fills it, and
+// refreshBackendStatuses recomputes it on the backend worker while the previous answers stay readable.
+struct BackendStatus {
+    bool available = false;
+    std::string unavailableReason;
+    std::string detail;
+};
+
+BackendStatus backendStatus(BackendKind kind);
+void refreshBackendStatuses();

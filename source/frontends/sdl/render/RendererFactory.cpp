@@ -54,6 +54,24 @@ bool isNvrhiCompiledIn() {
 #endif
 }
 
+bool isRendererCompiledIn(std::string_view renderer) {
+    const std::string name = lowercase(renderer);
+    if (name.empty()) {
+        return true;
+    }
+    if (name == "nvrhi") {
+        return isNvrhiCompiledIn();
+    }
+    if (name == "webgpu") {
+        return isWebGpuCompiledIn();
+    }
+#if defined(BALLS_RENDERER_SDLGPU)
+    return name == "sdlgpu";
+#else
+    return false;
+#endif
+}
+
 SDL_WindowFlags rendererWindowFlags(std::string_view renderer, std::string_view api) {
     std::string r = lowercase(renderer);
     if (r.empty()) {

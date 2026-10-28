@@ -132,7 +132,7 @@ void drawDebugPanel(Rect area, const SessionView& session, const FrameTimings& f
         writer.row("Backend", backendKindName(session.backend));
         if (!deviceDescription.empty()) {
             writer.row("Renderer", deviceDescription);
-        } else if (const std::string detail = backendDetail(session.backend); !detail.empty()) {
+        } else if (const std::string detail = backendStatus(session.backend).detail; !detail.empty()) {
             writer.row("Device", detail);
         }
     }

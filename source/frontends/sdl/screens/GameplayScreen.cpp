@@ -387,6 +387,7 @@ std::string shortAdapterName(const GpuAdapterInfo& adapter) {
 
 void GameplayScreen::selectComputeAdapter(int adapter) {
     setComputeGpuPreference(std::to_string(adapter));
+    refreshBackendStatuses();
     if (view->backend == BackendKind::Vulkan || view->pendingBackend == BackendKind::Vulkan) {
         runner->post([](GameSession& session) { session.requestBackend(BackendKind::Vulkan); });
         showToast("Vulkan physics on " + app.computeAdapters()[static_cast<size_t>(adapter)].name, false);
@@ -432,11 +433,12 @@ void GameplayScreen::drawAdapterList(Rect area, const std::vector<GpuAdapterInfo
 void GameplayScreen::drawBackendList(Rect area, BackendKind selected) {
     float cursor = area.y;
     for (BackendKind kind : allBackendKinds) {
-        const bool available = isBackendAvailable(kind);
+        const BackendStatus status = backendStatus(kind);
+        const bool available = status.available;
         const bool starting = view->pendingBackend == kind;
         std::string label(backendKindName(kind));
         if (!available) {
-            label += std::string(" - ") + backendUnavailableReason(kind);
+            label += std::string(" - ") + status.unavailableReason;
         } else if (starting) {
             label += " - starting...";
         }
@@ -901,7 +903,7 @@ std::optional<ControlResponse> GameplayScreen::handleControl(const ControlReques
     }
     if (path == "/backend") {
         const auto kind = parseBackendKind(request.text("kind").value_or(""));
-        if (!kind || !isBackendAvailable(*kind)) {
+        if (!kind || !backendStatus(*kind).available) {
             return ControlResponse::error(409, "backend unknown or unavailable");
         }
         runner->post([kind = *kind](GameSession& session) { session.requestBackend(kind); });
