@@ -1,0 +1,10 @@
+/assets/
+/Build/
+/Content/assets/
+/Binaries/
+/Intermediate/
+/Saved/
+/DerivedDataCache/
+/.vs/
+*.sln
+*.slnx

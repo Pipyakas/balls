@@ -4,6 +4,7 @@
 #include "sim/PhysicsBackend.h"
 
 #include <array>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -38,6 +39,10 @@ std::string backendUnavailableReasonOnDevice(BackendKind kind, int device);
 std::string backendDetailOnDevice(BackendKind kind, int device);
 BackendHandle createBackendOnDevice(BackendKind kind, int device);
 BackendHandle createBackendOnDevices(BackendKind kind, const int* devices, int count);
+// Where physics plugins are looked for, ahead of the executable's own folder. Hosts whose executable lives
+// elsewhere (Unity's editor and player both do) set this once at start-up; an empty path restores the default.
+void setPluginSearchDirectory(std::filesystem::path directory);
+std::filesystem::path pluginSearchDirectory();
 // Which adapter the GPU physics plugins run on: "auto" (default), "integrated", "discrete", an index, or a name
 // substring, resolved by selectGpuAdapter. Independent of the renderer's adapter; applies to backends created or
 // queried afterwards, and is ignored by plugins that have no adapter choice (CPU, CUDA).

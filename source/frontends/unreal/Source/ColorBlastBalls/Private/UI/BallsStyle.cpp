@@ -1,0 +1,138 @@
+#include "UI/BallsStyle.h"
+
+#include "BallsPalette.h"
+#include "HAL/FileManager.h"
+#include "Misc/Paths.h"
+#include "Brushes/SlateColorBrush.h"
+#include "Brushes/SlateRoundedBoxBrush.h"
+#include "Fonts/FontMeasure.h"
+#include "Framework/Application/SlateApplication.h"
+#include "Styling/CoreStyle.h"
+
+namespace BallsStyle {
+
+namespace {
+
+// Fonts live in the asset directory next to the levels: the repository's data/assets when it exists, else the
+// packaged project's assets folder.
+FString FontFile(const TCHAR* Name) {
+    FString Path = FString(UTF8_TO_TCHAR(BALLS_ASSET_DIR)) / TEXT("fonts") / Name;
+    if (!IFileManager::Get().FileExists(*Path)) {
+        Path = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("assets/fonts") / Name);
+    }
+    return Path;
+}
+
+}
+
+FSlateFontInfo Font(float Size, bool bBold) {
+    // The HUD asks for a font for every label and every brick, every frame. Building one stats the file twice and
+    // looks up the engine's font cache, so each (points, weight) is built once.
+    static TMap<int32, FSlateFontInfo> Cache;
+    const int32 Points = FMath::Max(1, FMath::RoundToInt(Size * 0.75f));
+    const bool bStrong = bBold && Size >= StrongTextMinimumSize;
+    const int32 Key = Points * 4 + (bStrong ? 2 : 0) + (bBold ? 1 : 0);
+    if (const FSlateFontInfo* Found = Cache.Find(Key)) {
+        return *Found;
+    }
+    static const FString Regular = FontFile(TEXT("IBMPlexMono-Regular.ttf"));
+    static const FString Strong = FontFile(TEXT("IBMPlexMono-SemiBold.ttf"));
+    // Slate font sizes are points at 96 DPI; the SDL sizes are pixels. Like SDL, only large text uses SemiBold.
+    const FString& File = bStrong ? Strong : Regular;
+    const FSlateFontInfo Built = IFileManager::Get().FileExists(*File)
+                                     ? FSlateFontInfo(File, Points)
+                                     : FCoreStyle::GetDefaultFontStyle(bBold ? "Bold" : "Regular", Points);
+    Cache.Add(Key, Built);
+    return Built;
+}
+
+const FButtonStyle& Button() {
+    static const FButtonStyle Style = [] {
+        auto Fill = [](const FColor& Color) {
+            return FSlateRoundedBoxBrush(BallsPalette::Linear(Color), 0.0f, BallsPalette::Linear(BallsPalette::Frame), 1.0f);
+        };
+        FButtonStyle Result;
+        Result.SetNormal(Fill(BallsPalette::PanelLight));
+        Result.SetHovered(Fill(BallsPalette::ControlHover));
+        Result.SetPressed(Fill(BallsPalette::ControlPressed));
+        Result.SetDisabled(Fill(BallsPalette::PanelLight));
+        Result.SetNormalForeground(BallsPalette::Linear(BallsPalette::Text));
+        Result.SetHoveredForeground(BallsPalette::Linear(BallsPalette::TextStrong));
+        Result.SetPressedForeground(BallsPalette::Linear(BallsPalette::TextStrong));
+        Result.SetDisabledForeground(BallsPalette::Linear(BallsPalette::TextDim));
+        Result.SetNormalPadding(FMargin(8.0f, 4.0f));
+        Result.SetPressedPadding(FMargin(8.0f, 4.0f));
+        return Result;
+    }();
+    return Style;
+}
+
+const FButtonStyle& SelectedButton() {
+    static const FButtonStyle Style = [] {
+        auto Fill = [](const FColor& Color) {
+            return FSlateRoundedBoxBrush(BallsPalette::Linear(Color), 0.0f, BallsPalette::Linear(BallsPalette::Frame), 1.0f);
+        };
+        FButtonStyle Result;
+        Result.SetNormal(Fill(BallsPalette::Accent));
+        Result.SetHovered(Fill(BallsPalette::Shade(BallsPalette::Accent, 1.12f)));
+        Result.SetPressed(Fill(BallsPalette::Shade(BallsPalette::Accent, 0.88f)));
+        Result.SetDisabled(Fill(BallsPalette::Accent));
+        const FLinearColor Text = BallsPalette::Linear(BallsPalette::Background);
+        Result.SetNormalForeground(Text);
+        Result.SetHoveredForeground(Text);
+        Result.SetPressedForeground(Text);
+        Result.SetDisabledForeground(Text);
+        Result.SetNormalPadding(FMargin(8.0f, 4.0f));
+        Result.SetPressedPadding(FMargin(8.0f, 4.0f));
+        return Result;
+    }();
+    return Style;
+}
+
+const FSlateBrush* RoundedBox(float Radius) {
+    static TMap<int32, TUniquePtr<FSlateRoundedBoxBrush>> Brushes;
+    TUniquePtr<FSlateRoundedBoxBrush>& Brush = Brushes.FindOrAdd(FMath::RoundToInt(Radius));
+    if (!Brush) {
+        Brush = MakeUnique<FSlateRoundedBoxBrush>(FLinearColor::White, Radius);
+    }
+    return Brush.Get();
+}
+
+const FSlateBrush* Panel() {
+    static const FSlateRoundedBoxBrush Brush(BallsPalette::Linear(BallsPalette::Panel), 0.0f, BallsPalette::Linear(BallsPalette::Frame), 1.0f);
+    return &Brush;
+}
+
+const FSlateBrush* White() {
+    static const FSlateColorBrush Brush(FLinearColor::White);
+    return &Brush;
+}
+
+FVector2D Measure(const FString& Text, const FSlateFontInfo& FontInfo) {
+    // The HUD measures every label on every frame, and font measuring is its largest game-thread cost. Most of
+    // those labels never change (section headings, backend names, the device), so keep the extents by text and
+    // point size; the values that do change (FPS, counts) simply miss.
+    // Two generations: when the current one fills it becomes the old one instead of being thrown away, so the
+    // labels that are still on screen stay measured and a clear never costs a frame of re-measuring everything.
+    static TMap<TPair<FString, int32>, FVector2D> Cache;
+    static TMap<TPair<FString, int32>, FVector2D> Previous;
+    const TPair<FString, int32> Key(Text, FontInfo.Size);
+    if (const FVector2D* Found = Cache.Find(Key)) {
+        return *Found;
+    }
+    if (const FVector2D* Found = Previous.Find(Key)) {
+        const FVector2D Size = *Found;
+        Cache.Add(Key, Size);
+        return Size;
+    }
+    const FVector2D Size =
+        FSlateApplication::Get().GetRenderer()->GetFontMeasureService()->Measure(Text, FontInfo);
+    if (Cache.Num() > 2048) {
+        Previous = MoveTemp(Cache);
+        Cache.Reset();
+    }
+    Cache.Add(Key, Size);
+    return Size;
+}
+
+}

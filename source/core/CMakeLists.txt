@@ -33,6 +33,9 @@ target_include_directories(balls_core PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
     $<INSTALL_INTERFACE:include>)
 target_compile_features(balls_core PUBLIC cxx_std_20)
+# The core is static, but hosts link it into shared objects (libballs_unity.so, the physics plugins), so its objects
+# have to be position independent or the ELF link fails.
+set_target_properties(balls_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_options(balls_core PRIVATE ${BALLS_WARNINGS} ${BALLS_OPTIMIZE})
 balls_precompile(balls_core)
 target_link_options(balls_core INTERFACE ${BALLS_LINK_OPTIMIZE})

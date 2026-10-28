@@ -19,6 +19,7 @@ void GameSession::restart() {
     physicsSimulation.load(levelData.bricks);
     launcherQueue.load(levelData.launchers);
     spawnController.clear();
+    pendingProbeBalls = 0;
     spawnController.setBallsPerSecond(gameMode == GameMode::Normal ? normalModeSpawnRate
                                                                    : static_cast<float>(spawnRateOptions[selectedSpawnRate]));
     sessionState = gameMode == GameMode::Normal ? SessionState::Running : SessionState::Ready;
@@ -64,11 +65,15 @@ void GameSession::startCapacityProbe(double targetFps) {
         sessionState = SessionState::Running;
     }
     probeColorIndex = 0;
+    pendingProbeBalls = 0;
     probe.start(targetFps);
     pumpCapacityProbe();
 }
 
-void GameSession::cancelCapacityProbe() { probe.cancel(); }
+void GameSession::cancelCapacityProbe() {
+    pendingProbeBalls = 0;
+    probe.cancel();
+}
 
 void GameSession::reportFrameSeconds(double frameSeconds, double workSeconds) {
     latestFrameSeconds = frameSeconds;
@@ -80,6 +85,11 @@ void GameSession::pumpCapacityProbe() {
     if (!probe.isActive() || gameMode != GameMode::Performance || latestFrameSeconds <= 0.0) {
         return;
     }
+    // The probe measures a count of balls, so it waits (and its windows do not advance) until the last ball of its
+    // previous jump is in.
+    if (pendingProbeBalls > 0 && !drainPendingProbeBalls()) {
+        return;
+    }
     const BallCount addition = probe.update(latestFrameSeconds, latestWorkSeconds, physicsSimulation.liveBallCount(),
                                             physicsSimulation.ballRoom());
     if (const auto trim = probe.takeTrimRequest()) {
@@ -89,7 +99,25 @@ void GameSession::pumpCapacityProbe() {
         useMachineBallLimit(probe.bestPassingCount());
         return;
     }
-    launchAcrossColors(addition);
+    pendingProbeBalls += addition;
+    drainPendingProbeBalls();
+}
+
+// About 65 ns a ball: a probe jump to hundreds of millions of balls in one call froze the whole game for ten
+// seconds, so a frame launches only what fits in this budget and the rest follows on the next frames.
+bool GameSession::drainPendingProbeBalls() {
+    constexpr auto budget = std::chrono::milliseconds(4);
+    constexpr BallCount slice = 1 << 16;
+    const auto deadline = std::chrono::steady_clock::now() + budget;
+    while (pendingProbeBalls > 0) {
+        const BallCount batch = std::min(pendingProbeBalls, slice);
+        launchAcrossColors(batch);
+        pendingProbeBalls -= batch;
+        if (std::chrono::steady_clock::now() >= deadline) {
+            break;
+        }
+    }
+    return pendingProbeBalls == 0;
 }
 
 // Probe and fill balls come out of the launch point like any released ball. Scattering them over the board put
@@ -105,7 +133,7 @@ void GameSession::launchAcrossColors(BallCount count) {
 }
 
 void GameSession::fillWithBalls(BallCount count) {
-    probe.cancel();
+    cancelCapacityProbe();
     useMachineBallLimit(count);
     const BallCount live = physicsSimulation.liveBallCount();
     launchAcrossColors(count > live ? count - live : 0);

@@ -84,6 +84,16 @@ std::mutex& computeGpuMutex() {
     return mutex;
 }
 
+std::mutex& pluginDirectoryMutex() {
+    static std::mutex mutex;
+    return mutex;
+}
+
+std::filesystem::path& pluginDirectoryPath() {
+    static std::filesystem::path directory;
+    return directory;
+}
+
 std::string& computeGpuText() {
     static std::string text;
     return text;
@@ -142,8 +152,14 @@ std::shared_ptr<PluginModule> loadPlugin(std::string_view fileName, bool freshCo
 #endif
     auto module = std::make_shared<PluginModule>();
     const std::filesystem::path besideExecutable = DynamicLibrary::executableDirectory() / fileName;
-    const bool foundBesideExecutable = std::filesystem::exists(besideExecutable);
-    const std::filesystem::path source = foundBesideExecutable ? besideExecutable : std::filesystem::path(fileName);
+    const std::filesystem::path configured = pluginSearchDirectory();
+    // A host that keeps its plugins away from its executable (Unity does) names that folder first.
+    const std::filesystem::path besideConfigured = configured.empty() ? configured : configured / fileName;
+    const std::filesystem::path found = !besideConfigured.empty() && std::filesystem::exists(besideConfigured)
+                                            ? besideConfigured
+                                            : besideExecutable;
+    const bool foundBesideExecutable = std::filesystem::exists(found);
+    const std::filesystem::path source = foundBesideExecutable ? found : std::filesystem::path(fileName);
     const bool shadow = freshCopy && usesShadowCopies && foundBesideExecutable;
     module->library = std::make_shared<DynamicLibrary>(shadow ? makeShadowCopy(source) : source);
     if (!module->library->isLoaded()) {
@@ -436,6 +452,16 @@ BackendKind fastestAvailableCpuBackend() {
         return BackendKind::Zen4;
     }
     return isBackendAvailable(BackendKind::Avx2) ? BackendKind::Avx2 : BackendKind::Scalar;
+}
+
+void setPluginSearchDirectory(std::filesystem::path directory) {
+    std::lock_guard lock(pluginDirectoryMutex());
+    pluginDirectoryPath() = std::move(directory);
+}
+
+std::filesystem::path pluginSearchDirectory() {
+    std::lock_guard lock(pluginDirectoryMutex());
+    return pluginDirectoryPath();
 }
 
 GpuRoofline measureGpuRoofline(size_t bufferBytes) {
