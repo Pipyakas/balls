@@ -66,7 +66,93 @@ namespace Balls.Native
             public int cudaDevice;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct ImportRecord
+        {
+            public int status;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string name;
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string message;
+            public int hasWarning;
+        }
+
         [DllImport(Library)] private static extern int balls_devices_find(IntPtr devices, int capacity);
+
+        [DllImport(Library)] private static extern int balls_levels_import(int mode, string destination,
+            IntPtr[] picked, int pickedCount, [Out] ImportRecord[] results, int capacity, byte[] summary, int summarySize);
+
+        /// <summary>What happened to one level pair the importer was given.</summary>
+        public readonly struct LevelImport
+        {
+            public readonly int status;
+            public readonly string name;
+            public readonly string message;
+            public readonly bool hasWarning;
+
+            internal LevelImport(ImportRecord record)
+            {
+                status = record.status;
+                name = record.name;
+                message = record.message;
+                hasWarning = record.hasWarning != 0;
+            }
+
+            public bool Failed => status == 2;
+        }
+
+        /// <summary>
+        /// Copies level pairs into <paramref name="destination"/>; each pick may be either file of a pair or a folder of
+        /// pairs. Returns the toast-ready summary and every pair's outcome, plus the level to highlight in the list.
+        /// </summary>
+        public static bool ImportLevels(int mode, string destination, IReadOnlyList<string> picked, out List<LevelImport> results,
+            out string summary, out string highlight)
+        {
+            results = new List<LevelImport>();
+            summary = string.Empty;
+            highlight = null;
+            if (picked.Count == 0)
+            {
+                summary = "Import failed: no files";
+                return false;
+            }
+            var pointers = new IntPtr[picked.Count];
+            int capacity = Math.Max(8, picked.Count * 8);
+            var records = new ImportRecord[capacity];
+            var text = new byte[512];
+            try
+            {
+                for (int index = 0; index < picked.Count; ++index)
+                {
+                    pointers[index] = Marshal.StringToCoTaskMemUTF8(picked[index]);
+                }
+                int count = balls_levels_import(mode, destination, pointers, picked.Count, records, capacity, text, text.Length);
+                for (int index = 0; index < Math.Min(count, capacity); ++index)
+                {
+                    results.Add(new LevelImport(records[index]));
+                }
+                int end = Array.IndexOf(text, (byte)0);
+                summary = System.Text.Encoding.UTF8.GetString(text, 0, end < 0 ? text.Length : end);
+            }
+            finally
+            {
+                foreach (IntPtr pointer in pointers)
+                {
+                    if (pointer != IntPtr.Zero)
+                    {
+                        Marshal.FreeCoTaskMem(pointer);
+                    }
+                }
+            }
+            for (int index = results.Count - 1; index >= 0; --index)
+            {
+                if (!results[index].Failed)
+                {
+                    highlight = results[index].name;
+                    break;
+                }
+            }
+            return results.Count > 0 && results.Exists(result => !result.Failed);
+        }
+
         [DllImport(Library)] private static extern int balls_compute_gpu(byte[] buffer, int size);
         [DllImport(Library)] private static extern int balls_set_compute_gpu(string preference);
 

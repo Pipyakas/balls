@@ -238,6 +238,22 @@ BALLS_API int32_t balls_set_compute_gpu(const char* preference);
 // Fills up to capacity entries and returns how many levels the directory holds.
 BALLS_API int32_t balls_levels_find(const char* directory, BallsLevelInfo* levels, int32_t capacity);
 
+// One level pair the importer was given: what happened to it and the toast line that names it.
+typedef struct BallsImportResult {
+    int32_t status;  // 0 imported, 1 replaced an existing level, 2 failed
+    char name[128];
+    char message[256];
+    int32_t hasWarning;
+} BallsImportResult;
+
+// Copies level pairs into a mode's level folder. ``picked`` may hold either file of a pair or a folder of pairs;
+// the partner is found next to the picked file by name, and a pair is parsed before it is copied, so a broken file
+// never lands in the folder. Returns how many results there were, writing at most ``capacity`` of them, and the
+// toast-ready summary into ``summary``.
+BALLS_API int32_t balls_levels_import(int32_t mode, const char* destination, const char* const* picked,
+                                      int32_t pickedCount, BallsImportResult* results, int32_t capacity,
+                                      char* summary, int32_t summarySize);
+
 BALLS_API int32_t balls_settings_load(const char* path, BallsSettings* settings);
 BALLS_API int32_t balls_settings_save(const char* path, const BallsSettings* settings);
 

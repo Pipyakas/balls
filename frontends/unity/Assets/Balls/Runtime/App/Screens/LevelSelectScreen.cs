@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using Balls.Native;
 using Balls.Ui;
 using UnityEngine;
 
@@ -19,6 +20,8 @@ namespace Balls.App.Screens
         private Vector2 scroll;
         private float nextRefresh;
         private string folder = "";
+        private string highlight = "";
+        private float highlightUntil;
 
         public override void Enter()
         {
@@ -69,7 +72,8 @@ namespace Balls.App.Screens
                     Rect row = new Rect(content.x, content.y + index * (RowHeight + RowGap), content.width, RowHeight);
                     if (row.yMax < viewport.y - RowHeight || row.y < viewport.y + viewport.height)
                     {
-                        DrawRow(widgets, row, levels[index]);
+                        bool fresh = levels[index] == highlight && Time.realtimeSinceStartup < highlightUntil;
+                        DrawRow(widgets, row, levels[index], fresh);
                     }
                 }
             }
@@ -102,11 +106,14 @@ namespace Balls.App.Screens
                 TypeSizes.Small, TextAnchor.MiddleCenter);
         }
 
-        private void DrawRow(Widgets widgets, Rect row, string name)
+        private void DrawRow(Widgets widgets, Rect row, string name, bool fresh)
         {
             Rect edit = new Rect(row.xMax - 110f, row.y, 110f, row.height);
             Rect label = new Rect(row.x, row.y, row.width - 110f - 8f, row.height);
-            if (widgets.Button(label, name, TypeSizes.Header))
+            bool clicked = fresh
+                ? widgets.AccentButton(label, name, true, TypeSizes.Header)
+                : widgets.Button(label, name, TypeSizes.Header);
+            if (clicked)
             {
                 App.StartGameplay(App.Mode, name, App.DefaultBackendKind);
             }
@@ -124,33 +131,125 @@ namespace Balls.App.Screens
             levels.AddRange(App.LevelNames());
         }
 
+        /// <summary>
+        /// The game's Import: the OS file picker, then the core's importer, which parses every pair before copying it and
+        /// reports each one. Unity has no player file dialog of its own, so the desktop's picker is asked for the paths.
+        /// </summary>
         private void ImportFiles()
         {
-#if UNITY_EDITOR
-            string picked = UnityEditor.EditorUtility.OpenFilePanel("Import level files", folder, "txt");
-            if (string.IsNullOrEmpty(picked))
+            List<string> picked = PickLevelFiles();
+            if (picked != null && picked.Count > 0)
             {
-                return;
+                Import(picked);
             }
-            string name = Path.GetFileNameWithoutExtension(picked);
-            string stem = name.EndsWith("_Bricks")
-                ? name.Substring(0, name.Length - "_Bricks".Length)
-                : name.EndsWith("_SpawnBall") ? name.Substring(0, name.Length - "_SpawnBall".Length) : name;
-            string bricks = Path.Combine(Path.GetDirectoryName(picked) ?? folder, stem + "_Bricks.txt");
-            string launchers = Path.Combine(Path.GetDirectoryName(picked) ?? folder, stem + "_SpawnBall.txt");
-            if (!File.Exists(bricks) || !File.Exists(launchers))
+        }
+
+        /// <summary>Imports paths, toasts the core's summary and highlights the last level that landed.</summary>
+        public bool Import(IReadOnlyList<string> picked)
+        {
+            // The control API can import before this screen has ever been shown, so the folder comes from the app.
+            folder = App.LevelDirectoryFor(App.Mode);
+            bool imported = BallsNative.ImportLevels(App.Mode, folder, picked, out List<BallsNative.LevelImport> results,
+                out string summary, out string highlightName);
+            App.Toast(summary, !imported);
+            foreach (BallsNative.LevelImport result in results)
             {
-                App.Toast($"Import failed: {stem} is missing its other file", true);
-                return;
+                if (result.hasWarning)
+                {
+                    App.Toast(result.message, true);
+                    break;
+                }
             }
-            Directory.CreateDirectory(folder);
-            File.Copy(bricks, Path.Combine(folder, Path.GetFileName(bricks)), true);
-            File.Copy(launchers, Path.Combine(folder, Path.GetFileName(launchers)), true);
-            App.Toast($"Imported {stem}");
+            if (!string.IsNullOrEmpty(highlightName))
+            {
+                highlight = highlightName;
+                highlightUntil = Time.realtimeSinceStartup + 4f;
+                int index = levels.IndexOf(highlightName);
+                if (index >= 0)
+                {
+                    scroll.y = index * (RowHeight + RowGap);
+                }
+            }
             Refresh();
+            return imported;
+        }
+
+        private List<string> PickLevelFiles()
+        {
+#if UNITY_EDITOR
+            string single = UnityEditor.EditorUtility.OpenFilePanel("Import level files", folder, "txt");
+            return string.IsNullOrEmpty(single) ? null : new List<string> { single };
+#elif UNITY_STANDALONE_OSX
+            string mac = RunPicker("/usr/bin/osascript", "-e", "POSIX path of (choose file with prompt \"Import level files\")");
+            return string.IsNullOrEmpty(mac) ? null : new List<string> { mac.Trim() };
+#elif UNITY_STANDALONE_LINUX
+            string zenity = RunPicker("zenity", "--file-selection", "--multiple", "--separator=\n",
+                "--title=Import level files");
+            if (zenity != null)
+            {
+                return SplitPicked(zenity);
+            }
+            string kdialog = RunPicker("kdialog", "--getopenfilename", folder, "*.txt", "--multiple", "--separate-output");
+            if (kdialog != null)
+            {
+                return SplitPicked(kdialog);
+            }
+            App.Toast("No file picker found; import through the control API instead", true);
+            return null;
 #else
-            App.Toast("Open Folder, then copy the level pair into it", true);
+            const string script =
+                "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; " +
+                "$d.Filter = 'Level files (*.txt)|*.txt'; $d.Multiselect = $true; " +
+                "if ($d.ShowDialog() -eq 'OK') { $d.FileNames }";
+            string windows = RunPicker("powershell", "-NoProfile", "-STA", "-Command", script);
+            return windows == null ? null : SplitPicked(windows);
 #endif
+        }
+
+        private static List<string> SplitPicked(string output)
+        {
+            var picked = new List<string>();
+            foreach (string line in output.Split('\n'))
+            {
+                string path = line.Trim();
+                if (path.Length > 0 && File.Exists(path))
+                {
+                    picked.Add(path);
+                }
+            }
+            return picked;
+        }
+
+        /// <summary>Runs a picker command and returns what it printed, or null when it is missing or was cancelled.</summary>
+        private static string RunPicker(string command, params string[] arguments)
+        {
+            try
+            {
+                var start = new ProcessStartInfo(command)
+                {
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                };
+                foreach (string argument in arguments)
+                {
+                    start.ArgumentList.Add(argument);
+                }
+                using Process process = Process.Start(start);
+                if (process == null)
+                {
+                    return null;
+                }
+                string output = process.StandardOutput.ReadToEnd();
+                process.WaitForExit(120000);
+                return process.HasExited && process.ExitCode == 0 ? output : null;
+            }
+            catch (System.ComponentModel.Win32Exception)
+            {
+                // The picker is not installed; the caller falls back to the next one.
+                return null;
+            }
         }
 
         private void OpenFolder()

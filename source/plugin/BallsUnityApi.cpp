@@ -4,6 +4,7 @@
 #include "editor/LevelEditor.h"
 #include "game/GameSession.h"
 #include "game/Settings.h"
+#include "level/LevelImporter.h"
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
 #include "level/LevelWriter.h"
@@ -288,6 +289,39 @@ int32_t balls_levels_find(const char* directory, BallsLevelInfo* levels, int32_t
                  sizeof(levels[index].launchersPath));
     }
     return count;
+}
+
+int32_t balls_levels_import(int32_t mode, const char* destination, const char* const* picked, int32_t pickedCount,
+                            BallsImportResult* results, int32_t capacity, char* summary, int32_t summarySize) {
+    if (destination == nullptr || picked == nullptr || pickedCount <= 0) {
+        setError("a destination folder and at least one picked file are required");
+        return 0;
+    }
+    std::vector<std::filesystem::path> paths;
+    paths.reserve(static_cast<size_t>(pickedCount));
+    for (int32_t index = 0; index < pickedCount; ++index) {
+        if (picked[index] != nullptr) {
+            paths.emplace_back(picked[index]);
+        }
+    }
+    const GameMode gameMode = mode == BALLS_MODE_PERFORMANCE ? GameMode::Performance : GameMode::Normal;
+    const LevelImportReport report = importLevels(paths, std::filesystem::path(destination), gameMode);
+    if (results != nullptr) {
+        const int32_t written = std::min(static_cast<int32_t>(report.results.size()), std::max(capacity, 0));
+        for (int32_t index = 0; index < written; ++index) {
+            const LevelImportResult& source = report.results[static_cast<size_t>(index)];
+            BallsImportResult& out = results[index];
+            std::memset(&out, 0, sizeof out);
+            out.status = source.status == LevelImportResult::Status::Imported ? 0
+                         : source.status == LevelImportResult::Status::Replaced ? 1
+                                                                                : 2;
+            copyName(source.name, out.name, sizeof out.name);
+            copyName(source.message, out.message, sizeof out.message);
+            out.hasWarning = source.hasWarning ? 1 : 0;
+        }
+    }
+    writeText(report.summary(), summary, summarySize);
+    return static_cast<int32_t>(report.results.size());
 }
 
 int32_t balls_settings_load(const char* path, BallsSettings* settings) {

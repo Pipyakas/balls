@@ -183,6 +183,24 @@ namespace Balls.App
                     Ok(request, "{\"ok\":true}");
                     return;
                 }
+                case "/import":
+                {
+                    // Several picks travel in one parameter, separated by '|', the way a drop hands over a folder.
+                    var picked = new List<string>();
+                    foreach (string entry in (Get(query, "path") ?? string.Empty).Split('|', StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        picked.Add(entry);
+                    }
+                    if (picked.Count == 0)
+                    {
+                        Error(request, 400, "missing path");
+                        return;
+                    }
+                    var levels = app.Get<Screens.LevelSelectScreen>();
+                    bool imported = levels.Import(picked);
+                    Ok(request, $"{{\"ok\":{(imported ? "true" : "false")},\"toast\":{Json(app.ToastText)}}}");
+                    return;
+                }
                 case "/menu":
                     app.Go<Screens.MainMenuScreen>();
                     Ok(request, "{\"ok\":true}");
@@ -385,7 +403,8 @@ namespace Balls.App
             text.Append(",\"mode\":").Append(Json(app.Mode == BallsApp.PerformanceMode ? "performance" : "normal"));
             text.Append(",\"level\":").Append(Json(app.LevelName));
             text.Append(",\"running\":").Append(app.Running ? "true" : "false");
-            if (app.TryReadSession(out BoardInfoData board, out SessionInfo session, out SessionStatsData stats))
+            // A finished game leaves the session component behind, so its fields only mean something while one runs.
+            if (app.Running && app.TryReadSession(out BoardInfoData board, out SessionInfo session, out SessionStatsData stats))
             {
                 Screens.GameplayScreen gameplay = Gameplay();
                 text.Append(",\"state\":").Append(Json(StateName(session.state)));
