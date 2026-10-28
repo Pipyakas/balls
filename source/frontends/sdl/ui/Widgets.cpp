@@ -3,11 +3,15 @@
 #include "render/Palette.h"
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
 #include <string>
 
 namespace {
 
 constexpr float buttonTextPadding = 12.0f;
+constexpr float marqueePixelsPerSecond = 40.0f;
+constexpr float marqueeRestSeconds = 1.5f;
 constexpr float scrollHintDepth = 40.0f;
 constexpr float scrollHintSideInset = 6.0f;
 constexpr float scrollHintEdgeInset = 2.0f;
@@ -116,6 +120,31 @@ bool isHovered(Rect rect) {
 
 bool isClicked(Rect rect) {
     return isHovered(rect) && input::mousePressed(input::MouseButton::Left);
+}
+
+void drawScrollingText(std::string_view text, Rect rect, float size, Color color) {
+    const float overflow = measureText(text, size).x - rect.width;
+    if (overflow <= 0.0f) {
+        drawTextInRect(text, rect, size, color, Align::Left);
+        return;
+    }
+    const float travelSeconds = overflow / marqueePixelsPerSecond;
+    const float cycleSeconds = 2.0f * (travelSeconds + marqueeRestSeconds);
+    const float seconds = std::chrono::duration<float>(std::chrono::steady_clock::now().time_since_epoch()).count();
+    const float phase = std::fmod(seconds, cycleSeconds);
+    float offset = 0.0f;
+    if (phase < marqueeRestSeconds) {
+        offset = 0.0f;
+    } else if (phase < marqueeRestSeconds + travelSeconds) {
+        offset = (phase - marqueeRestSeconds) * marqueePixelsPerSecond;
+    } else if (phase < 2.0f * marqueeRestSeconds + travelSeconds) {
+        offset = overflow;
+    } else {
+        offset = overflow - (phase - 2.0f * marqueeRestSeconds - travelSeconds) * marqueePixelsPerSecond;
+    }
+    gfx::beginClip(rect);
+    drawTextInRect(text, {rect.x - offset, rect.y, rect.width + overflow, rect.height}, size, color, Align::Left);
+    gfx::endClip();
 }
 
 bool button(Rect rect, std::string_view label, bool enabled, bool selected) {

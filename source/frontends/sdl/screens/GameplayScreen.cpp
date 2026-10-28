@@ -304,29 +304,32 @@ void GameplayScreen::openNextLevel() {
     }
 }
 
+// The whole header is the Pause / Resume control. It names the action only while hovered or pressed, so the rest of
+// the time the title has the full width; a title still too long scrolls sideways rather than shrinking.
 void GameplayScreen::drawHeader(const GameplayLayout& layout) {
-    ui::drawPanel(layout.header, palette::panel, 0.25f);
-    const char* modeName = mode == GameMode::Normal ? "Normal" : "Performance";
-    const Rect pauseRect{layout.header.x + layout.header.width - 110.0f, layout.header.y + 8.0f, 100.0f,
-                         layout.header.height - 16.0f};
-    const Rect titleRect{layout.header.x + 14.0f, layout.header.y, pauseRect.x - layout.header.x - 24.0f,
-                              layout.header.height};
-    const std::string title = std::format("{} - {}", modeName, files.name);
-    const std::string_view notice = diskNotice();
-    auto fittedSize = [&](std::string_view text, float preferredSize) {
-        const float width = std::max(ui::measureText(text, preferredSize).x, 1.0f);
-        return std::min(preferredSize, preferredSize * titleRect.width / width);
-    };
-    if (notice.empty()) {
-        ui::drawTextInRect(title, titleRect, fittedSize(title, 22.0f), palette::text, ui::Align::Left);
+    constexpr float titleInset = 14.0f;
+    const Rect header = layout.header;
+    const bool hovered = ui::isHovered(header);
+    const bool pressed = hovered && input::mouseDown(input::MouseButton::Left);
+    ui::drawPanel(header, pressed ? palette::controlPressed : (hovered ? palette::controlHover : palette::panel), 0.25f);
+    if (hovered) {
+        ui::drawTextInRect(paused ? "Resume" : "Pause", header, 22.0f, palette::textStrong);
     } else {
-        const float halfHeight = titleRect.height * 0.5f;
-        ui::drawTextInRect(title, {titleRect.x, titleRect.y + 4.0f, titleRect.width, halfHeight - 4.0f},
-                           fittedSize(title, 18.0f), palette::text, ui::Align::Left);
-        ui::drawTextInRect(notice, {titleRect.x, titleRect.y + halfHeight, titleRect.width, halfHeight - 4.0f},
-                           fittedSize(notice, 15.0f), palette::accent, ui::Align::Left);
+        const char* modeName = mode == GameMode::Normal ? "Normal" : "Performance";
+        const std::string title = std::format("{} - {}", modeName, files.name);
+        const std::string_view notice = diskNotice();
+        const Rect titleRect{header.x + titleInset, header.y, header.width - titleInset * 2.0f, header.height};
+        if (notice.empty()) {
+            ui::drawScrollingText(title, titleRect, 22.0f, palette::text);
+        } else {
+            const float halfHeight = titleRect.height * 0.5f;
+            ui::drawScrollingText(title, {titleRect.x, titleRect.y + 4.0f, titleRect.width, halfHeight - 4.0f}, 18.0f,
+                                  palette::text);
+            ui::drawScrollingText(notice, {titleRect.x, titleRect.y + halfHeight, titleRect.width, halfHeight - 4.0f},
+                                  15.0f, palette::accent);
+        }
     }
-    if (ui::button(pauseRect, paused ? "Resume" : "Pause")) {
+    if (hovered && input::mouseReleased(input::MouseButton::Left)) {
         paused = !paused;
     }
 }

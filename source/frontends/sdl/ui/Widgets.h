@@ -26,6 +26,9 @@ inline constexpr float buttonLabelMaximum = 26.0f;
 Vec2 measureText(std::string_view text, float size);
 void drawText(std::string_view text, Vec2 position, float size, Color color, Align align = Align::Left);
 void drawTextInRect(std::string_view text, Rect rect, float size, Color color, Align align = Align::Center);
+// Left-aligned text that keeps its size: when wider than the rect it drifts left to show its end and back,
+// resting at each end, clipped to the rect.
+void drawScrollingText(std::string_view text, Rect rect, float size, Color color);
 
 void drawPanel(Rect rect, Color fill, float roundness = 0.08f);
 void drawBorder(Rect rect, float roundness = 0.0f, Color color = palette::frame);
