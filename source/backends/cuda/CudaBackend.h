@@ -41,7 +41,7 @@ public:
     BallTally truncate(size_t newCount) override;
     std::string_view faultMessage() const override { return fault; }
     bool resolvesHitsOnDevice() const override { return true; }
-    bool acceptsBrickHitUpdates() const override { return true; }
+    bool acceptsSparseBoardUpdates() const override { return true; }
     DeviceHitResults deviceHitResults() const override;
     bool shareRenderBuffer(unsigned int openGlBuffer, size_t capacityBytes) override;
     void setVisibilityGrid(int width, int height) override;
@@ -92,6 +92,7 @@ private:
     void uploadBrickHits(std::span<const int32_t> hitsLeft);
     void uploadWholeBoard(const BoardUpload& board);
     void applyChangedCellWords(const BoardUpload& board);
+    bool scatterUpdates(std::span<const int32_t> pairs, CUdeviceptr target, DeviceArray& staging);
     void releaseRenderBuffer();
     bool copyIntoRenderBuffer(CUdeviceptr source, size_t elements);
     bool writeGridIntoRenderBuffer();
@@ -136,6 +137,7 @@ private:
     DeviceArray cellCursors;
     DeviceArray cellWordUpdates;
     DeviceArray brickHitUpdates;
+    DeviceArray targetUpdates;
     size_t uploadedCellWords = 0;
     CUdeviceptr sortedPosition = 0;
     CUdeviceptr sortedState = 0;

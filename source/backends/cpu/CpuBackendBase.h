@@ -11,6 +11,7 @@ public:
         store.fieldHeight = static_cast<float>(board.rows);
     }
     void addBalls(std::span<const BallSpawn> spawns) override { store.add(spawns); }
+    bool acceptsSparseBoardUpdates() const override { return true; }
     void removeBalls(std::span<const uint32_t> descendingIndices) override { store.swapRemove(descendingIndices); }
     size_t ballCount() const override { return store.count; }
     BallSnapshot snapshot() override { return store.snapshot(); }

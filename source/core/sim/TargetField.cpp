@@ -10,7 +10,11 @@ constexpr int32_t noTarget = -1;
 constexpr int32_t paddingCell = -2;
 constexpr int asyncCellThreshold = 1 << 16;
 
-bool isReady(const std::future<std::vector<int32_t>>& future) {
+// A rebuild that changed more than this share of the cells is sent whole.
+constexpr size_t wholeUploadDivisor = 8;
+
+template <typename T>
+bool isReady(const std::future<T>& future) {
     return future.valid() && future.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
 }
 
@@ -18,12 +22,15 @@ bool isReady(const std::future<std::vector<int32_t>>& future) {
 
 void TargetField::rebuild(const BrickBoard& board) {
     discardPendingRebuilds();
-    targets = compute(copyOf(board), board.paddedCellCount() >= asyncCellThreshold);
+    targets = std::make_shared<const std::vector<int32_t>>(
+        compute(copyOf(board), board.paddedCellCount() >= asyncCellThreshold));
+    changes.clear();
+    sparse = false;
 }
 
 bool TargetField::requestRebuild(const BrickBoard& board) {
     const size_t expectedSize = static_cast<size_t>(board.paddedCellCount()) * ballColorCount;
-    if (board.paddedCellCount() < asyncCellThreshold || targets.size() != expectedSize) {
+    if (board.paddedCellCount() < asyncCellThreshold || targetCells().size() != expectedSize) {
         rebuild(board);
         return true;
     }
@@ -39,7 +46,10 @@ bool TargetField::takeFinishedRebuild(const BrickBoard& board) {
     if (!isReady(pending)) {
         return false;
     }
-    targets = pending.get();
+    Rebuilt rebuilt = pending.get();
+    targets = std::move(rebuilt.cells);
+    changes = std::move(rebuilt.changes);
+    sparse = rebuilt.sparse;
     if (rebuildQueued) {
         rebuildQueued = false;
         launch(copyOf(board));
@@ -56,7 +66,35 @@ void TargetField::discardPendingRebuilds() {
 }
 
 void TargetField::launch(BoardCopy board) {
-    pending = std::async(std::launch::async, [copy = std::move(board)] { return compute(copy, true); });
+    pending = std::async(std::launch::async, [copy = std::move(board), previous = targets] {
+        return computeChanges(copy, previous);
+    });
+}
+
+// Runs on the rebuild thread: a 2048x2048 board's field is 146 MB, and sending all of it after every rebuild held a
+// frame for 40 ms, while a rebuild usually changes only the cells around the bricks that broke.
+TargetField::Rebuilt TargetField::computeChanges(const BoardCopy& board,
+                                                 std::shared_ptr<const std::vector<int32_t>> previous) {
+    Rebuilt rebuilt;
+    auto cells = std::make_shared<std::vector<int32_t>>(compute(board, true));
+    if (previous && previous->size() == cells->size()) {
+        const size_t limit = cells->size() / wholeUploadDivisor;
+        rebuilt.sparse = true;
+        for (size_t cell = 0; cell < cells->size(); ++cell) {
+            if ((*cells)[cell] == (*previous)[cell]) {
+                continue;
+            }
+            if (rebuilt.changes.size() / 2 >= limit) {
+                rebuilt.sparse = false;
+                rebuilt.changes.clear();
+                break;
+            }
+            rebuilt.changes.push_back(static_cast<int32_t>(cell));
+            rebuilt.changes.push_back((*cells)[cell]);
+        }
+    }
+    rebuilt.cells = std::move(cells);
+    return rebuilt;
 }
 
 TargetField::BoardCopy TargetField::copyOf(const BrickBoard& board) {

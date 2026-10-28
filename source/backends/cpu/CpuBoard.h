@@ -26,6 +26,9 @@ struct CpuBoard {
             if (!board.targetCells.empty()) {
                 targetCells.assign(board.targetCells.begin(), board.targetCells.end());
             }
+            for (size_t i = 0; i + 1 < board.targetUpdates.size(); i += 2) {
+                targetCells[static_cast<size_t>(board.targetUpdates[i])] = board.targetUpdates[i + 1];
+            }
             findNearRowsEnd();
             return;
         }

@@ -214,7 +214,7 @@ CudaBackend::~CudaBackend() {
          {balls.position, balls.state, balls.packed, paddedCells.pointer,
           brickColors.pointer, targetCells.pointer, cellWords.pointer, brickHitsLeft.pointer, killedIndices.pointer, holes.pointer,
           counters.pointer, gridSlots.pointer, gridPacked.pointer, cellCursors.pointer, cellWordUpdates.pointer,
-          brickHitUpdates.pointer,
+          brickHitUpdates.pointer, targetUpdates.pointer,
           sortedPosition, sortedState}) {
         if (pointer) {
             api.memFree(pointer);
@@ -469,16 +469,11 @@ void CudaBackend::uploadBoard(const BoardUpload& board) {
     if (!board.targetCells.empty()) {
         upload(targetCells, board.targetCells.data(), board.targetCells.size_bytes());
     }
+    scatterUpdates(board.targetUpdates, targetCells.pointer, targetUpdates);
     if (!board.brickHitsLeft.empty()) {
         uploadBrickHits(board.brickHitsLeft);
     }
-    if (!board.brickHitUpdates.empty() && brickHitsLeft.pointer != 0) {
-        upload(brickHitUpdates, board.brickHitUpdates.data(), board.brickHitUpdates.size_bytes());
-        CUdeviceptr updatesPointer = brickHitUpdates.pointer;
-        CUdeviceptr hitsPointer = brickHitsLeft.pointer;
-        int updateCount = static_cast<int>(board.brickHitUpdates.size() / 2);
-        void* arguments[] = {&updatesPointer, &updateCount, &hitsPointer};
-        launch(applyCellWordsFunction, static_cast<size_t>(updateCount), arguments, "apply brick hit updates");
+    if (scatterUpdates(board.brickHitUpdates, brickHitsLeft.pointer, brickHitUpdates)) {
         for (size_t i = 0; i + 1 < board.brickHitUpdates.size(); i += 2) {
             hostBrickHitsLeft[static_cast<size_t>(board.brickHitUpdates[i])] = board.brickHitUpdates[i + 1];
         }
@@ -486,6 +481,18 @@ void CudaBackend::uploadBoard(const BoardUpload& board) {
     fieldWidth = static_cast<float>(board.columns);
     fieldHeight = static_cast<float>(board.rows);
     chooseSortGrid();
+}
+
+// Writes (index, value) pairs into a device array with the cell-word kernel; false when there was nothing to write.
+bool CudaBackend::scatterUpdates(std::span<const int32_t> pairs, CUdeviceptr target, DeviceArray& staging) {
+    if (pairs.empty() || target == 0) {
+        return false;
+    }
+    upload(staging, pairs.data(), pairs.size_bytes());
+    CUdeviceptr updatesPointer = staging.pointer;
+    int updateCount = static_cast<int>(pairs.size() / 2);
+    void* arguments[] = {&updatesPointer, &updateCount, &target};
+    return launch(applyCellWordsFunction, static_cast<size_t>(updateCount), arguments, "scatter board updates");
 }
 
 void CudaBackend::applyChangedCellWords(const BoardUpload& board) {

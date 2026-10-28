@@ -177,19 +177,25 @@ StepParams Simulation::stepParams(int substeps) const {
 }
 
 void Simulation::syncBoardIfChanged() {
-    targetsUploadPending = targetField.takeFinishedRebuild(brickBoard) || targetsUploadPending;
+    const bool rebuilt = targetField.takeFinishedRebuild(brickBoard);
+    bool sparseTargets = rebuilt && !targetsUploadPending && targetField.lastRebuildIsSparse() &&
+                         physics->acceptsSparseBoardUpdates();
+    targetsUploadPending = rebuilt || targetsUploadPending;
     const bool layoutChanged = uploadedRevision != brickBoard.revision();
     if (!layoutChanged && !hostHitsPending && !targetsUploadPending) {
         return;
     }
     if (layoutChanged) {
-        targetsUploadPending = targetField.requestRebuild(brickBoard) || targetsUploadPending;
+        if (targetField.requestRebuild(brickBoard)) {
+            targetsUploadPending = true;
+            sparseTargets = false;
+        }
     }
     const bool onlyChangedCells = uploadedRevision != ~0ull;
     // Hybrid's CPU side reports its hits to the host every tick; on a board of millions of bricks re-sending every
     // brick's count each time cost tens of milliseconds, so only the bricks hit are sent where the backend takes that.
     constexpr size_t wholeUploadDivisor = 8;
-    const bool sendHitUpdates = hostHitsPending && !hitsUploadPending && physics->acceptsBrickHitUpdates() &&
+    const bool sendHitUpdates = hostHitsPending && !hitsUploadPending && physics->acceptsSparseBoardUpdates() &&
                                 hostHitBricks.size() <= brickBoard.bricks().size() / wholeUploadDivisor;
     const bool sendHits = (hostHitsPending || hitsUploadPending) && !sendHitUpdates;
     brickHitUpdates.clear();
@@ -211,10 +217,13 @@ void Simulation::syncBoardIfChanged() {
     const std::span<const int32_t> hitsLeft =
         sendHits ? std::span<const int32_t>(uploadedBrickHitsLeft) : std::span<const int32_t>{};
     const std::span<const int32_t> targets =
-        targetsUploadPending ? std::span<const int32_t>(targetField.targetCells()) : std::span<const int32_t>{};
+        targetsUploadPending && !sparseTargets ? std::span<const int32_t>(targetField.targetCells())
+                                               : std::span<const int32_t>{};
+    const std::span<const int32_t> targetUpdates =
+        targetsUploadPending && sparseTargets ? targetField.lastRebuildChanges() : std::span<const int32_t>{};
     physics->uploadBoard({brickBoard.columns(), brickBoard.rows(), brickBoard.paddedCells(), brickBoard.brickColors(),
                           targets, brickBoard.nearBrickFlags(), hitsLeft, brickBoard.changedCells(), onlyChangedCells,
-                          brickHitUpdates});
+                          brickHitUpdates, targetUpdates});
     brickBoard.clearChangedCells();
     targetsUploadPending = false;
     uploadedRevision = brickBoard.revision();
@@ -255,7 +264,7 @@ void Simulation::resolveHits() {
         brickBoard.applyHit(hit.brick);
         anyDestroyed = anyDestroyed || !brickBoard.bricks()[hit.brick].isAlive();
         killedBalls.push_back(hit.ball);
-        if (physics->acceptsBrickHitUpdates()) {
+        if (physics->acceptsSparseBoardUpdates()) {
             hostHitBricks.push_back(static_cast<int32_t>(hit.brick));
         }
         --statistics.ballsByColor[toIndex(brickBoard.bricks()[hit.brick].color)];
