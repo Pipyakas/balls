@@ -4,6 +4,7 @@
 #include "app/Paths.h"
 #include "app/PreferenceDirectory.h"
 #include "editor/MapEditorScreen.h"
+#include "game/SessionRunner.h"
 #include "game/Settings.h"
 #include "level/LevelRepository.h"
 #include "render/Palette.h"
@@ -167,6 +168,9 @@ App::~App() {
     controlServer.stop();
     currentScreen.reset();
     pendingScreen.reset();
+    // A level left open is still finishing its physics frame; give it a moment so its backend is destroyed while the
+    // plugins are loaded, but do not let a stuck step hold the window open.
+    static_cast<void>(SessionRunner::waitForStoppedRunners(std::chrono::seconds(2)));
     balls.reset();
     renderer.reset();
     if (imguiCreated) {
@@ -557,12 +561,11 @@ bool App::frame() {
         });
     }
     input::clearTransientState();
-    const double synchronizationMs = balls->takeSynchronizationMs();
     const double gpuWaitMs = renderer->lastGpuWaitMs();
     timings.record({millisecondsBetween(updateStart, frameEnd),
-                    millisecondsBetween(workStart, presentStart) - synchronizationMs,
+                    millisecondsBetween(workStart, presentStart),
                     renderer->lastGpuBusyMs(),
-                    millisecondsBetween(presentStart, frameEnd) + synchronizationMs + gpuWaitMs,
+                    millisecondsBetween(presentStart, frameEnd) + gpuWaitMs,
                     renderer->lastFramePresented() ? 1.0 : 0.0, renderer->lastPresentWaitMs()});
     applyPendingRenderAdapter();
     applyPendingRendererSwitch();

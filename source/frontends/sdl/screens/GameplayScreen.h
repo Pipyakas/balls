@@ -2,6 +2,7 @@
 
 #include "app/Screen.h"
 #include "game/GameSession.h"
+#include "game/SessionRunner.h"
 #include "gpu/GpuAdapters.h"
 #include "level/LevelData.h"
 #include "level/LevelWatcher.h"
@@ -49,7 +50,8 @@ private:
     void applyDefaultBallLimit();
     void rememberFinishedProbe();
     void useAutoBallLimit();
-    void pollBackendSwitch();
+    void handleSessionEvents();
+    void tickPhysics(const GameplayLayout& layout);
     void startProbe();
     void selectComputeAdapter(int adapter);
     std::vector<int> renderAdapterChoices() const;
@@ -73,7 +75,10 @@ private:
     App& app;
     GameMode mode;
     LevelFiles files;
-    std::unique_ptr<GameSession> session;
+    // The session runs on the physics thread; the screen only posts commands to it and draws the view it publishes,
+    // taking one view per frame so everything drawn in a frame agrees.
+    std::unique_ptr<SessionRunner> runner;
+    std::shared_ptr<const SessionView> view;
     std::string loadError;
     LevelWatcher watcher;
     DiskState diskState = DiskState::Unchanged;

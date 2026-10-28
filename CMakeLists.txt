@@ -162,7 +162,7 @@ endif()
 
 enable_testing()
 add_executable(balls_tests source/tests/TestMain.cpp source/tests/LevelTests.cpp source/tests/SimulationTests.cpp
-    source/tests/GameTests.cpp source/tests/ProbeTests.cpp source/tests/EditorTests.cpp source/tests/SettingsTests.cpp
+    source/tests/GameTests.cpp source/tests/SessionRunnerTests.cpp source/tests/ProbeTests.cpp source/tests/EditorTests.cpp source/tests/SettingsTests.cpp
     source/tests/BrickBoardTests.cpp
     source/tests/LayoutTests.cpp
     source/tests/FreeFlightTests.cpp
