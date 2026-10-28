@@ -13,11 +13,15 @@ struct EdgeSweepSettings {
     int framesPerWindow = 30;
     int framesBeforeWorstCounts = 10;
     double caseSeconds = 40.0;
+    double settleTravels = 1.5;
+    double longestSettleSeconds = 20.0;
 };
 
 struct EdgeSweepResult {
     double ballsAtBudget = 0.0;
     double windowFrameMs = 0.0;
+    double filledBalls = 0.0;
+    double settledFrameMs = 0.0;
     double worstFrameMs = 0.0;
     double launchNanosecondsPerBall = 0.0;
     BallCount launchedBalls = 0;
@@ -26,7 +30,9 @@ struct EdgeSweepResult {
     double seconds = 0.0;
 };
 
-// Fills the board the way the game does, through SpawnPacer, so balls launched long ago have reached the bricks while
-// new ones are still flying, and stops once a window of frames averages more than the 60 FPS budget (the window's
-// average live count is the result), when the backend is full, or when the time runs out.
+// Fills the board the way the game does, through SpawnPacer, until a window of frames averages more than the 60 FPS
+// budget, the backend is full, or the time runs out. The last balls launched are still flying from the launch point,
+// cheaper than balls working along the bricks, so the board then runs for one and a half crossings of its height (at
+// most 20 s) launching only to replace balls that died, and the result is the settled window's live count, scaled
+// down if its frames no longer fit the budget.
 EdgeSweepResult sweepEdgeCase(const BrickLayout& layout, BackendKind kind, const EdgeSweepSettings& settings = {});

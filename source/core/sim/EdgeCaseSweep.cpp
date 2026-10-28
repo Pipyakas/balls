@@ -80,6 +80,38 @@ EdgeSweepResult sweepEdgeCase(const BrickLayout& layout, BackendKind kind, const
             break;
         }
     }
+    result.filledBalls = result.ballsAtBudget;
+    if (simulation.backend().faultMessage().empty()) {
+        const BallCount held = simulation.liveBallCount();
+        const auto settledFrame = [&] {
+            const Clock::time_point frameStart = Clock::now();
+            const BallCount live = simulation.liveBallCount();
+            const BallCount replaced = std::min(pacer.allowance(), held > live ? held - live : 0);
+            simulation.launchBalls(ballColorFromIndex(colorIndex++ % ballColorCount), replaced);
+            simulation.flushPendingSpawns();
+            pacer.recordSpawn(replaced, secondsSince(frameStart));
+            simulation.tick(settings.ticksPerFrame);
+            const double frameSeconds = secondsSince(frameStart);
+            pacer.reportFrame(frameSeconds, simulation.liveBallCount());
+            return frameSeconds;
+        };
+        const double crossingSeconds = static_cast<double>(simulation.board().rows()) / simulation.tuning().ballSpeed;
+        const int settleTicks = static_cast<int>(crossingSeconds * settings.settleTravels / simulation.tuning().tickSeconds);
+        const Clock::time_point settleStart = Clock::now();
+        for (int ticks = 0; ticks < settleTicks && secondsSince(settleStart) < settings.longestSettleSeconds;
+             ticks += settings.ticksPerFrame) {
+            settledFrame();
+        }
+        double settledSeconds = 0.0;
+        double settledBalls = 0.0;
+        for (int frame = 0; frame < settings.framesPerWindow; ++frame) {
+            settledBalls += static_cast<double>(simulation.liveBallCount());
+            settledSeconds += settledFrame();
+        }
+        const double averageFrame = settledSeconds / settings.framesPerWindow;
+        result.settledFrameMs = averageFrame * 1e3;
+        result.ballsAtBudget = settledBalls / settings.framesPerWindow * std::min(1.0, budgetSeconds / averageFrame);
+    }
     result.launchNanosecondsPerBall =
         result.launchedBalls > 0 ? launchSeconds * 1e9 / static_cast<double>(result.launchedBalls) : 0.0;
     result.aliveBricks = simulation.board().aliveBrickCount();
