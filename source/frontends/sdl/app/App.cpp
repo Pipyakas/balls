@@ -13,6 +13,7 @@
 #include "screens/MachineBenchmarkScreen.h"
 #include "screens/MainMenuScreen.h"
 #include "screens/SettingsScreen.h"
+#include "sim/BackendWorker.h"
 #include "ui/Painter.h"
 #include "ui/Widgets.h"
 
@@ -97,7 +98,7 @@ GpuApi adapterApiFor(std::string_view renderer, std::string_view api) {
         return GpuApi::D3d12;
     }
 #if defined(_WIN32)
-    return renderer == "sdlgpu" ? GpuApi::Vulkan : GpuApi::D3d12;
+    return renderer == "webgpu" ? GpuApi::D3d12 : GpuApi::Vulkan;
 #else
     (void)renderer;
     return GpuApi::Vulkan;
@@ -141,10 +142,11 @@ BackendKind startupBackend(std::optional<BackendKind> commandLine, std::string_v
     if (commandLine && isBackendAvailable(*commandLine)) {
         return *commandLine;
     }
-    if (const auto saved = parseBackendKind(settingsDefault); saved && isBackendAvailable(*saved)) {
+    if (const auto saved = parseBackendKind(settingsDefault); saved && isBackendAvailable(*saved) && isBackendSelectable(*saved)) {
         return *saved;
     }
-    if (const auto target = targetMachineWinner(); target && isBackendAvailable(target->kind)) {
+    if (const auto target = targetMachineWinner();
+        target && isBackendAvailable(target->kind) && isBackendSelectable(target->kind)) {
         return target->kind;
     }
     return fastestAvailableCpuBackend();

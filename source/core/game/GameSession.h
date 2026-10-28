@@ -11,6 +11,7 @@
 #include "sim/Simulation.h"
 
 #include <array>
+#include <chrono>
 #include <memory>
 #include <optional>
 #include <string>
@@ -115,4 +116,6 @@ private:
     std::optional<BackendSwitchOutcome> switchOutcome;
     BallCount refillRemaining = 0;
     BallCount refillBatchBalls = BallCount{1} << 16;
+    static constexpr std::chrono::seconds refillPatience{2};
+    std::optional<std::chrono::steady_clock::time_point> refillStalledSince;
 };

@@ -4,8 +4,8 @@ A ball-bouncing, brick-breaking color game for Windows, written in C++20.
 It has an engine-agnostic core (`source/core/`) and an SDL3 front end (`source/frontends/sdl/`) with Dear ImGui for text and
 widgets. Rendering sits behind `IRenderer`: NVRHI (Direct3D 12 or Vulkan) on Windows, Linux and macOS (via
 MoltenVK), and SDL_GPU for Android and other SDL targets. The physics can run on four
-interchangeable backends: a scalar reference, AVX2 multithreaded, CUDA, and a hybrid that splits the balls
-between CUDA and AVX2 (see [data/docs/hybrid-physics.md](data/docs/hybrid-physics.md)).
+interchangeable backends: a scalar reference, AVX2 multithreaded, CUDA, and CUDA+AVX2, which splits the balls
+between those two (see [data/docs/hybrid-physics.md](data/docs/hybrid-physics.md)).
 
 ## Features
 
@@ -14,7 +14,7 @@ between CUDA and AVX2 (see [data/docs/hybrid-physics.md](data/docs/hybrid-physic
   bounce they home toward the nearest brick of their color.
 - **Performance mode.** Start with one click and launchers release automatically. Spawn speed can be set to
   10 / 50 / 200 / 1000 / 2000 balls per second or Max. A ball-count multiplier (x1 to x1000) scales the stress
-  test. You can switch the physics backend live with F1 (Scalar), F2 (AVX2), F3 (CUDA) or F4 (Hybrid).
+  test. You can switch the physics backend live with F1 (Scalar), F2 (AVX2), F3 (CUDA) or F4 (CUDA+AVX2).
 - **Three-section screen.** The main board, the user interaction section (the only place that accepts gameplay
   input) and a debug panel. The debug panel shows FPS, min FPS, total objects, the ball count per color and the
   backend.
@@ -30,8 +30,8 @@ Requirements: Windows 10/11 x64, Visual Studio 2022 (C++ workload), CMake 3.25+,
 compiler pieces) and internet access on first configure (SDL 3.2.30, Dear ImGui 1.93.0 and NVRHI with the Vulkan and DirectX headers are downloaded).
 
 `-DBALLS_FRONTEND=none` builds only the core, the physics plugins and the tools. `-DBALLS_RENDERER=nvrhi|webgpu|sdlgpu`
-picks the renderer (default: `nvrhi` on desktop, `webgpu` on Android). With NVRHI, Windows runs Direct3D 12 and
-`--api vulkan` switches to Vulkan; Linux and macOS always use Vulkan.
+picks the renderer (default: `nvrhi` on desktop, `webgpu` on Android). With NVRHI, every platform runs Vulkan by default;
+`--api d3d12` switches Windows to Direct3D 12.
 
 `build.bat` (Windows) and `build.sh` (Linux) at the project root are the one entry point for every front end and
 platform:
@@ -161,7 +161,7 @@ runtime and copies its DLLs next to the executable.
 | Performance mode | Start button / Space | Begin automatic release |
 | Any game | Esc / P | Pause menu |
 | Any game | R | Restart level |
-| Any game | F1 / F2 / F3 / F4 | Scalar / AVX2 / CUDA / Hybrid physics |
+| Any game | F1 / F2 / F3 / F4 | Scalar / AVX2 / CUDA / CUDA+AVX2 physics |
 | Editor | L-drag / R-drag | Apply tool / erase |
 | Editor | 1-7, P/E/X/K | Color, tool |
 | Editor | Ctrl+Z / Ctrl+Y / Ctrl+S | Undo / redo / save |

@@ -2,7 +2,9 @@
 
 #include "sim/HybridBackend.h"
 
+#include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <filesystem>
 #include <format>
 #include <map>
@@ -171,12 +173,37 @@ std::string_view backendKindName(BackendKind kind) {
         return "AVX2";
     case BackendKind::Cuda:
         return "CUDA";
-    case BackendKind::Hybrid:
-        return "Hybrid";
+    case BackendKind::CudaAvx2:
+        return "CUDA+AVX2";
     case BackendKind::Vulkan:
         return "Vulkan";
     }
     return "?";
+}
+
+namespace {
+
+std::string normalizedKindName(std::string_view name) {
+    std::string normalized;
+    for (const char character : name) {
+        if (std::isalnum(static_cast<unsigned char>(character))) {
+            normalized += static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+        }
+    }
+    return normalized;
+}
+
+}
+
+std::optional<BackendKind> backendKindFromName(std::string_view name) {
+    constexpr std::string_view legacyCudaAvx2Name = "hybrid";
+    const std::string wanted = normalizedKindName(name);
+    if (wanted == legacyCudaAvx2Name) {
+        return BackendKind::CudaAvx2;
+    }
+    const auto match = std::ranges::find_if(
+        allBackendKinds, [&](BackendKind kind) { return normalizedKindName(backendKindName(kind)) == wanted; });
+    return match == allBackendKinds.end() ? std::nullopt : std::optional(*match);
 }
 
 std::string_view backendPluginFileName(BackendKind kind) {
@@ -192,7 +219,7 @@ std::string_view backendPluginFileName(BackendKind kind) {
 bool isBackendAvailable(BackendKind kind) { return backendUnavailableReason(kind).empty(); }
 
 std::string backendUnavailableReason(BackendKind kind) {
-    if (kind == BackendKind::Hybrid) {
+    if (kind == BackendKind::CudaAvx2) {
         const std::string gpuReason = backendUnavailableReason(BackendKind::Cuda);
         return gpuReason.empty() ? backendUnavailableReason(BackendKind::Avx2) : gpuReason;
     }
@@ -205,7 +232,7 @@ std::string backendUnavailableReason(BackendKind kind) {
 }
 
 std::string backendDetail(BackendKind kind) {
-    if (kind == BackendKind::Hybrid) {
+    if (kind == BackendKind::CudaAvx2) {
         return std::format("{} + {}", backendDetail(BackendKind::Cuda), backendDetail(BackendKind::Avx2));
     }
     const PluginModule& plugin = queryPlugin(kind);
@@ -217,7 +244,7 @@ std::string backendDetail(BackendKind kind) {
 }
 
 BackendHandle createBackend(BackendKind kind) {
-    if (kind == BackendKind::Hybrid) {
+    if (kind == BackendKind::CudaAvx2) {
         return HybridBackend::create(createBackend(BackendKind::Cuda), createBackend(BackendKind::Avx2));
     }
     const std::shared_ptr<PluginModule> plugin = loadPlugin(backendPluginFileName(kind), true);

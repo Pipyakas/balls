@@ -1,6 +1,7 @@
 #include "sim/BackendBenchmark.h"
 
 #include "common/BallColor.h"
+#include "sim/BackendWorker.h"
 #include "sim/Simulation.h"
 
 #include <algorithm>
@@ -117,14 +118,7 @@ std::optional<CandidateStatus> parseStatus(std::string_view name) {
     return std::nullopt;
 }
 
-std::optional<BackendKind> kindNamed(std::string_view name) {
-    for (const BackendKind kind : allBackendKinds) {
-        if (backendKindName(kind) == name) {
-            return kind;
-        }
-    }
-    return std::nullopt;
-}
+std::optional<BackendKind> kindNamed(std::string_view name) { return backendKindFromName(name); }
 
 std::string candidateLabel(BackendKind kind, std::string_view computeGpu) {
     return computeGpu.empty() ? std::string(backendKindName(kind))
@@ -155,7 +149,7 @@ HardwareFingerprint currentHardwareFingerprint(std::string_view gameVersion) {
 
 std::vector<BenchmarkCandidate> benchmarkCandidates() {
     std::vector<BenchmarkCandidate> candidates;
-    for (const BackendKind kind : allBackendKinds) {
+    for (const BackendKind kind : selectableBackends()) {
         candidates.push_back({kind, {}, candidateLabel(kind, {})});
     }
     return candidates;

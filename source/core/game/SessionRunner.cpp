@@ -208,10 +208,9 @@ void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, Le
     double framesPerSecond = 0.0;
     double lastWorkSeconds = 0.0;
     bool wasPaused = false;
-    bool probing = false;
     const double tickSeconds = session->simulation().tuning().tickSeconds;
     Clock::duration framePeriod = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(tickSeconds));
-    bool unpaced = false;
+    Clock::duration probePeriod = Clock::duration::zero();
     for (;;) {
         std::vector<SessionRunner::Command> commands;
         PhysicsFrameInput input;
@@ -220,13 +219,15 @@ void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, Le
         {
             std::unique_lock lock(shared->mutex);
             // One frame per simulation tick: more would step nothing and only republish the same state. A command
-            // wakes the thread at once. While the capacity probe runs, frames follow each other unpaced, so the
-            // probe measures what the physics thread can do rather than the tick rate.
-            const int framesPerSecond = shared->input.framesPerSecond;
-            unpaced = framesPerSecond < 0;
-            framePeriod = std::chrono::duration_cast<Clock::duration>(
-                std::chrono::duration<double>(framesPerSecond > 0 ? 1.0 / framesPerSecond : tickSeconds));
-            if (frameNumber > 0 && !probing && !unpaced) {
+            // wakes the thread at once. While the capacity probe runs, frames come at about its target rate, each
+            // carrying that much simulated time; otherwise at the rate Settings > Advanced > Physics frames asks for.
+            const int requestedFramesPerSecond = shared->input.framesPerSecond;
+            const bool probePaced = probePeriod != Clock::duration::zero();
+            const bool unpaced = !probePaced && requestedFramesPerSecond < 0;
+            framePeriod = probePaced ? probePeriod
+                                     : std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(
+                                           requestedFramesPerSecond > 0 ? 1.0 / requestedFramesPerSecond : tickSeconds));
+            if (frameNumber > 0 && !unpaced) {
                 const Clock::time_point due = lastUpdate + framePeriod;
                 for (Clock::time_point now = Clock::now();
                      now < due && !shared->stopping && shared->commands.empty(); now = Clock::now()) {
@@ -256,7 +257,17 @@ void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, Le
         }
         const double sinceLastUpdate = secondsBetween(lastUpdate, workStart);
         lastUpdate = workStart;
-        if (!input.paused) {
+        const CapacityProbe& probe = session->capacityProbe();
+        const bool probing = probe.isActive() && probe.targetFps() > 0.0;
+        if (!input.paused && probing) {
+            // The probe asks whether a frame carrying one target interval of ticks finishes within that interval,
+            // so each frame advances exactly that much and reports the longer of it and the work it took. A
+            // sleep's wake-up granularity (15.6 ms on Windows by default) then cannot read as a slow frame.
+            const double targetSeconds = 1.0 / probe.targetFps();
+            session->reportFrameSeconds(std::max({lastWorkSeconds, targetSeconds, input.uiWorkSeconds}),
+                                        std::max(lastWorkSeconds, input.uiWorkSeconds));
+            session->update(static_cast<float>(targetSeconds));
+        } else if (!input.paused) {
             // Coming out of a pause, the paused time is not simulated.
             const double frameSeconds = wasPaused ? 0.0 : std::min(sinceLastUpdate, maximumPhysicsFrameSeconds);
             session->reportFrameSeconds(std::max(sinceLastUpdate, input.uiFrameSeconds),
@@ -264,7 +275,9 @@ void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, Le
             session->update(static_cast<float>(frameSeconds));
         }
         wasPaused = input.paused;
-        probing = session->capacityProbe().isActive();
+        probePeriod = probe.isActive() && probe.targetFps() > 0.0
+                          ? std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0 / probe.targetFps()))
+                          : Clock::duration::zero();
         fillView(*session, *view, previous.get(), boardRevision, input.visibilitySlotCells, input.drawing, field);
         const Clock::time_point workEnd = Clock::now();
         lastWorkSeconds = secondsBetween(workStart, workEnd);

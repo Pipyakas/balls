@@ -83,7 +83,7 @@ float settingsContentHeight() {
     height += sectionHeight + blockHeight;
     height += blockHeight;
     height += blockHeight;
-    height += sectionHeight + sectionHeight + (optionHeight + optionGap) * allBackendKinds.size() -
+    height += sectionHeight + sectionHeight + (optionHeight + optionGap) * selectableBackends().size() -
               optionGap + blockGap - optionGap;
     height += sectionHeight + blockHeight;
     height += blockHeight;
@@ -112,13 +112,14 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
     ui::drawText("Ball collisions", {innerX, cursor}, sectionSize, palette::text);
     cursor += sectionHeight;
     const Rect collisionOptions{innerX, cursor, innerWidth, optionHeight};
+    const bool collisionsPossible = isBackendSelectable(BackendKind::Scalar);
     if (ui::button(ui::columnSlice(collisionOptions, 0, 2, optionGap), "Off", true,
                    !current.ballCollisions) &&
         current.ballCollisions) {
         edit.settings.ballCollisions = false;
         edit.changed = true;
     }
-    if (ui::button(ui::columnSlice(collisionOptions, 1, 2, optionGap), "On", true, current.ballCollisions) &&
+    if (ui::button(ui::columnSlice(collisionOptions, 1, 2, optionGap), "On", collisionsPossible, current.ballCollisions) &&
         !current.ballCollisions) {
         edit.settings.ballCollisions = true;
         edit.changed = true;
@@ -127,7 +128,8 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
     ui::drawText("Testing only - the game rules have balls", {innerX, cursor}, hintSize,
                  palette::textMuted);
     cursor += hintHeight;
-    ui::drawText("pass through each other.", {innerX, cursor}, hintSize, palette::textMuted);
+    ui::drawText(collisionsPossible ? "pass through each other." : "pass through each other. Needs Scalar, not offered here.",
+                 {innerX, cursor}, hintSize, palette::textMuted);
     cursor += hintHeight + blockGap;
 
     ui::drawText("Layout", {innerX, cursor}, sectionSize, palette::textMuted);
@@ -214,7 +216,7 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
         edit.runBenchmark = true;
     }
     cursor += sectionHeight;
-    for (const BackendKind kind : allBackendKinds) {
+    for (const BackendKind kind : selectableBackends()) {
         const BackendStatus status = backendStatus(kind);
         const bool available = status.available;
         std::string label(backendKindName(kind));
