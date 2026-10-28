@@ -27,23 +27,11 @@ constexpr float ProgressHeight = 8.0f;
 constexpr float ButtonWidth = 220.0f;
 constexpr float ButtonHeight = 56.0f;
 constexpr double PollSeconds = 0.1;
-constexpr double BallStepsPerMillion = 1'000'000.0;
 
 FString ResultText(const CandidateResult& Result) {
-    switch (Result.status) {
-    case CandidateStatus::Done:
-        return FString::Printf(TEXT("%s balls at 60 FPS   %.0f M ball-steps/s"),
-                               *BallsText::FromUtf8(shortBallCount(Result.estimatedBalls)),
-                               Result.ballStepsPerSecond / BallStepsPerMillion);
-    case CandidateStatus::Failed:
-        return FString::Printf(TEXT("failed: %s"), *BallsText::FromUtf8(Result.failure));
-    case CandidateStatus::Unavailable:
-        return TEXT("not available");
-    case CandidateStatus::Running:
-        return FString();
-    default:
-        return TEXT("waiting");
-    }
+    // The core's text for a finished row; Unreal shows "waiting" for one not started yet.
+    return Result.status == CandidateStatus::Pending ? FString(TEXT("waiting"))
+                                                     : BallsText::FromUtf8(candidateResultText(Result));
 }
 
 FSlateColor ResultColor(const CandidateResult& Result) {

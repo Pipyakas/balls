@@ -25,25 +25,8 @@ constexpr float progressHeight = 10.0f;
 constexpr float buttonWidth = 200.0f;
 constexpr float buttonHeight = 56.0f;
 constexpr float secondsBeforeMainMenu = 1.5f;
-constexpr double ballStepsPerMillion = 1e6;
 // Without vsync (hidden or automated runs) the UI loop would spin and take a core from the CPU candidates.
 constexpr auto idleWhileMeasuring = std::chrono::milliseconds(12);
-
-std::string resultText(const CandidateResult& result) {
-    switch (result.status) {
-    case CandidateStatus::Done:
-        return std::format("{} balls at 60 FPS   {:.0f} M ball-steps/s", shortBallCount(result.estimatedBalls),
-                           result.ballStepsPerSecond / ballStepsPerMillion);
-    case CandidateStatus::Failed:
-        return "failed: " + result.failure;
-    case CandidateStatus::Unavailable:
-        return "not available";
-    case CandidateStatus::Pending:
-    case CandidateStatus::Running:
-        return {};
-    }
-    return {};
-}
 
 // The bundled Performance level the design names; the first one in the folder if it was renamed.
 std::optional<BrickLayout> benchmarkLevel(std::string& error) {
@@ -118,7 +101,7 @@ void MachineBenchmarkScreen::drawRow(const CandidateResult& result, float top, b
     const Color color = result.status == CandidateStatus::Failed ? palette::danger
                         : result.status == CandidateStatus::Done ? palette::text
                                                                  : palette::textMuted;
-    ui::drawText(resultText(result), {right, textY}, rowTextSize, color, ui::Align::Right);
+    ui::drawText(candidateResultText(result), {right, textY}, rowTextSize, color, ui::Align::Right);
 }
 
 void MachineBenchmarkScreen::draw() {

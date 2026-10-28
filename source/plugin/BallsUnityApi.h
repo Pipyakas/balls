@@ -199,6 +199,8 @@ typedef struct BallsBenchmarkRow {
     double ballStepsPerSecond;
     double progress;         // 0..1 while running
     char failure[256];
+    double estimatedBalls;   // balls this backend holds at 60 FPS, once done
+    char result[128];        // the game's result text, empty while waiting or running
 } BallsBenchmarkRow;
 
 // The core's rolling one-second frame statistics, as the debug gadget shows them.

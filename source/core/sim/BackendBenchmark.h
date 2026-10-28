@@ -70,6 +70,9 @@ bool benchmarkNeeded(const std::optional<BenchmarkRecord>& stored, const Hardwar
 std::optional<size_t> bestCandidate(std::span<const CandidateResult> results);
 // "7.1 B", "390 M", "12 k": how the benchmark shows ball counts.
 std::string shortBallCount(double balls);
+// A row's result as the game's benchmark screen shows it: "7.1 B balls at 60 FPS   11400 M ball-steps/s",
+// "failed: <reason>" or "not available"; empty while the candidate waits or runs.
+std::string candidateResultText(const CandidateResult& result);
 // The winner, or when nothing finished, AVX2 if it is usable here, else Scalar.
 BenchmarkCandidate chooseDefaultBackend(std::span<const CandidateResult> results,
                                         const std::function<bool(BackendKind)>& isAvailable);

@@ -1277,6 +1277,8 @@ int32_t balls_benchmark_rows(BallsBenchmark* benchmark, BallsBenchmarkRow* rows,
         rows[index].ballStepsPerSecond = result.ballStepsPerSecond;
         rows[index].progress = result.progress;
         copyName(result.failure, rows[index].failure, sizeof(rows[index].failure));
+        rows[index].estimatedBalls = result.estimatedBalls;
+        copyName(candidateResultText(result), rows[index].result, sizeof(rows[index].result));
     }
     return count;
 }

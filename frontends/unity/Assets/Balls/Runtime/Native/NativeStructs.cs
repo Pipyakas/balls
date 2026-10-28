@@ -164,10 +164,15 @@ namespace Balls.Native
         public double ballStepsPerSecond;
         public double progress;
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 256)] public byte[] failure;
+        public double estimatedBalls;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 128)] public byte[] result;
 
         public string Label => Read(label);
 
         public string Failure => Read(failure);
+
+        /// <summary>The core's result text: balls at 60 FPS and ball-steps, failed: reason, or not available.</summary>
+        public string Result => Read(result);
 
         private static string Read(byte[] bytes)
         {
