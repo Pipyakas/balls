@@ -4,7 +4,10 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <cstring>
 #include <format>
+#include <map>
+#include <mutex>
 #include <vector>
 
 namespace {
@@ -65,20 +68,29 @@ constexpr const char* driverLibraryName = "nvcuda.dll";
 constexpr const char* driverLibraryName = "libcuda.so.1";
 #endif
 
-}
+// The driver library, its entry points and cuInit, shared by every device.
+struct CudaLibrary {
+    std::unique_ptr<DynamicLibrary> library = std::make_unique<DynamicLibrary>(driverLibraryName);
+    CudaDriverApi functions;
+    std::string errorMessage;
+    int devices = 0;
 
-CudaDriver& CudaDriver::instance() {
-    static CudaDriver driver;
-    return driver;
-}
-
-CudaDriver::CudaDriver() : library(std::make_unique<DynamicLibrary>(driverLibraryName)) {
-    if (loadEntryPoints()) {
-        createContextAndModule();
+    CudaLibrary() {
+        if (loadEntryPoints()) {
+            initialize();
+        }
     }
+
+    bool loadEntryPoints();
+    void initialize();
+};
+
+CudaLibrary& cudaLibrary() {
+    static CudaLibrary shared;
+    return shared;
 }
 
-bool CudaDriver::loadEntryPoints() {
+bool CudaLibrary::loadEntryPoints() {
     if (!library->isLoaded()) {
         errorMessage = "no NVIDIA driver";
         return false;
@@ -104,6 +116,8 @@ bool CudaDriver::loadEntryPoints() {
                         driver.resolve("cuLaunchKernel", functions.launchKernel) &&
                         driver.resolve("cuCtxSynchronize", functions.contextSynchronize) &&
                         driver.resolve("cuGetErrorString", functions.getErrorString);
+    driver.resolve("cuDeviceGetUuid", functions.deviceGetUuid);
+    driver.resolve("cuDeviceTotalMem_v2", functions.deviceTotalMem);
     driver.resolve("cuEventCreate", functions.eventCreate);
     driver.resolve("cuEventRecord", functions.eventRecord);
     driver.resolve("cuEventSynchronize", functions.eventSynchronize);
@@ -121,20 +135,60 @@ bool CudaDriver::loadEntryPoints() {
     return loaded;
 }
 
-bool CudaDriver::createContextAndModule() {
-    if (CUresult result = functions.init(0); result != CUDA_SUCCESS) {
-        errorMessage = describe(result, "cuInit");
-        return false;
+void CudaLibrary::initialize() {
+    if (const CUresult result = functions.init(0); result != CUDA_SUCCESS) {
+        const char* text = nullptr;
+        functions.getErrorString(result, &text);
+        errorMessage = std::format("cuInit: {}", text ? text : "unknown CUDA error");
+        return;
     }
-    int deviceCount = 0;
-    if (functions.deviceGetCount(&deviceCount) != CUDA_SUCCESS || deviceCount == 0) {
+    if (functions.deviceGetCount(&devices) != CUDA_SUCCESS || devices <= 0) {
+        devices = 0;
         errorMessage = "no CUDA device";
-        return false;
     }
-    functions.deviceGet(&device, 0);
+}
+
+}
+
+int CudaDriver::deviceCount() { return cudaLibrary().devices; }
+
+CudaDriver& CudaDriver::forDevice(int ordinal) {
+    static std::mutex mutex;
+    static std::map<int, std::unique_ptr<CudaDriver>> drivers;
+    std::lock_guard lock(mutex);
+    std::unique_ptr<CudaDriver>& driver = drivers[ordinal];
+    if (!driver) {
+        driver.reset(new CudaDriver(ordinal));
+    }
+    return *driver;
+}
+
+CudaDriver::CudaDriver(int ordinal) : deviceOrdinal(ordinal) {
+    const CudaLibrary& library = cudaLibrary();
+    functions = library.functions;
+    if (!library.errorMessage.empty()) {
+        errorMessage = library.errorMessage;
+    } else if (ordinal < 0 || ordinal >= library.devices) {
+        errorMessage = "no CUDA device";
+    } else {
+        createContextAndModule();
+    }
+}
+
+bool CudaDriver::createContextAndModule() {
+    functions.deviceGet(&device, deviceOrdinal);
     char name[256]{};
     functions.deviceGetName(name, static_cast<int>(sizeof(name)), device);
     gpuName = name;
+    gpuModel = name;
+    CUuuid identity{};
+    if (functions.deviceGetUuid && functions.deviceGetUuid(&identity, device) == CUDA_SUCCESS) {
+        std::memcpy(deviceUuid.data(), identity.bytes, deviceUuid.size());
+        uuidKnown = std::ranges::any_of(deviceUuid, [](uint8_t byte) { return byte != 0; });
+    }
+    if (functions.deviceTotalMem) {
+        functions.deviceTotalMem(&totalMemory, device);
+    }
     if (CUresult result = functions.primaryContextRetain(&context, device); result != CUDA_SUCCESS) {
         errorMessage = describe(result, "cuDevicePrimaryCtxRetain");
         return false;

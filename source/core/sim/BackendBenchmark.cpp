@@ -2,6 +2,7 @@
 
 #include "common/BallColor.h"
 #include "sim/BackendWorker.h"
+#include "sim/DeviceInventory.h"
 #include "sim/Simulation.h"
 
 #include <algorithm>
@@ -31,32 +32,6 @@ constexpr double warmupShare = 0.3;
 constexpr char fieldSeparator = '\t';
 
 double secondsSince(Clock::time_point start) { return std::chrono::duration<double>(Clock::now() - start).count(); }
-
-std::string trimmed(std::string text) {
-    const auto first = text.find_first_not_of(' ');
-    const auto last = text.find_last_not_of(' ');
-    return first == std::string::npos ? std::string{} : text.substr(first, last - first + 1);
-}
-
-std::string cpuBrand() {
-#if defined(_WIN32) || defined(__x86_64__) || defined(__i386__)
-    constexpr unsigned firstBrandLeaf = 0x80000002u;
-    constexpr unsigned brandLeafCount = 3;
-    char brand[brandLeafCount * 16 + 1] = {};
-    for (unsigned leaf = 0; leaf < brandLeafCount; ++leaf) {
-        unsigned registers[4] = {};
-#if defined(_WIN32)
-        __cpuid(reinterpret_cast<int*>(registers), static_cast<int>(firstBrandLeaf + leaf));
-#else
-        __get_cpuid(firstBrandLeaf + leaf, &registers[0], &registers[1], &registers[2], &registers[3]);
-#endif
-        std::memcpy(brand + leaf * 16, registers, 16);
-    }
-    return trimmed(brand);
-#else
-    return "unknown CPU";
-#endif
-}
 
 std::vector<std::string> gpuIdentities() {
     std::vector<std::string> gpus;
@@ -144,7 +119,7 @@ std::string withoutSeparators(std::string text) {
 }
 
 HardwareFingerprint currentHardwareFingerprint(std::string_view gameVersion) {
-    return {cpuBrand(), std::max(1u, std::thread::hardware_concurrency()), gpuIdentities(), std::string(gameVersion)};
+    return {cpuBrandName(), std::max(1u, std::thread::hardware_concurrency()), gpuIdentities(), std::string(gameVersion)};
 }
 
 std::vector<BenchmarkCandidate> benchmarkCandidates() {

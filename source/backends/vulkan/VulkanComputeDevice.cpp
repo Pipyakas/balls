@@ -1,6 +1,8 @@
 #include "vulkan/VulkanComputeDevice.h"
 
+#include <algorithm>
 #include <cstdio>
+#include <iterator>
 #include <format>
 #include <ranges>
 #include <vector>
@@ -53,37 +55,27 @@ public:
     std::string lastError;
 };
 
-std::shared_ptr<VulkanComputeDevice> VulkanComputeDevice::create(std::string_view preference, std::string& error) {
-    auto result = std::shared_ptr<VulkanComputeDevice>(new VulkanComputeDevice());
-    if (!result->initialize(preference, error)) {
+std::shared_ptr<VulkanInstance> VulkanInstance::create(std::string& error) {
+    auto result = std::shared_ptr<VulkanInstance>(new VulkanInstance());
+    if (!result->initialize(error)) {
         return {};
     }
     return result;
 }
 
-VulkanComputeDevice::~VulkanComputeDevice() {
-    nvrhiDevice = nullptr;
-    if (logicalDevice != VK_NULL_HANDLE) {
-        deviceDispatcher.vkDeviceWaitIdle(logicalDevice);
-        deviceDispatcher.vkDestroyDevice(logicalDevice, nullptr);
-    }
+VulkanInstance::~VulkanInstance() {
     if (instance != VK_NULL_HANDLE) {
         instanceDispatcher.vkDestroyInstance(instance, nullptr);
     }
 }
 
-bool VulkanComputeDevice::fail(std::string& error, std::string message) {
-    error = std::move(message);
-    return false;
-}
-
-bool VulkanComputeDevice::initialize(std::string_view preference, std::string& error) {
+bool VulkanInstance::initialize(std::string& error) {
     loader = std::make_unique<DynamicLibrary>(vulkanLibraryName);
-    PFN_vkGetInstanceProcAddr getInstanceProcAddr = nullptr;
-    if (!loader->isLoaded() || !loader->resolve("vkGetInstanceProcAddr", getInstanceProcAddr) || !getInstanceProcAddr) {
-        return fail(error, std::format("Vulkan loader unavailable ({})", vulkanLibraryName));
+    if (!loader->isLoaded() || !loader->resolve("vkGetInstanceProcAddr", getProcAddr) || !getProcAddr) {
+        error = std::format("Vulkan loader unavailable ({})", vulkanLibraryName);
+        return false;
     }
-    vulkanDispatcher().init(getInstanceProcAddr);
+    vulkanDispatcher().init(getProcAddr);
 
     uint32_t loaderVersion = VK_API_VERSION_1_0;
     PFN_vkEnumerateInstanceVersion enumerateInstanceVersion = nullptr;
@@ -92,29 +84,20 @@ bool VulkanComputeDevice::initialize(std::string_view preference, std::string& e
         enumerateInstanceVersion(&loaderVersion);
     }
     if (loaderVersion < VK_API_VERSION_1_1) {
-        return fail(error, "Vulkan 1.1 or later is required by the compute shaders and NVRHI");
+        error = "Vulkan 1.1 or later is required by the compute shaders and NVRHI";
+        return false;
     }
-
-    const std::vector<GpuAdapterInfo> adapters = enumerateGpuAdapters(GpuApi::Vulkan);
-    if (adapters.empty()) {
-        return fail(error, "no usable Vulkan compute adapter was found");
-    }
-    const int selectedIndex = selectGpuAdapter(adapters, preference, GpuRole::Compute);
-    if (selectedIndex < 0) {
-        return fail(error, std::format("compute adapter preference '{}' did not match a usable Vulkan adapter",
-                                       preference.empty() ? "auto" : preference));
-    }
-    adapterInfo = adapters[static_cast<size_t>(selectedIndex)];
-    adapterTuning = ballStepTuningFor(adapterInfo);
 
     uint32_t instanceExtensionCount = 0;
     if (vulkanDispatcher().vkEnumerateInstanceExtensionProperties(nullptr, &instanceExtensionCount, nullptr) != VK_SUCCESS) {
-        return fail(error, "vkEnumerateInstanceExtensionProperties failed");
+        error = "vkEnumerateInstanceExtensionProperties failed";
+        return false;
     }
     std::vector<VkExtensionProperties> instanceExtensions(instanceExtensionCount);
     if (vulkanDispatcher().vkEnumerateInstanceExtensionProperties(nullptr, &instanceExtensionCount, instanceExtensions.data()) !=
         VK_SUCCESS) {
-        return fail(error, "vkEnumerateInstanceExtensionProperties failed");
+        error = "vkEnumerateInstanceExtensionProperties failed";
+        return false;
     }
     std::vector<const char*> enabledInstanceExtensions;
     VkInstanceCreateFlags instanceFlags = 0;
@@ -126,6 +109,7 @@ bool VulkanComputeDevice::initialize(std::string_view preference, std::string& e
     VkApplicationInfo applicationInfo{VK_STRUCTURE_TYPE_APPLICATION_INFO};
     applicationInfo.pApplicationName = "Balls Vulkan physics";
     applicationInfo.apiVersion = minVersion(loaderVersion, VK_API_VERSION_1_3);
+    version = applicationInfo.apiVersion;
     VkInstanceCreateInfo instanceInfo{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     instanceInfo.flags = instanceFlags;
     instanceInfo.pApplicationInfo = &applicationInfo;
@@ -133,10 +117,42 @@ bool VulkanComputeDevice::initialize(std::string_view preference, std::string& e
     instanceInfo.ppEnabledExtensionNames = enabledInstanceExtensions.data();
     const VkResult createInstanceResult = vulkanDispatcher().vkCreateInstance(&instanceInfo, nullptr, &instance);
     if (createInstanceResult != VK_SUCCESS) {
-        return fail(error, std::format("vkCreateInstance failed with VkResult {}", static_cast<int>(createInstanceResult)));
+        error = std::format("vkCreateInstance failed with VkResult {}", static_cast<int>(createInstanceResult));
+        return false;
     }
-    instanceDispatcher.init(instance, getInstanceProcAddr);
+    instanceDispatcher.init(instance, getProcAddr);
     vulkanDispatcher().init(vk::Instance(instance));
+    return true;
+}
+
+std::shared_ptr<VulkanComputeDevice> VulkanComputeDevice::create(std::shared_ptr<VulkanInstance> instance,
+                                                                 const GpuAdapterInfo& adapter, std::string& error) {
+    auto result = std::shared_ptr<VulkanComputeDevice>(new VulkanComputeDevice());
+    result->vulkan = std::move(instance);
+    if (!result->initialize(adapter, error)) {
+        return {};
+    }
+    return result;
+}
+
+VulkanComputeDevice::~VulkanComputeDevice() {
+    nvrhiDevice = nullptr;
+    if (logicalDevice != VK_NULL_HANDLE) {
+        deviceDispatcher.vkDeviceWaitIdle(logicalDevice);
+        deviceDispatcher.vkDestroyDevice(logicalDevice, nullptr);
+    }
+}
+
+bool VulkanComputeDevice::fail(std::string& error, std::string message) {
+    error = std::move(message);
+    return false;
+}
+
+bool VulkanComputeDevice::initialize(const GpuAdapterInfo& adapter, std::string& error) {
+    adapterInfo = adapter;
+    adapterTuning = ballStepTuningFor(adapterInfo);
+    const VkInstance instance = vulkan->handle();
+    const vk::detail::DispatchLoaderDynamic& instanceDispatcher = vulkan->dispatcher();
 
     uint32_t physicalDeviceCount = 0;
     VkResult result = instanceDispatcher.vkEnumeratePhysicalDevices(instance, &physicalDeviceCount, nullptr);
@@ -150,24 +166,24 @@ bool VulkanComputeDevice::initialize(std::string_view preference, std::string& e
     }
     physicalDevices.resize(physicalDeviceCount);
 
-    for (size_t index = 0; index < physicalDevices.size(); ++index) {
+    if (adapterInfo.hasUuid) {
+        for (VkPhysicalDevice candidate : physicalDevices) {
+            VkPhysicalDeviceIDProperties identity{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
+            VkPhysicalDeviceProperties2 properties{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+            properties.pNext = &identity;
+            instanceDispatcher.vkGetPhysicalDeviceProperties2(candidate, &properties);
+            if (std::equal(adapterInfo.uuid.begin(), adapterInfo.uuid.end(), std::begin(identity.deviceUUID))) {
+                physicalDevice = candidate;
+                break;
+            }
+        }
+    }
+    for (size_t index = 0; physicalDevice == VK_NULL_HANDLE && index < physicalDevices.size(); ++index) {
         VkPhysicalDeviceProperties properties{};
         instanceDispatcher.vkGetPhysicalDeviceProperties(physicalDevices[index], &properties);
         if (properties.vendorID == adapterInfo.vendorId && properties.deviceID == adapterInfo.deviceId &&
             adapterInfo.index == static_cast<int>(index)) {
             physicalDevice = physicalDevices[index];
-            break;
-        }
-    }
-    if (physicalDevice == VK_NULL_HANDLE) {
-        const auto match = std::ranges::find_if(physicalDevices, [&](VkPhysicalDevice candidate) {
-            VkPhysicalDeviceProperties properties{};
-            instanceDispatcher.vkGetPhysicalDeviceProperties(candidate, &properties);
-            return properties.vendorID == adapterInfo.vendorId && properties.deviceID == adapterInfo.deviceId &&
-                   adapterInfo.name == properties.deviceName;
-        });
-        if (match != physicalDevices.end()) {
-            physicalDevice = *match;
         }
     }
     if (physicalDevice == VK_NULL_HANDLE) {
@@ -189,7 +205,7 @@ bool VulkanComputeDevice::initialize(std::string_view preference, std::string& e
 
     VkPhysicalDeviceProperties properties{};
     instanceDispatcher.vkGetPhysicalDeviceProperties(physicalDevice, &properties);
-    const uint32_t usableVersion = minVersion(applicationInfo.apiVersion, properties.apiVersion);
+    const uint32_t usableVersion = minVersion(vulkan->apiVersion(), properties.apiVersion);
     const bool timelineCore = usableVersion >= VK_API_VERSION_1_2;
     const bool timelineExtension =
         usableVersion < VK_API_VERSION_1_2 &&
@@ -254,10 +270,8 @@ bool VulkanComputeDevice::initialize(std::string_view preference, std::string& e
         return fail(error, std::format("vkCreateDevice for '{}' failed with VkResult {}", adapterInfo.name,
                                        static_cast<int>(result)));
     }
-    deviceDispatcher.init(instance, getInstanceProcAddr, logicalDevice, instanceDispatcher.vkGetDeviceProcAddr);
+    deviceDispatcher.init(instance, vulkan->getInstanceProcAddr(), logicalDevice, instanceDispatcher.vkGetDeviceProcAddr);
     deviceDispatcher.vkGetDeviceQueue(logicalDevice, queueFamily, 0, &computeQueue);
-    // NVRHI's static Vulkan build uses Vulkan-Hpp's default dispatcher.
-    vulkanDispatcher().init(vk::Device(logicalDevice));
 
     messageCallback = std::make_unique<MessageCallback>();
     nvrhi::vulkan::DeviceDesc description;

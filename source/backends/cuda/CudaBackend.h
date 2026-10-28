@@ -10,12 +10,12 @@
 
 class CudaBackend final : public PhysicsBackend {
 public:
-    CudaBackend();
+    explicit CudaBackend(int deviceOrdinal = 0);
     ~CudaBackend() override;
     CudaBackend(const CudaBackend&) = delete;
     CudaBackend& operator=(const CudaBackend&) = delete;
 
-    static std::string unavailableReason();
+    static std::string unavailableReason(int deviceOrdinal = 0);
     static GpuRoofline measureRoofline(size_t bufferBytes);
     static size_t streamedBytesPerBall(bool gridActive);
 

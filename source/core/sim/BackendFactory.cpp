@@ -19,6 +19,11 @@ const char* ballsBackendUnavailableReason(const char* kindName);
 const char* ballsBackendDetail(const char* kindName);
 PhysicsBackend* ballsCreateBackend(const char* kindName);
 void ballsDestroyBackend(PhysicsBackend* backend);
+int ballsDeviceCount(const char* kindName);
+int ballsDeviceInfo(const char* kindName, int device, PhysicsDeviceInfo* info);
+const char* ballsDeviceUnavailableReason(const char* kindName, int device);
+const char* ballsDeviceDetail(const char* kindName, int device);
+PhysicsBackend* ballsCreateBackendOnDevice(const char* kindName, int device);
 }
 #endif
 
@@ -47,7 +52,12 @@ struct PluginModule {
 
     std::shared_ptr<DynamicLibrary> library;
     CreateBackendFunction create = nullptr;
+    CreateBackendOnDeviceFunction createOnDevice = nullptr;
     DestroyBackendFunction destroy = nullptr;
+    DeviceCountFunction deviceCount = nullptr;
+    DeviceInfoFunction deviceInfo = nullptr;
+    DeviceTextFunction deviceUnavailableReason = nullptr;
+    DeviceTextFunction deviceDetail = nullptr;
     BackendTextFunction unavailableReason = nullptr;
     BackendTextFunction detail = nullptr;
     MeasureRooflineFunction measureRoofline = nullptr;
@@ -113,6 +123,11 @@ std::shared_ptr<PluginModule> loadPlugin(std::string_view fileName, bool freshCo
         module->destroy = ballsDestroyBackend;
         module->unavailableReason = ballsBackendUnavailableReason;
         module->detail = ballsBackendDetail;
+        module->createOnDevice = ballsCreateBackendOnDevice;
+        module->deviceCount = ballsDeviceCount;
+        module->deviceInfo = ballsDeviceInfo;
+        module->deviceUnavailableReason = ballsDeviceUnavailableReason;
+        module->deviceDetail = ballsDeviceDetail;
         if (ballsPhysicsInterfaceVersion() != physicsPluginInterfaceVersion) {
             module->error = std::format("static CPU backend interface mismatch");
         }
@@ -135,16 +150,21 @@ std::shared_ptr<PluginModule> loadPlugin(std::string_view fileName, bool freshCo
                           library.resolve("ballsCreateBackend", module->create) &&
                           library.resolve("ballsDestroyBackend", module->destroy) &&
                           library.resolve("ballsBackendUnavailableReason", module->unavailableReason) &&
-                          library.resolve("ballsBackendDetail", module->detail);
+                          library.resolve("ballsBackendDetail", module->detail) &&
+                          library.resolve("ballsCreateBackendOnDevice", module->createOnDevice) &&
+                          library.resolve("ballsDeviceCount", module->deviceCount) &&
+                          library.resolve("ballsDeviceInfo", module->deviceInfo) &&
+                          library.resolve("ballsDeviceUnavailableReason", module->deviceUnavailableReason) &&
+                          library.resolve("ballsDeviceDetail", module->deviceDetail);
     library.resolve("ballsMeasureRoofline", module->measureRoofline);
     library.resolve("ballsStreamedBytesPerBall", module->streamedBytes);
     library.resolve("ballsSetComputeGpu", module->setComputeGpu);
     library.resolve("ballsReleaseIdleDevice", module->releaseIdleDevice);
-    if (!complete) {
-        module->error = std::format("{} is missing plugin entry points", fileName);
-    } else if (interfaceVersion() != physicsPluginInterfaceVersion) {
+    if (interfaceVersion && interfaceVersion() != physicsPluginInterfaceVersion) {
         module->error = std::format("{} was built for plugin interface {} (expected {})", fileName, interfaceVersion(),
                                     physicsPluginInterfaceVersion);
+    } else if (!complete) {
+        module->error = std::format("{} is missing plugin entry points", fileName);
     }
     return module;
 }
@@ -255,6 +275,57 @@ BackendHandle createBackend(BackendKind kind) {
         return BackendHandle(nullptr, BackendRelease{});
     }
     PhysicsBackend* backend = plugin->create(kindArgument(kind).c_str());
+    return BackendHandle(backend, BackendRelease{plugin->destroy, plugin->library});
+}
+
+std::vector<PhysicsDeviceInfo> backendDevices(BackendKind kind) {
+    std::vector<PhysicsDeviceInfo> devices;
+    if (kind == BackendKind::CudaAvx2) {
+        return devices;
+    }
+    const PluginModule& plugin = queryPlugin(kind);
+    if (!plugin.error.empty()) {
+        return devices;
+    }
+    const std::string name = kindArgument(kind);
+    const int count = plugin.deviceCount(name.c_str());
+    for (int device = 0; device < count; ++device) {
+        PhysicsDeviceInfo info;
+        if (plugin.deviceInfo(name.c_str(), device, &info) != 0) {
+            info.name[sizeof(info.name) - 1] = 0;
+            devices.push_back(info);
+        }
+    }
+    return devices;
+}
+
+std::string backendUnavailableReasonOnDevice(BackendKind kind, int device) {
+    if (kind == BackendKind::CudaAvx2) {
+        return "not a single-device backend";
+    }
+    const PluginModule& plugin = queryPlugin(kind);
+    return plugin.error.empty() ? std::string(plugin.deviceUnavailableReason(kindArgument(kind).c_str(), device))
+                                : plugin.error;
+}
+
+std::string backendDetailOnDevice(BackendKind kind, int device) {
+    if (kind == BackendKind::CudaAvx2) {
+        return {};
+    }
+    const PluginModule& plugin = queryPlugin(kind);
+    return plugin.error.empty() ? std::string(plugin.deviceDetail(kindArgument(kind).c_str(), device)) : std::string{};
+}
+
+BackendHandle createBackendOnDevice(BackendKind kind, int device) {
+    if (kind == BackendKind::CudaAvx2) {
+        return BackendHandle(nullptr, BackendRelease{});
+    }
+    const std::shared_ptr<PluginModule> plugin = loadPlugin(backendPluginFileName(kind), true);
+    const std::string name = kindArgument(kind);
+    if (!plugin->error.empty() || std::string_view(plugin->deviceUnavailableReason(name.c_str(), device)) != "") {
+        return BackendHandle(nullptr, BackendRelease{});
+    }
+    PhysicsBackend* backend = plugin->createOnDevice(name.c_str(), device);
     return BackendHandle(backend, BackendRelease{plugin->destroy, plugin->library});
 }
 

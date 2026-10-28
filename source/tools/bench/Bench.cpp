@@ -2,6 +2,7 @@
 #include "level/LevelRepository.h"
 #include "sim/BackendBenchmark.h"
 #include "sim/BackendFactory.h"
+#include "sim/DeviceInventory.h"
 #include "sim/HybridBackend.h"
 #include "sim/PhysicsAccuracy.h"
 #include "sim/Simulation.h"
@@ -39,6 +40,7 @@ struct BenchOptions {
     int substeps = 2;
     std::filesystem::path machineBenchmarkOutput;
     bool accuracy = false;
+    bool listDevices = false;
 };
 
 std::vector<size_t> parseCounts(const char* text) {
@@ -109,12 +111,27 @@ BenchOptions parseOptions(int argumentCount, char** arguments) {
             ++i;
         } else if (argument == "--accuracy") {
             options.accuracy = true;
+        } else if (argument == "--devices") {
+            options.listDevices = true;
         }
     }
     return options;
 }
 
 BrickLayout emptyBoard(int width, int rows);
+
+void listPhysicalDevices() {
+    for (const PhysicalDevice& device : physicalDevices()) {
+        std::printf("%-5s %s%s%s\n", device.id.c_str(), device.name.c_str(), device.hasUuid ? "  uuid " : "",
+                    device.hasUuid ? uuidText(device.uuid).c_str() : "");
+        for (const DeviceBackendOption& option : device.backends) {
+            const std::string reason = backendUnavailableReasonOnDevice(option.kind, option.pluginDevice);
+            const std::string detail = reason.empty() ? backendDetailOnDevice(option.kind, option.pluginDevice) : reason;
+            std::printf("      %-7s #%d %s %s\n", std::string(backendKindName(option.kind)).c_str(), option.pluginDevice,
+                        reason.empty() ? "ok  " : "MISS", detail.c_str());
+        }
+    }
+}
 
 // Every backend against ReferenceBackend on the same scenarios: an empty box (positions compared ball by ball) and
 // the level with balls launched as in a game and scattered as the probe used to (curves and invariants).
@@ -400,6 +417,10 @@ int main(int argumentCount, char** arguments) {
     }
 #endif
     const BenchOptions options = parseOptions(argumentCount, arguments);
+    if (options.listDevices) {
+        listPhysicalDevices();
+        return 0;
+    }
     if (options.cpuRoofline) {
         runCpuRoofline(options.ballCounts.empty() ? size_t{96000000} : options.ballCounts.front(),
                        std::max(options.ticks, 1));
