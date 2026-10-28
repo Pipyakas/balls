@@ -233,6 +233,28 @@ BALLS_API int32_t balls_devices_find(BallsDeviceInfo* devices, int32_t capacity)
 BALLS_API int32_t balls_compute_gpu(char* buffer, int32_t size);
 BALLS_API int32_t balls_set_compute_gpu(const char* preference);
 
+// Which backend runs on which device: the game's Devices rows. One pick runs that backend alone on that device, two
+// or more run the composer (Hybrid) with one part per pick, and a device takes at most one pick.
+typedef struct BallsPick {
+    char device[32];  // PhysicalDevice::id, "cpu" or "gpu0"...
+    int32_t kind;
+} BallsPick;
+
+// The configured picks, which may be empty. Returns how many there are, writing at most ``capacity``.
+BALLS_API int32_t balls_picks_get(BallsPick* picks, int32_t capacity);
+// What the device rows should show while ``runningKind`` is the active backend (the picks that describe it, else the
+// picks Hybrid would compose or the kind's default device).
+BALLS_API int32_t balls_picks_display(int32_t runningKind, BallsPick* picks, int32_t capacity);
+// Replaces the picks. Returns 1 when they can run here; 0 otherwise, with the reason in ``problem``.
+BALLS_API int32_t balls_picks_set(const BallsPick* picks, int32_t count, char* problem, int32_t problemSize);
+// The kinds a device row offers, fastest first; Scalar only where nothing faster runs.
+BALLS_API int32_t balls_pickable_kinds(const char* device, int32_t* kinds, int32_t capacity);
+// The picks Hybrid uses when none are configured: the CPU and every discrete GPU.
+BALLS_API int32_t balls_default_hybrid_picks(BallsPick* picks, int32_t capacity);
+// "AVX2 (CPU) + CUDA (RTX 2060)" for menus, and the backend those picks run as.
+BALLS_API int32_t balls_picks_label(const BallsPick* picks, int32_t count, char* buffer, int32_t size);
+BALLS_API int32_t balls_kind_for_picks(const BallsPick* picks, int32_t count);
+
 // --- Levels and settings -------------------------------------------------------------------------------------
 
 // Fills up to capacity entries and returns how many levels the directory holds.

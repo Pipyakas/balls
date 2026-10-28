@@ -393,6 +393,10 @@ namespace Balls.App
             {
                 app.Go<Screens.SettingsScreen>();
             }
+            if (Get(query, "scroll") is string scroll && scroll.Equals("end", StringComparison.OrdinalIgnoreCase))
+            {
+                app.Get<Screens.SettingsScreen>().ScrollToEnd();
+            }
             Ok(request, SettingsJson(settings));
         }
 

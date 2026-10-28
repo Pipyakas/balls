@@ -10,6 +10,7 @@
 #include "level/LevelWriter.h"
 #include "sim/BackendBenchmark.h"
 #include "sim/BackendFactory.h"
+#include "sim/BackendSelection.h"
 #include "sim/DeviceInventory.h"
 #include "sim/Simulation.h"
 #include "ui/GameplayLayout.h"
@@ -241,6 +242,86 @@ int32_t balls_devices_find(BallsDeviceInfo* devices, int32_t capacity) {
         }
     }
     return written;
+}
+
+namespace {
+
+std::vector<BackendPick> toPicks(const BallsPick* picks, int32_t count) {
+    std::vector<BackendPick> found;
+    if (picks == nullptr) {
+        return found;
+    }
+    found.reserve(static_cast<size_t>(std::max(count, 0)));
+    for (int32_t index = 0; index < count; ++index) {
+        found.push_back(BackendPick{toBackendKind(picks[index].kind), picks[index].device});
+    }
+    return found;
+}
+
+int32_t writePicks(std::span<const BackendPick> picks, BallsPick* out, int32_t capacity) {
+    const int32_t count = static_cast<int32_t>(picks.size());
+    if (out == nullptr) {
+        return count;
+    }
+    const int32_t written = std::min(count, std::max(capacity, 0));
+    for (int32_t index = 0; index < written; ++index) {
+        BallsPick& pick = out[index];
+        std::memset(&pick, 0, sizeof pick);
+        copyName(picks[static_cast<size_t>(index)].device, pick.device, sizeof pick.device);
+        pick.kind = fromBackendKind(picks[static_cast<size_t>(index)].kind);
+    }
+    return written;
+}
+
+}  // namespace
+
+int32_t balls_picks_get(BallsPick* picks, int32_t capacity) {
+    return writePicks(backendPicks(), picks, capacity);
+}
+
+int32_t balls_picks_display(int32_t runningKind, BallsPick* picks, int32_t capacity) {
+    return writePicks(displayedPicks(toBackendKind(runningKind)), picks, capacity);
+}
+
+int32_t balls_picks_set(const BallsPick* picks, int32_t count, char* problem, int32_t problemSize) {
+    const std::vector<BackendPick> wanted = toPicks(picks, count);
+    const std::string why = backendPicksProblem(wanted);
+    if (!why.empty()) {
+        writeText(why, problem, problemSize);
+        return 0;
+    }
+    setBackendPicks(wanted);
+    writeText(std::string_view{}, problem, problemSize);
+    return 1;
+}
+
+int32_t balls_pickable_kinds(const char* device, int32_t* kinds, int32_t capacity) {
+    const PhysicalDevice* found = device == nullptr ? nullptr : findPhysicalDevice(device);
+    if (found == nullptr) {
+        return 0;
+    }
+    const std::vector<BackendKind> offered = pickableKinds(*found);
+    const int32_t count = static_cast<int32_t>(offered.size());
+    if (kinds == nullptr) {
+        return count;
+    }
+    const int32_t written = std::min(count, std::max(capacity, 0));
+    for (int32_t index = 0; index < written; ++index) {
+        kinds[index] = fromBackendKind(offered[static_cast<size_t>(index)]);
+    }
+    return written;
+}
+
+int32_t balls_default_hybrid_picks(BallsPick* picks, int32_t capacity) {
+    return writePicks(defaultHybridPicks(), picks, capacity);
+}
+
+int32_t balls_picks_label(const BallsPick* picks, int32_t count, char* buffer, int32_t size) {
+    return writeText(backendPicksLabel(toPicks(picks, count)), buffer, size);
+}
+
+int32_t balls_kind_for_picks(const BallsPick* picks, int32_t count) {
+    return fromBackendKind(kindForPicks(toPicks(picks, count)));
 }
 
 int32_t balls_compute_gpu(char* buffer, int32_t size) {

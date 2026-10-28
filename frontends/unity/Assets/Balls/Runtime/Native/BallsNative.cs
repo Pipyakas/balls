@@ -207,6 +207,78 @@ namespace Balls.Native
             return found;
         }
 
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct PickRecord
+        {
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)] public string device;
+            public int kind;
+        }
+
+        [DllImport(Library)] private static extern int balls_picks_display(int runningKind, [Out] PickRecord[] picks,
+            int capacity);
+
+        [DllImport(Library)] private static extern int balls_picks_set(PickRecord[] picks, int count, byte[] problem,
+            int problemSize);
+
+        [DllImport(Library)] private static extern int balls_pickable_kinds(string device, [Out] int[] kinds, int capacity);
+
+        /// <summary>One device and the backend that runs on it; two or more picks run the composer.</summary>
+        public readonly struct Pick
+        {
+            public readonly string device;
+            public readonly int kind;
+
+            internal Pick(PickRecord record)
+            {
+                device = record.device;
+                kind = record.kind;
+            }
+
+            public Pick(string deviceId, int backendKind)
+            {
+                this.device = deviceId;
+                kind = backendKind;
+            }
+        }
+
+        /// <summary>What the device rows show for the backend that is about to run: its picks, or the default ones.</summary>
+        public static IReadOnlyList<Pick> DisplayPicks(int runningKind)
+        {
+            var found = new List<Pick>();
+            var records = new PickRecord[16];
+            int count = balls_picks_display(runningKind, records, records.Length);
+            for (int index = 0; index < Math.Min(count, records.Length); ++index)
+            {
+                found.Add(new Pick(records[index]));
+            }
+            return found;
+        }
+
+        /// <summary>Replaces the picks; false leaves the old ones and gives the core's reason.</summary>
+        public static bool SetPicks(IReadOnlyList<Pick> picks, out string problem)
+        {
+            var records = new PickRecord[picks.Count];
+            for (int index = 0; index < picks.Count; ++index)
+            {
+                records[index] = new PickRecord { device = picks[index].device, kind = picks[index].kind };
+            }
+            var text = new byte[256];
+            int ok = balls_picks_set(records, records.Length, text, text.Length);
+            int end = Array.IndexOf(text, (byte)0);
+            problem = ok != 0 ? string.Empty : System.Text.Encoding.UTF8.GetString(text, 0, end < 0 ? text.Length : end);
+            return ok != 0;
+        }
+
+        /// <summary>The backends a device row offers, fastest first.</summary>
+        public static int[] PickableKinds(string device)
+        {
+            var kinds = new int[BallsNative.BackendCount];
+            int count = balls_pickable_kinds(device, kinds, kinds.Length);
+            var result = new int[Math.Max(count, 0)];
+            Array.Copy(kinds, result, result.Length);
+            return result;
+        }
+
         /// <summary>The adapter the Vulkan physics plugin runs on: "auto", an index or a name substring.</summary>
         public static string ComputeGpu
         {
