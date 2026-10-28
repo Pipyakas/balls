@@ -104,7 +104,6 @@ set(BALLS_SDL_SOURCES
     app/Paths.cpp
     app/LaunchOptions.cpp
     app/FrameTimings.cpp
-    app/MachineProfile.cpp
     app/PreferenceDirectory.cpp
     control/ControlProtocol.cpp
     control/ControlServer.cpp

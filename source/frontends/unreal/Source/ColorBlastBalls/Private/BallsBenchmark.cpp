@@ -3,10 +3,6 @@
 #include "BallsText.h"
 #include "HAL/PlatformFileManager.h"
 #include "Misc/App.h"
-#include "Misc/Paths.h"
-
-#include <fstream>
-#include <sstream>
 
 namespace {
 
@@ -17,24 +13,9 @@ std::string GameVersion() {
 
 }
 
-std::filesystem::path FBallsMachineBenchmark::RecordFile() {
-    const FString Path = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()) / TEXT("Balls/benchmark.txt");
-    return std::filesystem::path(TCHAR_TO_UTF8(*Path));
-}
+void FBallsMachineBenchmark::LoadRecord() { Fingerprint = currentHardwareFingerprint(GameVersion()); }
 
-void FBallsMachineBenchmark::LoadRecord() {
-    Fingerprint = currentHardwareFingerprint(GameVersion());
-    Record.reset();
-    std::ifstream File(RecordFile());
-    if (!File) {
-        return;
-    }
-    std::stringstream Buffer;
-    Buffer << File.rdbuf();
-    Record = parseBenchmarkRecord(Buffer.str());
-}
-
-bool FBallsMachineBenchmark::NeedsRun() const { return benchmarkNeeded(Record, Fingerprint); }
+bool FBallsMachineBenchmark::NeedsRun() const { return benchmarkNeeded(Profile.benchmark(), Fingerprint); }
 
 bool FBallsMachineBenchmark::Start(const std::filesystem::path& LevelDirectory, FString& OutError) {
     const std::vector<LevelFiles> Levels = findLevels(LevelDirectory);
@@ -66,7 +47,7 @@ std::vector<CandidateResult> FBallsMachineBenchmark::Results() const {
     if (Benchmark) {
         return Benchmark->results();
     }
-    return Record ? Record->results : std::vector<CandidateResult>{};
+    return Profile.benchmark() ? Profile.benchmark()->results : std::vector<CandidateResult>{};
 }
 
 std::optional<BenchmarkCandidate> FBallsMachineBenchmark::PickWinner() const {
@@ -83,15 +64,6 @@ void FBallsMachineBenchmark::Save(bool bComplete, const std::optional<BenchmarkC
     Next.results = Results();
     Next.winner = Winner;
     Next.complete = bComplete;
-    const std::filesystem::path Path = RecordFile();
-    std::error_code Error;
-    std::filesystem::create_directories(Path.parent_path(), Error);
-    std::ofstream File(Path, std::ios::trunc);
-    if (File) {
-        File << serializeBenchmarkRecord(Next);
-    }
-    if (bComplete) {
-        Record = std::move(Next);
-    }
+    Profile.rememberBenchmark(std::move(Next));
     Benchmark.reset();
 }

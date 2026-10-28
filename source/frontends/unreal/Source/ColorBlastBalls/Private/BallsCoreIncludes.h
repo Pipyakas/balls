@@ -6,6 +6,7 @@ THIRD_PARTY_INCLUDES_START
 #include "common/BallCount.h"
 #include "editor/LevelEditor.h"
 #include "game/GameSession.h"
+#include "game/MachineProfile.h"
 #include "game/Settings.h"
 #include "level/LevelImporter.h"
 #include "level/LevelParser.h"

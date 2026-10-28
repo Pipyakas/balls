@@ -132,7 +132,7 @@ namespace Balls.App.Screens
             if (!recorded && BallsNative.balls_benchmark_finished(benchmark) != 0)
             {
                 recorded = true;
-                RecordScores(count);
+                App.Profile.RememberBenchmark(benchmark, true);
             }
             int currentWinner = BallsNative.balls_benchmark_winner(benchmark);
             if (currentWinner >= 0)
@@ -140,18 +140,6 @@ namespace Balls.App.Screens
                 winner = currentWinner;
             }
             return Mathf.Min(count, rows.Length);
-        }
-
-        private void RecordScores(int count)
-        {
-            for (int index = 0; index < count; ++index)
-            {
-                if (rows[index].status == 2 && rows[index].ballStepsPerSecond > 0.0)
-                {
-                    App.Profile.SetScore(BallsNative.BackendName(rows[index].kind), rows[index].ballStepsPerSecond);
-                }
-            }
-            App.Profile.Save();
         }
 
         private void Continue()

@@ -466,6 +466,7 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
         }
     }
     balls = std::make_unique<BallView>(*renderer);
+    profile = MachineProfile(preferenceDirectory());
     profile.load();
     setComputeGpuPreference(options.computeGpu);
     computeAdapterList = enumerateGpuAdapters(GpuApi::Vulkan);

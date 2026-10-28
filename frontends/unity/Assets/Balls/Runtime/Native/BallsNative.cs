@@ -172,6 +172,18 @@ namespace Balls.Native
 
         [DllImport(Library)] public static extern int balls_benchmark_winner(IntPtr benchmark);
 
+        [DllImport(Library)] public static extern IntPtr balls_profile_open([MarshalAs(UnmanagedType.LPUTF8Str)] string directory);
+
+        [DllImport(Library)] public static extern void balls_profile_close(IntPtr profile);
+
+        [DllImport(Library)] public static extern int balls_profile_ball_limit(IntPtr profile, int kind, out double targetFps, out ulong balls);
+
+        [DllImport(Library)] public static extern void balls_profile_remember_ball_limit(IntPtr profile, int kind, double targetFps, ulong balls);
+
+        [DllImport(Library)] public static extern int balls_profile_benchmark_score(IntPtr profile, int kind, out double ballStepsPerSecond);
+
+        [DllImport(Library)] public static extern void balls_profile_remember_benchmark(IntPtr profile, IntPtr benchmark, int complete, [MarshalAs(UnmanagedType.LPUTF8Str)] string gameVersion);
+
         [DllImport(Library)] public static extern IntPtr balls_editor_create();
 
         [DllImport(Library)] public static extern void balls_editor_destroy(IntPtr editor);

@@ -131,7 +131,7 @@ namespace Balls.App.Screens
         private void ReapplySavedLimit(GameBackend backend)
         {
             string name = BallsNative.BackendName(backend.BackendKind);
-            if (backend.Mode != BallsApp.PerformanceMode || !App.Profile.TryLimit(name, out ulong balls, out double fps))
+            if (backend.Mode != BallsApp.PerformanceMode || !App.Profile.TryLimit(backend.BackendKind, out ulong balls, out double fps))
             {
                 return;
             }
@@ -155,8 +155,7 @@ namespace Balls.App.Screens
                 return;
             }
             probeRecorded = true;
-            App.Profile.SetLimit(BallsNative.BackendName(backend.BackendKind), backend.ProbeBest, backend.ProbeTargetFps);
-            App.Profile.Save();
+            App.Profile.SetLimit(backend.BackendKind, backend.ProbeBest, backend.ProbeTargetFps);
         }
 
         public void OnRestarted()

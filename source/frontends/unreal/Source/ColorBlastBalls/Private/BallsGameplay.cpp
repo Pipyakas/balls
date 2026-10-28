@@ -40,10 +40,10 @@ void FBallsGameplay::UseAutoBallLimit() {
     if (!Session) {
         return;
     }
-    const std::optional<FBallsApp::FMachineLimit> Limit = App.GetMachineLimit(Session->backend());
-    if (Limit && static_cast<int32>(Limit->TargetFps) == ProbeTargetFps) {
+    const std::optional<MachineProfile::MeasuredLimit> Limit = App.GetMachineProfile().ballLimit(Session->backend());
+    if (Limit && static_cast<int32>(Limit->targetFps) == ProbeTargetFps) {
         Session->cancelCapacityProbe();
-        Session->useMachineBallLimit(Limit->Balls);
+        Session->useMachineBallLimit(Limit->balls);
     } else {
         StartCapacityProbe();
     }
@@ -157,7 +157,7 @@ void FBallsGameplay::Tick(float DeltaSeconds, double FrameSeconds, double WorkSe
     if (Probe.isActive()) {
         bProbeResultShown = false;
     } else if (!bProbeResultShown && Probe.phase() == ProbePhase::Done) {
-        App.RememberMachineLimit(Session->backend(), Probe.targetFps(), Probe.bestPassingCount());
+        App.GetMachineProfile().rememberBallLimit(Session->backend(), Probe.targetFps(), Probe.bestPassingCount());
         ShowToast(FString::Printf(TEXT("%s limit on this machine: %s balls @%.0f FPS"),
                                   *BallsText::FromUtf8(backendKindName(Session->backend())),
                                   *BallsText::Grouped(Probe.bestPassingCount()), Probe.targetFps()),

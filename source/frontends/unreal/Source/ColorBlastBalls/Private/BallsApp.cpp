@@ -124,6 +124,31 @@ std::filesystem::path SettingsFile() {
     return std::filesystem::path(TCHAR_TO_UTF8(*Path));
 }
 
+std::filesystem::path ProfileFolder() { return SettingsFile().parent_path(); }
+
+// Builds before the core owned the machine profile kept the probe limits in GameUserSettings.ini as
+// "Limit.<backend>=<fps> <balls>"; carry them over to the profile once.
+void AdoptIniBallLimits(MachineProfile& Profile) {
+    if (!GConfig) {
+        return;
+    }
+    for (const BackendKind Kind : allBackendKinds) {
+        const FString Key = TEXT("Limit.") + BallsText::FromUtf8(backendKindName(Kind));
+        FString Value;
+        FString Target;
+        FString Balls;
+        if (!GConfig->GetString(PreferencesSection, *Key, Value, GGameUserSettingsIni) ||
+            !Value.Split(TEXT(" "), &Target, &Balls)) {
+            continue;
+        }
+        if (!Profile.ballLimit(Kind)) {
+            Profile.rememberBallLimit(Kind, FCString::Atod(*Target), FCString::Strtoui64(*Balls, nullptr, 10));
+        }
+        GConfig->RemoveKey(PreferencesSection, *Key, GGameUserSettingsIni);
+    }
+    GConfig->Flush(false, GGameUserSettingsIni);
+}
+
 std::optional<BackendKind> AvailableBackendNamed(const std::string& Name) {
     for (const BackendKind Kind : allBackendKinds) {
         if (Name == backendKindName(Kind) && isBackendAvailable(Kind)) {
@@ -225,7 +250,9 @@ FString EscapeJson(const FString& Text) {
 
 FBallsApp::FBallsApp(UWorld* InWorld)
     : World(InWorld), CurrentSettings(loadSettings(SettingsFile())), bVSync(SavedVSync()),
-      GraphicsQuality(SavedGraphics()) {
+      GraphicsQuality(SavedGraphics()), Profile(ProfileFolder()) {
+    Profile.load();
+    AdoptIniBallLimits(Profile);
 #if PLATFORM_ANDROID
     StageAndroidLevels();
 #endif
@@ -526,30 +553,6 @@ void FBallsApp::UpdateSettings(const Settings& Next) {
     if (Gameplay) {
         Gameplay->ApplySettings();
     }
-}
-
-std::optional<FBallsApp::FMachineLimit> FBallsApp::GetMachineLimit(BackendKind Kind) const {
-    FString Value;
-    if (!GConfig || !GConfig->GetString(PreferencesSection, *(TEXT("Limit.") + BallsText::FromUtf8(backendKindName(Kind))),
-                                        Value, GGameUserSettingsIni)) {
-        return std::nullopt;
-    }
-    FString Target;
-    FString Balls;
-    if (!Value.Split(TEXT(" "), &Target, &Balls)) {
-        return std::nullopt;
-    }
-    return FMachineLimit{FCString::Atod(*Target), static_cast<BallCount>(FCString::Strtoui64(*Balls, nullptr, 10))};
-}
-
-void FBallsApp::RememberMachineLimit(BackendKind Kind, double TargetFps, BallCount Balls) {
-    if (!GConfig) {
-        return;
-    }
-    GConfig->SetString(PreferencesSection, *(TEXT("Limit.") + BallsText::FromUtf8(backendKindName(Kind))),
-                       *FString::Printf(TEXT("%g %llu"), TargetFps, static_cast<unsigned long long>(Balls)),
-                       GGameUserSettingsIni);
-    GConfig->Flush(false, GGameUserSettingsIni);
 }
 
 void FBallsApp::SetVSyncEnabled(bool bEnabled) {

@@ -57,13 +57,8 @@ public:
     const Settings& GetSettings() const { return CurrentSettings; }
     // Saves the settings and applies them to the running game.
     void UpdateSettings(const Settings& Next);
-    // The capacity probe's result per backend, saved per machine and reapplied on the next run.
-    struct FMachineLimit {
-        double TargetFps = 0.0;
-        BallCount Balls = 0;
-    };
-    std::optional<FMachineLimit> GetMachineLimit(BackendKind Kind) const;
-    void RememberMachineLimit(BackendKind Kind, double TargetFps, BallCount Balls);
+    // The capacity probe's result per backend and the machine benchmark, saved per machine in Saved/Balls.
+    MachineProfile& GetMachineProfile() { return Profile; }
     // A forced orientation resizes the window on desktop (portrait: 90% of the display height at 9:16; landscape:
     // 1440 x 900); where it cannot, the layout letterboxes instead.
     void ApplyOrientation();
@@ -121,7 +116,8 @@ private:
     FBallsToast Toast;
     FBallsFrameTimings FrameTimings;
     FBallsFrameSample LatestSample;
-    FBallsMachineBenchmark Benchmark;
+    MachineProfile Profile;
+    FBallsMachineBenchmark Benchmark{Profile};
     bool bBenchmarkSettled = false;
     bool bBenchmarkReturnToSettings = false;
     double BenchmarkSettledAt = 0.0;

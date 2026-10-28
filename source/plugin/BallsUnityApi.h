@@ -196,6 +196,7 @@ typedef struct BallsBenchmarkRow {
 typedef struct BallsSession BallsSession;
 typedef struct BallsEditor BallsEditor;
 typedef struct BallsBenchmark BallsBenchmark;
+typedef struct BallsProfile BallsProfile;
 
 // --- Process-wide --------------------------------------------------------------------------------------------
 
@@ -313,6 +314,21 @@ BALLS_API int32_t balls_benchmark_finished(const BallsBenchmark* benchmark);
 BALLS_API int32_t balls_benchmark_rows(BallsBenchmark* benchmark, BallsBenchmarkRow* rows, int32_t capacity);
 // The winner's kind, or -1 while nothing has finished.
 BALLS_API int32_t balls_benchmark_winner(BallsBenchmark* benchmark);
+
+// --- Machine profile -----------------------------------------------------------------------------------------
+
+// The core's MachineProfile over a folder (machine.txt, benchmark.txt), loaded on open. It also reads the limit lines
+// of the machine-profile.txt older Unity builds wrote there.
+BALLS_API BallsProfile* balls_profile_open(const char* directory);
+BALLS_API void balls_profile_close(BallsProfile* profile);
+// 1 with the capacity probe's result for the backend, 0 when it was never probed here.
+BALLS_API int32_t balls_profile_ball_limit(const BallsProfile* profile, int32_t kind, double* targetFps, uint64_t* balls);
+BALLS_API void balls_profile_remember_ball_limit(BallsProfile* profile, int32_t kind, double targetFps, uint64_t balls);
+// 1 with the best finished benchmark speed of the backend in the stored record, 0 when there is none.
+BALLS_API int32_t balls_profile_benchmark_score(const BallsProfile* profile, int32_t kind, double* ballStepsPerSecond);
+// Stores the benchmark's results, winner and this machine's fingerprint as the profile's record.
+BALLS_API void balls_profile_remember_benchmark(BallsProfile* profile, BallsBenchmark* benchmark, int32_t complete,
+                                                const char* gameVersion);
 
 // --- Editor --------------------------------------------------------------------------------------------------
 

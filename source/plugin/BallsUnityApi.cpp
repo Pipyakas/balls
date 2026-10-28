@@ -3,6 +3,7 @@
 #include "common/BallColor.h"
 #include "editor/LevelEditor.h"
 #include "game/GameSession.h"
+#include "game/MachineProfile.h"
 #include "game/Settings.h"
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
@@ -125,6 +126,10 @@ struct BallsBenchmark {
     std::vector<CandidateResult> results;
 
     void refresh() { results = run != nullptr ? run->results() : std::vector<CandidateResult>{}; }
+};
+
+struct BallsProfile {
+    MachineProfile profile;
 };
 
 struct BallsEditor {
@@ -747,6 +752,77 @@ int32_t balls_benchmark_winner(BallsBenchmark* benchmark) {
     const BenchmarkCandidate winner = chooseDefaultBackend(
         benchmark->results, [](BackendKind kind) { return isBackendAvailable(kind); });
     return fromBackendKind(winner.kind);
+}
+
+BallsProfile* balls_profile_open(const char* directory) {
+    if (directory == nullptr) {
+        setError("profile directory is required");
+        return nullptr;
+    }
+    auto profile = std::make_unique<BallsProfile>(BallsProfile{MachineProfile(std::filesystem::path(directory))});
+    profile->profile.load();
+    return profile.release();
+}
+
+void balls_profile_close(BallsProfile* profile) {
+    delete profile;
+}
+
+int32_t balls_profile_ball_limit(const BallsProfile* profile, int32_t kind, double* targetFps, uint64_t* balls) {
+    if (profile == nullptr) {
+        return 0;
+    }
+    const std::optional<MachineProfile::MeasuredLimit> limit = profile->profile.ballLimit(toBackendKind(kind));
+    if (!limit) {
+        return 0;
+    }
+    if (targetFps != nullptr) {
+        *targetFps = limit->targetFps;
+    }
+    if (balls != nullptr) {
+        *balls = limit->balls;
+    }
+    return 1;
+}
+
+void balls_profile_remember_ball_limit(BallsProfile* profile, int32_t kind, double targetFps, uint64_t balls) {
+    if (profile != nullptr) {
+        profile->profile.rememberBallLimit(toBackendKind(kind), targetFps, balls);
+    }
+}
+
+int32_t balls_profile_benchmark_score(const BallsProfile* profile, int32_t kind, double* ballStepsPerSecond) {
+    if (profile == nullptr || !profile->profile.benchmark()) {
+        return 0;
+    }
+    const BackendKind wanted = toBackendKind(kind);
+    double best = 0.0;
+    for (const CandidateResult& result : profile->profile.benchmark()->results) {
+        if (result.candidate.kind == wanted && result.status == CandidateStatus::Done) {
+            best = std::max(best, result.ballStepsPerSecond);
+        }
+    }
+    if (best <= 0.0) {
+        return 0;
+    }
+    if (ballStepsPerSecond != nullptr) {
+        *ballStepsPerSecond = best;
+    }
+    return 1;
+}
+
+void balls_profile_remember_benchmark(BallsProfile* profile, BallsBenchmark* benchmark, int32_t complete,
+                                      const char* gameVersion) {
+    if (profile == nullptr || benchmark == nullptr || benchmark->run == nullptr) {
+        return;
+    }
+    benchmark->refresh();
+    BenchmarkRecord record;
+    record.fingerprint = currentHardwareFingerprint(gameVersion != nullptr ? gameVersion : "");
+    record.results = benchmark->results;
+    record.winner = chooseDefaultBackend(record.results, [](BackendKind kind) { return isBackendAvailable(kind); });
+    record.complete = complete != 0;
+    profile->profile.rememberBenchmark(std::move(record));
 }
 
 BallsEditor* balls_editor_create(void) {

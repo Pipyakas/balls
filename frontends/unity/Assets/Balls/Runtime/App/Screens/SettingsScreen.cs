@@ -154,7 +154,7 @@ namespace Balls.App.Screens
                     bool available = BallsNative.BackendAvailable(kind);
                     bool selected = App.DefaultBackendKind == kind;
                     string detail = !available ? BallsNative.BackendTextCached(kind, false)
-                        : App.Profile.TryScore(BackendNames[kind], out double score) ? $"{score / 1e6:N0} M ball-steps/s"
+                        : App.Profile.TryScore(kind, out double score) ? $"{score / 1e6:N0} M ball-steps/s"
                         : BallsNative.BackendTextCached(kind, true);
                     if (widgets.OptionRow(new Rect(content.x, y, content.width, 34f), BackendNames[kind], selected,
                             available, detail) && available)

@@ -26,6 +26,7 @@ add_library(balls_core STATIC
     game/GameSession.cpp
     game/SessionRunner.cpp
     game/Settings.cpp
+    game/MachineProfile.cpp
     ui/GameplayLayout.cpp
     editor/LevelEditor.cpp
 )

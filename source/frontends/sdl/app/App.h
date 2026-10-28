@@ -2,7 +2,7 @@
 
 #include "app/FrameTimings.h"
 #include "app/LaunchOptions.h"
-#include "app/MachineProfile.h"
+#include "game/MachineProfile.h"
 #include "app/Paths.h"
 #include "app/Screen.h"
 #include "gpu/GpuAdapters.h"
