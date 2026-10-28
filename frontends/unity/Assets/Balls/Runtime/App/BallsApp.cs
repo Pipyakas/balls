@@ -367,8 +367,9 @@ namespace Balls.App
                 };
             }
 #if UNITY_STANDALONE
-            else if (!UnityEngine.Screen.fullScreen && (Settings.Orientation == SettingsData.OrientationLandscape ||
-                                                        Settings.Orientation == SettingsData.OrientationPortrait))
+            else if (UnityEngine.Screen.fullScreenMode == FullScreenMode.Windowed &&
+                     (Settings.Orientation == SettingsData.OrientationLandscape ||
+                      Settings.Orientation == SettingsData.OrientationPortrait))
             {
                 var resolution = UnityEngine.Screen.currentResolution;
                 int width = Settings.Orientation == SettingsData.OrientationPortrait
