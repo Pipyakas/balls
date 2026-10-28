@@ -16,6 +16,9 @@ namespace Balls.App
 
         private IntPtr handle;
 
+        /// <summary>The core profile, for the control API's stored benchmark.</summary>
+        internal IntPtr Handle => handle;
+
         public static MachineProfile Load()
         {
             var profile = new MachineProfile { handle = BallsNative.balls_profile_open(Application.persistentDataPath) };

@@ -56,6 +56,12 @@ namespace Balls.Ui
 
         public void Write()
         {
+            NativeSettings native = ToNative();
+            BallsNative.balls_settings_save(path, ref native);
+        }
+
+        public NativeSettings ToNative()
+        {
             var native = new NativeSettings
             {
                 ballCollisions = BallCollisions ? 1 : 0,
@@ -66,7 +72,7 @@ namespace Balls.Ui
             };
             byte[] name = Encoding.UTF8.GetBytes(DefaultBackend ?? "");
             Array.Copy(name, native.defaultBackend, Math.Min(name.Length, 63));
-            BallsNative.balls_settings_save(path, ref native);
+            return native;
         }
     }
 }

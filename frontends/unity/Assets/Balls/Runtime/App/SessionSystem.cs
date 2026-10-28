@@ -34,6 +34,9 @@ namespace Balls.App
         /// <summary>Why the last start request failed (an unreadable level), or null.</summary>
         public string LoadFailure { get; set; }
 
+        /// <summary>The core's frame statistics, for the control API's /state.</summary>
+        public System.IntPtr FrameTimingsHandle => frameTimings;
+
         /// <summary>A toast the session has for the player (the core's ball collisions notice), taken by BallsApp.</summary>
         public string Notice { get; set; }
 

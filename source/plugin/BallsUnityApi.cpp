@@ -296,8 +296,13 @@ struct BallsControl final : ControlHost {
         bool isPaused() const override { return context().paused != 0; }
         void setPaused(bool paused) override { owner.queue({BALLS_CONTROL_SET_PAUSED, 0, paused ? 1 : 0}); }
         void restart() override { owner.queue({BALLS_CONTROL_RESTART}); }
-        int capacityProbeTargetFps() const override { return context().probeTargetFps; }
-        void startCapacityProbe(int targetFps) override { owner.queue({BALLS_CONTROL_START_PROBE, 0, targetFps}); }
+        // A probe asked for in this request answers with its own target; the host stores it when it runs the action.
+        int capacityProbeTargetFps() const override { return requestedProbeFps ? *requestedProbeFps : context().probeTargetFps; }
+        void startCapacityProbe(int targetFps) override {
+            requestedProbeFps = targetFps;
+            owner.queue({BALLS_CONTROL_START_PROBE, 0, targetFps});
+        }
+        std::optional<int> requestedProbeFps;
     };
 
     std::filesystem::path normalLevels;
@@ -1310,6 +1315,7 @@ int32_t balls_control_handle(BallsControl* control, const BallsControlContext* c
         return 400;
     }
     control->context = context;
+    control->gameInPlay.requestedProbeFps.reset();
     control->currentSettings = toCoreSettings(context->settings);
     const ControlRequest request = parseControlTarget(target);
     const bool known = std::ranges::find(controlApiPaths(), std::string_view(request.path)) != controlApiPaths().end();

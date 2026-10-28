@@ -264,6 +264,15 @@ namespace Balls.App.Screens
         /// <summary>The control API drives the same pause the header button does.</summary>
         public void SetPaused(bool value) => paused = value;
 
+        public int ProbeTargetFps => probeTargetFps;
+
+        /// <summary>The control API's /probe: the target the stepper would set, then a probe at it.</summary>
+        public void ControlProbe(int targetFps)
+        {
+            probeTargetFps = targetFps;
+            SessionSystem.Current?.Backend?.StartProbe(targetFps);
+        }
+
         /// <summary>Opens or closes the control gadget's Advanced Settings section, as its row does.</summary>
         public void SetAdvancedOpen(bool open) => advancedOpen = open;
 

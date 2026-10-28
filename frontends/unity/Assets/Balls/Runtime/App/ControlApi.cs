@@ -28,6 +28,7 @@ namespace Balls.App
         private sealed class Request
         {
             public string Path;
+            public string Target;
             public Dictionary<string, string> Query;
             public int Status = 200;
             public string Body = "{}";
@@ -36,6 +37,8 @@ namespace Balls.App
         }
 
         private readonly BallsApp app;
+        // The core's handler; levels resolve against the same folders the level select uses.
+        private IntPtr control;
         private readonly TcpListener listener;
         private readonly Thread thread;
         private readonly Queue<(Socket socket, Request request)> queue = new();
@@ -46,6 +49,8 @@ namespace Balls.App
         public ControlApi(BallsApp app, int port)
         {
             this.app = app;
+            control = BallsNative.balls_control_create(app.LevelDirectoryFor(BallsApp.NormalMode),
+                app.LevelDirectoryFor(BallsApp.PerformanceMode));
             listener = new TcpListener(IPAddress.Loopback, port);
             thread = new Thread(AcceptLoop) { IsBackground = true, Name = "balls-control" };
         }
@@ -74,6 +79,8 @@ namespace Balls.App
         {
             running = false;
             listener?.Stop();
+            BallsNative.balls_control_destroy(control);
+            control = IntPtr.Zero;
         }
 
         /// <summary>Answers whatever arrived since the last frame, once per frame from the main thread.</summary>
@@ -136,58 +143,45 @@ namespace Balls.App
             }
         }
 
+        /// <summary>
+        /// Routes Unity keeps (import, compute GPU and the gameplay controls, which go through the HUD and BallsInput so
+        /// they work in Burst too) are answered here; everything else is the core's handler, the same one SDL and
+        /// Unreal use, and what it asks of the front end comes back as actions.
+        /// </summary>
         private void Handle(Request request)
+        {
+            if (HandleOwn(request))
+            {
+                return;
+            }
+            NativeControlContext context = Context();
+            int status = BallsNative.balls_control_handle(control, ref context, request.Target, json, json.Length, out int length);
+            if (length > json.Length)
+            {
+                json = new byte[length + 1];
+                status = BallsNative.balls_control_handle(control, ref context, request.Target, json, json.Length, out length);
+            }
+            if (status > 0)
+            {
+                request.Status = status;
+                request.Body = Encoding.UTF8.GetString(json, 0, length);
+                request.Answered = true;
+            }
+            else if (status < 0)
+            {
+                Error(request, 404, "unknown path");
+            }
+            RunActions(request);
+        }
+
+        private byte[] json = new byte[65536];
+
+        private bool HandleOwn(Request request)
         {
             string path = request.Path;
             Dictionary<string, string> query = request.Query;
             switch (path)
             {
-                case "/state":
-                    Ok(request, StateJson());
-                    return;
-                case "/screenshot":
-                    string capture = Get(query, "path");
-                    if (string.IsNullOrEmpty(capture))
-                    {
-                        Error(request, 400, "missing path");
-                        return;
-                    }
-                    Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(capture)) ?? ".");
-                    ScreenCapture.CaptureScreenshot(capture);
-                    // Answered by CompleteCaptures once the file is on disk.
-                    request.Answered = false;
-                    return;
-                case "/play":
-                {
-                    int mode = ModeFrom(Get(query, "mode"));
-                    string level = Get(query, "level") ?? string.Empty;
-                    if (mode < 0 || level.Length == 0)
-                    {
-                        Error(request, 400, "mode must be normal or performance, and level is required");
-                        return;
-                    }
-                    if (!File.Exists(Path.Combine(app.LevelDirectoryFor(mode), level + "_Bricks.txt")))
-                    {
-                        Error(request, 404, $"no {(mode == BallsApp.PerformanceMode ? "performance" : "normal")} level named {level}");
-                        return;
-                    }
-                    app.StartGameplay(mode, level, app.DefaultBackendKind);
-                    Ok(request, "{\"ok\":true}");
-                    return;
-                }
-                case "/levels":
-                {
-                    int mode = ModeFrom(Get(query, "mode"));
-                    if (mode < 0)
-                    {
-                        Error(request, 400, "mode must be normal or performance");
-                        return;
-                    }
-                    app.SetMode(mode);
-                    app.Go<Screens.LevelSelectScreen>();
-                    Ok(request, "{\"ok\":true}");
-                    return;
-                }
                 case "/import":
                 {
                     // Several picks travel in one parameter, separated by '|', the way a drop hands over a folder.
@@ -199,60 +193,50 @@ namespace Balls.App
                     if (picked.Count == 0)
                     {
                         Error(request, 400, "missing path");
-                        return;
+                        return true;
                     }
                     var levels = app.Get<Screens.LevelSelectScreen>();
                     bool imported = levels.Import(picked);
                     Ok(request, $"{{\"ok\":{(imported ? "true" : "false")},\"toast\":{Json(app.ToastText)}}}");
-                    return;
+                    return true;
                 }
-                case "/menu":
-                    app.Go<Screens.MainMenuScreen>();
-                    Ok(request, "{\"ok\":true}");
-                    return;
-                case "/quit":
-                    // Answered first: quitting inside the handler would take the frame down before the reply is sent.
-                    quitRequested = true;
-                    Ok(request, "{\"ok\":true}");
-                    return;
-                case "/start":
-                    if (!app.Running)
+                case "/compute-gpu":
+                {
+                    string wanted = Get(query, "id") ?? Get(query, "name") ?? "auto";
+                    if (!BallsNative.SetComputeGpu(wanted))
                     {
-                        Error(request, 409, "no game running");
-                        return;
+                        Error(request, 400, "no compute GPU matches that id or name");
+                        return true;
                     }
+                    Ok(request, "{\"ok\":true}");
+                    return true;
+                }
+            }
+            Screens.GameplayScreen gameplay = Gameplay();
+            if (gameplay == null)
+            {
+                return false;
+            }
+            switch (path)
+            {
+                case "/start":
                     BallsInput.RequestAutoRelease();
                     Ok(request, "{\"ok\":true}");
-                    return;
+                    return true;
+                case "/launch":
                 case "/launcher":
-                {
-                    Screens.GameplayScreen gameplay = Gameplay();
-                    if (gameplay == null)
-                    {
-                        Error(request, 409, "no game running");
-                        return;
-                    }
-                    int column = Integer(query, "column", 0);
-                    int row = Integer(query, "row", 0);
-                    BallsInput.ClickLauncher(column, row);
+                    BallsInput.ClickLauncher(Integer(query, "column", 0), Integer(query, "row", 0));
                     Ok(request, "{\"ok\":true}");
-                    return;
-                }
+                    return true;
                 case "/rate":
                 case "/multiplier":
                 case "/limit":
                 {
-                    Screens.GameplayScreen gameplay = Gameplay();
-                    if (gameplay == null)
-                    {
-                        Error(request, 409, "no game running");
-                        return;
-                    }
                     int index = Integer(query, "index", -1);
                     if (index < 0)
                     {
                         Error(request, 400, "index is required");
-                        return;
+                        return true;
                     }
                     if (path == "/rate")
                     {
@@ -267,238 +251,187 @@ namespace Balls.App
                         gameplay.ControlBallLimit(index);
                     }
                     Ok(request, "{\"ok\":true}");
-                    return;
+                    return true;
                 }
+                case "/pause":
+                case "/resume":
+                    gameplay.SetPaused(path == "/pause");
+                    Ok(request, "{\"ok\":true}");
+                    return true;
+                case "/restart":
+                    app.RestartGameplay();
+                    Ok(request, "{\"ok\":true}");
+                    return true;
                 case "/backend":
                 {
                     string kind = Get(query, "kind") ?? string.Empty;
                     if (!BallsNative.TryBackendKind(kind, out int backendKind) || !BallsNative.BackendAvailable(backendKind))
                     {
                         Error(request, 409, "backend unknown or unavailable");
-                        return;
+                        return true;
                     }
-                    if (app.Running)
-                    {
-                        app.SwitchBackend(backendKind);
-                    }
-                    else
-                    {
-                        app.SetBackend(backendKind);
-                    }
+                    app.SwitchBackend(backendKind);
                     Ok(request, "{\"ok\":true}");
-                    return;
+                    return true;
                 }
-                case "/pause":
-                case "/resume":
+            }
+            return false;
+        }
+
+        /// <summary>What the core reads for one request; the strings and handles only live for the call.</summary>
+        private NativeControlContext Context()
+        {
+            Screens.GameplayScreen gameplay = Gameplay();
+            SessionSystem system = SessionSystem.Current;
+            IntPtr session = gameplay != null && system?.Backend is Game.NativeGameBackend native ? native.SessionHandle : IntPtr.Zero;
+            IntPtr benchmark = app.ScreenName == "benchmark" ? app.Get<Screens.BenchmarkScreen>().Handle : IntPtr.Zero;
+            return new NativeControlContext
+            {
+                renderer = BallsApp.RendererText,
+                screen = app.ScreenName,
+                windowWidth = UnityEngine.Screen.width,
+                windowHeight = UnityEngine.Screen.height,
+                preferredBackend = app.DefaultBackendKind,
+                vsync = QualitySettings.vSyncCount > 0 ? 1 : 0,
+                toast = app.ToastText,
+                extraFields = $"\"fullScreen\":{(UnityEngine.Screen.fullScreen ? "true" : "false")}," +
+                              $"\"orientation\":{Json(app.Settings?.OrientationName.ToLowerInvariant() ?? "auto")}",
+                screenDetails = string.Empty,
+                frames = system?.FrameTimingsHandle ?? IntPtr.Zero,
+                settings = app.Settings?.ToNative() ?? new NativeSettings { defaultBackend = new byte[64] },
+                session = session,
+                mode = app.Mode,
+                levelName = app.LevelName ?? string.Empty,
+                loadError = system?.LoadFailure ?? string.Empty,
+                diskState = gameplay != null ? (int)gameplay.WatchState : 0,
+                paused = gameplay != null && gameplay.Paused ? 1 : 0,
+                probeTargetFps = gameplay?.ProbeTargetFps ?? 60,
+                benchmark = benchmark,
+                profile = app.Profile.Handle,
+            };
+        }
+
+        /// <summary>Carries out what the core's answer asked of Unity, in order.</summary>
+        private void RunActions(Request request)
+        {
+            while (BallsNative.balls_control_take_action(control, out NativeControlAction action) != BallsNative.ControlNone)
+            {
+                switch (action.kind)
                 {
-                    Screens.GameplayScreen gameplay = Gameplay();
-                    if (gameplay == null)
-                    {
-                        Error(request, 409, "no game running");
-                        return;
-                    }
-                    gameplay.SetPaused(path == "/pause");
-                    Ok(request, "{\"ok\":true}");
-                    return;
-                }
-                case "/restart":
-                {
-                    if (!app.Running)
-                    {
-                        Error(request, 409, "no game running");
-                        return;
-                    }
-                    app.RestartGameplay();
-                    Ok(request, "{\"ok\":true}");
-                    return;
-                }
-                case "/settings":
-                    Settings(request);
-                    return;
-                case "/benchmark":
-                    if (Integer(query, "run", 0) != 0)
-                    {
+                    case BallsNative.ControlScreenshot:
+                        string capture = action.Text;
+                        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(capture)) ?? ".");
+                        ScreenCapture.CaptureScreenshot(capture);
+                        // Answered by CompleteCaptures once the file is on disk.
+                        request.Answered = false;
+                        break;
+                    case BallsNative.ControlPlay:
+                        app.StartGameplay(action.mode, action.Text, app.DefaultBackendKind);
+                        break;
+                    case BallsNative.ControlMainMenu:
+                        app.Go<Screens.MainMenuScreen>();
+                        break;
+                    case BallsNative.ControlLevelSelect:
+                        app.SetMode(action.mode);
+                        app.Go<Screens.LevelSelectScreen>();
+                        break;
+                    case BallsNative.ControlEditor:
+                        app.SetMode(action.mode);
+                        if (action.Text.Length > 0)
+                        {
+                            app.Get<Screens.EditorScreen>().StartEditing(action.mode, action.Text);
+                        }
+                        else
+                        {
+                            app.Get<Screens.EditorScreen>().StartNewLevel(action.mode);
+                        }
+                        app.Go<Screens.EditorScreen>();
+                        break;
+                    case BallsNative.ControlQuit:
+                        // Answered first: quitting inside the handler would take the frame down before the reply is sent.
+                        quitRequested = true;
+                        break;
+                    case BallsNative.ControlApplySettings:
+                        ApplySettings(action, request.Query);
+                        break;
+                    case BallsNative.ControlOpenSettings:
+                        app.Go<Screens.SettingsScreen>();
+                        break;
+                    case BallsNative.ControlSetVsync:
+                        if (app.Settings != null)
+                        {
+                            app.Settings.Vsync = action.value != 0;
+                            app.SaveSettings();
+                        }
+                        QualitySettings.vSyncCount = action.value != 0 ? 1 : 0;
+                        break;
+                    case BallsNative.ControlRunBenchmark:
                         app.Go<Screens.BenchmarkScreen>();
-                        Ok(request, "{\"ok\":true,\"running\":true}");
-                        return;
-                    }
-                    Ok(request, BenchmarkJson());
-                    return;
-                case "/compute-gpu":
-                {
-                    string wanted = Get(query, "id") ?? Get(query, "name") ?? "auto";
-                    if (!BallsNative.SetComputeGpu(wanted))
-                    {
-                        Error(request, 400, "no compute GPU matches that id or name");
-                        return;
-                    }
-                    Ok(request, "{\"ok\":true}");
-                    return;
+                        break;
+                    case BallsNative.ControlSkipBenchmark:
+                    case BallsNative.ControlContinueBenchmark:
+                        if (app.ScreenName == "benchmark")
+                        {
+                            app.Get<Screens.BenchmarkScreen>().ControlContinue();
+                        }
+                        break;
+                    case BallsNative.ControlSetPaused:
+                        Gameplay()?.SetPaused(action.value != 0);
+                        break;
+                    case BallsNative.ControlRestart:
+                        app.RestartGameplay();
+                        break;
+                    case BallsNative.ControlStartProbe:
+                        Gameplay()?.ControlProbe(action.value);
+                        break;
                 }
-                default:
-                    Error(request, 404, "unknown path");
-                    return;
             }
         }
 
-        /// <summary>The game's Settings fields, applied the way the Settings screen applies them.</summary>
-        private void Settings(Request request)
+        /// <summary>The core's checked settings, applied the way the Settings screen applies them.</summary>
+        private void ApplySettings(NativeControlAction action, Dictionary<string, string> query)
         {
             SettingsData settings = app.Settings;
             if (settings == null)
             {
-                Error(request, 500, "settings are not loaded");
                 return;
             }
-            Dictionary<string, string> query = request.Query;
-            if (query.TryGetValue("collisions", out string collisions))
+            NativeSettings next = action.settings;
+            bool collisionsChanged = settings.BallCollisions != (next.ballCollisions != 0);
+            bool layoutChanged = settings.Orientation != next.orientation;
+            settings.BallCollisions = next.ballCollisions != 0;
+            settings.Orientation = next.orientation;
+            settings.Vsync = next.vsync != 0;
+            QualitySettings.vSyncCount = settings.Vsync ? 1 : 0;
+            if (settings.AdvancedSettings != (next.advancedSettings != 0))
             {
-                settings.BallCollisions = Integer(query, "collisions", 0) != 0;
+                settings.AdvancedSettings = next.advancedSettings != 0;
+                app.Get<Screens.GameplayScreen>().SetAdvancedOpen(settings.AdvancedSettings);
             }
-            if (query.TryGetValue("vsync", out _))
+            if (action.value >= 0)
             {
-                settings.Vsync = Integer(query, "vsync", 0) != 0;
-                QualitySettings.vSyncCount = settings.Vsync ? 1 : 0;
+                settings.DefaultBackend = BallsNative.StoredBackendName(action.value);
+                app.SetBackend(action.value);
             }
-            if (query.TryGetValue("layout", out string layout))
+            if (layoutChanged)
             {
-                switch (layout.ToLowerInvariant())
-                {
-                    case "auto":
-                        settings.Orientation = SettingsData.OrientationAuto;
-                        break;
-                    case "landscape":
-                        settings.Orientation = SettingsData.OrientationLandscape;
-                        break;
-                    case "portrait":
-                        settings.Orientation = SettingsData.OrientationPortrait;
-                        break;
-                    default:
-                        Error(request, 400, "layout must be auto, landscape or portrait");
-                        return;
-                }
                 app.ApplyOrientation();
                 app.Get<Screens.GameplayScreen>().RefreshLayout();
             }
-            if (query.TryGetValue("backend", out string backend))
-            {
-                if (!BallsNative.TryBackendKind(backend, out int kind) || !BallsNative.BackendAvailable(kind))
-                {
-                    Error(request, 409, "backend unknown or unavailable");
-                    return;
-                }
-                settings.DefaultBackend = BallsNative.BackendName(kind);
-                app.SetBackend(kind);
-            }
-            if (Get(query, "advanced") is string advanced)
-            {
-                settings.AdvancedSettings = Integer(query, "advanced", 0) != 0;
-                app.Get<Screens.GameplayScreen>().SetAdvancedOpen(settings.AdvancedSettings);
-            }
-            if (query.ContainsKey("collisions"))
+            if (collisionsChanged)
             {
                 app.ApplyBallCollisions(settings.BallCollisions);
             }
             app.SaveSettings();
-            if (Integer(query, "open", 0) != 0)
-            {
-                app.Go<Screens.SettingsScreen>();
-            }
+            // Unity's own addition for screenshots of the long lists.
             if (Get(query, "scroll") is string scroll && scroll.Equals("end", StringComparison.OrdinalIgnoreCase))
             {
                 app.Get<Screens.SettingsScreen>().ScrollToEnd();
                 app.Get<Screens.GameplayScreen>().ScrollControlsToEnd();
             }
-            Ok(request, SettingsJson(settings));
-        }
-
-        private string StateJson()
-        {
-            var text = new StringBuilder(256);
-            text.Append("{\"ok\":true,\"screen\":").Append(Json(app.ScreenName));
-            text.Append(",\"mode\":").Append(Json(app.Mode == BallsApp.PerformanceMode ? "performance" : "normal"));
-            text.Append(",\"level\":").Append(Json(app.LevelName));
-            text.Append(",\"running\":").Append(app.Running ? "true" : "false");
-            // A finished game leaves the session component behind, so its fields only mean something while one runs.
-            if (app.Running && app.TryReadSession(out BoardInfoData board, out SessionInfo session, out SessionStatsData stats))
-            {
-                Screens.GameplayScreen gameplay = Gameplay();
-                text.Append(",\"state\":").Append(Json(StateName(session.state)));
-                text.Append(",\"paused\":").Append(gameplay != null && gameplay.Paused ? "true" : "false");
-                text.Append(",\"backend\":").Append(Json(BallsNative.BackendName(session.backend)));
-                text.Append(",\"pendingBackend\":")
-                    .Append(session.pendingBackend >= 0 ? Json(BallsNative.BackendName(session.pendingBackend)) : "null");
-                text.Append(",\"renderer\":").Append(Json(BallsApp.RendererText));
-                text.Append(",\"balls\":").Append(stats.liveBalls.ToString(CultureInfo.InvariantCulture));
-                text.Append(",\"bricks\":").Append(board.aliveBricks.ToString(CultureInfo.InvariantCulture));
-                text.Append(",\"fps\":").Append(stats.fps.ToString("F1", CultureInfo.InvariantCulture));
-                text.Append(",\"frameMs\":").Append(stats.frameMs.ToString("F2", CultureInfo.InvariantCulture));
-                text.Append(",\"physicsMs\":").Append(stats.physicsMs.ToString("F2", CultureInfo.InvariantCulture));
-                text.Append(",\"collisions\":").Append(stats.collisions ? "true" : "false");
-            }
-            text.Append(",\"toast\":").Append(Json(app.ToastText));
-            text.Append(",\"screenWidth\":").Append(UnityEngine.Screen.width);
-            text.Append(",\"screenHeight\":").Append(UnityEngine.Screen.height);
-            text.Append(",\"fullScreen\":").Append(UnityEngine.Screen.fullScreen ? "true" : "false");
-            text.Append(",\"orientation\":").Append(Json(app.Settings?.OrientationName.ToLowerInvariant() ?? "auto"));
-            text.Append('}');
-            return text.ToString();
-        }
-
-        private string BenchmarkJson()
-        {
-            var text = new StringBuilder(128);
-            text.Append("{\"ok\":true,\"scores\":[");
-            bool first = true;
-            for (int kind = 0; kind < BallsNative.BackendCount; ++kind)
-            {
-                if (!app.Profile.TryScore(kind, out double score))
-                {
-                    continue;
-                }
-                if (!first)
-                {
-                    text.Append(',');
-                }
-                first = false;
-                text.Append("{\"backend\":").Append(Json(BallsNative.BackendName(kind)));
-                text.Append(",\"ballStepsPerSecond\":").Append(score.ToString("F0", CultureInfo.InvariantCulture));
-                text.Append('}');
-            }
-            text.Append("],\"winner\":")
-                .Append(BallsNative.TryBackendKind(app.Settings?.DefaultBackend ?? string.Empty, out int defaultKind) &&
-                        app.Profile.TryScore(defaultKind, out _)
-                    ? Json(app.Settings.DefaultBackend) : "null");
-            text.Append('}');
-            return text.ToString();
-        }
-
-        private static string SettingsJson(SettingsData settings)
-        {
-            var text = new StringBuilder(128);
-            text.Append("{\"ok\":true,\"collisions\":").Append(settings.BallCollisions ? "true" : "false");
-            text.Append(",\"vsync\":").Append(settings.Vsync ? "true" : "false");
-            text.Append(",\"layout\":").Append(Json(settings.OrientationName.ToLowerInvariant()));
-            text.Append(",\"backend\":").Append(Json(settings.DefaultBackend));
-            text.Append('}');
-            return text.ToString();
         }
 
         private Screens.GameplayScreen Gameplay() => app.Running ? app.Get<Screens.GameplayScreen>() : null;
-
-        private static string StateName(int state) => state switch
-        {
-            BallsNative.StateRunning => "running",
-            BallsNative.StateWon => "won",
-            _ => "ready",
-        };
-
-        private static int ModeFrom(string mode) => mode?.ToLowerInvariant() switch
-        {
-            "normal" => BallsApp.NormalMode,
-            "performance" => BallsApp.PerformanceMode,
-            _ => -1,
-        };
 
         private static string Get(Dictionary<string, string> query, string name) =>
             query.TryGetValue(name, out string value) ? value : null;
@@ -620,6 +553,7 @@ namespace Balls.App
                 var request = new Request
                 {
                     Path = queryStart >= 0 ? target.Substring(0, queryStart) : target,
+                    Target = target,
                     Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
                 };
                 if (queryStart >= 0)

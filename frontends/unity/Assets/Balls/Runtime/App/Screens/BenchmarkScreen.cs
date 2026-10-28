@@ -152,6 +152,12 @@ namespace Balls.App.Screens
             return Mathf.Min(count, rows.Length);
         }
 
+        /// <summary>The running benchmark, for the control API; zero when none.</summary>
+        public System.IntPtr Handle => benchmark;
+
+        /// <summary>The control API's skip and continue: the same as the button.</summary>
+        public void ControlContinue() => Continue();
+
         private void Continue()
         {
             if (winner >= 0)
