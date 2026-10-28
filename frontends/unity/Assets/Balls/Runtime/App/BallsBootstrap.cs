@@ -136,10 +136,14 @@ namespace Balls.App
             if (parityRun && !parityDone && app != null && now - startedAt > 0.5f)
             {
                 parityDone = true;
-                var result = ParityProbe.Run(app.LevelDirectoryFor(BallsApp.NormalMode), "DA_FirstLevel", 200, 300);
+                string levelDir = app.LevelDirectoryFor(BallsApp.NormalMode);
+                ParityProbe.RunControlledSuite(levelDir, "DA_FirstLevel");
+                var result = ParityProbe.Run(levelDir, "DA_FirstLevel", 200, 300);
                 Debug.Log($"balls: parity compared={result.compared} mismatches={result.mismatches} " +
                           $"worstDelta={result.worstDelta} first={result.firstMismatch} " +
-                          $"sorted={result.sortedMismatches} error='{result.error}'");
+                          $"sorted={result.sortedMismatches} firstDivergentTick={result.firstDivergentTick} " +
+                          $"countMismatches={result.countMismatches} colorMismatches={result.colorMismatches} " +
+                          $"divergenceReason='{result.firstDivergentReason}' error='{result.error}'");
                 Application.Quit();
                 return;
             }

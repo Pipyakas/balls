@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using Balls.Native;
 using UnityEditor;
 using UnityEditor.Build;
 using UnityEditor.Build.Reporting;
@@ -7,8 +9,9 @@ using UnityEngine;
 namespace Balls.Editor
 {
     /// <summary>
-    /// Batchmode entry points: <c>-executeMethod Balls.Editor.BallsBuilder.BuildWindows</c> and
-    /// <c>-executeMethod Balls.Editor.BallsBuilder.BuildLinux</c>.
+    /// Batchmode entry points: <c>-executeMethod Balls.Editor.BallsBuilder.BuildWindows</c>,
+    /// <c>-executeMethod Balls.Editor.BallsBuilder.BuildLinux</c>, and
+    /// <c>-executeMethod Balls.Editor.BallsBuilder.RunParity</c>.
     /// </summary>
     public static class BallsBuilder
     {
@@ -21,13 +24,38 @@ namespace Balls.Editor
         [MenuItem("Balls/Build Linux Player")]
         public static void BuildLinuxFromMenu() => BuildLinux();
 
+        [MenuItem("Balls/Run Parity Probe")]
+        public static void RunParity()
+        {
+            string pluginDir = Path.GetFullPath(Path.Combine(Application.dataPath, "Plugins", "x86_64"));
+            BallsNative.balls_set_plugin_directory(pluginDir);
+            string levelDir = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "..", "data", "assets", "levels", "normal"));
+            App.ParityProbe.RunControlledSuite(levelDir, "DA_FirstLevel");
+            var result = App.ParityProbe.Run(levelDir, "DA_FirstLevel", 200, 300);
+            Debug.Log($"balls: parity compared={result.compared} mismatches={result.mismatches} " +
+                      $"worstDelta={result.worstDelta} first={result.firstMismatch} " +
+                      $"sorted={result.sortedMismatches} firstDivergentTick={result.firstDivergentTick} " +
+                      $"countMismatches={result.countMismatches} colorMismatches={result.colorMismatches} " +
+                      $"divergenceReason='{result.firstDivergentReason}' error='{result.error}'");
+        }
+
         public static void BuildWindows() => Build(BuildTarget.StandaloneWindows64, WindowsPlayerPath, "Windows");
 
         public static void BuildLinux() => Build(BuildTarget.StandaloneLinux64, LinuxPlayerPath, "Linux");
 
         private static void Build(BuildTarget target, string playerPath, string label)
         {
-            ProjectSetup.SetUp();
+            if (!File.Exists(ProjectSetup.ScenePath))
+            {
+                ProjectSetup.SetUp();
+            }
+            else
+            {
+                ProjectSetup.CopyNativePlugins();
+                ProjectSetup.CopyLevels();
+                ProjectSetup.CopyFonts();
+            }
+
             // The client machines are Linux, so the player is IL2CPP there; Windows keeps Mono for fast iteration.
             PlayerSettings.SetScriptingBackend(NamedBuildTarget.FromBuildTargetGroup(BuildPipeline.GetBuildTargetGroup(target)),
                 target == BuildTarget.StandaloneLinux64 ? ScriptingImplementation.IL2CPP : ScriptingImplementation.Mono2x);
