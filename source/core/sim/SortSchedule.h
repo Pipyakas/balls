@@ -58,7 +58,7 @@ public:
 
 private:
     int ticksSinceSort = 0;
-    int intervalTicks = 0;
+    int intervalTicks = intervalCandidates[0];
     size_t candidate = 0;
     int trialTick = 0;
     double trialMsPerBall = 0.0;

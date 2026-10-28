@@ -264,10 +264,15 @@ int traceEdgeCases(const BenchOptions& options) {
                     const double spawnMs = std::chrono::duration<double, std::milli>(spawned - start).count();
                     const double ms = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
                     pacer.reportFrame(ms / 1e3, simulation.liveBallCount());
-                    std::printf("frame %4d %8.2f ms  spawn %6.2f ms (%9llu)  live %10llu  device %6.2f ms\n", frame, ms,
-                                spawnMs, static_cast<unsigned long long>(launched),
+                    std::string split;
+                    if (const auto* hybrid = dynamic_cast<const HybridBackend*>(&simulation.backend())) {
+                        split = std::format("  cpu {:10} balls {:6.2f} ms  gpu {:6.2f} ms", hybrid->cpuBallCount(),
+                                            hybrid->cpuStepMs(), hybrid->gpuStepMs());
+                    }
+                    std::printf("frame %4d %8.2f ms  spawn %6.2f ms (%9llu)  live %10llu  device %6.2f ms%s\n", frame,
+                                ms, spawnMs, static_cast<unsigned long long>(launched),
                                 static_cast<unsigned long long>(simulation.liveBallCount()),
-                                simulation.backend().deviceStepMs());
+                                simulation.backend().deviceStepMs(), split.c_str());
                 }
             }
         }
