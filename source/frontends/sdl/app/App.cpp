@@ -27,6 +27,7 @@
 #include <fstream>
 #include <sstream>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 namespace {
@@ -197,6 +198,10 @@ bool App::openWindowAndRenderer(const LaunchOptions& options, std::string_view a
         flags |= SDL_WINDOW_NOT_FOCUSABLE;
     }
     window = SDL_CreateWindow(windowTitle, options.windowWidth, options.windowHeight, flags);
+    if (!window && (flags & SDL_WINDOW_VULKAN) && api != "vulkan") {
+        // A PC without a Vulkan loader can still run Direct3D 12; only the switch to Vulkan is lost.
+        window = SDL_CreateWindow(windowTitle, options.windowWidth, options.windowHeight, flags & ~SDL_WINDOW_VULKAN);
+    }
     if (!window) {
         error = std::format("SDL_CreateWindow: {}", SDL_GetError());
         return false;
@@ -231,36 +236,10 @@ void App::applyPendingRendererSwitch() {
     if (wantedApi.empty()) {
         wantedApi = activeGraphicsApi;
     }
-    if (wantedRenderer == activeRenderer && wantedApi == activeGraphicsApi) {
+    if (wantedRenderer == activeRenderer && wantedApi == activeGraphicsApi && !preparingTarget) {
         return;
     }
-    const bool vsync = isVsyncEnabled();
-    const std::string previousRenderer = activeRenderer;
-    const std::string previousApi = activeGraphicsApi;
-    balls.reset();
-    renderer.reset();
-    std::string error;
-    renderer = createRenderer(window, wantedRenderer, wantedApi, renderGpuPreference, error);
-    if (renderer) {
-        activeRenderer = wantedRenderer;
-        activeGraphicsApi = wantedApi;
-        SDL_Log("Switched renderer to %s (%s)", activeRenderer.c_str(), activeGraphicsApi.c_str());
-    } else {
-        SDL_Log("Could not switch renderer to %s (%s): %s", wantedRenderer.c_str(), wantedApi.c_str(),
-                error.c_str());
-        std::string fallbackError;
-        renderer = createRenderer(window, previousRenderer, previousApi, renderGpuPreference, fallbackError);
-        activeRenderer = previousRenderer;
-        activeGraphicsApi = previousApi;
-    }
-    if (!renderer) {
-        running = false;
-        return;
-    }
-    renderAdapterList = enumerateGpuAdapters(adapterApiFor(activeRenderer, activeGraphicsApi));
-    activeRenderAdapter = selectGpuAdapter(renderAdapterList, renderGpuPreference, GpuRole::Render);
-    balls = std::make_unique<BallView>(*renderer);
-    setVsync(vsync);
+    switchRenderer({wantedRenderer, wantedApi, renderGpuPreference});
 }
 
 void App::applyPendingRenderAdapter() {
@@ -269,24 +248,102 @@ void App::applyPendingRenderAdapter() {
     }
     const int wanted = *pendingRenderAdapter;
     pendingRenderAdapter.reset();
-    if (wanted == activeRenderAdapter || wanted < 0 || wanted >= static_cast<int>(renderAdapterList.size())) {
+    if ((wanted == activeRenderAdapter && !preparingTarget) || wanted < 0 ||
+        wanted >= static_cast<int>(renderAdapterList.size())) {
+        return;
+    }
+    switchRenderer({activeRenderer, activeGraphicsApi, std::to_string(wanted)});
+}
+
+// Opening a device and building its pipelines takes up to a few hundred milliseconds, so a renderer that can be
+// prepared apart from the window is built on a worker thread while the current one keeps drawing; the frame only
+// pays for the swap-chain hand-over in adoptPreparedRenderer. Other renderers still switch on the frame.
+void App::switchRenderer(RendererTarget target) {
+    if (preparing.valid()) {
+        // The future of a std::async waits in its destructor, so an abandoned build finishes on its own thread.
+        std::thread([abandoned = std::move(preparing)]() mutable { retireRenderer(abandoned.get().renderer); }).detach();
+    }
+    preparingTarget.reset();
+    if (!renderer || !renderer->supportsDeferredAttach()) {
+        switchRendererNow(target);
+        return;
+    }
+    preparingTarget = target;
+    SDL_Window* targetWindow = window;
+    preparing = std::async(std::launch::async, [targetWindow, target] {
+        PreparedRenderer prepared;
+        prepared.renderer =
+            prepareRenderer(targetWindow, target.renderer, target.api, target.gpuPreference, prepared.error);
+        if (prepared.renderer) {
+            prepared.adapters = enumerateGpuAdapters(adapterApiFor(target.renderer, target.api));
+        }
+        return prepared;
+    });
+}
+
+void App::adoptPreparedRenderer() {
+    if (!preparing.valid() || preparing.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+        return;
+    }
+    PreparedRenderer prepared = preparing.get();
+    const RendererTarget target = *preparingTarget;
+    preparingTarget.reset();
+    if (!prepared.renderer) {
+        // This renderer cannot be prepared apart from the window, or preparing it failed: the frame-blocking path
+        // either builds it or reports why not.
+        if (prepared.error.empty()) {
+            switchRendererNow(target);
+        } else {
+            SDL_Log("Could not switch renderer to %s (%s) on GPU %s: %s", target.renderer.c_str(), target.api.c_str(),
+                    target.gpuPreference.c_str(), prepared.error.c_str());
+            showToast("Could not switch the renderer: " + prepared.error, true);
+        }
         return;
     }
     const bool vsync = isVsyncEnabled();
-    const std::string previousPreference = renderGpuPreference;
-    const std::string wantedPreference = std::to_string(wanted);
+    balls.reset();
+    renderer->detachFromWindow();
+    std::string error;
+    if (!prepared.renderer->attachToWindow(error)) {
+        SDL_Log("Could not attach renderer %s (%s): %s", target.renderer.c_str(), target.api.c_str(), error.c_str());
+        retireRenderer(std::move(prepared.renderer));
+        std::string reattachError;
+        if (!renderer->attachToWindow(reattachError)) {
+            running = false;
+            return;
+        }
+        showToast("Could not switch the renderer: " + error, true);
+    } else {
+        retireRenderer(std::exchange(renderer, std::move(prepared.renderer)));
+        useRenderer(target, std::move(prepared.adapters));
+    }
+    balls = std::make_unique<BallView>(*renderer);
+    setVsync(vsync);
+}
+
+void App::useRenderer(const RendererTarget& target, std::vector<GpuAdapterInfo> adapters) {
+    activeRenderer = target.renderer;
+    activeGraphicsApi = target.api;
+    renderGpuPreference = target.gpuPreference;
+    renderAdapterList = std::move(adapters);
+    activeRenderAdapter = selectGpuAdapter(renderAdapterList, renderGpuPreference, GpuRole::Render);
+    SDL_Log("Switched renderer to %s (%s) on %s", activeRenderer.c_str(), activeGraphicsApi.c_str(),
+            renderer->deviceDescription().c_str());
+}
+
+void App::switchRendererNow(const RendererTarget& target) {
+    const bool vsync = isVsyncEnabled();
+    const RendererTarget previous{activeRenderer, activeGraphicsApi, renderGpuPreference};
     balls.reset();
     renderer.reset();
     std::string error;
-    renderer = createRenderer(window, activeRenderer, activeGraphicsApi, wantedPreference, error);
+    renderer = createRenderer(window, target.renderer, target.api, target.gpuPreference, error);
     if (renderer) {
-        renderGpuPreference = wantedPreference;
-        activeRenderAdapter = wanted;
-        SDL_Log("Rendering on %s", renderAdapterList[static_cast<size_t>(wanted)].name.c_str());
+        useRenderer(target, enumerateGpuAdapters(adapterApiFor(target.renderer, target.api)));
     } else {
-        std::string ignored;
-        renderer = createRenderer(window, activeRenderer, activeGraphicsApi, previousPreference, ignored);
-        SDL_Log("Could not render on %s: %s", renderAdapterList[static_cast<size_t>(wanted)].name.c_str(), error.c_str());
+        SDL_Log("Could not switch renderer to %s (%s): %s", target.renderer.c_str(), target.api.c_str(), error.c_str());
+        std::string fallbackError;
+        renderer = createRenderer(window, previous.renderer, previous.api, previous.gpuPreference, fallbackError);
     }
     if (!renderer) {
         running = false;
@@ -294,6 +351,13 @@ void App::applyPendingRenderAdapter() {
     }
     balls = std::make_unique<BallView>(*renderer);
     setVsync(vsync);
+}
+
+// Destroying a device waits for its GPU work and frees its memory, so a retired renderer goes on its own thread.
+void App::retireRenderer(std::unique_ptr<IRenderer> retired) {
+    if (retired) {
+        std::thread([doomed = std::move(retired)]() mutable { doomed.reset(); }).detach();
+    }
 }
 
 void App::applyOrientationToWindow() {
@@ -569,6 +633,7 @@ bool App::frame() {
                     renderer->lastFramePresented() ? 1.0 : 0.0, renderer->lastPresentWaitMs()});
     applyPendingRenderAdapter();
     applyPendingRendererSwitch();
+    adoptPreparedRenderer();
     applyPendingScreen();
     return running;
 }

@@ -85,11 +85,14 @@ nvrhi::BindingLayoutHandle createSpaceLayout(nvrhi::IDevice* device, nvrhi::Shad
 
 class NvrhiRenderer final : public IRenderer {
 public:
-    NvrhiRenderer(SDL_Window* window, std::unique_ptr<GraphicsDevice> graphics)
-        : window(window), graphics(std::move(graphics)), device(this->graphics->device()) {}
+    NvrhiRenderer(SDL_Window* window, std::unique_ptr<GraphicsDevice> graphics, GraphicsApi api)
+        : window(window), api(api), graphics(std::move(graphics)), device(this->graphics->device()) {}
     ~NvrhiRenderer() override;
 
-    bool initialize(GraphicsApi api, std::string& error);
+    bool prepare(std::string& error);
+    bool supportsDeferredAttach() const override { return true; }
+    bool attachToWindow(std::string& error) override;
+    void detachFromWindow() override;
     bool beginFrame() override;
     void drawRects(std::span<const RendererRect> rects) override;
     void drawBalls(const BallDrawRequest& request) override;
@@ -121,6 +124,7 @@ private:
     void captureScreenshot();
 
     SDL_Window* window;
+    GraphicsApi api;
     std::unique_ptr<GraphicsDevice> graphics;
     nvrhi::IDevice* device;
     nvrhi::CommandListHandle commandList;
@@ -196,10 +200,8 @@ private:
 };
 
 NvrhiRenderer::~NvrhiRenderer() {
+    detachFromWindow();
     device->waitForIdle();
-    if (imguiReady) {
-        ImGui_ImplSDL3_Shutdown();
-    }
 }
 
 bool NvrhiRenderer::createPipelines(std::string& error) {
@@ -261,7 +263,7 @@ bool NvrhiRenderer::createPipelines(std::string& error) {
     return true;
 }
 
-bool NvrhiRenderer::initialize(GraphicsApi api, std::string& error) {
+bool NvrhiRenderer::prepare(std::string& error) {
     commandList = device->createCommandList();
     ballUploadList = device->createCommandList();
     for (size_t slot = 0; slot < framesInFlight; ++slot) {
@@ -278,18 +280,37 @@ bool NvrhiRenderer::initialize(GraphicsApi api, std::string& error) {
     ensureBuffer(winnerBuffer, winnerCapacity, initialBallCapacity * storageWord, storageWord, true, false, "winners");
     ensureBuffer(visibleBuffer, visibleCapacity, initialBallCapacity * storageWord, storageWord, true, false, "visible balls");
     ensureBuffer(argumentBuffer, argumentCapacity, drawArgumentWords * storageWord, storageWord, true, true, "draw arguments");
-    if (api == GraphicsApi::Vulkan) {
-        ImGui_ImplSDL3_InitForVulkan(window);
-    } else {
-        ImGui_ImplSDL3_InitForD3D(window);
-    }
-    imguiReady = true;
     if (!imgui.initialize(device, framebuffer)) {
         error = "ImGui NVRHI pipeline creation failed";
         return false;
     }
     graphics->setVsync(true);
     return true;
+}
+
+bool NvrhiRenderer::attachToWindow(std::string& error) {
+    if (!graphics->attach(error)) {
+        return false;
+    }
+    if (api == GraphicsApi::Vulkan) {
+        ImGui_ImplSDL3_InitForVulkan(window);
+    } else {
+        ImGui_ImplSDL3_InitForD3D(window);
+    }
+    imgui.bindToContext();
+    imguiReady = true;
+    return true;
+}
+
+void NvrhiRenderer::detachFromWindow() {
+    if (!imguiReady) {
+        return;
+    }
+    device->waitForIdle();
+    imgui.releaseContext();
+    ImGui_ImplSDL3_Shutdown();
+    imguiReady = false;
+    graphics->detach();
 }
 
 void NvrhiRenderer::ensureRenderTarget() {
@@ -610,8 +631,8 @@ std::unique_ptr<IRenderer> createNvrhiRenderer(SDL_Window* window, GraphicsApi a
     if (!graphics) {
         return nullptr;
     }
-    auto renderer = std::make_unique<NvrhiRenderer>(window, std::move(graphics));
-    if (!renderer->initialize(api, error)) {
+    auto renderer = std::make_unique<NvrhiRenderer>(window, std::move(graphics), api);
+    if (!renderer->prepare(error)) {
         return nullptr;
     }
     return renderer;

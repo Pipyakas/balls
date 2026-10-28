@@ -7,9 +7,11 @@ struct ImTextureData;
 
 class ImguiNvrhi {
 public:
-    ~ImguiNvrhi();
-
+    // Creates the device objects; touches no ImGui state, so it may run off the UI thread.
     bool initialize(nvrhi::IDevice* device, nvrhi::IFramebuffer* framebuffer);
+    // Registers as ImGui's renderer, and lets go of every texture ImGui handed it; both on the UI thread.
+    void bindToContext();
+    void releaseContext();
     void updateTextures(nvrhi::ICommandList* commandList, ImDrawData* drawData);
     void render(nvrhi::ICommandList* commandList, ImDrawData* drawData, nvrhi::IFramebuffer* framebuffer);
 

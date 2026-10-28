@@ -25,7 +25,12 @@ struct TextureBinding {
 
 }
 
-ImguiNvrhi::~ImguiNvrhi() {
+void ImguiNvrhi::bindToContext() {
+    ImGui::GetIO().BackendRendererName = "balls_nvrhi";
+    ImGui::GetIO().BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset | ImGuiBackendFlags_RendererHasTextures;
+}
+
+void ImguiNvrhi::releaseContext() {
     for (ImTextureData* texture : ImGui::GetPlatformIO().Textures) {
         destroyTexture(texture);
     }
@@ -82,8 +87,6 @@ bool ImguiNvrhi::initialize(nvrhi::IDevice* targetDevice, nvrhi::IFramebuffer* f
     pipelineDesc.renderState.rasterState.setCullNone().setScissorEnable(true);
     pipelineDesc.renderState.depthStencilState.setDepthTestEnable(false).setDepthWriteEnable(false);
     pipeline = device->createGraphicsPipeline(pipelineDesc, framebuffer->getFramebufferInfo());
-    ImGui::GetIO().BackendRendererName = "balls_nvrhi";
-    ImGui::GetIO().BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset | ImGuiBackendFlags_RendererHasTextures;
     return pipeline != nullptr;
 }
 

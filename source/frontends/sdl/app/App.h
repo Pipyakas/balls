@@ -17,6 +17,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <future>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -86,9 +87,26 @@ public:
     }
 
 private:
+    // A renderer, graphics API and render GPU to switch to.
+    struct RendererTarget {
+        std::string renderer;
+        std::string api;
+        std::string gpuPreference;
+    };
+    struct PreparedRenderer {
+        std::unique_ptr<IRenderer> renderer;
+        std::string error;
+        std::vector<GpuAdapterInfo> adapters;
+    };
+
     bool openWindowAndRenderer(const LaunchOptions& options, std::string_view api, std::string& error);
     void applyPendingRenderAdapter();
     void applyPendingRendererSwitch();
+    void switchRenderer(RendererTarget target);
+    void switchRendererNow(const RendererTarget& target);
+    void adoptPreparedRenderer();
+    void useRenderer(const RendererTarget& target, std::vector<GpuAdapterInfo> adapters);
+    static void retireRenderer(std::unique_ptr<IRenderer> retired);
     using Clock = std::chrono::steady_clock;
 
     struct Toast {
@@ -142,5 +160,8 @@ private:
     int activeRenderAdapter = -1;
     std::optional<int> pendingRenderAdapter;
     std::optional<std::pair<std::string, std::string>> pendingRendererSwitch;
+    // A renderer being prepared on a worker thread while the current one keeps drawing.
+    std::optional<RendererTarget> preparingTarget;
+    std::future<PreparedRenderer> preparing;
     Clock::time_point previousUpdateStart = Clock::now();
 };
