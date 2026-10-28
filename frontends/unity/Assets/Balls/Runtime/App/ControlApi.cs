@@ -372,6 +372,7 @@ namespace Balls.App
                         Error(request, 400, "layout must be auto, landscape or portrait");
                         return;
                 }
+                app.ApplyOrientation();
                 app.Get<Screens.GameplayScreen>().RefreshLayout();
             }
             if (query.TryGetValue("backend", out string backend))
