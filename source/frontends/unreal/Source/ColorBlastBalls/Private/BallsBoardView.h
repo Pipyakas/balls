@@ -34,6 +34,8 @@ public:
 private:
     void SpawnScene();
     void RebuildBricks(const BrickBoard& Board);
+    // Backdrop, outside field and walls depend only on the board size, not on its bricks.
+    void UpdateStaticScene(const BrickBoard& Board);
     void FrameCamera(const BrickBoard& Board, const FBallsGameplayLayout& Layout, FVector2D ViewportSize);
 
     UWorld* World = nullptr;
@@ -49,6 +51,9 @@ private:
     FBallsRenderer BallRenderer;
     float BallBrightness = 2.2f;
     uint64 BuiltRevision = ~0ull;
+    int BuiltColumns = -1;
+    int BuiltRows = -1;
+    double LastBrickRebuild = 0.0;
     bool bBricksAnimating = false;
     bool bVisible = false;
 };

@@ -37,11 +37,15 @@
 #include "UI/SBallsMenus.h"
 #include "UI/SBallsRoot.h"
 
+#include <fstream>
+#include <sstream>
+
 namespace {
 
 constexpr int32 RootZOrder = 10;
 // "First launch": the Main menu opens 1.5 s after the last backend finished, so the winner stays readable.
 constexpr double BenchmarkAdvanceSeconds = 1.5;
+constexpr float MaximumFrameSeconds = 0.1f;
 
 #if PLATFORM_ANDROID
 // Android keeps non-UFS files inside the APK, and balls_core reads levels with std::filesystem.
@@ -120,17 +124,29 @@ std::filesystem::path SettingsFile() {
     return std::filesystem::path(TCHAR_TO_UTF8(*Path));
 }
 
-std::optional<BackendKind> SavedBackend() {
-    FString Name;
-    if (!GConfig || !GConfig->GetString(PreferencesSection, TEXT("Backend"), Name, GGameUserSettingsIni)) {
-        return std::nullopt;
-    }
+std::optional<BackendKind> AvailableBackendNamed(const std::string& Name) {
     for (const BackendKind Kind : allBackendKinds) {
-        if (Name.Equals(BallsText::FromUtf8(backendKindName(Kind)), ESearchCase::IgnoreCase) && isBackendAvailable(Kind)) {
+        if (Name == backendKindName(Kind) && isBackendAvailable(Kind)) {
             return Kind;
         }
     }
     return std::nullopt;
+}
+
+// The scoring machine's machine-benchmark record ships with the assets, so the game starts on the backend that is
+// fastest where it is judged ("Default backend and machine benchmark").
+std::optional<BackendKind> TargetMachineBackend(const std::filesystem::path& AssetRoot) {
+    std::ifstream File(AssetRoot / "target-benchmark.txt", std::ios::binary);
+    if (!File) {
+        return std::nullopt;
+    }
+    std::stringstream Text;
+    Text << File.rdbuf();
+    const std::optional<BenchmarkRecord> Record = parseBenchmarkRecord(Text.str());
+    if (!Record || !Record->winner) {
+        return std::nullopt;
+    }
+    return AvailableBackendNamed(std::string(backendKindName(Record->winner->kind)));
 }
 
 // The Unreal port owns this one: the design has no graphics level, but its post chain costs more than the scene.
@@ -159,14 +175,22 @@ bool SavedVSync() {
     return bEnabled;
 }
 
-BackendKind InitialBackend() {
+// The command line wins, then the Settings default (this machine's own benchmark winner or the player's pick), then
+// the scoring machine's winner, then the fastest CPU backend, skipping any that cannot load on this machine.
+BackendKind StartupBackend(const std::string& SettingsDefault, const std::filesystem::path& AssetRoot) {
 #if PLATFORM_WINDOWS && defined(BALLS_PLUGIN_DIR)
     AddPhysicsPluginDirectory();
 #endif
     if (const std::optional<BackendKind> Requested = BackendFromCommandLine()) {
         return *Requested;
     }
-    return SavedBackend().value_or(fastestAvailableCpuBackend());
+    if (const std::optional<BackendKind> Saved = AvailableBackendNamed(SettingsDefault)) {
+        return *Saved;
+    }
+    if (const std::optional<BackendKind> Target = TargetMachineBackend(AssetRoot)) {
+        return *Target;
+    }
+    return fastestAvailableCpuBackend();
 }
 
 // The control API answers JSON, so level names and toasts have to be escaped.
@@ -200,8 +224,18 @@ FString EscapeJson(const FString& Text) {
 }
 
 FBallsApp::FBallsApp(UWorld* InWorld)
-    : World(InWorld), PreferredBackend(InitialBackend()), CurrentSettings(loadSettings(SettingsFile())),
-      bVSync(SavedVSync()), GraphicsQuality(SavedGraphics()) {
+    : World(InWorld), CurrentSettings(loadSettings(SettingsFile())), bVSync(SavedVSync()),
+      GraphicsQuality(SavedGraphics()) {
+#if PLATFORM_ANDROID
+    StageAndroidLevels();
+#endif
+    PreferredBackend = StartupBackend(CurrentSettings.defaultBackend, AssetRoot());
+    // Loading a plugin (and the first CUDA or Vulkan device) takes hundreds of milliseconds to seconds, and the
+    // gameplay HUD asks about every backend when a level opens. Do it once here, while the Main menu is still
+    // coming up, instead of freezing the first level start.
+    for (const BackendKind Kind : allBackendKinds) {
+        isBackendAvailable(Kind);
+    }
     BoardView = MakeUnique<FBallsBoardView>(World);
     Root = SNew(SBallsRoot)
                .OnKey_Lambda([this](const FKey& Key) { return HandleKey(Key); })
@@ -233,9 +267,6 @@ FBallsApp::FBallsApp(UWorld* InWorld)
         }
 #endif
     }
-#if PLATFORM_ANDROID
-    StageAndroidLevels();
-#endif
     ApplyOrientation();
     ShowMainMenu();
 
@@ -274,18 +305,9 @@ FBallsApp::FBallsApp(UWorld* InWorld)
             Gameplay->SetSettingsOpen(Screen == TEXT("pause-settings"));
         }
     }
-    // "First launch: machine benchmark": the first run on a machine measures every backend before the Main menu
-    // so the target PC starts on its best one. -BallsPlay, -BallsBackend and -BallsSkipBenchmark state their own
-    // choice and never measure.
+    // "Default backend and machine benchmark": the game opens straight on the Main menu and never measures by
+    // itself; Settings > Run machine benchmark measures this machine on demand.
     Benchmark.LoadRecord();
-    FString ChosenBackend;
-    const bool bChoiceOnCommandLine =
-        FParse::Param(FCommandLine::Get(), TEXT("BallsSkipBenchmark")) ||
-        FParse::Value(FCommandLine::Get(), TEXT("BallsPlay="), Play) ||
-        FParse::Value(FCommandLine::Get(), TEXT("BallsBackend="), ChosenBackend);
-    if (!bChoiceOnCommandLine && CurrentScreen == EScreen::MainMenu && Benchmark.NeedsRun()) {
-        ShowBenchmark();
-    }
 
     // -BallsControlPort=<port> serves the control API; nothing listens unless a port is given, like SDL's
     // --control-port.
@@ -306,7 +328,7 @@ FBallsApp::~FBallsApp() {
     BoardView.Reset();
 }
 
-std::filesystem::path FBallsApp::LevelDirectory(GameMode Mode) const {
+std::filesystem::path FBallsApp::AssetRoot() const {
     std::filesystem::path Assets(BALLS_ASSET_DIR);
     if (!std::filesystem::exists(Assets / "levels")) {
         Assets = std::filesystem::path(*FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("assets")));
@@ -335,7 +357,11 @@ std::filesystem::path FBallsApp::LevelDirectory(GameMode Mode) const {
         }
     }
 #endif
-    return Assets / "levels" / (Mode == GameMode::Normal ? "normal" : "performance");
+    return Assets;
+}
+
+std::filesystem::path FBallsApp::LevelDirectory(GameMode Mode) const {
+    return AssetRoot() / "levels" / (Mode == GameMode::Normal ? "normal" : "performance");
 }
 
 void FBallsApp::SetScreen(EScreen Screen, TSharedRef<SWidget> Content) {
@@ -463,10 +489,10 @@ FString FBallsApp::GetBenchmarkWinnerLabel() const {
 
 void FBallsApp::SetPreferredBackend(BackendKind Kind) {
     PreferredBackend = Kind;
-    if (GConfig) {
-        GConfig->SetString(PreferencesSection, TEXT("Backend"), *BallsText::FromUtf8(backendKindName(Kind)),
-                           GGameUserSettingsIni);
-        GConfig->Flush(false, GGameUserSettingsIni);
+    // The default backend is a core setting, shared with the SDL front end's Settings page.
+    CurrentSettings.defaultBackend = std::string(backendKindName(Kind));
+    if (const Result<void> Saved = saveSettings(SettingsFile(), CurrentSettings); !Saved) {
+        UE_LOG(LogTemp, Warning, TEXT("BallsSettings: %s"), *BallsText::FromUtf8(Saved.error()));
     }
 }
 
@@ -588,6 +614,7 @@ void FBallsApp::RecordFrame(float DeltaSeconds) {
     Sample.GameMs = FPlatformTime::ToMilliseconds(GGameThreadTime);
     Sample.RenderMs = FPlatformTime::ToMilliseconds(GRenderThreadTime);
     Sample.GpuMs = FPlatformTime::ToMilliseconds(RHIGetGPUFrameCycles(0));
+    Sample.IdleMs = FApp::GetIdleTime() * 1000.0;
     LatestSample = Sample;
     FrameTimings.Record(Sample);
 }
@@ -623,7 +650,9 @@ void FBallsApp::Tick(float DeltaSeconds) {
     // Hold a reference: the tick can open the next level, which replaces Gameplay.
     const TSharedPtr<FBallsGameplay> Current = Gameplay;
     // Probe windows use the limiting CPU/GPU work rate, not cadence imposed by VSync or the compositor.
-    Current->Tick(DeltaSeconds, LatestSample.WorkMs() / 1000.0, LatestSample.WorkMs() / 1000.0);
+    // After a hitch the spawn budget and brick animation must not jump by the whole stall: clamp like the SDL front end.
+    Current->Tick(FMath::Min(DeltaSeconds, MaximumFrameSeconds), LatestSample.WorkMs() / 1000.0,
+                  LatestSample.WorkMs() / 1000.0);
     GameSession* Session = Current->GetSession();
     const FGeometry& Geometry = Root->GetCachedGeometry();
     const FVector2D ViewportSize = Geometry.GetLocalSize();
@@ -677,14 +706,17 @@ FString FBallsApp::BuildControlStateJson() const {
         Details = FString::Printf(
             TEXT("{\"mode\":\"%s\",\"level\":\"%s\",\"state\":\"%s\",\"paused\":%s,\"balls\":%llu,")
             TEXT("\"bricks\":%d,\"launchersLeft\":%d,\"physicsMs\":%.2f,\"ticks\":%d,\"spawnRate\":%d,")
-            TEXT("\"ballLimit\":%llu,\"elapsed\":%.2f}"),
+            TEXT("\"ballLimit\":%llu,\"elapsed\":%.2f,")
+            TEXT("\"probe\":{\"phase\":\"%s\",\"target\":%.0f,\"fps\":%.1f,\"best\":%llu}}"),
             Gameplay->GetMode() == GameMode::Performance ? TEXT("performance") : TEXT("normal"),
             *EscapeJson(BallsText::FromUtf8(Gameplay->GetFiles().name)),
             StateNames[FMath::Clamp(StateIndex, 0, 2)], Gameplay->IsPaused() ? TEXT("true") : TEXT("false"),
             static_cast<unsigned long long>(Sim.stats().ballCount), Sim.board().aliveBrickCount(),
             Session.launchers().launcherCount(), Sim.stats().lastFramePhysicsMs, Sim.stats().ticksLastFrame,
             spawnRateOptions[Session.spawnRateIndex()], static_cast<unsigned long long>(Session.ballLimit()),
-            Session.elapsedSeconds());
+            Session.elapsedSeconds(), ANSI_TO_TCHAR(probePhaseName(Session.capacityProbe().phase())),
+            Session.capacityProbe().targetFps(), Session.capacityProbe().lastFps(),
+            static_cast<unsigned long long>(Session.capacityProbe().bestPassingCount()));
     }
 
     const FString ToastText = Toast.SecondsLeft > 0.0f ? Toast.Text : FString();
@@ -805,10 +837,10 @@ void FBallsApp::HandleControl(const FString& Path, const TMap<FString, FString>&
             return;
         }
         if (IntParam(TEXT("cancel"), 0) != 0) {
-            Gameplay->ToggleCapacityProbe();
+            Gameplay->CancelCapacityProbe();
         } else {
             Gameplay->SetProbeTargetFps(IntParam(TEXT("fps"), Gameplay->GetProbeTargetFps()));
-            Gameplay->ToggleCapacityProbe();
+            Gameplay->StartCapacityProbe();
         }
         OutBody = FString::Printf(TEXT("{\"ok\":true,\"target\":%d}"), Gameplay->GetProbeTargetFps());
         return;

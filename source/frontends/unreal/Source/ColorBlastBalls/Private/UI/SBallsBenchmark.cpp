@@ -32,7 +32,8 @@ constexpr double BallStepsPerMillion = 1'000'000.0;
 FString ResultText(const CandidateResult& Result) {
     switch (Result.status) {
     case CandidateStatus::Done:
-        return FString::Printf(TEXT("%.0f balls @60 FPS  %.0f M ball-steps/s"), Result.estimatedBalls,
+        return FString::Printf(TEXT("%s balls at 60 FPS   %.0f M ball-steps/s"),
+                               *BallsText::FromUtf8(shortBallCount(Result.estimatedBalls)),
                                Result.ballStepsPerSecond / BallStepsPerMillion);
     case CandidateStatus::Failed:
         return FString::Printf(TEXT("failed: %s"), *BallsText::FromUtf8(Result.failure));
@@ -97,7 +98,7 @@ void SBallsBenchmark::Construct(const FArguments& InArgs) {
         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 36.0f)
         [
             SNew(STextBlock)
-            .Text(FText::FromString(TEXT("Measuring each physics backend once. This only happens on first launch.")))
+            .Text(FText::FromString(TEXT("Measuring each physics backend on this machine.")))
             .Font(BallsStyle::Font(SubtitleSize))
             .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
         ]

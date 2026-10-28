@@ -4,6 +4,8 @@
 #include "BallsGameplay.h"
 #include "BallsPalette.h"
 #include "BallsText.h"
+#include "DynamicRHI.h"
+#include "RHI.h"
 #include "Rendering/DrawElements.h"
 #include "UI/BallsStyle.h"
 #include "UI/SBallsMenus.h"
@@ -200,6 +202,21 @@ FSlateRect BrickLabelArea(const Brick& Piece, const FBallsGameplayLayout& Layout
     }
     const FVector2D TopLeft = Layout.BoardToScreen(static_cast<float>(Nearest->column), static_cast<float>(Nearest->row) + Rise);
     return FSlateRect(TopLeft, TopLeft + FVector2D(Layout.CellSize));
+}
+
+// backendDetail takes the plugin lock and may build adapter text, so the panel asks for it twice a second at most.
+FString CachedBackendDetail(BackendKind Kind) {
+    constexpr double RefreshSeconds = 0.5;
+    static BackendKind CachedKind = BackendKind::Scalar;
+    static double CachedAt = -1.0e9;
+    static FString Cached;
+    const double Now = FPlatformTime::Seconds();
+    if (Kind != CachedKind || Now - CachedAt >= RefreshSeconds) {
+        Cached = BallsText::FromUtf8(backendDetail(Kind));
+        CachedKind = Kind;
+        CachedAt = Now;
+    }
+    return Cached;
 }
 
 FLinearColor FpsColor(double Fps) {
@@ -706,8 +723,10 @@ private:
                                                       Probe.lastFps(), Probe.targetFps()));
         }
         Writer.Row(TEXT("Backend"), BallsText::FromUtf8(backendKindName(Session.backend())));
-        if (const std::string Detail = backendDetail(Session.backend()); !Detail.empty()) {
-            Writer.Row(TEXT("Device"), BallsText::FromUtf8(Detail));
+        Writer.Row(TEXT("Renderer"), FString::Printf(TEXT("Unreal / %s / %s"), GDynamicRHI ? GDynamicRHI->GetName() : TEXT("RHI"),
+                                                     *GRHIAdapterName));
+        if (const FString Detail = CachedBackendDetail(Session.backend()); !Detail.IsEmpty()) {
+            Writer.Row(TEXT("Device"), Detail);
         }
         const Simulation& Sim = Session.simulation();
         Writer.Row(TEXT("Ball collisions"), !Sim.ballCollisionsRequested()  ? FString(TEXT("Off"))
@@ -729,12 +748,12 @@ private:
         Writer.Row(TEXT("Waiting to spawn"), BallsText::Grouped(Session.spawner().pendingBalls()));
         if (Session.mode() == GameMode::Performance) {
             const BallCount Limit = Session.ballLimit();
-            Writer.Row(TEXT("Ball limit"), Session.isUsingMachineBallLimit()
-                                               ? TEXT("Auto ") + BallsText::Grouped(Limit)
-                                               : Gameplay->IsAutoLimitPending()
-                                                     ? FString(TEXT("Auto (probe needed)"))
-                                                     : (Limit == unlimitedBalls ? FString(TEXT("Max (2^64-1)"))
-                                                                                : BallsText::Grouped(Limit)));
+            const std::optional<BallCount> Measured = Session.machineBallLimit();
+            const FString Resolved = Measured ? TEXT("Auto ") + BallsText::Grouped(*Measured)
+                                              : FString(TEXT("Auto (probe needed)"));
+            Writer.Row(TEXT("Ball limit"), Session.isUsingMachineBallLimit() ? Resolved
+                                           : Limit == unlimitedBalls          ? FString(TEXT("Max (2^64-1)"))
+                                                                              : BallsText::Grouped(Limit));
         }
     }
 
@@ -793,15 +812,20 @@ FText LabelText(const FString& Text) { return FText::FromString(Text); }
 }
 
 FBallsGameplayLayout SBallsGameplayHud::CurrentLayout() const {
+    if (LayoutFrame == GFrameCounter) {
+        return CachedLayout;
+    }
+    LayoutFrame = GFrameCounter;
     const FGeometry& Geometry = GetCachedGeometry();
     const FVector2D Size = Geometry.GetLocalSize();
     const float DpiScale = Geometry.GetAccumulatedLayoutTransform().GetScale();
     const GameSession* Session = Gameplay->GetSession();
     const int32 LauncherRows =
         Gameplay->GetMode() == GameMode::Normal && Session ? Session->launchers().visibleRows() : 0;
-    return Session ? ComputeGameplayLayout(Size, Session->simulation().board().columns(),
-                                           Session->simulation().board().rows(), DpiScale, LauncherRows)
-                   : ComputeGameplayLayout(Size, 1, 1, DpiScale, LauncherRows);
+    CachedLayout = Session ? ComputeGameplayLayout(Size, Session->simulation().board().columns(),
+                                                   Session->simulation().board().rows(), DpiScale, LauncherRows)
+                           : ComputeGameplayLayout(Size, 1, 1, DpiScale, LauncherRows);
+    return CachedLayout;
 }
 
 void SBallsGameplayHud::Construct(const FArguments& InArgs) {
@@ -941,30 +965,6 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
         [Game] { Game->StartAutoRelease(); }, 16.0f,
         TAttribute<bool>::CreateLambda([Session] { return Session() && Session()->state() == SessionState::Ready; })));
 
-    AddLabel(TEXT("Capacity probe"));
-    AddRow(BallsWidgets::Stepper([Game] { return Game->GetProbeTargetFps(); },
-                                 [Game](int32 Fps) { Game->SetProbeTargetFps(Fps); },
-                                 FBallsGameplay::MinimumProbeTargetFps, FBallsGameplay::MaximumProbeTargetFps),
-           false);
-    AddRow(BallsWidgets::Button(
-        TAttribute<FText>::CreateLambda([Session] {
-            const GameSession* Current = Session();
-            if (!Current) {
-                return FText::GetEmpty();
-            }
-            const CapacityProbe& Probe = Current->capacityProbe();
-            if (Probe.isActive()) {
-                return LabelText(FString::Printf(TEXT("Probing... %s, %.0f"),
-                                                 *BallsText::Grouped(Current->simulation().liveBallCount()), Probe.lastFps()));
-            }
-            if (Probe.phase() == ProbePhase::Done) {
-                return LabelText(FString::Printf(TEXT("Max @%.0f FPS: %s"), Probe.targetFps(),
-                                                 *BallsText::Grouped(Probe.bestPassingCount())));
-            }
-            return LabelText(TEXT("Find max balls"));
-        }),
-        [Game] { Game->ToggleCapacityProbe(); }, 18.0f));
-
     AddLabel(TEXT("Spawn / sec"));
     TArray<FString> RateNames;
     for (const int32 Rate : spawnRateOptions) {
@@ -983,7 +983,9 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
                                   [Game](int32 Index) { Game->SelectBallMultiplier(Index); }),
            false);
 
-    // The first entry is Auto (the probe result for this machine); the rest are the fixed limits.
+    // The first entry is Auto (the probe result for this machine); the rest are the fixed limits. Every Performance
+    // game starts on Auto. While Auto is chosen, a Target FPS stepper and a muted status line sit under the dropdown;
+    // there is no separate probe button.
     AddLabel(TEXT("Ball limit"));
     TArray<FString> LimitNames;
     LimitNames.Add(TEXT("Auto"));
@@ -992,18 +994,43 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
     }
     AddRow(BallsWidgets::Dropdown(
                LimitNames,
-               [Session] {
-                   const GameSession* Current = Session();
-                   return !Current ? 0 : Current->isUsingMachineBallLimit() ? 0 : Current->ballLimitIndex() + 1;
-               },
+               [Game] { return !Game->GetSession() ? 0 : Game->IsAutoLimit() ? 0 : Game->GetSession()->ballLimitIndex() + 1; },
                [Game](int32 Index) {
                    if (Index == 0) {
-                       Game->SelectMachineLimit();
+                       Game->UseAutoBallLimit();
                    } else {
                        Game->SelectBallLimit(Index - 1);
                    }
                }),
            false);
+    Column->AddSlot().AutoHeight()
+    [
+        SNew(SVerticalBox)
+        .Visibility_Lambda([Game] { return Game->IsAutoLimit() ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed; })
+        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 4.0f)
+        [
+            SNew(STextBlock)
+            .Text(LabelText(TEXT("Target FPS")))
+            .Font(BallsStyle::Font(15.0f))
+            .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
+        ]
+        + SVerticalBox::Slot().AutoHeight()
+        [
+            SNew(SBox).HeightOverride(ControlRowHeight)
+            [
+                BallsWidgets::Stepper([Game] { return Game->GetProbeTargetFps(); },
+                                      [Game](int32 Fps) { Game->SetProbeTargetFps(Fps); },
+                                      FBallsGameplay::MinimumProbeTargetFps, FBallsGameplay::MaximumProbeTargetFps)
+            ]
+        ]
+        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f, 0.0f, ControlGap * 0.6f)
+        [
+            SNew(STextBlock)
+            .Text_Lambda([Game] { return LabelText(Game->GetProbeStatus()); })
+            .Font(BallsStyle::Font(15.0f))
+            .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
+        ]
+    ];
 
     AddLabel(TEXT("Physics"));
     for (const BackendKind Kind : allBackendKinds) {

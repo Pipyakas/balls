@@ -26,10 +26,12 @@ void FBallsFrameTimings::Record(const FBallsFrameSample& Sample) {
         Total.GameMs += Entry.GameMs;
         Total.RenderMs += Entry.RenderMs;
         Total.GpuMs += Entry.GpuMs;
+        Total.IdleMs += Entry.IdleMs;
         WorstFrameMs = FMath::Max(WorstFrameMs, Entry.FrameMs);
         WorstWorkMs = FMath::Max(WorstWorkMs, Entry.WorkMs());
     }
     const double Count = static_cast<double>(Window.Num());
     AverageWorkMs = TotalWorkMs / Count;
-    Averaged = {Total.FrameMs / Count, Total.GameMs / Count, Total.RenderMs / Count, Total.GpuMs / Count};
+    Averaged = {Total.FrameMs / Count, Total.GameMs / Count, Total.RenderMs / Count, Total.GpuMs / Count,
+                Total.IdleMs / Count};
 }

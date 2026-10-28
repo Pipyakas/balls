@@ -25,8 +25,13 @@ constexpr double BrickDepthCells = 0.6;
 constexpr double BrickFlashPopCells = 0.25;
 constexpr double CellInset = 0.06;
 constexpr float MinimumBallPixels = 1.2f;
+constexpr double BrickAnimationInterval = 1.0 / 30.0;
 // A visibility slot this many ball radii wide keeps one drawn ball per slot; matches the SDL frontend.
 constexpr float VisibilitySlotPerRadius = 1.6f;
+// What the backends write into a visibility-grid slot no ball won (core's emptyRenderSlot).
+constexpr uint32 EmptyRenderSlot = 0xFFFFFFFFu;
+// The most balls one frame uploads and draws; a grid snapshot is far smaller, this only bounds an ungridded one.
+constexpr size_t MaximumDrawnBalls = 4'000'000;
 const TCHAR* CubePath = TEXT("/Engine/BasicShapes/Cube.Cube");
 const TCHAR* ShapeMaterialPath = TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial");
 
@@ -220,9 +225,19 @@ void FBallsBoardView::Update(const Simulation& Sim, const FBallsGameplayLayout& 
         bVisible = true;
     }
     const BrickBoard& Board = Sim.board();
-    if (Board.revision() != BuiltRevision || bBricksAnimating) {
+    // A rebuild recreates every instance buffer, so an animation (hit flash, rising bricks) steps at 30 Hz instead
+    // of every frame; a changed board still rebuilds at once.
+    const double Now = FPlatformTime::Seconds();
+    const bool bRevisionChanged = Board.revision() != BuiltRevision;
+    if (bRevisionChanged || (bBricksAnimating && Now - LastBrickRebuild >= BrickAnimationInterval)) {
         RebuildBricks(Board);
         BuiltRevision = Board.revision();
+        LastBrickRebuild = Now;
+    }
+    if (Board.columns() != BuiltColumns || Board.rows() != BuiltRows) {
+        UpdateStaticScene(Board);
+        BuiltColumns = Board.columns();
+        BuiltRows = Board.rows();
     }
     FrameCamera(Board, Layout, ViewportSize);
 }
@@ -275,7 +290,9 @@ void FBallsBoardView::RebuildBricks(const BrickBoard& Board) {
                *Bounds.ToString());
         bLoggedBricks = true;
     }
+}
 
+void FBallsBoardView::UpdateStaticScene(const BrickBoard& Board) {
     const double Columns = Board.columns();
     const double Rows = Board.rows();
     // The play field is exactly Columns x Rows cells, where the balls bounce. When it does not reach the screen
@@ -375,8 +392,34 @@ void FBallsBoardView::SubmitBalls(Simulation& Sim, const FBallsGameplayLayout& L
         return;
     }
     FBallsDrawData Data;
-    Data.Packed.SetNumUninitialized(static_cast<int32>(Snapshot.count));
-    FMemory::Memcpy(Data.Packed.GetData(), Snapshot.packed, Snapshot.count * sizeof(uint32));
+    if (Snapshot.visibilityGrid) {
+        // A grid snapshot has one word per slot and marks an unfilled slot with a sentinel that would decode as a ball
+        // in the bottom-right corner; at millions of balls the thousands of empty slots piled up there as a purple
+        // blob. Draw only the filled slots.
+        Data.Packed.Reserve(static_cast<int32>(FMath::Min<size_t>(Snapshot.count, MaximumDrawnBalls)));
+        for (size_t Slot = 0; Slot < Snapshot.count; ++Slot) {
+            if (Snapshot.packed[Slot] != EmptyRenderSlot) {
+                Data.Packed.Add(Snapshot.packed[Slot]);
+            }
+        }
+    } else {
+        // The backend did not return a grid (the first frame, or a backend without one): never copy or draw more
+        // balls than the screen can show; an even stride keeps the picture representative.
+        const size_t Drawn = FMath::Min<size_t>(Snapshot.count, MaximumDrawnBalls);
+        const size_t Stride = Snapshot.count / Drawn;
+        Data.Packed.SetNumUninitialized(static_cast<int32>(Drawn));
+        if (Stride <= 1) {
+            FMemory::Memcpy(Data.Packed.GetData(), Snapshot.packed, Drawn * sizeof(uint32));
+        } else {
+            for (size_t Index = 0; Index < Drawn; ++Index) {
+                Data.Packed[static_cast<int32>(Index)] = Snapshot.packed[Index * Stride];
+            }
+        }
+    }
+    if (Data.Packed.IsEmpty()) {
+        BallRenderer.Clear();
+        return;
+    }
     Data.UnpackScale = FVector2f(1.0f / renderPackScale(Snapshot.fieldWidth), 1.0f / renderPackScale(Snapshot.fieldHeight));
     Data.Radius = FMath::Max(Sim.tuning().ballRadius, MinimumBallPixels / FMath::Max(CellPixels, 1e-3f));
     Data.Brightness = BallBrightness;

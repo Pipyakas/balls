@@ -26,4 +26,7 @@ private:
 
     FBallsApp* App = nullptr;
     TSharedPtr<FBallsGameplay> Gameplay;
+    // Six size and position bindings read the layout every frame; it is computed once per engine frame.
+    mutable uint64 LayoutFrame = ~0ull;
+    mutable FBallsGameplayLayout CachedLayout;
 };

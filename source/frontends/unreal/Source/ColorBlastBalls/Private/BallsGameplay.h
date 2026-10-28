@@ -22,17 +22,25 @@ public:
 
     void ChooseLauncher(int32 Column, int32 Row);
     void StartAutoRelease();
-    void ToggleCapacityProbe();
+    // Auto means the most balls this machine holds at the target frame rate: the remembered probe result when it
+    // was measured at this target, otherwise a new probe. Every Performance game starts on it.
+    void UseAutoBallLimit();
+    void StartCapacityProbe();
+    void CancelCapacityProbe();
+    // True while the Auto ball limit is chosen (resolved or still probing).
+    bool IsAutoLimit() const {
+        return Session && (Session->isUsingMachineBallLimit() || Session->capacityProbe().isActive());
+    }
+    // The muted line under the Auto dropdown: running, done, or the remembered result.
+    FString GetProbeStatus() const;
     int32 GetProbeTargetFps() const { return ProbeTargetFps; }
-    void SetProbeTargetFps(int32 Fps) { ProbeTargetFps = FMath::Clamp(Fps, MinimumProbeTargetFps, MaximumProbeTargetFps); }
-    // True after picking the Auto ball limit while no probe result exists yet.
-    bool IsAutoLimitPending() const { return bAutoLimitPending && Session && !Session->machineBallLimit(); }
+    // Changing the target probes again while Auto is chosen.
+    void SetProbeTargetFps(int32 Fps);
     static constexpr int32 MinimumProbeTargetFps = 10;
     static constexpr int32 MaximumProbeTargetFps = 1000;
     void SelectSpawnRate(int32 Index);
     void SelectBallMultiplier(int32 Index);
     void SelectBallLimit(int32 Index);
-    void SelectMachineLimit();
     void SwitchBackend(BackendKind Kind);
     void Restart();
     void SetPaused(bool bInPaused) {
@@ -58,7 +66,7 @@ public:
 
 private:
     void LoadSession();
-    void ApplyRememberedMachineLimit();
+    void ApplyDefaultBallLimit();
     void OnFilesChanged();
     void ReloadFromDisk();
     void ShowToast(FString Text, bool bIsError);
@@ -73,6 +81,5 @@ private:
     EMapNotice MapNotice = EMapNotice::None;
     bool bSettingsOpen = false;
     bool bProbeResultShown = true;
-    bool bAutoLimitPending = false;
     int32 ProbeTargetFps = static_cast<int32>(defaultProbeTargetFps);
 };

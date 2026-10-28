@@ -27,16 +27,67 @@ void FBallsGameplay::LoadSession() {
     LoadError.Reset();
     Session = std::make_unique<GameSession>(Mode, std::move(*Level), App.GetPreferredBackend());
     ApplySettings();
-    ApplyRememberedMachineLimit();
+    ApplyDefaultBallLimit();
 }
 
-void FBallsGameplay::ApplyRememberedMachineLimit() {
-    if (Mode != GameMode::Performance || !Session) {
+void FBallsGameplay::ApplyDefaultBallLimit() {
+    if (Mode == GameMode::Performance && Session) {
+        UseAutoBallLimit();
+    }
+}
+
+void FBallsGameplay::UseAutoBallLimit() {
+    if (!Session) {
         return;
     }
-    if (const std::optional<FBallsApp::FMachineLimit> Limit = App.GetMachineLimit(Session->backend())) {
+    const std::optional<FBallsApp::FMachineLimit> Limit = App.GetMachineLimit(Session->backend());
+    if (Limit && static_cast<int32>(Limit->TargetFps) == ProbeTargetFps) {
+        Session->cancelCapacityProbe();
         Session->useMachineBallLimit(Limit->Balls);
+    } else {
+        StartCapacityProbe();
     }
+}
+
+void FBallsGameplay::StartCapacityProbe() {
+    if (Session) {
+        Session->startCapacityProbe(static_cast<double>(ProbeTargetFps));
+    }
+}
+
+void FBallsGameplay::CancelCapacityProbe() {
+    if (Session) {
+        Session->cancelCapacityProbe();
+    }
+}
+
+void FBallsGameplay::SetProbeTargetFps(int32 Fps) {
+    const int32 Clamped = FMath::Clamp(Fps, MinimumProbeTargetFps, MaximumProbeTargetFps);
+    if (Clamped == ProbeTargetFps) {
+        return;
+    }
+    ProbeTargetFps = Clamped;
+    if (IsAutoLimit()) {
+        StartCapacityProbe();
+    }
+}
+
+FString FBallsGameplay::GetProbeStatus() const {
+    if (!Session) {
+        return FString();
+    }
+    const CapacityProbe& Probe = Session->capacityProbe();
+    if (Probe.isActive()) {
+        return FString::Printf(TEXT("Probing... %s balls, %.0f fps"),
+                               *BallsText::Grouped(Session->simulation().liveBallCount()), Probe.lastFps());
+    }
+    if (Probe.phase() == ProbePhase::Done) {
+        return FString::Printf(TEXT("Max @%.0f FPS: %s"), Probe.targetFps(), *BallsText::Grouped(Probe.bestPassingCount()));
+    }
+    if (const std::optional<BallCount> Measured = Session->machineBallLimit()) {
+        return FString::Printf(TEXT("Max: %s"), *BallsText::Grouped(*Measured));
+    }
+    return FString();
 }
 
 void FBallsGameplay::OnFilesChanged() {
@@ -65,7 +116,7 @@ void FBallsGameplay::ReloadFromDisk() {
     } else {
         Session = std::make_unique<GameSession>(Mode, std::move(*Level), App.GetPreferredBackend());
         ApplySettings();
-        ApplyRememberedMachineLimit();
+        ApplyDefaultBallLimit();
     }
     bPaused = false;
 }
@@ -137,17 +188,6 @@ void FBallsGameplay::StartAutoRelease() {
     }
 }
 
-void FBallsGameplay::ToggleCapacityProbe() {
-    if (!Session) {
-        return;
-    }
-    if (Session->capacityProbe().isActive()) {
-        Session->cancelCapacityProbe();
-    } else {
-        Session->startCapacityProbe(static_cast<double>(ProbeTargetFps));
-    }
-}
-
 void FBallsGameplay::SelectSpawnRate(int32 Index) {
     if (Session) {
         Session->selectSpawnRate(Index);
@@ -161,21 +201,9 @@ void FBallsGameplay::SelectBallMultiplier(int32 Index) {
 }
 
 void FBallsGameplay::SelectBallLimit(int32 Index) {
-    bAutoLimitPending = false;
     if (Session) {
+        Session->cancelCapacityProbe();
         Session->selectBallLimit(Index);
-    }
-}
-
-void FBallsGameplay::SelectMachineLimit() {
-    if (!Session) {
-        return;
-    }
-    if (const std::optional<BallCount> Measured = Session->machineBallLimit()) {
-        Session->useMachineBallLimit(*Measured);
-    } else {
-        bAutoLimitPending = true;
-        Session->startCapacityProbe(static_cast<double>(ProbeTargetFps));
     }
 }
 
@@ -185,7 +213,7 @@ void FBallsGameplay::SwitchBackend(BackendKind Kind) {
     }
     const FString Name = BallsText::FromUtf8(backendKindName(Kind));
     if (Session->switchBackend(Kind)) {
-        ApplyRememberedMachineLimit();
+        ApplyDefaultBallLimit();
         ShowToast(TEXT("Backend: ") + Name, false);
     } else {
         ShowToast(FString::Printf(TEXT("%s unavailable: %s"), *Name,

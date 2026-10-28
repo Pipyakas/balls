@@ -7,8 +7,15 @@ struct FBallsFrameSample {
     double GameMs = 0.0;
     double RenderMs = 0.0;
     double GpuMs = 0.0;
+    // Time the engine slept to hold a frame-rate cap (t.MaxFPS): the one wait that is not the game's own work.
+    double IdleMs = 0.0;
 
-    double WorkMs() const { return FMath::Max3(GameMs, RenderMs, GpuMs); }
+    // What the frame costs the machine when nothing makes it wait for the display: the limiting thread, or the whole
+    // frame minus the cap's sleep when that is longer. The thread times alone would hide a stall (memory paging, a
+    // long core step on a worker) that makes the real frame far longer than any thread was busy.
+    double WorkMs() const {
+        return FMath::Max(FMath::Max3(GameMs, RenderMs, GpuMs), FMath::Max(0.0, FrameMs - IdleMs));
+    }
 };
 
 // Rolling one-second window of frame timings. Mirrors frontends/raylib/app/FrameTimings.

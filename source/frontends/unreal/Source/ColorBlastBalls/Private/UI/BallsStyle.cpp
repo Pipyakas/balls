@@ -26,15 +26,24 @@ FString FontFile(const TCHAR* Name) {
 }
 
 FSlateFontInfo Font(float Size, bool bBold) {
+    // The HUD asks for a font for every label and every brick, every frame. Building one stats the file twice and
+    // looks up the engine's font cache, so each (points, weight) is built once.
+    static TMap<int32, FSlateFontInfo> Cache;
+    const int32 Points = FMath::Max(1, FMath::RoundToInt(Size * 0.75f));
+    const bool bStrong = bBold && Size >= StrongTextMinimumSize;
+    const int32 Key = Points * 4 + (bStrong ? 2 : 0) + (bBold ? 1 : 0);
+    if (const FSlateFontInfo* Found = Cache.Find(Key)) {
+        return *Found;
+    }
     static const FString Regular = FontFile(TEXT("IBMPlexMono-Regular.ttf"));
     static const FString Strong = FontFile(TEXT("IBMPlexMono-SemiBold.ttf"));
     // Slate font sizes are points at 96 DPI; the SDL sizes are pixels. Like SDL, only large text uses SemiBold.
-    const int32 Points = FMath::Max(1, FMath::RoundToInt(Size * 0.75f));
-    const FString& File = bBold && Size >= StrongTextMinimumSize ? Strong : Regular;
-    if (!IFileManager::Get().FileExists(*File)) {
-        return FCoreStyle::GetDefaultFontStyle(bBold ? "Bold" : "Regular", Points);
-    }
-    return FSlateFontInfo(File, Points);
+    const FString& File = bStrong ? Strong : Regular;
+    const FSlateFontInfo Built = IFileManager::Get().FileExists(*File)
+                                     ? FSlateFontInfo(File, Points)
+                                     : FCoreStyle::GetDefaultFontStyle(bBold ? "Bold" : "Regular", Points);
+    Cache.Add(Key, Built);
+    return Built;
 }
 
 const FButtonStyle& Button() {
@@ -103,14 +112,23 @@ FVector2D Measure(const FString& Text, const FSlateFontInfo& FontInfo) {
     // The HUD measures every label on every frame, and font measuring is its largest game-thread cost. Most of
     // those labels never change (section headings, backend names, the device), so keep the extents by text and
     // point size; the values that do change (FPS, counts) simply miss.
+    // Two generations: when the current one fills it becomes the old one instead of being thrown away, so the
+    // labels that are still on screen stay measured and a clear never costs a frame of re-measuring everything.
     static TMap<TPair<FString, int32>, FVector2D> Cache;
+    static TMap<TPair<FString, int32>, FVector2D> Previous;
     const TPair<FString, int32> Key(Text, FontInfo.Size);
     if (const FVector2D* Found = Cache.Find(Key)) {
         return *Found;
     }
+    if (const FVector2D* Found = Previous.Find(Key)) {
+        const FVector2D Size = *Found;
+        Cache.Add(Key, Size);
+        return Size;
+    }
     const FVector2D Size =
         FSlateApplication::Get().GetRenderer()->GetFontMeasureService()->Measure(Text, FontInfo);
-    if (Cache.Num() > 4096) {
+    if (Cache.Num() > 2048) {
+        Previous = MoveTemp(Cache);
         Cache.Reset();
     }
     Cache.Add(Key, Size);

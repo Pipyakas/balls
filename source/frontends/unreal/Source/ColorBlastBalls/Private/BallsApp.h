@@ -75,6 +75,8 @@ public:
     FBallsGameplay* GetGameplay() const { return Gameplay.Get(); }
     const FBallsFrameTimings& GetFrameTimings() const { return FrameTimings; }
     const FBallsFrameSample& GetLatestSample() const { return LatestSample; }
+    // The assets folder (levels, fonts, the scoring machine's benchmark record).
+    std::filesystem::path AssetRoot() const;
     std::filesystem::path LevelDirectory(GameMode Mode) const;
 
     // "First launch: machine benchmark". The winner becomes the default backend and is stored with the machine

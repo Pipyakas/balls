@@ -344,7 +344,9 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
             }
             FString Score = TEXT("not measured");
             if (Result.status == CandidateStatus::Done) {
-                Score = FString::Printf(TEXT("%.0f M ball-steps/s"), Result.ballStepsPerSecond / 1'000'000.0);
+                Score = Result.estimatedBalls > 0.0
+                            ? FString::Printf(TEXT("%s balls"), *BallsText::FromUtf8(shortBallCount(Result.estimatedBalls)))
+                            : FString::Printf(TEXT("%.0f M ball-steps/s"), Result.ballStepsPerSecond / 1'000'000.0);
             } else if (Result.status == CandidateStatus::Failed) {
                 Score = FString::Printf(TEXT("failed: %s"), *BallsText::FromUtf8(Result.failure));
             } else if (Result.status == CandidateStatus::Unavailable) {
@@ -364,8 +366,8 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
                 }, 20.0f)
             ]
         ];
-        AddHint(TEXT("Measures every backend once on this machine and makes the fastest the default. It runs by "
-                     "itself on the first launch and again when the CPU, a GPU driver or the game changes."));
+        AddHint(TEXT("Measures every backend on this machine and makes the one that holds the most balls at 60 FPS the "
+                     "default. It never runs by itself."));
     }
 
     ChildSlot[SNew(SScrollBox) + SScrollBox::Slot()[Column]];
