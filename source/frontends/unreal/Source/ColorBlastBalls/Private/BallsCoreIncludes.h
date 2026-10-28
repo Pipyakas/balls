@@ -9,6 +9,7 @@ THIRD_PARTY_INCLUDES_START
 #include "game/FrameTimings.h"
 #include "game/GameSession.h"
 #include "game/MachineProfile.h"
+#include "game/SessionHost.h"
 #include "game/Settings.h"
 #include "level/LevelImporter.h"
 #include "level/LevelParser.h"

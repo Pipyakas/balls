@@ -315,8 +315,7 @@ public:
     void OnMouseLeave(const FPointerEvent& MouseEvent) override { Mouse = FVector2D(-1.0); }
 
     FReply OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override {
-        GameSession* Session = Gameplay->GetSession();
-        if (!Session || Gameplay->GetMode() != GameMode::Normal || MouseEvent.GetEffectingButton() != EKeys::LeftMouseButton) {
+        if (!Gameplay->GetView() || Gameplay->GetMode() != GameMode::Normal || MouseEvent.GetEffectingButton() != EKeys::LeftMouseButton) {
             return FReply::Unhandled();
         }
         const FVector2D Point = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
@@ -370,7 +369,7 @@ public:
     int32 OnPaint(const FPaintArgs& Args, const FGeometry& Geometry, const FSlateRect& CullingRect,
                   FSlateWindowElementList& Out, int32 LayerId, const FWidgetStyle& WidgetStyle,
                   bool bParentEnabled) const override {
-        GameSession* Session = Gameplay->GetSession();
+        const SessionView* Session = Gameplay->GetView();
         const FVector2D Size = Geometry.GetLocalSize();
         // Profiling: painting the gadgets is the game thread's largest fixed cost, so r.Balls.Hud 0 drops them to
         // measure what the frame costs without them.
@@ -379,7 +378,7 @@ public:
                     BallsPalette::Linear(BallsPalette::Background));
             return LayerId + 1;
         }
-        if (!Session) {
+        if (!Gameplay->HasGame()) {
             DrawBox(Out, LayerId, Geometry, FSlateRect(FVector2D::ZeroVector, Size), BallsStyle::White(),
                     BallsPalette::Linear(BallsPalette::Background));
             DrawText(Out, LayerId + 1, Geometry, TEXT("Level failed to load"), FVector2D(Size.X * 0.5, 200.0),
@@ -393,11 +392,14 @@ public:
             return LayerId + 2;
         }
 
-        const Simulation& Sim = Session->simulation();
+        if (!Session) {
+            // The physics thread has not published its first view yet.
+            return LayerId;
+        }
         const FBallsGameplayLayout Layout = LayoutFor(Geometry);
         const FLinearColor PanelTint = BallsPalette::Linear(BallsPalette::Panel);
         PaintBoardFrame(Out, LayerId, Geometry, Layout);
-        PaintLaunchPoint(Out, LayerId + 1, Geometry, Sim, Layout);
+        PaintLaunchPoint(Out, LayerId + 1, Geometry, *Session, Layout);
 
         if (Layout.bPortrait) {
             // Portrait: one top gadget holding the 44 header over the 48 debug strip, then the board, then the
@@ -409,7 +411,7 @@ public:
             if (Gameplay->GetMode() == GameMode::Normal) {
                 PaintLaunchers(Out, LayerId + 1, Geometry, *Session, Layout);
             }
-            PaintBrickLabels(Out, LayerId + 1, Geometry, Sim.board(), Layout);
+            PaintBrickLabels(Out, LayerId + 1, Geometry, *Session->board, Layout);
             PaintToast(Out, LayerId + 3, Geometry);
             return LayerId + 3;
         }
@@ -419,7 +421,7 @@ public:
         DrawBox(Out, LayerId, Geometry, Layout.LeftGadget, BallsStyle::RoundedBox(0.0f), PanelTint);
         PaintHeaderTitle(Out, LayerId + 1, Geometry, Layout);
 
-        PaintBrickLabels(Out, LayerId + 1, Geometry, Sim.board(), Layout);
+        PaintBrickLabels(Out, LayerId + 1, Geometry, *Session->board, Layout);
 
         if (Gameplay->GetMode() == GameMode::Normal) {
             PaintLaunchers(Out, LayerId + 1, Geometry, *Session, Layout);
@@ -492,9 +494,9 @@ private:
 
     // The launch point marker: a dim triangle, 0.6 cell, where balls enter. Built from thin strips since Slate has
     // no filled polygon primitive here.
-    void PaintLaunchPoint(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry, const Simulation& Sim,
+    void PaintLaunchPoint(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry, const SessionView& View,
                           const FBallsGameplayLayout& Layout) const {
-        const FVector2D Center = Layout.BoardToScreen(Sim.launchX(), Sim.launchY());
+        const FVector2D Center = Layout.BoardToScreen(View.launchX, View.launchY);
         const float Size = Layout.CellSize * 0.6f;
         const float Top = static_cast<float>(Center.Y) - Size * 0.6f;
         const float Height = Size;
@@ -512,27 +514,25 @@ private:
     }
 
     FBallsGameplayLayout LayoutFor(const FGeometry& Geometry) const {
-        const GameSession& Session = *Gameplay->GetSession();
-        const Simulation& Sim = Session.simulation();
-        return ComputeGameplayLayout(Geometry.GetLocalSize(), Sim.board().columns(), Sim.board().rows(),
+        const SessionView& Session = *Gameplay->GetView();
+        return ComputeGameplayLayout(Geometry.GetLocalSize(), Session.board->columns(), Session.board->rows(),
                                      Geometry.GetAccumulatedLayoutTransform().GetScale(),
-                                     Gameplay->GetMode() == GameMode::Normal ? Session.launchers().visibleRows() : 0);
+                                     Gameplay->GetMode() == GameMode::Normal ? Session.launchers.visibleRows() : 0);
     }
 
     float MaximumScroll(const FGeometry& Geometry) const {
         const FBallsGameplayLayout Layout = LayoutFor(Geometry);
-        return ComputePortraitLauncherGrid(Gameplay->GetSession()->launchers(), Shrink(Layout.InteractionSection, 12.0f),
+        return ComputePortraitLauncherGrid(Gameplay->GetView()->launchers, Shrink(Layout.InteractionSection, 12.0f),
                                            0.0f)
             .MaximumScroll;
     }
 
     bool FindLauncher(const FGeometry& Geometry, FVector2D Point, int32& OutColumn, int32& OutRow) const {
-        GameSession* Session = Gameplay->GetSession();
         const FBallsGameplayLayout Layout = LayoutFor(Geometry);
         if (!Layout.InteractionSection.ContainsPoint(Point)) {
             return false;
         }
-        const LauncherQueue& Queue = Session->launchers();
+        const LauncherQueue& Queue = Gameplay->GetView()->launchers;
         if (Layout.bPortrait) {
             const FPortraitLauncherGrid Portrait =
                 ComputePortraitLauncherGrid(Queue, Shrink(Layout.InteractionSection, 12.0f), Scroll);
@@ -580,9 +580,9 @@ private:
         }
     }
 
-    void PaintLaunchers(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry, const GameSession& Session,
+    void PaintLaunchers(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry, const SessionView& Session,
                         const FBallsGameplayLayout& Layout) const {
-        const LauncherQueue& Queue = Session.launchers();
+        const LauncherQueue& Queue = Session.launchers;
         if (Queue.isEmpty()) {
             DrawTextInRect(Out, Layer, Geometry, TEXT("All launchers released"), Layout.InteractionSection,
                            BallsStyle::Font(26.0f), BallsPalette::Linear(BallsPalette::TextMuted));
@@ -592,7 +592,7 @@ private:
             PaintLaunchersPortrait(Out, Layer, Geometry, Session, Layout);
             return;
         }
-        const bool bInteractive = !Gameplay->IsPaused() && Session.state() == SessionState::Running;
+        const bool bInteractive = !Gameplay->IsPaused() && Session.state == SessionState::Running;
         const FLauncherGrid Grid = ComputeLauncherGrid(LauncherArea(Layout), Queue.columnCount(),
                                                        Queue.visibleRows());
         const FSlateBrush* Rounded = BallsStyle::RoundedBox(0.0f);
@@ -625,9 +625,9 @@ private:
     }
 
     void PaintLaunchersPortrait(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,
-                                const GameSession& Session, const FBallsGameplayLayout& Layout) const {
-        const LauncherQueue& Queue = Session.launchers();
-        const bool bInteractive = !Gameplay->IsPaused() && Session.state() == SessionState::Running;
+                                const SessionView& Session, const FBallsGameplayLayout& Layout) const {
+        const LauncherQueue& Queue = Session.launchers;
+        const bool bInteractive = !Gameplay->IsPaused() && Session.state == SessionState::Running;
         const FSlateRect Area = Shrink(Layout.InteractionSection, 12.0f);
         const FPortraitLauncherGrid Grid = ComputePortraitLauncherGrid(Queue, Area, Scroll);
         const FSlateBrush* Rounded = BallsStyle::RoundedBox(0.0f);
@@ -657,8 +657,8 @@ private:
     }
 
     void PaintStatsStrip(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,
-                         const GameSession& Session, const FSlateRect& Strip) const {
-        const SimulationStats& Stats = Session.simulation().stats();
+                         const SessionView& Session, const FSlateRect& Strip) const {
+        const SimulationStats& Stats = Session.stats;
         const FrameTimings& Frames = App->GetFrameTimings();
         const FrameSample& Sample = Frames.average();
         const FSlateFontInfo LabelFont = BallsStyle::Font(15.0f);
@@ -684,16 +684,16 @@ private:
         Pair(TEXT("GPU"), FString::Printf(TEXT("%.1f ms"), Sample.gpuMs), BallsPalette::Linear(BallsPalette::Text));
         Pair(TEXT("Balls"), BallsText::Grouped(Stats.ballCount), BallsPalette::Linear(BallsPalette::Text));
         Pair(TEXT("Bricks"),
-             BallsText::Grouped(static_cast<BallCount>(Session.simulation().board().aliveBrickCount())),
+             BallsText::Grouped(static_cast<BallCount>(Session.board->aliveBrickCount())),
              BallsPalette::Linear(BallsPalette::Text));
-        Pair(TEXT("Launch"), BallsText::Grouped(static_cast<BallCount>(Session.launchers().launcherCount())),
+        Pair(TEXT("Launch"), BallsText::Grouped(static_cast<BallCount>(Session.launchers.launcherCount())),
              BallsPalette::Linear(BallsPalette::Text));
-        Pair(TEXT("Backend"), BallsText::FromUtf8(backendKindName(Session.backend())),
+        Pair(TEXT("Backend"), BallsText::FromUtf8(backendKindName(Session.backend)),
              BallsPalette::Linear(BallsPalette::Text));
     }
 
-    void WritePerformance(FPanelWriter& Writer, const GameSession& Session) const {
-        const SimulationStats& Stats = Session.simulation().stats();
+    void WritePerformance(FPanelWriter& Writer, const SessionView& Session) const {
+        const SimulationStats& Stats = Session.stats;
         const FrameTimings& Frames = App->GetFrameTimings();
         const FrameSample& Sample = Frames.average();
 
@@ -708,53 +708,51 @@ private:
         Writer.Row(TEXT("Frame ms"), FString::Printf(TEXT("%.2f"), Sample.frameMs));
         Writer.Row(TEXT("Physics ms"), FString::Printf(TEXT("%.2f"), Stats.lastFramePhysicsMs));
         Writer.Row(TEXT("GPU ms"), FString::Printf(TEXT("%.2f"), Sample.gpuMs));
-        const CapacityProbe& Probe = Session.capacityProbe();
+        const CapacityProbe& Probe = Session.probe;
         if (Probe.phase() != ProbePhase::Idle) {
             Writer.Row(TEXT("Probe"), FString::Printf(TEXT("%s %.0f/%.0f fps"), ANSI_TO_TCHAR(probePhaseName(Probe.phase())),
                                                       Probe.lastFps(), Probe.targetFps()));
         }
-        Writer.Row(TEXT("Backend"), BallsText::FromUtf8(backendKindName(Session.backend())));
+        Writer.Row(TEXT("Backend"), BallsText::FromUtf8(backendKindName(Session.backend)));
         Writer.Row(TEXT("Renderer"), FString::Printf(TEXT("Unreal / %s / %s"), GDynamicRHI ? GDynamicRHI->GetName() : TEXT("RHI"),
                                                      *GRHIAdapterName));
-        if (const FString Detail = CachedBackendDetail(Session.backend()); !Detail.IsEmpty()) {
+        if (const FString Detail = CachedBackendDetail(Session.backend); !Detail.IsEmpty()) {
             Writer.Row(TEXT("Device"), Detail);
         }
-        const Simulation& Sim = Session.simulation();
-        Writer.Row(TEXT("Ball collisions"), !Sim.ballCollisionsRequested()  ? FString(TEXT("Off"))
-                                            : Sim.ballCollisionsActive()    ? FString(TEXT("On"))
+        Writer.Row(TEXT("Ball collisions"), !Session.collisionsRequested ? FString(TEXT("Off"))
+                                            : Session.collisionsActive    ? FString(TEXT("On"))
                                                                             : FString(TEXT("On (unsupported)")));
     }
 
-    void WriteObjects(FPanelWriter& Writer, const GameSession& Session) const {
-        const Simulation& Sim = Session.simulation();
-        const SimulationStats& Stats = Sim.stats();
+    void WriteObjects(FPanelWriter& Writer, const SessionView& Session) const {
+        const SimulationStats& Stats = Session.stats;
         Writer.Heading(TEXT("Objects"));
         const BallCount Balls = Stats.ballCount;
-        const BallCount Bricks = static_cast<BallCount>(Sim.board().aliveBrickCount());
-        const BallCount Launchers = static_cast<BallCount>(Session.launchers().launcherCount());
+        const BallCount Bricks = static_cast<BallCount>(Session.board->aliveBrickCount());
+        const BallCount Launchers = static_cast<BallCount>(Session.launchers.launcherCount());
         Writer.Row(TEXT("Total objects"), BallsText::Grouped(Balls + Bricks + Launchers));
         Writer.Row(TEXT("Balls"), BallsText::Grouped(Balls));
         Writer.Row(TEXT("Bricks"), BallsText::Grouped(Bricks));
         Writer.Row(TEXT("Launchers"), BallsText::Grouped(Launchers));
-        Writer.Row(TEXT("Waiting to spawn"), BallsText::Grouped(Session.spawner().pendingBalls()));
-        if (Session.mode() == GameMode::Performance) {
-            const BallCount Limit = Session.ballLimit();
-            const std::optional<BallCount> Measured = Session.machineBallLimit();
+        Writer.Row(TEXT("Waiting to spawn"), BallsText::Grouped(Session.pendingSpawn));
+        if (Session.mode == GameMode::Performance) {
+            const BallCount Limit = Session.ballLimit;
+            const std::optional<BallCount> Measured = Session.machineLimit;
             const FString Resolved = Measured ? TEXT("Auto ") + BallsText::Grouped(*Measured)
                                               : FString(TEXT("Auto (probe needed)"));
-            Writer.Row(TEXT("Ball limit"), Session.isUsingMachineBallLimit() ? Resolved
+            Writer.Row(TEXT("Ball limit"), Session.usingMachineLimit ? Resolved
                                            : Limit == unlimitedBalls          ? FString(TEXT("Max (2^64-1)"))
                                                                               : BallsText::Grouped(Limit));
         }
     }
 
-    void WriteColors(FPanelWriter& Writer, const GameSession& Session) const {
-        const SimulationStats& Stats = Session.simulation().stats();
+    void WriteColors(FPanelWriter& Writer, const SessionView& Session) const {
+        const SimulationStats& Stats = Session.stats;
         Writer.Heading(TEXT("Balls per color"));
         for (int32 Color = 0; Color < ballColorCount; ++Color) {
             Writer.ColorRow(Color, BallsText::Grouped(Stats.ballsByColor[Color]));
         }
-        if (!Session.lastBackendFault().empty()) {
+        if (!Session.backendFault.empty()) {
             Writer.Heading(TEXT("Backend fault"));
             Writer.Row(TEXT("Fell back to CPU"), FString(), BallsPalette::Linear(BallsPalette::Danger));
         }
@@ -762,7 +760,7 @@ private:
 
     // Portrait has no room for the three groups, so it shows the 48-unit stats strip instead (see PaintStatsStrip).
     void PaintDebugPanel(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,
-                         const GameSession& Session, const FSlateRect& Area) const {
+                         const SessionView& Session, const FSlateRect& Area) const {
         FPanelWriter Writer(Out, Layer, Geometry, Area);
         WritePerformance(Writer, Session);
         WriteObjects(Writer, Session);
@@ -810,11 +808,11 @@ FBallsGameplayLayout SBallsGameplayHud::CurrentLayout() const {
     const FGeometry& Geometry = GetCachedGeometry();
     const FVector2D Size = Geometry.GetLocalSize();
     const float DpiScale = Geometry.GetAccumulatedLayoutTransform().GetScale();
-    const GameSession* Session = Gameplay->GetSession();
+    const SessionView* Session = Gameplay->GetView();
     const int32 LauncherRows =
-        Gameplay->GetMode() == GameMode::Normal && Session ? Session->launchers().visibleRows() : 0;
-    CachedLayout = Session ? ComputeGameplayLayout(Size, Session->simulation().board().columns(),
-                                                   Session->simulation().board().rows(), DpiScale, LauncherRows)
+        Gameplay->GetMode() == GameMode::Normal && Session ? Session->launchers.visibleRows() : 0;
+    CachedLayout = Session ? ComputeGameplayLayout(Size, Session->board->columns(), Session->board->rows(), DpiScale,
+                                                   LauncherRows)
                            : ComputeGameplayLayout(Size, 1, 1, DpiScale, LauncherRows);
     return CachedLayout;
 }
@@ -823,7 +821,7 @@ void SBallsGameplayHud::Construct(const FArguments& InArgs) {
     App = InArgs._App;
     Gameplay = InArgs._Gameplay;
     TSharedPtr<FBallsGameplay> Game = Gameplay;
-    auto HasSession = [Game] { return Game->GetSession() ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed; };
+    auto HasSession = [Game] { return Game->GetView() ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed; };
 
     ChildSlot
     [
@@ -880,7 +878,7 @@ void SBallsGameplayHud::Construct(const FArguments& InArgs) {
             SNew(SBox)
             .WidthOverride(240.0f)
             .HeightOverride(56.0f)
-            .Visibility_Lambda([Game] { return Game->GetSession() ? EVisibility::Collapsed : EVisibility::Visible; })
+            .Visibility_Lambda([Game] { return Game->HasGame() ? EVisibility::Collapsed : EVisibility::Visible; })
             [
                 BallsWidgets::Button(LabelText(TEXT("Back")), [this] { App->ShowLevelSelect(Gameplay->GetMode()); }, 24.0f)
             ]
@@ -908,7 +906,7 @@ TSharedRef<SWidget> SBallsGameplayHud::MakeNormalPhysicsGroup() {
                 BallsWidgets::Button(LabelText(BallsText::FromUtf8(backendKindName(Kind))),
                                      [Game, Kind] { Game->SwitchBackend(Kind); }, 18.0f, isBackendAvailable(Kind),
                                      TAttribute<bool>::CreateLambda([Game, Kind] {
-                                         return Game->GetSession() && Game->GetSession()->backend() == Kind;
+                                         return Game->GetView() && Game->GetView()->backend == Kind;
                                      }))
             ]
         ];
@@ -923,7 +921,7 @@ TSharedRef<SWidget> SBallsGameplayHud::MakeNormalPhysicsGroup() {
 TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
     TSharedPtr<FBallsGameplay> Game = Gameplay;
     FBallsApp* Owner = App;
-    auto Session = [Game]() -> GameSession* { return Game->GetSession(); };
+    auto Session = [Game]() -> const SessionView* { return Game->GetView(); };
 
     // One vertical column that scrolls; rows are ControlRowHeight high and ControlGap apart.
     TSharedRef<SVerticalBox> Column = SNew(SVerticalBox);
@@ -946,22 +944,22 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
     AddLabel(TEXT("Release"));
     AddRow(BallsWidgets::Button(
         TAttribute<FText>::CreateLambda([Session] {
-            const GameSession* Current = Session();
-            if (!Current || Current->state() == SessionState::Ready) {
+            const SessionView* Current = Session();
+            if (!Current || Current->state == SessionState::Ready) {
                 return LabelText(TEXT("Start (1 click)"));
             }
-            return LabelText(FString::Printf(TEXT("Auto releasing - %d launchers left"), Current->launchers().launcherCount()));
+            return LabelText(FString::Printf(TEXT("Auto releasing - %d launchers left"), Current->launchers.launcherCount()));
         }),
         // The full design label is the longest string in the gadget; 16 keeps it inside the 310-wide panel.
         [Game] { Game->StartAutoRelease(); }, 16.0f,
-        TAttribute<bool>::CreateLambda([Session] { return Session() && Session()->state() == SessionState::Ready; })));
+        TAttribute<bool>::CreateLambda([Session] { return Session() && Session()->state == SessionState::Ready; })));
 
     AddLabel(TEXT("Spawn / sec"));
     TArray<FString> RateNames;
     for (const int32 Rate : spawnRateOptions) {
         RateNames.Add(Rate == 0 ? FString(TEXT("Max")) : FString::FromInt(Rate));
     }
-    AddRow(BallsWidgets::Dropdown(RateNames, [Session] { return Session() ? Session()->spawnRateIndex() : 0; },
+    AddRow(BallsWidgets::Dropdown(RateNames, [Session] { return Session() ? Session()->spawnRateIndex : 0; },
                                   [Game](int32 Index) { Game->SelectSpawnRate(Index); }),
            false);
 
@@ -970,7 +968,7 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
     for (const BallCount Multiplier : ballMultiplierOptions) {
         MultiplierNames.Add(FString::Printf(TEXT("x%llu"), static_cast<unsigned long long>(Multiplier)));
     }
-    AddRow(BallsWidgets::Dropdown(MultiplierNames, [Session] { return Session() ? Session()->ballMultiplierIndex() : 0; },
+    AddRow(BallsWidgets::Dropdown(MultiplierNames, [Session] { return Session() ? Session()->ballMultiplierIndex : 0; },
                                   [Game](int32 Index) { Game->SelectBallMultiplier(Index); }),
            false);
 
@@ -985,7 +983,7 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
     }
     AddRow(BallsWidgets::Dropdown(
                LimitNames,
-               [Game] { return !Game->GetSession() ? 0 : Game->IsAutoLimit() ? 0 : Game->GetSession()->ballLimitIndex() + 1; },
+               [Game] { return !Game->GetView() ? 0 : Game->IsAutoLimit() ? 0 : Game->GetView()->ballLimitIndex + 1; },
                [Game](int32 Index) {
                    if (Index == 0) {
                        Game->UseAutoBallLimit();
@@ -1028,7 +1026,7 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
         AddRow(BallsWidgets::Button(LabelText(BallsText::FromUtf8(backendKindName(Kind))),
                                     [Game, Kind] { Game->SwitchBackend(Kind); }, 18.0f, isBackendAvailable(Kind),
                                     TAttribute<bool>::CreateLambda([Session, Kind] {
-                                        return Session() && Session()->backend() == Kind;
+                                        return Session() && Session()->backend == Kind;
                                     })));
         if (!isBackendAvailable(Kind)) {
             Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap * 0.6f)
@@ -1066,7 +1064,7 @@ TSharedRef<SWidget> SBallsGameplayHud::MakeOverlay() {
         .HAlign(HAlign_Center)
         .VAlign(VAlign_Center)
         .Visibility_Lambda([Game] {
-            return Game->GetSession() && (Game->IsPaused() || Game->IsWon()) ? EVisibility::Visible : EVisibility::Collapsed;
+            return Game->GetView() && (Game->IsPaused() || Game->IsWon()) ? EVisibility::Visible : EVisibility::Collapsed;
         })
         [
             SNew(SBox)

@@ -210,7 +210,7 @@ void FBallsBoardView::Hide() {
     }
 }
 
-void FBallsBoardView::Update(const Simulation& Sim, const FBallsGameplayLayout& Layout, FVector2D ViewportSize,
+void FBallsBoardView::Update(const BrickBoard& Board, const FBallsGameplayLayout& Layout, FVector2D ViewportSize,
                              float DpiScale) {
     // StartPlay can run before the local player controller exists, so make sure the board camera becomes the
     // view target once it does.
@@ -224,7 +224,6 @@ void FBallsBoardView::Update(const Simulation& Sim, const FBallsGameplayLayout& 
         BoardActor->SetActorHiddenInGame(false);
         bVisible = true;
     }
-    const BrickBoard& Board = Sim.board();
     // A rebuild recreates every instance buffer, so an animation (hit flash, rising bricks) steps at 30 Hz instead
     // of every frame; a changed board still rebuilds at once.
     const double Now = FPlatformTime::Seconds();
@@ -370,18 +369,26 @@ void FBallsBoardView::FrameCamera(const BrickBoard& Board, const FBallsGameplayL
     }
 }
 
-void FBallsBoardView::SubmitBalls(Simulation& Sim, const FBallsGameplayLayout& Layout, float DpiScale) {
-    // Ask the backend for a screen-space visibility grid first: slots about 1.6 ball radii wide, so at most one
-    // ball is drawn per slot. At millions of balls the eye cannot see more than that, and the instance count
-    // collapses from the ball count to the number of slots (the same trick the SDL frontend uses).
+// A screen-space visibility grid: slots about 1.6 ball radii wide, so at most one ball is drawn per slot. At millions
+// of balls the eye cannot see more than that, and the instance count collapses from the ball count to the number of
+// slots (the same trick the SDL frontend uses).
+float FBallsBoardView::VisibilitySlotCells(float BallRadius, const FBallsGameplayLayout& Layout, float DpiScale) {
     const float CellPixels = Layout.CellSize * DpiScale;
-    const float SlotCells =
-        FMath::Max(Sim.tuning().ballRadius * VisibilitySlotPerRadius, 1.0f / FMath::Max(CellPixels, 1.0f));
+    return FMath::Max(BallRadius * VisibilitySlotPerRadius, 1.0f / FMath::Max(CellPixels, 1.0f));
+}
+
+void FBallsBoardView::SubmitBalls(Simulation& Sim, const FBallsGameplayLayout& Layout, float DpiScale) {
+    const float SlotCells = VisibilitySlotCells(Sim.tuning().ballRadius, Layout, DpiScale);
     const BrickBoard& Board = Sim.board();
     Sim.backend().setVisibilityGrid(
         FMath::CeilToInt(static_cast<float>(Board.columns()) / SlotCells),
         FMath::CeilToInt(static_cast<float>(Board.rows()) / SlotCells));
-    const BallSnapshot Snapshot = Sim.backend().snapshot();
+    SubmitBalls(Sim.backend().snapshot(), Sim.tuning().ballRadius, Layout, DpiScale);
+}
+
+void FBallsBoardView::SubmitBalls(const BallSnapshot& Snapshot, float BallRadius, const FBallsGameplayLayout& Layout,
+                                  float DpiScale) {
+    const float CellPixels = Layout.CellSize * DpiScale;
     static bool bLoggedBalls = false;
     if (!bLoggedBalls) {
         UE_LOG(LogTemp, Verbose, TEXT("BallsBoardView: snapshot %llu balls"), static_cast<unsigned long long>(Snapshot.count));
@@ -421,7 +428,7 @@ void FBallsBoardView::SubmitBalls(Simulation& Sim, const FBallsGameplayLayout& L
         return;
     }
     Data.UnpackScale = FVector2f(1.0f / renderPackScale(Snapshot.fieldWidth), 1.0f / renderPackScale(Snapshot.fieldHeight));
-    Data.Radius = FMath::Max(Sim.tuning().ballRadius, MinimumBallPixels / FMath::Max(CellPixels, 1e-3f));
+    Data.Radius = FMath::Max(BallRadius, MinimumBallPixels / FMath::Max(CellPixels, 1e-3f));
     Data.Brightness = BallBrightness;
     static float LastRadius = -1.0f;
     if (!FMath::IsNearlyEqual(LastRadius, Data.Radius, 1e-5f)) {

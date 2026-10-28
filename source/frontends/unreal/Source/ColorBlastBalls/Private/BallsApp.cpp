@@ -633,20 +633,28 @@ void FBallsApp::Tick(float DeltaSeconds) {
     // After a hitch the spawn budget and brick animation must not jump by the whole stall: clamp like the SDL front end.
     Current->Tick(FMath::Min(DeltaSeconds, MaximumFrameSeconds), Frames.latest().workMs / 1000.0,
                   Frames.latest().workMs / 1000.0);
-    GameSession* Session = Current->GetSession();
+    const SessionView* View = Current->GetView();
     const FGeometry& Geometry = Root->GetCachedGeometry();
     const FVector2D ViewportSize = Geometry.GetLocalSize();
-    if (!Session || Current != Gameplay || ViewportSize.X <= 1.0 || ViewportSize.Y <= 1.0) {
+    if (!View || !View->board || Current != Gameplay || ViewportSize.X <= 1.0 || ViewportSize.Y <= 1.0) {
         return;
     }
     const float DpiScale = Geometry.GetAccumulatedLayoutTransform().GetScale();
-    Simulation& Sim = Session->simulation();
-    const int32 LauncherRows =
-        Current->GetMode() == GameMode::Normal ? Session->launchers().visibleRows() : 0;
-    const FBallsGameplayLayout Layout = ComputeGameplayLayout(ViewportSize, Sim.board().columns(),
-                                                              Sim.board().rows(), DpiScale, LauncherRows);
-    BoardView->Update(Sim, Layout, ViewportSize, DpiScale);
-    BoardView->SubmitBalls(Sim, Layout, DpiScale);
+    const BrickBoard& Board = *View->board;
+    const int32 LauncherRows = Current->GetMode() == GameMode::Normal ? View->launchers.visibleRows() : 0;
+    const FBallsGameplayLayout Layout =
+        ComputeGameplayLayout(ViewportSize, Board.columns(), Board.rows(), DpiScale, LauncherRows);
+    BoardView->Update(Board, Layout, ViewportSize, DpiScale);
+    if (GameSession* Live = Current->GetLiveSession()) {
+        BoardView->SubmitBalls(Live->simulation(), Layout, DpiScale);
+    } else {
+        // The physics thread copied this frame's balls into the view; it sizes the visibility grid from the slot.
+        Current->SetVisibilitySlotCells(FBallsBoardView::VisibilitySlotCells(View->ballRadius, Layout, DpiScale));
+        const BallFrame& Balls = View->balls;
+        BoardView->SubmitBalls({Balls.packed.data(), Balls.packed.size(), Balls.fieldWidth, Balls.fieldHeight, false,
+                                Balls.visibilityGrid},
+                               View->ballRadius, Layout, DpiScale);
+    }
 }
 
 std::string_view FBallsApp::GetScreenName() const {

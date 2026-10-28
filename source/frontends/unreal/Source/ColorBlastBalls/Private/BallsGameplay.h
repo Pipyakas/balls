@@ -9,7 +9,8 @@ class FBallsApp;
 struct FBallsToast;
 struct FKey;
 
-// One level being played: owns the core GameSession, hot reload and the pause/toast state.
+// One level being played: owns the core session (on the game thread, or on the core's physics thread with
+// -BallsPhysicsThread=1), hot reload and the pause/toast state. Everything else reads the session's latest view.
 // Port of frontends/raylib/screens/GameplayScreen without the drawing.
 class FBallsGameplay : public ControlGame {
 public:
@@ -28,9 +29,7 @@ public:
     void StartCapacityProbe();
     void CancelCapacityProbe();
     // True while the Auto ball limit is chosen (resolved or still probing).
-    bool IsAutoLimit() const {
-        return Session && (Session->isUsingMachineBallLimit() || Session->capacityProbe().isActive());
-    }
+    bool IsAutoLimit() const { return View && (View->usingMachineLimit || View->probe.isActive()); }
     // The muted line under the Auto dropdown: running, done, or the remembered result.
     FString GetProbeStatus() const;
     int32 GetProbeTargetFps() const { return ProbeTargetFps; }
@@ -59,7 +58,7 @@ public:
     std::string levelName() const override { return Files.name; }
     std::string levelLoadError() const override { return TCHAR_TO_UTF8(*LoadError); }
     LevelDiskState diskState() const override { return Watcher.diskState(); }
-    std::shared_ptr<const SessionView> sessionView() override;
+    std::shared_ptr<const SessionView> sessionView() override { return View; }
     void post(std::function<void(GameSession&)> Command) override;
     bool isPaused() const override { return bPaused; }
     void setPaused(bool bPause) override { SetPaused(bPause); }
@@ -69,7 +68,14 @@ public:
 
     GameMode GetMode() const { return Mode; }
     const LevelFiles& GetFiles() const { return Files; }
-    GameSession* GetSession() const { return Session.get(); }
+    // The session as of this frame's tick; null while there is no game (load error) or it is still starting.
+    const SessionView* GetView() const { return View.get(); }
+    // False while the level failed to load and the load-error screen shows.
+    bool HasGame() const { return Host != nullptr; }
+    // The session itself while it runs on the game thread, so the balls are drawn straight from its backend.
+    GameSession* GetLiveSession() const { return Host ? Host->liveSession() : nullptr; }
+    // Slot size of the ball visibility grid, in board cells, for a session on the physics thread to size it.
+    void SetVisibilitySlotCells(float Cells) { VisibilitySlotCells = Cells; }
     const FString& GetLoadError() const { return LoadError; }
     const FBallsToast& GetToast() const;
     bool IsPaused() const { return bPaused; }
@@ -85,7 +91,9 @@ private:
     FBallsApp& App;
     GameMode Mode;
     LevelFiles Files;
-    std::unique_ptr<GameSession> Session;
+    std::unique_ptr<SessionHost> Host;
+    std::shared_ptr<const SessionView> View;
+    float VisibilitySlotCells = 0.0f;
     FString LoadError;
     LevelWatcher Watcher;
     bool bPaused = false;
