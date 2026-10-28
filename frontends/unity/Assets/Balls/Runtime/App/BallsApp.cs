@@ -100,9 +100,11 @@ namespace Balls.App
             {
                 current.HandleEscape();
             }
-            else if (current is Screens.GameplayScreen gameplay)
+            string loadFailure = SessionSystem.Current?.LoadFailure;
+            if (current is Screens.GameplayScreen && loadFailure != null)
             {
-                gameplay.HandleWorldInput();
+                Get<Screens.LoadErrorScreen>().Show(loadFailure);
+                Go<Screens.LoadErrorScreen>();
             }
         }
 
@@ -163,6 +165,10 @@ namespace Balls.App
             {
                 backendKind = BallsNative.BackendScalar;
                 Toast(CollisionsNeedScalar);
+            }
+            if (SessionSystem.Current != null)
+            {
+                SessionSystem.Current.LoadFailure = null;
             }
             Mode = mode;
             LevelName = levelName;
@@ -226,8 +232,18 @@ namespace Balls.App
             }
         }
 
+        /// <summary>Restart loads the files as they are now; with the files gone it returns to Level select.</summary>
         public void RestartGameplay()
         {
+            switch (Get<Screens.GameplayScreen>().WatchState)
+            {
+                case LevelWatcher.State.Removed:
+                    Go<Screens.LevelSelectScreen>();
+                    return;
+                case LevelWatcher.State.Changed:
+                    StartGameplay(Mode, LevelName, BackendKind);
+                    return;
+            }
             BallsInput.RequestRestart();
             Get<Screens.GameplayScreen>().OnRestarted();
         }

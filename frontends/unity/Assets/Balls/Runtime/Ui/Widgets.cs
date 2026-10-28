@@ -77,6 +77,27 @@ namespace Balls.Ui
             return false;
         }
 
+        /// <summary>Cuts text that would overflow a right-aligned box to fit, so its start is not clipped.</summary>
+        private string Ellipsize(string text, int size, float widthUnits)
+        {
+            GUIStyle style = theme.TextStyle(size, Palette.Text, false, TextAnchor.MiddleRight, true);
+            float pixels = widthUnits * theme.Scale;
+            var content = new GUIContent(text);
+            if (style.CalcSize(content).x <= pixels)
+            {
+                return text;
+            }
+            for (int length = text.Length - 1; length > 1; --length)
+            {
+                content.text = text.Substring(0, length) + "...";
+                if (style.CalcSize(content).x <= pixels)
+                {
+                    break;
+                }
+            }
+            return content.text;
+        }
+
         private void OptionFace(Rect units, string label, bool selected, bool enabled, string detail)
         {
             Color text = selected ? Palette.Background : enabled ? Palette.Text : Palette.TextDim;
@@ -86,6 +107,7 @@ namespace Balls.Ui
                 theme.TextStyle(TypeSizes.Header, text, false, TextAnchor.MiddleLeft, true));
             if (detailWidth > 0f)
             {
+                detail = Ellipsize(detail, TypeSizes.Small, detailWidth);
                 GUI.Label(theme.Units(units.xMax - 10f - detailWidth, units.y, detailWidth, units.height),
                     detail, theme.TextStyle(TypeSizes.Small, selected ? Palette.Background : Palette.TextMuted,
                         false, TextAnchor.MiddleRight, true));

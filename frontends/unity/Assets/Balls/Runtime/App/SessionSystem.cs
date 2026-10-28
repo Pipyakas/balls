@@ -30,6 +30,9 @@ namespace Balls.App
 
         public bool IsRunning => backend != null;
 
+        /// <summary>Why the last start request failed (an unreadable level), or null.</summary>
+        public string LoadFailure { get; set; }
+
         public GameBackend Backend => backend;
 
         protected override void OnCreate()
@@ -103,16 +106,26 @@ namespace Balls.App
         private void StartSession(in BallsInput.StartRequest request)
         {
             backend?.Dispose();
-            if (request.backend == Balls.Physics.Burst.BurstGameBackend.BackendBurst)
+            backend = null;
+            sessionHandle = System.IntPtr.Zero;
+            try
             {
-                backend = new Balls.Physics.Burst.BurstGameBackend(request.mode, request.levelDirectory, request.levelName);
-                sessionHandle = System.IntPtr.Zero;
+                if (request.backend == Balls.Physics.Burst.BurstGameBackend.BackendBurst)
+                {
+                    backend = new Balls.Physics.Burst.BurstGameBackend(request.mode, request.levelDirectory, request.levelName);
+                }
+                else
+                {
+                    var created = new NativeGameBackend(request.mode, request.levelDirectory, request.levelName, request.backend);
+                    backend = created;
+                    sessionHandle = created.SessionHandle;
+                }
             }
-            else
+            catch (System.Exception error)
             {
-                var created = new NativeGameBackend(request.mode, request.levelDirectory, request.levelName, request.backend);
-                backend = created;
-                sessionHandle = created.SessionHandle;
+                LoadFailure = error.Message;
+                EntityManager.SetComponentData(boardEntity, new BoardInfoData());
+                return;
             }
             // The GPU backends sample one grid cell per ball-sized block of the render target; a 1920-wide frame at
             // the 0.4-cell ball diameter is the default the other front ends use.

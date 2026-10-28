@@ -37,6 +37,7 @@ namespace Balls.App.Screens
         private float lastLayoutWidth = -1f;
         private float lastLayoutHeight = -1f;
 
+        private readonly LevelWatcher watcher = new();
         private bool paused;
         private bool settingsOpen;
         private bool wonShown;
@@ -53,6 +54,7 @@ namespace Balls.App.Screens
 
         public void BeginSession()
         {
+            watcher.Watch(App.LevelDirectory, App.LevelName);
             paused = false;
             settingsOpen = false;
             wonShown = false;
@@ -151,31 +153,8 @@ namespace Balls.App.Screens
             }
         }
 
-        /// <summary>Launcher clicks and keys that are not the screens' own.</summary>
-        public void HandleWorldInput()
-        {
-            if (paused || settingsOpen || wonShown)
-            {
-                return;
-            }
-            if (Input.GetKeyDown(KeyCode.P))
-            {
-                paused = true;
-                return;
-            }
-            if (Input.GetKeyDown(KeyCode.Space) && App.Mode == BallsApp.PerformanceMode)
-            {
-                BallsInput.RequestAutoRelease();
-            }
-            if (Input.GetKeyDown(KeyCode.F1))
-            {
-                App.SwitchBackend(BallsNative.BackendScalar);
-            }
-            if (Input.GetKeyDown(KeyCode.F2))
-            {
-                App.SwitchBackend(BallsNative.BackendAvx2);
-            }
-        }
+        /// <summary>The level files' state against what was loaded, for the header notice and Restart.</summary>
+        public LevelWatcher.State WatchState => watcher.Poll();
 
         private void EnsureLayout(BoardInfoData board)
         {
@@ -278,9 +257,22 @@ namespace Balls.App.Screens
             string modeName = session.mode == BallsApp.PerformanceMode ? "Performance" : "Normal";
             float pauseWidth = 104f;
             int titleSize = layout.Portrait ? TypeSizes.Small : TypeSizes.Header;
-            GUI.Label(App.Theme.Units(header.x, header.y, header.width - pauseWidth - 12f, header.height),
+            string notice = watcher.Poll() switch
+            {
+                LevelWatcher.State.Changed => "Map changed on disk - Restart to load it",
+                LevelWatcher.State.Removed => "Map removed from disk - Restart unavailable",
+                _ => null,
+            };
+            float titleHeight = notice == null ? header.height : header.height * 0.55f;
+            GUI.Label(App.Theme.Units(header.x, header.y, header.width - pauseWidth - 12f, titleHeight),
                 $"{modeName} · {App.LevelName}",
                 App.Theme.TextStyle(titleSize, Palette.Text, false, TextAnchor.MiddleLeft, true));
+            if (notice != null)
+            {
+                GUI.Label(App.Theme.Units(header.x, header.y + titleHeight, header.width - pauseWidth - 12f,
+                        header.height - titleHeight), notice,
+                    App.Theme.TextStyle(TypeSizes.Tiny, Palette.Accent, false, TextAnchor.UpperLeft, true));
+            }
 
             Rect pauseButton = new Rect(header.xMax - pauseWidth, header.y + (header.height - 36f) * 0.5f, pauseWidth, 36f);
             if (widgets.AccentButton(pauseButton, paused ? "Resume" : "Pause", paused, TypeSizes.Value))

@@ -54,6 +54,7 @@ namespace Balls.App
             app.AddScreen(new SettingsScreen());
             app.AddScreen(new EditorScreen());
             app.AddScreen(new BenchmarkScreen());
+            app.AddScreen(new LoadErrorScreen());
             app.Go<MainMenuScreen>();
 
             try
