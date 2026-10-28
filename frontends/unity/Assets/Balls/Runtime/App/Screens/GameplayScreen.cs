@@ -392,8 +392,8 @@ namespace Balls.App.Screens
                 _ => null,
             };
             float titleHeight = notice == null ? header.height : header.height * 0.55f;
-            GUI.Label(App.Theme.Units(header.x, header.y, header.width - pauseWidth - 12f, titleHeight),
-                $"{modeName} · {App.LevelName}",
+            string title = widgets.Ellipsize($"{modeName} · {App.LevelName}", titleSize, header.width - pauseWidth - 12f);
+            GUI.Label(App.Theme.Units(header.x, header.y, header.width - pauseWidth - 12f, titleHeight), title,
                 App.Theme.TextStyle(titleSize, Palette.Text, false, TextAnchor.MiddleLeft, true));
             if (notice != null)
             {

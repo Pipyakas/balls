@@ -77,8 +77,11 @@ namespace Balls.Ui
             return false;
         }
 
-        /// <summary>Cuts text that would overflow a right-aligned box to fit, so its start is not clipped.</summary>
-        private string Ellipsize(string text, int size, float widthUnits)
+        /// <summary>
+        /// Shortens text with an ellipsis until it fits the width, so a long level name keeps its tail visible
+        /// instead of being cut off by the rect.
+        /// </summary>
+        public string Ellipsize(string text, int size, float widthUnits)
         {
             GUIStyle style = theme.TextStyle(size, Palette.Text, false, TextAnchor.MiddleRight, true);
             float pixels = widthUnits * theme.Scale;
