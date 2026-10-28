@@ -88,6 +88,7 @@ private:
     nvrhi::BufferHandle structuredBuffer(size_t elements, bool writable, const char* name);
     nvrhi::BufferHandle constantBuffer(size_t bytes, const char* name);
     void ensureBallCapacity(size_t required);
+    size_t ballCapacityLimit() const override { return capacityCeiling; }
     void ensureReadback(nvrhi::BufferHandle& buffer, size_t bytes, const char* name);
     void rebuildBindingSets();
     bool readBuffer(nvrhi::IBuffer* source, nvrhi::IBuffer* staging, void* destination, size_t bytes);
@@ -136,6 +137,7 @@ private:
     nvrhi::BufferHandle hitsReadback;
     nvrhi::BufferHandle ballReadback;
     size_t capacity = 0;
+    size_t capacityCeiling = std::numeric_limits<uint32_t>::max();
     size_t count = 0;
     size_t brickCount = 0;
     uint32_t killedCapacity = 1024;

@@ -243,26 +243,24 @@ void VulkanBackend::dispatch(nvrhi::ICommandList* commandList, nvrhi::IComputePi
 }
 
 void VulkanBackend::ensureBallCapacity(size_t required) {
+    required = std::min(required, capacityCeiling);
     if (isFaulted() || required <= capacity) {
         return;
     }
-    if (required > std::numeric_limits<uint32_t>::max()) {
-        setFault("Vulkan ball count exceeds the shader's 32-bit index range");
-        return;
-    }
     const size_t grown = std::max(required, capacity + capacity / capacityGrowthDivisor);
-    const size_t newCapacity = ((grown + capacityGranule - 1) / capacityGranule) * capacityGranule;
-    if (newCapacity > std::numeric_limits<uint32_t>::max()) {
-        setFault("Vulkan ball capacity exceeds the shader's 32-bit index range");
-        return;
-    }
+    const size_t newCapacity =
+        std::min(((grown + capacityGranule - 1) / capacityGranule) * capacityGranule, capacityCeiling);
     nvrhi::BufferHandle newPositions[2] = {structuredBuffer(newCapacity, true, "positions"),
                                            structuredBuffer(newCapacity, true, "sortedPositions")};
     nvrhi::BufferHandle newStates[2] = {structuredBuffer(newCapacity, true, "states"),
                                         structuredBuffer(newCapacity, true, "sortedStates")};
     nvrhi::BufferHandle newPacked = structuredBuffer(newCapacity, true, "packedBalls");
     if (!newPositions[0] || !newPositions[1] || !newStates[0] || !newStates[1] || !newPacked) {
-        setFault(std::format("failed to allocate Vulkan ball buffers for {} balls", newCapacity));
+        // Out of device memory: the balls already held are the most this GPU takes, like CUDA's ceiling.
+        if (capacity == 0) {
+            setFault(std::format("failed to allocate Vulkan ball buffers for {} balls", newCapacity));
+        }
+        capacityCeiling = capacity;
         return;
     }
 
@@ -468,9 +466,10 @@ void VulkanBackend::addBalls(std::span<const BallSpawn> spawns) {
         return;
     }
     ensureBallCapacity(count + spawns.size());
-    if (isFaulted()) {
+    if (isFaulted() || count >= capacity) {
         return;
     }
+    spawns = spawns.first(std::min(spawns.size(), capacity - count));
     std::vector<uint32_t> positionsToAdd(spawns.size());
     std::vector<uint32_t> statesToAdd(spawns.size());
     std::vector<uint32_t> packedToAdd(spawns.size());

@@ -15,6 +15,7 @@ double secondsSince(Clock::time_point start) { return std::chrono::duration<doub
 struct FrameWindow {
     double averageSeconds = 0.0;
     double worstSeconds = 0.0;
+    double averageBalls = 0.0;
     bool faulted = false;
 };
 
@@ -22,8 +23,10 @@ FrameWindow runFrames(Simulation& simulation, const EdgeSweepSettings& settings,
     FrameWindow window;
     const Clock::time_point begin = Clock::now();
     int frames = 0;
+    double ballFrames = 0.0;
     while (frames < settings.minimumFrames || secondsSince(begin) < seconds) {
         const Clock::time_point frameStart = Clock::now();
+        ballFrames += static_cast<double>(simulation.liveBallCount());
         simulation.tick(settings.ticksPerFrame);
         window.worstSeconds = std::max(window.worstSeconds, secondsSince(frameStart));
         ++frames;
@@ -33,6 +36,7 @@ FrameWindow runFrames(Simulation& simulation, const EdgeSweepSettings& settings,
         }
     }
     window.averageSeconds = secondsSince(begin) / static_cast<double>(std::max(frames, 1));
+    window.averageBalls = ballFrames / static_cast<double>(std::max(frames, 1));
     return window;
 }
 
@@ -67,13 +71,15 @@ EdgeSweepResult sweepEdgeCase(const BrickLayout& layout, BackendKind kind, const
         simulation.flushPendingSpawns();
         launchSeconds += secondsSince(launchStart);
         launchedBalls += wanted;
-        const BallCount reached = simulation.liveBallCount();
+        const bool full = simulation.liveBallCount() < target;
         const FrameWindow warmup = runFrames(simulation, settings, settings.warmupSeconds);
         const FrameWindow measured = warmup.faulted ? warmup : runFrames(simulation, settings, settings.measureSeconds);
         if (measured.faulted) {
             result.stopReason = std::string("fault: ") + std::string(simulation.backend().faultMessage());
             break;
         }
+        // Balls die on bricks of their colour, so the count measured is the window's average, not the launch's.
+        const BallCount reached = static_cast<BallCount>(measured.averageBalls);
         if (measured.averageSeconds > budgetSeconds) {
             result.failingBalls = reached;
             result.failingFrameMs = measured.averageSeconds * 1e3;
@@ -83,7 +89,7 @@ EdgeSweepResult sweepEdgeCase(const BrickLayout& layout, BackendKind kind, const
         result.passingBalls = reached;
         result.passingFrameMs = measured.averageSeconds * 1e3;
         result.passingWorstFrameMs = measured.worstSeconds * 1e3;
-        if (reached < target) {
+        if (full) {
             result.stopReason = "capacity";
             break;
         }
