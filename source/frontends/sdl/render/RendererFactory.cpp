@@ -20,9 +20,12 @@ namespace {
 
 #if defined(BALLS_RENDERER_NVRHI) || defined(BALLS_WITH_NVRHI)
 GraphicsApi graphicsApiFor(std::string_view requested) {
+    // Vulkan is the default everywhere: the physics compute plugin is Vulkan-only, so the renderer sharing its API
+    // keeps one driver stack per GPU. Direct3D 12 stays available on Windows when asked for.
 #if defined(_WIN32)
-    return requested == "vulkan" ? GraphicsApi::Vulkan : GraphicsApi::D3d12;
+    return requested == "d3d12" ? GraphicsApi::D3d12 : GraphicsApi::Vulkan;
 #else
+    (void)requested;
     return GraphicsApi::Vulkan;
 #endif
 }

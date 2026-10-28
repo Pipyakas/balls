@@ -97,7 +97,7 @@ GpuApi adapterApiFor(std::string_view renderer, std::string_view api) {
         return GpuApi::D3d12;
     }
 #if defined(_WIN32)
-    return renderer == "sdlgpu" ? GpuApi::Vulkan : GpuApi::D3d12;
+    return renderer == "webgpu" ? GpuApi::D3d12 : GpuApi::Vulkan;
 #else
     (void)renderer;
     return GpuApi::Vulkan;
