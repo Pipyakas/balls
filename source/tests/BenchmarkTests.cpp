@@ -2,6 +2,7 @@
 
 #include "level/LevelParser.h"
 #include "sim/BackendBenchmark.h"
+#include "sim/BackendSelection.h"
 
 #include <chrono>
 #include <cmath>
@@ -142,7 +143,8 @@ TEST_CASE("estimated balls and capacity survive a save and load, and older recor
 TEST_CASE("backend names parse loosely and the old Hybrid name reads as CUDA+AVX2") {
     EXPECT(backendKindFromName("CUDA+AVX2") == BackendKind::CudaAvx2);
     EXPECT(backendKindFromName("cuda-avx2") == BackendKind::CudaAvx2);
-    EXPECT(backendKindFromName("Hybrid") == BackendKind::CudaAvx2);
+    EXPECT(backendKindFromName("Hybrid") == BackendKind::Hybrid);
+    EXPECT(parseStoredBackend("Hybrid")->kind == BackendKind::CudaAvx2);
     EXPECT(backendKindFromName("vulkan") == BackendKind::Vulkan);
     EXPECT(!backendKindFromName("cuda+vulkan").has_value());
 }

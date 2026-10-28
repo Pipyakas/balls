@@ -10,15 +10,17 @@
 #include <vector>
 
 // CudaAvx2 is the fixed CUDA + AVX2 split (HybridBackend over those two); it was called "Hybrid" before the
-// general device composer took that name.
-enum class BackendKind { Scalar, Avx2, Cuda, CudaAvx2, Vulkan };
+// general device composer took that name. Hybrid is the composer (DeviceComposer): one backend on each device the
+// player picked (BackendSelection.h).
+enum class BackendKind { Scalar, Avx2, Cuda, CudaAvx2, Vulkan, Hybrid };
 
-inline constexpr std::array<BackendKind, 5> allBackendKinds{BackendKind::Scalar, BackendKind::Avx2, BackendKind::Cuda,
-                                                             BackendKind::CudaAvx2, BackendKind::Vulkan};
+inline constexpr std::array<BackendKind, 6> allBackendKinds{BackendKind::Scalar, BackendKind::Avx2,
+                                                             BackendKind::Cuda,   BackendKind::CudaAvx2,
+                                                             BackendKind::Vulkan, BackendKind::Hybrid};
 
 std::string_view backendKindName(BackendKind kind);
 // Case-insensitive, ignoring '+', '-', '_' and spaces, so "cuda-avx2" works in URLs and on the command line.
-// The old name "Hybrid" still reads as CudaAvx2 for saved settings and benchmark records.
+// Saved files use parseStoredBackend (BackendSelection.h), where the old "Hybrid" still means CudaAvx2.
 std::optional<BackendKind> backendKindFromName(std::string_view name);
 std::string_view backendPluginFileName(BackendKind kind);
 bool isBackendAvailable(BackendKind kind);

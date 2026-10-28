@@ -410,6 +410,10 @@ void CudaBackend::uploadWholeBoard(const BoardUpload& board) {
 }
 
 void CudaBackend::uploadBrickHits(std::span<const int32_t> hitsLeft) {
+    if (isFaulted()) {
+        return;
+    }
+    driver.makeCurrent();
     hostBrickHitsLeft.assign(hitsLeft.begin(), hitsLeft.end());
     brickCount = hostBrickHitsLeft.size();
     hostBrickHitsLeft.push_back(0);

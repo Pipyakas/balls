@@ -627,6 +627,16 @@ void VulkanBackend::compactKilledBalls(uint32_t killed) {
     }
 }
 
+void VulkanBackend::uploadBrickHits(std::span<const int32_t> hitsLeft) {
+    if (isFaulted() || !brickHitsLeft || hitsLeft.size() != brickCount) {
+        return;
+    }
+    hostBrickHitsLeft.assign(hitsLeft.begin(), hitsLeft.end());
+    commands->open();
+    commands->writeBuffer(brickHitsLeft, hostBrickHitsLeft.data(), brickCount * sizeof(uint32_t));
+    execute(commands);
+}
+
 DeviceHitResults VulkanBackend::deviceHitResults() const {
     DeviceHitResults results;
     results.killed = lastCounters[0];

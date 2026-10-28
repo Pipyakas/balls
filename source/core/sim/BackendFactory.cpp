@@ -1,5 +1,6 @@
 #include "sim/BackendFactory.h"
 
+#include "sim/BackendSelection.h"
 #include "sim/HybridBackend.h"
 
 #include <algorithm>
@@ -197,6 +198,8 @@ std::string_view backendKindName(BackendKind kind) {
         return "CUDA+AVX2";
     case BackendKind::Vulkan:
         return "Vulkan";
+    case BackendKind::Hybrid:
+        return "Hybrid";
     }
     return "?";
 }
@@ -216,11 +219,7 @@ std::string normalizedKindName(std::string_view name) {
 }
 
 std::optional<BackendKind> backendKindFromName(std::string_view name) {
-    constexpr std::string_view legacyCudaAvx2Name = "hybrid";
     const std::string wanted = normalizedKindName(name);
-    if (wanted == legacyCudaAvx2Name) {
-        return BackendKind::CudaAvx2;
-    }
     const auto match = std::ranges::find_if(
         allBackendKinds, [&](BackendKind kind) { return normalizedKindName(backendKindName(kind)) == wanted; });
     return match == allBackendKinds.end() ? std::nullopt : std::optional(*match);
@@ -238,7 +237,28 @@ std::string_view backendPluginFileName(BackendKind kind) {
 
 bool isBackendAvailable(BackendKind kind) { return backendUnavailableReason(kind).empty(); }
 
+namespace {
+
+// The plugin device a picked kind runs on, or nullopt when the kind is not picked and runs on its plugin's default.
+std::optional<int> pickedPluginDevice(BackendKind kind) {
+    const std::vector<BackendPick> picks = backendPicks();
+    if (std::ranges::none_of(picks, [kind](const BackendPick& pick) { return pick.kind == kind; })) {
+        return std::nullopt;
+    }
+    return pluginDeviceFor(kind);
+}
+
+}
+
 std::string backendUnavailableReason(BackendKind kind) {
+    if (kind == BackendKind::Hybrid) {
+        const std::vector<BackendPick> picks = hybridPicks();
+        return picks.size() < 2 ? std::string("Hybrid needs two or more devices with a usable backend")
+                                : backendPicksProblem(picks);
+    }
+    if (const std::optional<int> device = pickedPluginDevice(kind)) {
+        return backendUnavailableReasonOnDevice(kind, *device);
+    }
     if (kind == BackendKind::CudaAvx2) {
         const std::string gpuReason = backendUnavailableReason(BackendKind::Cuda);
         return gpuReason.empty() ? backendUnavailableReason(BackendKind::Avx2) : gpuReason;
@@ -252,6 +272,12 @@ std::string backendUnavailableReason(BackendKind kind) {
 }
 
 std::string backendDetail(BackendKind kind) {
+    if (kind == BackendKind::Hybrid) {
+        return backendPicksLabel(hybridPicks());
+    }
+    if (const std::optional<int> device = pickedPluginDevice(kind)) {
+        return backendDetailOnDevice(kind, *device);
+    }
     if (kind == BackendKind::CudaAvx2) {
         return std::format("{} + {}", backendDetail(BackendKind::Cuda), backendDetail(BackendKind::Avx2));
     }
@@ -264,6 +290,13 @@ std::string backendDetail(BackendKind kind) {
 }
 
 BackendHandle createBackend(BackendKind kind) {
+    if (kind == BackendKind::Hybrid) {
+        const std::vector<BackendPick> picks = hybridPicks();
+        return picks.size() < 2 ? BackendHandle(nullptr, BackendRelease{}) : createComposedBackend(picks);
+    }
+    if (const std::optional<int> device = pickedPluginDevice(kind)) {
+        return createBackendOnDevice(kind, *device);
+    }
     if (kind == BackendKind::CudaAvx2) {
         return HybridBackend::create(createBackend(BackendKind::Cuda), createBackend(BackendKind::Avx2));
     }
@@ -280,7 +313,7 @@ BackendHandle createBackend(BackendKind kind) {
 
 std::vector<PhysicsDeviceInfo> backendDevices(BackendKind kind) {
     std::vector<PhysicsDeviceInfo> devices;
-    if (kind == BackendKind::CudaAvx2) {
+    if (kind == BackendKind::CudaAvx2 || kind == BackendKind::Hybrid) {
         return devices;
     }
     const PluginModule& plugin = queryPlugin(kind);
@@ -300,7 +333,7 @@ std::vector<PhysicsDeviceInfo> backendDevices(BackendKind kind) {
 }
 
 std::string backendUnavailableReasonOnDevice(BackendKind kind, int device) {
-    if (kind == BackendKind::CudaAvx2) {
+    if (kind == BackendKind::CudaAvx2 || kind == BackendKind::Hybrid) {
         return "not a single-device backend";
     }
     const PluginModule& plugin = queryPlugin(kind);
@@ -309,7 +342,7 @@ std::string backendUnavailableReasonOnDevice(BackendKind kind, int device) {
 }
 
 std::string backendDetailOnDevice(BackendKind kind, int device) {
-    if (kind == BackendKind::CudaAvx2) {
+    if (kind == BackendKind::CudaAvx2 || kind == BackendKind::Hybrid) {
         return {};
     }
     const PluginModule& plugin = queryPlugin(kind);
@@ -317,7 +350,7 @@ std::string backendDetailOnDevice(BackendKind kind, int device) {
 }
 
 BackendHandle createBackendOnDevice(BackendKind kind, int device) {
-    if (kind == BackendKind::CudaAvx2) {
+    if (kind == BackendKind::CudaAvx2 || kind == BackendKind::Hybrid) {
         return BackendHandle(nullptr, BackendRelease{});
     }
     const std::shared_ptr<PluginModule> plugin = loadPlugin(backendPluginFileName(kind), true);

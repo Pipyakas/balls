@@ -169,7 +169,8 @@ add_executable(balls_tests source/tests/TestMain.cpp source/tests/LevelTests.cpp
     source/tests/LevelImportTests.cpp
     source/tests/BenchmarkTests.cpp
     source/tests/GpuAdapterTests.cpp
-    source/tests/DeviceTests.cpp)
+    source/tests/DeviceTests.cpp
+    source/tests/ComposerTests.cpp)
 target_link_libraries(balls_tests PRIVATE balls_core)
 add_dependencies(balls_tests balls_physics_plugins)
 target_compile_options(balls_tests PRIVATE ${BALLS_WARNINGS})

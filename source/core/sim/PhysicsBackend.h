@@ -136,6 +136,9 @@ public:
     virtual std::string_view faultMessage() const { return {}; }
     virtual bool resolvesHitsOnDevice() const { return false; }
     virtual DeviceHitResults deviceHitResults() const { return {}; }
+    // Replaces only the device's brick hit counts, for the current board (one entry per brick). The device composer
+    // gives each device-resolving part its own budget of hits per brick this way; see DeviceComposer.
+    virtual void uploadBrickHits(std::span<const int32_t>) {}
     virtual bool shareRenderBuffer(unsigned int, size_t) { return false; }
     virtual void setVisibilityGrid(int, int) {}
     // Optional ball-vs-ball collisions, a testing aid outside the game rules. Backends that do not
