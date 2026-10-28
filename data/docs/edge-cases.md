@@ -185,8 +185,8 @@ Each was swept on the target PC with the edge sweep on Tough, LoneBrick and Empt
 The two default runs differ by up to 11% (LoneBrick Hybrid 192 M and 171 M), and the spare-thread setting, which
 AVX2 alone never reads, moved AVX2 by as much: no variant beats the defaults beyond run-to-run noise. Empty boards
 reached the memory ceiling (6.3-7.1 B) in every variant. The defaults therefore stay as they are; they are the
-14900K's configuration as well as the 12400F's. Only an extreme setting loses (eight spare threads, 262144-ball
-chunks), because it leaves the E-cores without enough work at the end of a step.
+14900K's configuration as well as the 12400F's. The lowest LoneBrick Hybrid results came from the extreme settings
+(eight spare threads 167 M, 262144-ball chunks 173 M), but those are inside the noise too.
 
 ## Known gaps
 
