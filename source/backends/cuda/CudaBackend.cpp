@@ -475,6 +475,7 @@ void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {
         succeeded(api.memcpyHostToDevice(balls.packed + offset, packed.data(), added * 4), "upload packed");
     }
     count += added;
+    sortSchedule.ballsAdded(added, count);
     snapshotFresh = false;
 }
 
@@ -947,6 +948,7 @@ bool CudaBackend::addCompact(const CompactBalls& added) {
         succeeded(api.memcpyHostToDevice(balls.packed + offset, packed.data(), addedCount * 4), "upload packed");
     }
     count += addedCount;
+    sortSchedule.ballsAdded(addedCount, count);
     snapshotFresh = false;
     return !isFaulted();
 }
