@@ -2,7 +2,8 @@
 
 Starts the game hidden on a Performance level, then either runs the capacity probe or fills to a count, and samples
 /state: live balls, the average and worst work frame rate of the last second, and balls still waiting to spawn. A
-second whose worst frame is far below its average is a stutter.
+second whose worst frame took more than twice a 60 FPS frame (or twice its average, when slower) is a stutter: frames
+drawn at hundreds a second vary with the ticks they run, and only a frame a 60 Hz display would miss shows.
 
     python -I scripts/bench/stutter_check.py --level Edge_Tough_48x48 --mode probe --seconds 40
 """
@@ -17,6 +18,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_GAME = REPO_ROOT / "build" / "win32" / "bin" / "Release" / "balls.exe"
 STUTTER_RATIO = 0.5
+DISPLAY_FPS = 60.0
 
 
 def call(port, path):
@@ -64,7 +66,7 @@ def main():
             time.sleep(arguments.interval)
             state = call(arguments.port, "/state")
             details = state["details"]
-            stutter = state["minWorkFps"] < state["workFps"] * STUTTER_RATIO
+            stutter = state["minWorkFps"] < min(state["workFps"], DISPLAY_FPS) * STUTTER_RATIO
             stutters += 1 if stutter else 0
             print(f"{time.time() - start:6.1f} s  balls {details['balls']:>14,}  waiting {details['pendingSpawn']:>14,}  "
                   f"work {state['workFps']:7.1f} fps  worst {state['minWorkFps']:7.1f} fps  "

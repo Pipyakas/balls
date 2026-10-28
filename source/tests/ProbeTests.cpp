@@ -97,3 +97,28 @@ TEST_CASE("cancel returns the probe to idle") {
     EXPECT(probe.update(fastFrame, 0.0, liveBalls) == 0);
     EXPECT(!probe.takeTrimRequest().has_value());
 }
+
+TEST_CASE("probe judges an uncapped game by what a 60 fps frame and its ticks would cost") {
+    constexpr double drawSeconds = 0.001;
+    constexpr double tickSecondsPerBall = 4e-9;
+    constexpr double tickRate = 120.0;
+    constexpr int maximumTicksPerFrame = 4;
+    const double cliff = (1.0 / 60.0 - drawSeconds) / (2.0 * tickSecondsPerBall);
+    CapacityProbe probe;
+    probe.start(60.0, tickRate);
+    BallCount live = 0;
+    double tickClock = 0.0;
+    for (int frames = 0; frames < 200'000 && probe.isActive(); ++frames) {
+        const double tickCost = static_cast<double>(live) * tickSecondsPerBall;
+        const int ticks = std::min(maximumTicksPerFrame, static_cast<int>(tickClock * tickRate));
+        const double frame = drawSeconds + ticks * tickCost;
+        tickClock = std::min(tickClock - ticks / tickRate, maximumTicksPerFrame / tickRate) + frame;
+        live += probe.update(frame, frame, live, std::numeric_limits<BallCount>::max(), ticks);
+        if (const auto trim = probe.takeTrimRequest()) {
+            live = std::min(live, *trim);
+        }
+    }
+    EXPECT(probe.phase() == ProbePhase::Done);
+    EXPECT(static_cast<double>(probe.bestPassingCount()) <= cliff);
+    EXPECT(static_cast<double>(probe.bestPassingCount()) > cliff * 0.85);
+}

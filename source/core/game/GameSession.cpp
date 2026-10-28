@@ -65,7 +65,7 @@ void GameSession::startCapacityProbe(double targetFps) {
         sessionState = SessionState::Running;
     }
     probeColorIndex = 0;
-    probe.start(targetFps);
+    probe.start(targetFps, 1.0 / physicsSimulation.tuning().tickSeconds);
     pumpCapacityProbe();
 }
 
@@ -81,13 +81,21 @@ void GameSession::reportFrameSeconds(double frameSeconds, double workSeconds) {
     pumpCapacityProbe();
 }
 
+// A probe step is queued and drains over many frames; once frames stay slower than the target while it drains, the
+// rest would only overshoot, so it is dropped and the probe measures what is already on the board.
 void GameSession::pumpCapacityProbe() {
+    const bool slowFrame = latestFrameSeconds * probe.targetFps() > 1.0;
+    slowFramesWhileProbing = probe.isActive() && launchBacklog > 0 && slowFrame ? slowFramesWhileProbing + 1 : 0;
+    if (slowFramesWhileProbing >= probeSlowFramesToDropBacklog) {
+        launchBacklog = 0;
+        slowFramesWhileProbing = 0;
+    }
     // The probe measures only once its last addition is all on the board.
     if (!probe.isActive() || gameMode != GameMode::Performance || latestFrameSeconds <= 0.0 || launchBacklog > 0) {
         return;
     }
     const BallCount addition = probe.update(latestFrameSeconds, latestWorkSeconds, physicsSimulation.liveBallCount(),
-                                            physicsSimulation.ballRoom());
+                                            physicsSimulation.ballRoom(), physicsSimulation.stats().ticksLastFrame);
     if (const auto trim = probe.takeTrimRequest()) {
         physicsSimulation.trimBallsTo(*trim);
     }

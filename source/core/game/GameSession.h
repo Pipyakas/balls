@@ -19,6 +19,7 @@ inline constexpr std::array<int, 6> spawnRateOptions{10, 50, 200, 1000, 2000, 0}
 inline constexpr std::array<BallCount, 5> ballMultiplierOptions{1, 10, 100, 1000, 10000};
 inline constexpr std::array<BallCount, 5> ballLimitOptions{10'000, 100'000, 1'000'000, 10'000'000, unlimitedBalls};
 inline constexpr float normalModeSpawnRate = 60.0f;
+inline constexpr int probeSlowFramesToDropBacklog = 6;
 
 class GameSession {
 public:
@@ -76,6 +77,7 @@ private:
     SpawnController spawnController;
     SpawnPacer pacer;
     BallCount launchBacklog = 0;
+    int slowFramesWhileProbing = 0;
     SessionState sessionState = SessionState::Ready;
     int selectedSpawnRate = 2;
     int selectedMultiplier = 0;

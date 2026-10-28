@@ -6,16 +6,16 @@
 
 void SpawnPacer::reset() {
     spawnSeconds = initialSecondsPerSpawn;
-    lastWorkSeconds = 0.0;
-    workPerBall = 0.0;
+    lastFrameSeconds = 0.0;
+    lastLiveBalls = 0;
 }
 
-void SpawnPacer::reportFrame(double workSeconds, BallCount liveBalls) {
-    if (workSeconds <= 0.0) {
+void SpawnPacer::reportFrame(double frameSeconds, BallCount liveBalls) {
+    if (frameSeconds <= 0.0) {
         return;
     }
-    lastWorkSeconds = workSeconds;
-    workPerBall = liveBalls >= ballsBeforeWorkIsMeasurable ? workSeconds / static_cast<double>(liveBalls) : 0.0;
+    lastFrameSeconds = frameSeconds;
+    lastLiveBalls = liveBalls;
 }
 
 void SpawnPacer::recordSpawn(BallCount balls, double seconds) {
@@ -31,10 +31,11 @@ BallCount SpawnPacer::allowance() const {
         constexpr double largest = static_cast<double>(std::numeric_limits<BallCount>::max() / 2);
         return static_cast<BallCount>(std::min(std::floor(balls), largest));
     };
-    BallCount allowed = toBalls(pacedFrameSeconds * spawnShareOfFrame / spawnSeconds);
-    if (workPerBall > 0.0) {
-        const double extraWork = std::max(lastWorkSeconds * workGrowthPerFrame, minimumWorkGrowthSeconds);
-        allowed = std::min(allowed, toBalls(extraWork / workPerBall));
+    const double frame = lastFrameSeconds > 0.0 ? lastFrameSeconds : pacedFrameSeconds;
+    BallCount allowed = toBalls(std::min(frame, pacedFrameSeconds) * spawnShareOfFrame / spawnSeconds);
+    if (lastLiveBalls >= ballsBeforeGrowthIsPaced) {
+        const double growth = std::exp2(liveBallDoublingsPerSecond * std::min(frame, longestPacedFrameSeconds)) - 1.0;
+        allowed = std::min(allowed, toBalls(static_cast<double>(lastLiveBalls) * growth));
     }
     return std::max(allowed, minimumPacedBalls);
 }

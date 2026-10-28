@@ -75,12 +75,12 @@ TEST_CASE("spawn pacer caps a frame's additions by what making them costs") {
     EXPECT(std::abs(static_cast<double>(pacer.allowance()) - expected) < expected * 0.01);
 }
 
-TEST_CASE("spawn pacer lets frame work grow only a few percent per frame") {
+TEST_CASE("spawn pacer lets the balls on the board at most double per second") {
     SpawnPacer pacer;
-    constexpr double frameWork = 0.010;
     constexpr BallCount live = 1'000'000;
-    pacer.reportFrame(frameWork, live);
-    const double expected = frameWork * workGrowthPerFrame / (frameWork / static_cast<double>(live));
+    constexpr double frame = 1.0 / 60.0;
+    pacer.reportFrame(frame, live);
+    const double expected = static_cast<double>(live) * (std::exp2(liveBallDoublingsPerSecond * frame) - 1.0);
     EXPECT(std::abs(static_cast<double>(pacer.allowance()) - expected) < expected * 0.01);
 }
 
