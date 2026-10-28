@@ -26,8 +26,11 @@ void Simulation::load(const BrickLayout& layout) {
     syncBoardIfChanged();
 }
 
-void Simulation::replaceBackend(BackendHandle backend) {
-    const std::vector<BallSpawn> balls = physics->exportBalls();
+BackendReplacement Simulation::replaceBackend(BackendHandle backend) {
+    const BallCount live = physics->ballCount();
+    const bool copyExactly = live <= exactMigrationBalls;
+    const std::vector<BallSpawn> balls = copyExactly ? physics->exportBalls() : std::vector<BallSpawn>{};
+    BackendReplacement replacement{std::move(physics), copyExactly ? 0 : live};
     physics = std::move(backend);
     uploadedRevision = ~0ull;
     targetsUploadPending = true;
@@ -35,6 +38,7 @@ void Simulation::replaceBackend(BackendHandle backend) {
     syncBoardIfChanged();
     physics->addBalls(balls);
     physics->setBallCollisions(ballCollisionsWanted);
+    return replacement;
 }
 
 void Simulation::setBallCollisions(bool enabled) {

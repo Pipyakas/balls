@@ -6,9 +6,11 @@
 #include "game/SpawnController.h"
 #include "level/LevelData.h"
 #include "sim/BackendFactory.h"
+#include "sim/BackendWorker.h"
 #include "sim/Simulation.h"
 
 #include <array>
+#include <memory>
 #include <optional>
 #include <string>
 
@@ -19,20 +21,35 @@ inline constexpr std::array<BallCount, 5> ballMultiplierOptions{1, 10, 100, 1000
 inline constexpr std::array<BallCount, 5> ballLimitOptions{10'000, 100'000, 1'000'000, 10'000'000, unlimitedBalls};
 inline constexpr float normalModeSpawnRate = 60.0f;
 
+struct BackendSwitchOutcome {
+    BackendKind kind = BackendKind::Scalar;
+    bool succeeded = false;
+};
+
 class GameSession {
 public:
     GameSession(GameMode mode, LevelData level, BackendKind backend);
+    ~GameSession();
+    GameSession(const GameSession&) = delete;
+    GameSession& operator=(const GameSession&) = delete;
 
     void restart();
     void reload(LevelData level);
     void update(float deltaTime);
+    // Runs every frame, paused or not: swaps in a backend that finished building and refills a batch of balls.
+    void pollBackgroundWork();
 
     bool chooseLauncher(int column, int row);
     void startAutoRelease();
     void selectSpawnRate(int optionIndex);
     void selectBallMultiplier(int optionIndex);
     void selectBallLimit(int optionIndex);
-    bool switchBackend(BackendKind kind);
+    // The new backend is built off the frame; the session keeps running on the current one until it is ready.
+    void requestBackend(BackendKind kind);
+    std::optional<BackendKind> pendingBackend() const;
+    // Once per finished request, so the caller can react to the switch or to its failure.
+    std::optional<BackendSwitchOutcome> takeBackendSwitchOutcome();
+    BallCount ballsLeftToRefill() const { return refillRemaining; }
     void startCapacityProbe(double targetFps = defaultProbeTargetFps);
     void cancelCapacityProbe();
     void reportFrameSeconds(double frameSeconds, double workSeconds);
@@ -63,6 +80,9 @@ private:
     void releaseLauncher(const Launcher& launcher);
     void recoverFromBackendFault();
     void pumpCapacityProbe();
+    void switchBackendNow(BackendKind kind);
+    void adoptBackend(BackendKind kind, BackendHandle backend);
+    void refillBatch();
 
     GameMode gameMode;
     LevelData levelData;
@@ -83,4 +103,8 @@ private:
     std::optional<BallCount> measuredMachineLimit;
     bool machineLimitSelected = false;
     std::string backendFault;
+    std::shared_ptr<BackendBuild> pendingBuild;
+    std::optional<BackendSwitchOutcome> switchOutcome;
+    BallCount refillRemaining = 0;
+    BallCount refillBatchBalls = BallCount{1} << 16;
 };

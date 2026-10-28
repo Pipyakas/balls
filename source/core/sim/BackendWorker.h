@@ -1,0 +1,54 @@
+#pragma once
+
+#include "sim/BackendFactory.h"
+#include "sim/BackendHandle.h"
+
+#include <condition_variable>
+#include <deque>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <thread>
+
+// One backend being built off the frame. The session that asked keeps it and polls it at the start of each update;
+// the worker fills it in. A build nobody wants any more is abandoned, and the worker destroys what it produces.
+class BackendBuild {
+public:
+    explicit BackendBuild(BackendKind kind) : requested(kind) {}
+
+    BackendKind kind() const { return requested; }
+    // The finished backend, once; a null handle means it could not be created.
+    std::optional<BackendHandle> take();
+    void abandon();
+
+private:
+    friend class BackendWorker;
+
+    BackendKind requested;
+    std::mutex mutex;
+    bool finished = false;
+    bool taken = false;
+    bool abandoned = false;
+    BackendHandle result{nullptr, BackendRelease{}};
+};
+
+// Loading a plugin, opening a GPU device and compiling kernels take from tens of milliseconds to seconds, and
+// freeing gigabytes of device memory is not free either, so neither may happen on the frame. A single process-wide
+// thread does both, in the order they were asked for.
+class BackendWorker {
+public:
+    static BackendWorker& shared();
+
+    std::shared_ptr<BackendBuild> build(BackendKind kind);
+    void retire(BackendHandle backend);
+
+private:
+    BackendWorker();
+    void run();
+
+    std::mutex mutex;
+    std::condition_variable wake;
+    std::deque<std::function<void()>> jobs;
+    std::thread thread;
+};

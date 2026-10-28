@@ -108,9 +108,8 @@ void GameplayScreen::refreshSettings() {
     }
     session->simulation().setBallCollisions(app.settings().ballCollisions);
     if (app.settings().ballCollisions && !session->simulation().ballCollisionsActive()) {
-        if (session->switchBackend(BackendKind::Scalar)) {
-            showToast("Ball collisions need the Scalar backend - switched to Scalar", false);
-        }
+        session->requestBackend(BackendKind::Scalar);
+        showToast("Ball collisions need the Scalar backend - switching to Scalar", false);
     }
 }
 
@@ -141,6 +140,18 @@ void GameplayScreen::useAutoBallLimit() {
         session->useMachineBallLimit(remembered->balls);
     } else {
         startProbe();
+    }
+}
+
+// Backend switches finish off the frame; this adopts one at the start of a frame, before anything draws from it.
+void GameplayScreen::pollBackendSwitch() {
+    session->pollBackgroundWork();
+    if (const auto outcome = session->takeBackendSwitchOutcome()) {
+        if (outcome->succeeded) {
+            applyDefaultBallLimit();
+        } else {
+            showToast(std::format("Could not start the {} backend", backendKindName(outcome->kind)), true);
+        }
     }
 }
 
@@ -267,6 +278,7 @@ void GameplayScreen::update(float deltaTime) {
         }
         return;
     }
+    pollBackendSwitch();
     if (paused) {
         return;
     }
@@ -354,7 +366,8 @@ std::string shortAdapterName(const GpuAdapterInfo& adapter) {
 
 void GameplayScreen::selectComputeAdapter(int adapter) {
     setComputeGpuPreference(std::to_string(adapter));
-    if (session->backend() == BackendKind::Vulkan && session->switchBackend(BackendKind::Vulkan)) {
+    if (session->backend() == BackendKind::Vulkan || session->pendingBackend() == BackendKind::Vulkan) {
+        session->requestBackend(BackendKind::Vulkan);
         showToast("Vulkan physics on " + app.computeAdapters()[static_cast<size_t>(adapter)].name, false);
     }
 }
@@ -399,14 +412,17 @@ void GameplayScreen::drawBackendList(Rect area, BackendKind selected) {
     float cursor = area.y;
     for (BackendKind kind : allBackendKinds) {
         const bool available = isBackendAvailable(kind);
+        const bool starting = session->pendingBackend() == kind;
         std::string label(backendKindName(kind));
         if (!available) {
             label += std::string(" - ") + backendUnavailableReason(kind);
+        } else if (starting) {
+            label += " - starting...";
         }
-        const bool pressed =
-            ui::button({area.x, cursor, area.width, controlRowHeight}, label, available, selected == kind);
-        if (pressed && available && session->switchBackend(kind)) {
-            applyDefaultBallLimit();
+        const bool pressed = ui::button({area.x, cursor, area.width, controlRowHeight}, label, available,
+                                        starting || (selected == kind && !session->pendingBackend()));
+        if (pressed && available) {
+            session->requestBackend(kind);
         }
         cursor += controlRowHeight + controlGap;
     }
@@ -758,7 +774,7 @@ std::string GameplayScreen::stateJson() const {
     constexpr std::array<const char*, 3> stateNames{"ready", "running", "won"};
     const CapacityProbe& probe = session->capacityProbe();
     return std::format(
-        "{{\"mode\":\"{}\",\"level\":\"{}\",\"diskNotice\":\"{}\",\"state\":\"{}\",\"paused\":{},\"backend\":\"{}\",\"backendFault\":\"{}\","
+        "{{\"mode\":\"{}\",\"level\":\"{}\",\"diskNotice\":\"{}\",\"state\":\"{}\",\"paused\":{},\"backend\":\"{}\",\"pendingBackend\":\"{}\",\"refilling\":{},\"backendFault\":\"{}\","
         "\"balls\":{},\"bricks\":{},\"launchersLeft\":{},\"pendingSpawn\":{},\"spawned\":{},\"hits\":{},"
         "\"physicsMs\":{:.3f},\"kernelMs\":{:.3f},\"ticks\":{},\"spawnRate\":{},\"multiplier\":{},"
         "\"ballLimit\":{},\"elapsed\":{:.2f},"
@@ -766,7 +782,8 @@ std::string GameplayScreen::stateJson() const {
         "\"ballsByColor\":{{{}}},\"launchers\":[{}]}}",
         mode == GameMode::Normal ? "normal" : "performance", jsonEscape(files.name), diskNotice(),
         stateNames[static_cast<int>(session->state())], paused, backendKindName(session->backend()),
-        jsonEscape(session->lastBackendFault()), stats.ballCount, simulation.board().aliveBrickCount(),
+        session->pendingBackend() ? backendKindName(*session->pendingBackend()) : std::string_view{},
+        session->ballsLeftToRefill(), jsonEscape(session->lastBackendFault()), stats.ballCount, simulation.board().aliveBrickCount(),
         launchers.launcherCount(), session->spawner().pendingBalls(), stats.totalBallsSpawned,
         stats.totalHits, stats.lastFramePhysicsMs, simulation.backend().deviceStepMs(), stats.ticksLastFrame,
         spawnRateOptions[session->spawnRateIndex()], ballMultiplierOptions[session->ballMultiplierIndex()],
@@ -819,10 +836,10 @@ std::optional<ControlResponse> GameplayScreen::handleControl(const ControlReques
     }
     if (path == "/backend") {
         const auto kind = parseBackendKind(request.text("kind").value_or(""));
-        if (!kind || !session->switchBackend(*kind)) {
+        if (!kind || !isBackendAvailable(*kind)) {
             return ControlResponse::error(409, "backend unknown or unavailable");
         }
-        applyDefaultBallLimit();
+        session->requestBackend(*kind);
         return done;
     }
     if (path == "/pause") {

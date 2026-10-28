@@ -49,6 +49,7 @@ private:
     void applyDefaultBallLimit();
     void rememberFinishedProbe();
     void useAutoBallLimit();
+    void pollBackendSwitch();
     void startProbe();
     void selectComputeAdapter(int adapter);
     std::vector<int> renderAdapterChoices() const;

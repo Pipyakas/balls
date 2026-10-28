@@ -12,6 +12,7 @@ add_library(balls_core STATIC
     sim/TargetField.cpp
     sim/Simulation.cpp
     sim/BackendFactory.cpp
+    sim/BackendWorker.cpp
     sim/HybridBackend.cpp
     sim/BackendBenchmark.cpp
     sim/PhysicsAccuracy.cpp

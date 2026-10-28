@@ -19,6 +19,13 @@ struct SimulationTuning {
     float launchHalfAngleDegrees = 55.0f;
 };
 
+// What replaceBackend hands back: the backend it retired, to be destroyed off the frame, and how many balls the new
+// backend still has to be refilled with because there were too many to copy across within one frame.
+struct BackendReplacement {
+    BackendHandle retired;
+    BallCount ballsToRefill = 0;
+};
+
 struct SimulationStats {
     BallTally ballsByColor{};
     BallCount ballCount = 0;
@@ -31,11 +38,16 @@ struct SimulationStats {
 class Simulation {
 public:
     static constexpr size_t spawnFlushBalls = size_t{1} << 22;
+    // Copying a ball across backends costs a read back and an upload of 20 bytes; this many fit in a few
+    // milliseconds even from a GPU. Beyond it the new backend is refilled to the same count a batch per frame.
+    static constexpr BallCount exactMigrationBalls = BallCount{1} << 18;
 
     explicit Simulation(BackendHandle backend, SimulationTuning tuning = {});
 
     void load(const BrickLayout& layout);
-    void replaceBackend(BackendHandle backend);
+    BackendReplacement replaceBackend(BackendHandle backend);
+    // Hands the backend over to be destroyed off the frame; the simulation must not be used afterwards.
+    BackendHandle releaseBackend() { return std::move(physics); }
     void launchBalls(BallColor color, BallCount count);
     void scatterBalls(BallColor color, BallCount count);
     void trimBallsTo(BallCount limit);

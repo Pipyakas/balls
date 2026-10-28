@@ -27,6 +27,16 @@ def wait_for_server(port, timeout_seconds=15.0):
     raise RuntimeError("game did not start its control server")
 
 
+# Backend switches finish off the frame, so a run that measures one waits until the game has adopted it.
+def wait_for_backend(port, timeout_seconds=120.0):
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        if not call(port, "/state")["details"].get("pendingBackend"):
+            return
+        time.sleep(0.1)
+    raise RuntimeError("the backend switch did not finish")
+
+
 def wait_until_spawned(port, timeout_seconds=30.0):
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
@@ -77,6 +87,7 @@ def run(arguments):
                 if not backend_reply.get("ok", False):
                     print(f"{backend:7} unavailable", flush=True)
                     break
+                wait_for_backend(arguments.port)
                 call(arguments.port, f"/rate?index={MAX_SPAWN_RATE_INDEX}")
                 call(arguments.port, f"/limit?index={UNLIMITED_BALLS_INDEX}")
                 call(arguments.port, f"/multiplier?index={MULTIPLIER_INDEX[multiplier]}")
