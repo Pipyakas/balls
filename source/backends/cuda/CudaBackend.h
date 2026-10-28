@@ -4,8 +4,10 @@
 #include "sim/SortSchedule.h"
 #include "cuda/CudaDriver.h"
 #include "cuda/GrowableDeviceArray.h"
+#include "common/WorkerPool.h"
 
 #include <array>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -141,6 +143,7 @@ private:
     // Launched balls are encoded into pinned memory and copied without waiting for the step still running on the GPU;
     // the event marks when the staging memory may be written again.
     uint32_t* staging = nullptr;
+    std::unique_ptr<WorkerPool> encodePool;
     size_t stagingBalls = 0;
     CUevent stagingRead = nullptr;
     GrowableDeviceArray positionArray;

@@ -28,11 +28,14 @@ struct SimulationStats {
     BallCount totalHits = 0;
 };
 
+class WorkerPool;
+
 class Simulation {
 public:
     static constexpr size_t spawnFlushBalls = size_t{1} << 22;
 
     explicit Simulation(BackendHandle backend, SimulationTuning tuning = {});
+    ~Simulation();
 
     void load(const BrickLayout& layout);
     void replaceBackend(BackendHandle backend);
@@ -84,4 +87,5 @@ private:
     float accumulator = 0.0f;
     uint32_t elapsedTicks = 0;
     bool ballCollisionsWanted = false;
+    std::unique_ptr<WorkerPool> launchPool;
 };

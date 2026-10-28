@@ -264,9 +264,9 @@ Avx2Backend::Avx2Backend(size_t threadCount) : pool(std::make_unique<WorkerPool>
 }
 
 // Encoding is about 30 ns a ball when the store is frozen (each spawn is projected back to the free-flight epoch), so
-// large launches are split across the pool.
+// launches are split across the pool, down to the few tens of thousands the game launches a frame.
 void Avx2Backend::addBalls(std::span<const BallSpawn> spawns) {
-    constexpr size_t addChunkBalls = size_t{1} << 16;
+    constexpr size_t addChunkBalls = size_t{1} << 13;
     store.add(spawns, [&](size_t count, const std::function<void(size_t, size_t)>& encode) {
         pool->runChunks(count, addChunkBalls, [&](size_t, size_t begin, size_t end) { encode(begin, end); });
     });

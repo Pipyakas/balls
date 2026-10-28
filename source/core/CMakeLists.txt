@@ -1,6 +1,7 @@
 add_library(balls_core STATIC
     common/BallColor.cpp
     common/DynamicLibrary.cpp
+    common/WorkerPool.cpp
     gpu/GpuAdapters.cpp
     level/LevelData.cpp
     level/LevelParser.cpp
