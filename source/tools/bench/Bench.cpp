@@ -284,7 +284,8 @@ void printComposerParts(const DeviceComposer& composer) {
             std::printf("        %-12s parked: slower composed than without it\n", composer.partLabel(part).c_str());
         }
     }
-    std::printf("        brick budgets %.3f ms per step on average\n", composer.averageBrickBudgetMs());
+    std::printf("        brick budgets %.3f ms per step on average, %zu balls moved in %zu steps\n",
+                composer.averageBrickBudgetMs(), composer.movedBallCount(), composer.movingStepCount());
 }
 
 void runRawStep(const BrickLayout& layout, BackendKind kind, size_t ballCount, int ticks, bool collisions,
