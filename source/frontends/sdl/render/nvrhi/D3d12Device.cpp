@@ -24,7 +24,10 @@ namespace {
 
 constexpr UINT backBufferCount = 3;
 constexpr UINT maximumQueuedFrames = 2;
-constexpr DWORD vsyncPresentWaitMilliseconds = 1000;
+// With VSync on, the wait for a free present slot paces the loop to the display. It is capped at about three 60 Hz
+// refreshes: a compositor that stops taking frames (a minimized Remote Desktop window) must not hold every frame for
+// a second; past the cap the frame skips its present, as with VSync off.
+constexpr DWORD vsyncPresentWaitMilliseconds = 50;
 constexpr DXGI_FORMAT swapChainFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 
 std::string narrow(const wchar_t* text) {
