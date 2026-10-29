@@ -2,7 +2,7 @@ add_library(balls_physics_cpu SHARED
     cpu/CpuBallStore.cpp
     cpu/CompactBallStore.cpp
     cpu/ScalarBackend.cpp
-    cpu/WorkerPool.cpp
+    ${BALLS_SOURCE_DIR}/core/common/WorkerPool.cpp
     cpu/CpuPlugin.cpp
 )
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64|x86|i[3-6]86)$")

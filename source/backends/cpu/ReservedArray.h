@@ -1,6 +1,6 @@
 #pragma once
 
-#include "cpu/WorkerPool.h"
+#include "common/WorkerPool.h"
 
 #include <algorithm>
 #include <cstddef>

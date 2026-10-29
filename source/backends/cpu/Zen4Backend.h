@@ -2,7 +2,7 @@
 
 #include "cpu/CompactBallStore.h"
 #include "cpu/CpuBackendBase.h"
-#include "cpu/WorkerPool.h"
+#include "common/WorkerPool.h"
 
 #include <memory>
 

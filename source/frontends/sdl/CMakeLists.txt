@@ -228,7 +228,6 @@ if(ANDROID)
         ${CMAKE_SOURCE_DIR}/source/backends/cpu/CpuBallStore.cpp
         ${CMAKE_SOURCE_DIR}/source/backends/cpu/CompactBallStore.cpp
         ${CMAKE_SOURCE_DIR}/source/backends/cpu/ScalarBackend.cpp
-        ${CMAKE_SOURCE_DIR}/source/backends/cpu/WorkerPool.cpp
         ${CMAKE_SOURCE_DIR}/source/backends/cpu/CpuPlugin.cpp
     )
     target_include_directories(${BALLS_SDL_TARGET} PRIVATE ${CMAKE_SOURCE_DIR}/source/backends)
