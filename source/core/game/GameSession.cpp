@@ -60,6 +60,15 @@ void GameSession::startCapacityProbe(double targetFps) {
     if (gameMode != GameMode::Performance) {
         return;
     }
+#if defined(BALLS_FIXED_TARGET)
+    // The scoring build allocates its whole memory budget up front, and in free flight a frame costs the same
+    // whatever the ball count, so the most balls it holds is that capacity: nothing is left to measure.
+    (void)targetFps;
+    cancelCapacityProbe();
+    measuredMachineLimit.reset();
+    machineLimitSelected = true;
+    machineLimitIsCapacity = true;
+#else
     if (sessionState == SessionState::Ready) {
         autoRelease = false;
         sessionState = SessionState::Running;
@@ -68,6 +77,7 @@ void GameSession::startCapacityProbe(double targetFps) {
     pendingProbeBalls = 0;
     probe.start(targetFps);
     pumpCapacityProbe();
+#endif
 }
 
 void GameSession::cancelCapacityProbe() {
@@ -155,14 +165,23 @@ void GameSession::selectSpawnRate(int optionIndex) {
     }
 }
 
+std::optional<BallCount> GameSession::machineBallLimit() const {
+    if (machineLimitIsCapacity) {
+        return static_cast<BallCount>(physicsSimulation.backend().ballCapacityLimit());
+    }
+    return measuredMachineLimit;
+}
+
 void GameSession::useMachineBallLimit(BallCount limit) {
     measuredMachineLimit = limit;
     machineLimitSelected = true;
+    machineLimitIsCapacity = false;
     physicsSimulation.trimBallsTo(limit);
 }
 
 void GameSession::selectBallLimit(int optionIndex) {
     machineLimitSelected = false;
+    machineLimitIsCapacity = false;
     selectedBallLimit = std::clamp(optionIndex, 0, static_cast<int>(ballLimitOptions.size()) - 1);
 }
 

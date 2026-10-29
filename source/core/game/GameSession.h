@@ -71,7 +71,7 @@ public:
     void useMachineBallLimit(BallCount limit);
     void fillWithBalls(BallCount count);
     bool isUsingMachineBallLimit() const { return machineLimitSelected; }
-    std::optional<BallCount> machineBallLimit() const { return measuredMachineLimit; }
+    std::optional<BallCount> machineBallLimit() const;
 
     GameMode mode() const { return gameMode; }
     SessionState state() const { return sessionState; }
@@ -85,7 +85,7 @@ public:
     int spawnRateIndex() const { return selectedSpawnRate; }
     int ballMultiplierIndex() const { return selectedMultiplier; }
     int ballLimitIndex() const { return selectedBallLimit; }
-    BallCount ballLimit() const { return machineLimitSelected ? *measuredMachineLimit : ballLimitOptions[selectedBallLimit]; }
+    BallCount ballLimit() const { return machineLimitSelected ? *machineBallLimit() : ballLimitOptions[selectedBallLimit]; }
     bool isAutoReleasing() const { return autoRelease; }
     double elapsedSeconds() const { return elapsed; }
     const std::string& lastBackendFault() const { return backendFault; }
@@ -121,6 +121,9 @@ private:
     BallCount pendingProbeBalls = 0;
     std::optional<BallCount> measuredMachineLimit;
     bool machineLimitSelected = false;
+    // Set when Auto is the backend's fixed capacity rather than a probed count, so the limit follows the capacity
+    // the backend settles on for each board.
+    bool machineLimitIsCapacity = false;
     std::string backendFault;
     std::shared_ptr<BackendBuild> pendingBuild;
     bool pendingBuildForCollisions = false;

@@ -203,6 +203,7 @@ add_executable(balls_tests source/tests/TestMain.cpp source/tests/LevelTests.cpp
     source/tests/PhysicsRateTests.cpp
     source/tests/ThemeTests.cpp
     source/tests/FreeFlightTests.cpp
+    source/tests/PreallocationTests.cpp
     source/tests/LevelImportTests.cpp
     source/tests/BenchmarkTests.cpp
     source/tests/GpuAdapterTests.cpp

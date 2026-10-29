@@ -94,6 +94,10 @@ void GameplayScreen::applyDefaultBallLimit() {
 // The remembered limit depends on the backend, which the session may only settle on the physics thread; the
 // profile is the UI's, so the choice is made there, in the command, from a copy of it.
 void GameplayScreen::useAutoBallLimit() {
+#if defined(BALLS_FIXED_TARGET)
+    // The scoring build's Auto is its preallocated capacity, never a remembered probe.
+    runner->post([](GameSession& session) { session.startCapacityProbe(); });
+#else
     const MachineProfile profile = app.machineProfile();
     const int targetFps = probeTargetFps;
     runner->post([profile, targetFps](GameSession& session) {
@@ -104,6 +108,7 @@ void GameplayScreen::useAutoBallLimit() {
             session.startCapacityProbe(static_cast<double>(targetFps));
         }
     });
+#endif
 }
 
 void GameplayScreen::handleSessionEvents() {
