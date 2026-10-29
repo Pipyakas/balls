@@ -685,8 +685,7 @@ void FBallsApp::Tick(float DeltaSeconds) {
         return;
     }
     // After a hitch the spawn budget and brick animation must not jump by the whole stall: clamp like the SDL front end.
-    Current->Tick(FMath::Min(DeltaSeconds, MaximumFrameSeconds), Frames.latest().workMs / 1000.0,
-                  Frames.latest().workMs / 1000.0);
+    Current->Tick(FMath::Min(DeltaSeconds, MaximumFrameSeconds), Frames.latest().workMs / 1000.0);
     const SessionView* View = Current->GetView();
     const FGeometry& Geometry = Root->GetCachedGeometry();
     const FVector2D ViewportSize = Geometry.GetLocalSize();

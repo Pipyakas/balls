@@ -79,14 +79,14 @@ const FBallsToast& FBallsGameplay::GetToast() const { return App.GetToast(); }
 
 bool FBallsGameplay::IsWon() const { return View && Mode == GameMode::Normal && View->state == SessionState::Won; }
 
-void FBallsGameplay::Tick(float DeltaSeconds, double FrameSeconds, double WorkSeconds) {
+void FBallsGameplay::Tick(float DeltaSeconds, double WorkSeconds) {
     if (!Host) {
         // Load-error retry is owned by the flow; nothing to do here.
         return;
     }
     // On the game thread this steps the session; on the physics thread it only hands over the frame's timings and
     // takes the newest view. A backend switch builds in the background either way.
-    Host->tick({App.GetScreenFlow().isPaused(), FrameSeconds, WorkSeconds, VisibilitySlotCells}, DeltaSeconds);
+    Host->tick({App.GetScreenFlow().isPaused(), WorkSeconds, VisibilitySlotCells}, DeltaSeconds);
     View = Host->view();
     for (const SessionEvent& Event : Host->takeEvents()) {
         if (Event.kind == SessionEventKind::BallCollisionsChanged) {

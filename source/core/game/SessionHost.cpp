@@ -53,7 +53,7 @@ void SessionHost::tick(const PhysicsFrameInput& input, float deltaSeconds) {
     }
     if (!input.paused) {
         const PhysicsRate::Clock::time_point workStart = PhysicsRate::Clock::now();
-        session->reportFrameSeconds(input.uiFrameSeconds, input.uiWorkSeconds);
+        session->reportFrameWorkSeconds(input.uiWorkSeconds);
         session->update(deltaSeconds);
         rate.frame(workStart, PhysicsRate::Clock::now());
     }

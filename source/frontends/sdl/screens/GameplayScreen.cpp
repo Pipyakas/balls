@@ -194,7 +194,7 @@ void GameplayScreen::update(float /*deltaTime*/) {
     view = runner->view();
     handleSessionEvents();
     if (!view) {
-        runner->tick({app.flow().isPaused(), 0.0, 0.0, 0.0f});
+        runner->tick({app.flow().isPaused(), 0.0, 0.0f});
         return;
     }
     app.flow().sessionStateChanged(view->state);
@@ -214,7 +214,6 @@ void GameplayScreen::tickPhysics(const GameplayLayout& layout) {
     const FrameSample& lastFrame = app.frameTimings().latest();
     PhysicsFrameInput input;
     input.paused = app.flow().isPaused();
-    input.uiFrameSeconds = lastFrame.workMs / millisecondsPerSecond;
     input.uiWorkSeconds = std::max(lastFrame.cpuMs, lastFrame.gpuMs) / millisecondsPerSecond;
     input.visibilitySlotCells = BallView::slotCells(layout.board, view->ballRadius);
     runner->tick(input);

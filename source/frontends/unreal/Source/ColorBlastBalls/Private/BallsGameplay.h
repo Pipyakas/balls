@@ -17,7 +17,7 @@ class FBallsGameplay : public ControlGame {
 public:
     FBallsGameplay(FBallsApp& App, GameMode Mode, LevelFiles Files);
 
-    void Tick(float DeltaSeconds, double FrameSeconds, double WorkSeconds);
+    void Tick(float DeltaSeconds, double WorkSeconds);
     bool HandleKey(const FKey& Key);
     // Pushes the app-wide Settings (ball collisions) into the running session.
     void ApplySettings();

@@ -190,8 +190,7 @@ void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, Le
         if (!input.paused) {
             // Coming out of a pause, the paused time is not simulated.
             const double frameSeconds = wasPaused ? 0.0 : std::min(sinceLastUpdate, maximumPhysicsFrameSeconds);
-            session->reportFrameSeconds(std::max(sinceLastUpdate, input.uiFrameSeconds),
-                                        std::max(rate.lastFrameSeconds(), input.uiWorkSeconds));
+            session->reportFrameWorkSeconds(std::max(rate.lastFrameSeconds(), input.uiWorkSeconds));
             session->update(static_cast<float>(frameSeconds));
         }
         wasPaused = input.paused;

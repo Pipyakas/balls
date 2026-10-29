@@ -88,8 +88,7 @@ void GameSession::cancelFill() {
     fillRemaining = 0;
 }
 
-void GameSession::reportFrameSeconds(double frameSeconds, double workSeconds) {
-    (void)frameSeconds;
+void GameSession::reportFrameWorkSeconds(double workSeconds) {
     additionGovernor.recordFrame(workSeconds);
 }
 

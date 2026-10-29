@@ -28,7 +28,7 @@ std::shared_ptr<const SessionView> tickUntil(SessionRunner& runner,
                                              bool paused = false) {
     const auto deadline = std::chrono::steady_clock::now() + 2s;
     while (std::chrono::steady_clock::now() < deadline) {
-        runner.tick({paused, 0.005, 0.001, 0.0f});
+        runner.tick({paused, 0.001, 0.0f});
         if (const auto view = runner.view(); view && condition(*view)) {
             return view;
         }
@@ -89,11 +89,11 @@ TEST_CASE("a session host on the UI thread steps the game inside its tick") {
     host.post([](GameSession& session) { session.chooseLauncher(0, 0); });
     EXPECT(host.view()->pendingSpawn > 0);
     for (int frame = 0; frame < 30; ++frame) {
-        host.tick({false, 1.0 / 60.0, 0.001, 0.0f}, 1.0f / 60.0f);
+        host.tick({false, 0.001, 0.0f}, 1.0f / 60.0f);
     }
     EXPECT(host.view()->stats.totalBallsSpawned > 0);
     const double elapsed = host.view()->elapsedSeconds;
-    host.tick({true, 1.0 / 60.0, 0.001, 0.0f}, 1.0f / 60.0f);
+    host.tick({true, 0.001, 0.0f}, 1.0f / 60.0f);
     EXPECT(host.view()->elapsedSeconds == elapsed);
 }
 
@@ -106,7 +106,7 @@ TEST_CASE("a session host on the physics thread reads the runner's views") {
     const auto deadline = std::chrono::steady_clock::now() + 2s;
     while (std::chrono::steady_clock::now() < deadline &&
            !(host.view() && host.view()->stats.totalBallsSpawned > 0)) {
-        host.tick({false, 0.005, 0.001, 0.0f}, 0.005f);
+        host.tick({false, 0.001, 0.0f}, 0.005f);
         std::this_thread::sleep_for(5ms);
     }
     EXPECT(host.view() && host.view()->stats.totalBallsSpawned > 0);

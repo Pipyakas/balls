@@ -67,7 +67,7 @@ public:
     BallCount ballsLeftToRefill() const { return refillRemaining; }
     void fillToBallLimit();
     void cancelFill();
-    void reportFrameSeconds(double frameSeconds, double workSeconds);
+    void reportFrameWorkSeconds(double workSeconds);
     void useMachineBallLimit(BallCount limit);
     // Auto as the backend's capacity, following it from board to board, without adding balls.
     void useCapacityBallLimit();

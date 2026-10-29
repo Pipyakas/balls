@@ -859,15 +859,15 @@ void balls_session_update(BallsSession* session, float deltaSeconds) {
     }
 }
 
-void balls_session_report_frame(BallsSession* session, double frameSeconds, double workSeconds) {
+// The frame time stays in the signature for the ABI; only the work time is used (see PhysicsFrameInput).
+void balls_session_report_frame(BallsSession* session, double, double workSeconds) {
     if (session == nullptr) {
         return;
     }
     if (session->threaded()) {
-        session->frameInput.uiFrameSeconds = frameSeconds;
         session->frameInput.uiWorkSeconds = workSeconds;
     } else {
-        session->game->reportFrameSeconds(frameSeconds, workSeconds);
+        session->game->reportFrameWorkSeconds(workSeconds);
     }
 }
 
