@@ -10,6 +10,7 @@
 #include "render/Palette.h"
 #include "screens/DevicePicker.h"
 #include "screens/SettingsPanel.h"
+#include "ui/MenuModel.h"
 #include "sim/BackendWorker.h"
 #include "ui/Widgets.h"
 
@@ -149,7 +150,7 @@ void GameplayScreen::handleSessionEvents() {
         } else if (event.kind == SessionEventKind::BackendSwitched) {
             applyDefaultBallLimit();
         } else {
-            app.showToast(std::format("Could not start the {} backend", backendKindName(event.backend)), true);
+            app.showToast(backendFailedMessage(event.backend), true);
         }
     }
 }
@@ -168,10 +169,7 @@ void GameplayScreen::rememberFinishedProbe() {
     if (!probeResultSaved && probe.phase() == ProbePhase::Done) {
         app.machineProfile().rememberBallLimit(view->backend, probe.targetFps(),
                                                probe.bestPassingCount());
-        app.showToast(std::format("{} limit on this machine: {} balls @{:.0f} FPS",
-                                  backendKindName(view->backend), groupedBalls(probe.bestPassingCount()),
-                                  probe.targetFps()),
-                      false);
+        app.showToast(probeResultMessage(view->backend, probe.bestPassingCount(), probe.targetFps()), false);
         probeResultSaved = true;
     }
 }
@@ -363,7 +361,7 @@ void GameplayScreen::selectComputeAdapter(int adapter) {
     refreshBackendStatuses();
     if (view->backend == BackendKind::Vulkan || view->pendingBackend == BackendKind::Vulkan) {
         runner->post([](GameSession& session) { session.requestBackend(BackendKind::Vulkan); });
-        app.showToast("Vulkan physics on " + app.computeAdapters()[static_cast<size_t>(adapter)].name, false);
+        app.showToast(computeGpuMessage(app.computeAdapters()[static_cast<size_t>(adapter)].name), false);
     }
 }
 
@@ -411,23 +409,17 @@ void GameplayScreen::drawDevicePicker(Rect area) {
         refreshBackendStatuses();
         const BackendKind kind = kindForPicks(*changed);
         runner->post([kind](GameSession& session) { session.requestBackend(kind); });
-        app.showToast("Physics on " + backendPicksLabel(*changed), false);
+        app.showToast(physicsOnMessage(*changed), false);
     }
 }
 
 void GameplayScreen::drawBackendList(Rect area, BackendKind selected) {
     float cursor = area.y;
-    for (BackendKind kind : selectableBackends()) {
-        const BackendStatus status = backendStatus(kind);
-        const bool available = status.available;
+    for (const BackendRow& rowInfo : gameplayBackendRows(*view)) {
+        const BackendKind kind = rowInfo.kind;
+        const bool available = rowInfo.option.enabled;
         const bool starting = view->pendingBackend == kind;
-        std::string label(backendKindName(kind));
-        if (!available) {
-            label += std::string(" - ") + status.unavailableReason;
-        } else if (starting) {
-            label += " - starting...";
-        }
-        const bool pressed = ui::button({area.x, cursor, area.width, controlRowHeight}, label, available,
+        const bool pressed = ui::button({area.x, cursor, area.width, controlRowHeight}, rowInfo.option.label, available,
                                         starting || (selected == kind && !view->pendingBackend));
         if (pressed && available) {
             runner->post([kind](GameSession& session) { session.requestBackend(kind); });
@@ -440,7 +432,8 @@ void GameplayScreen::drawBackendList(Rect area, BackendKind selected) {
 // is not offered.
 void GameplayScreen::drawBallCollisions(Rect area) {
     const bool enabled = app.settings().ballCollisions;
-    const bool possible = isBackendSelectable(BackendKind::Scalar);
+    const BallCollisionsChoice choice = ballCollisionsChoice(enabled);
+    const bool possible = choice.options[1].enabled;
     const Rect buttons{area.x, area.y, area.width, controlRowHeight};
     bool wanted = enabled;
     if (ui::button(ui::columnSlice(buttons, 0, 2, controlGap), "Off", true, !enabled)) {
@@ -451,11 +444,8 @@ void GameplayScreen::drawBallCollisions(Rect area) {
     }
     const float hintY = area.y + controlRowHeight + controlGap;
     const float lineHeight = collisionsHintHeight * 0.5f;
-    ui::drawTextInRect("Testing only - the game rules have balls", {area.x, hintY, area.width, lineHeight},
+    ui::drawTextInRect(choice.hint, {area.x, hintY, area.width, lineHeight * 2.0f},
                        collisionsHintSize, palette::textMuted, ui::Align::Left);
-    ui::drawTextInRect(possible ? "pass through each other." : "pass through each other. Needs Scalar, not offered here.",
-                       {area.x, hintY + lineHeight, area.width, lineHeight}, collisionsHintSize, palette::textMuted,
-                       ui::Align::Left);
     if (wanted != enabled) {
         Settings next = app.settings();
         next.ballCollisions = wanted;
@@ -511,21 +501,17 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
         return rows;
     };
 
-    const bool ready = view->state == SessionState::Ready;
-    const std::string startLabel =
-        ready ? std::string("Start (1 click)")
-              : std::format("Auto releasing - {} launchers left", view->launchers.launcherCount());
-    if (ui::button(group("Release", controlRowHeight), startLabel, ready)) {
+    const UiOption startOption = releaseButton(*view);
+    const std::string startLabel = startOption.label;
+    if (ui::button(group("Release", controlRowHeight), startLabel, startOption.enabled)) {
         runner->post([](GameSession& session) { session.startAutoRelease(); });
     }
 
-    static const std::array<std::string, spawnRateOptions.size()> spawnLabels = [] {
-        std::array<std::string, spawnRateOptions.size()> labels{};
-        for (size_t i = 0; i < spawnRateOptions.size(); ++i) {
-            labels[i] = spawnRateLabel(spawnRateOptions[i]);
-        }
-        return labels;
-    }();
+    const auto spawnChoices = spawnRateChoices(view->spawnRateIndex);
+    std::vector<std::string> spawnLabels;
+    for (const UiOption& option : spawnChoices) {
+        spawnLabels.push_back(option.label);
+    }
     const float spawnHeight =
         controlRowHeight + (spawnDropdownOpen ? (controlRowHeight + controlGap) * spawnLabels.size() : 0.0f);
     const int pickedSpawn =
@@ -535,13 +521,11 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
         runner->post([pickedSpawn](GameSession& session) { session.selectSpawnRate(pickedSpawn); });
     }
 
-    static const std::array<std::string, ballMultiplierOptions.size()> countLabels = [] {
-        std::array<std::string, ballMultiplierOptions.size()> labels{};
-        for (size_t i = 0; i < ballMultiplierOptions.size(); ++i) {
-            labels[i] = std::format("x{}", ballMultiplierOptions[i]);
-        }
-        return labels;
-    }();
+    const auto countChoices = ballMultiplierChoices(view->ballMultiplierIndex);
+    std::vector<std::string> countLabels;
+    for (const UiOption& option : countChoices) {
+        countLabels.push_back(option.label);
+    }
     const float countHeight =
         controlRowHeight + (countDropdownOpen ? (controlRowHeight + controlGap) * countLabels.size() : 0.0f);
     const int pickedCount =
@@ -551,15 +535,12 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
         runner->post([pickedCount](GameSession& session) { session.selectBallMultiplier(pickedCount); });
     }
 
-    static const std::array<std::string, ballLimitOptions.size() + 1> limitLabels = [] {
-        std::array<std::string, ballLimitOptions.size() + 1> labels{};
-        labels[0] = "Auto";
-        for (size_t i = 0; i < ballLimitOptions.size(); ++i) {
-            labels[i + 1] = ballLimitOptionLabel(ballLimitOptions[i]);
-        }
-        return labels;
-    }();
-    const bool autoLimit = view->usingMachineLimit || view->probe.isActive();
+    const auto limitChoices = ballLimitChoices(*view);
+    std::vector<std::string> limitLabels;
+    for (const UiOption& option : limitChoices) {
+        limitLabels.push_back(option.label);
+    }
+    const bool autoLimit = isAutoBallLimit(*view);
     const int selectedLimit = autoLimit ? 0 : view->ballLimitIndex + 1;
     const float dropdownHeight =
         controlRowHeight + (limitDropdownOpen ? (controlRowHeight + controlGap) * limitLabels.size() : 0.0f);
@@ -581,7 +562,7 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
                         minimumProbeTargetFps, maximumProbeTargetFps)) {
             startProbe();
         }
-        ui::drawTextInRect(probeStatus(*view),
+        ui::drawTextInRect(probeStatusText(*view),
                            {limitArea.x, stepperY + controlRowHeight, limitArea.width, probeStatusHeight},
                            probeStatusSize, palette::textMuted, ui::Align::Left);
     }
@@ -790,7 +771,7 @@ void GameplayScreen::draw() {
     drawMainSection(layout);
     drawInteractionSection(layout);
     if (!layout.isPortrait) {
-        drawDebugPanel(layout.debugSection, *view, app.frameTimings(), debugState, app.settings().advancedSettings);
+        drawDebugPanel(layout.debugSection, *view, app.frameTimings(), debugState, app.settings().advancedSettings, {}, app.rendererDescription());
     }
     drawOverlay();
 }

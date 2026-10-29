@@ -2,6 +2,7 @@
 
 #include "app/App.h"
 #include "app/Paths.h"
+#include "editor/LevelEditor.h"
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
 #include "level/LevelWriter.h"
@@ -24,25 +25,7 @@ constexpr float portraitGridShare = 0.55f;
 constexpr float panelTabsHeight = 40.0f;
 constexpr float controlHeight = 38.0f;
 constexpr float controlGap = 8.0f;
-constexpr float messageSeconds = 3.0f;
-constexpr int maximumBoardSize = 200;
-constexpr int maximumHits = 999;
-constexpr int maximumLauncherBalls = 100000;
-constexpr size_t maximumNameLength = 40;
-constexpr const char* defaultLevelName = "NewLevel";
-constexpr int defaultWidth = 10;
-constexpr int defaultHeight = 8;
-constexpr int defaultPlayableHeight = 20;
-constexpr int defaultLauncherColumns = 3;
-constexpr int defaultVisibleRows = 3;
-constexpr int autoFillBallsPerLauncher = 10;
 
-constexpr std::array<std::pair<EditorTool, const char*>, 4> toolNames{{
-    {EditorTool::Paint, "Paint (P)"},
-    {EditorTool::Extend, "Extend (E)"},
-    {EditorTool::Erase, "Erase (X)"},
-    {EditorTool::Pick, "Pick (K)"},
-}};
 
 Rect nextControl(Rect area, float& cursor, float height = controlHeight) {
     const Rect rect{area.x + 12.0f, cursor, area.width - 24.0f, height};
@@ -59,27 +42,7 @@ void sectionTitle(Rect area, float& cursor, std::string_view text) {
 }
 
 MapEditorScreen::MapEditorScreen(App& app, GameMode mode, std::optional<LevelFiles> files)
-    : app(app), targetMode(mode) {
-    if (files) {
-        if (auto level = loadLevel(*files)) {
-            editor.load(std::move(*level));
-            levelName = files->name;
-            editor.markSaved();
-            return;
-        } else {
-            showMessage("Could not load: " + level.error(), true);
-        }
-    }
-    levelName = defaultLevelName;
-    editor.newLevel(levelName, defaultWidth, defaultHeight, defaultPlayableHeight, defaultLauncherColumns,
-                    defaultVisibleRows);
-}
-
-void MapEditorScreen::showMessage(std::string text, bool isError) {
-    message = std::move(text);
-    messageSeconds = ::messageSeconds;
-    messageIsError = isError;
-}
+    : app(app), session(mode, files, ::levelDirectory(GameMode::Normal), ::levelDirectory(GameMode::Performance)) {}
 
 MapEditorScreen::Regions MapEditorScreen::computeRegions() const {
     const float width = static_cast<float>(gfx::screenWidth());
@@ -111,14 +74,14 @@ MapEditorScreen::Regions MapEditorScreen::computeRegions() const {
 }
 
 float MapEditorScreen::brickCellSize(Rect area) const {
-    const BrickLayout& bricks = editor.level().bricks;
+    const BrickLayout& bricks = session.level().bricks;
     const Rect inner = ui::shrink(area, 14.0f);
     return std::max(2.0f, std::min(inner.width / static_cast<float>(std::max(bricks.width, 1)),
                                    inner.height / static_cast<float>(std::max(bricks.playableHeight, 1))));
 }
 
 Rect MapEditorScreen::brickGridRect(Rect area) const {
-    const BrickLayout& bricks = editor.level().bricks;
+    const BrickLayout& bricks = session.level().bricks;
     const float cell = brickCellSize(area);
     const float gridWidth = cell * static_cast<float>(bricks.width);
     const float gridHeight = cell * static_cast<float>(bricks.playableHeight);
@@ -126,7 +89,7 @@ Rect MapEditorScreen::brickGridRect(Rect area) const {
 }
 
 float MapEditorScreen::launcherCellSize(Rect area) const {
-    const LauncherLayout& launchers = editor.level().launchers;
+    const LauncherLayout& launchers = session.level().launchers;
     const Rect inner = ui::shrink(area, 14.0f);
     const float rows = static_cast<float>(launchers.rowCount() + 1);
     const float columns = static_cast<float>(std::max(launchers.columns, 1));
@@ -134,7 +97,7 @@ float MapEditorScreen::launcherCellSize(Rect area) const {
 }
 
 Rect MapEditorScreen::launcherGridRect(Rect area) const {
-    const LauncherLayout& launchers = editor.level().launchers;
+    const LauncherLayout& launchers = session.level().launchers;
     const float cell = launcherCellSize(area);
     const float gridWidth = cell * static_cast<float>(launchers.columns);
     const float gridHeight = cell * static_cast<float>(launchers.rowCount() + 1);
@@ -143,7 +106,7 @@ Rect MapEditorScreen::launcherGridRect(Rect area) const {
 
 MapEditorScreen::GridCell MapEditorScreen::brickCellAt(Rect area, Vec2 point) const {
     const Rect grid = brickGridRect(area);
-    const BrickLayout& bricks = editor.level().bricks;
+    const BrickLayout& bricks = session.level().bricks;
     if (!pointInRect(point, grid)) {
         return {};
     }
@@ -166,36 +129,15 @@ MapEditorScreen::GridCell MapEditorScreen::launcherCellAt(Rect area, Vec2 point)
 }
 
 void MapEditorScreen::selectColor(BallColor color) {
-    brushColor = color;
-    if (tool == EditorTool::Pick && selectedBrick >= 0) {
-        editor.beginEdit();
-        editor.setBrickColor(selectedBrick, color);
-    }
+    session.selectColor(color);
 }
 
 void MapEditorScreen::changeSelectedHits(int hits) {
-    if (tool == EditorTool::Pick && selectedBrick >= 0) {
-        editor.beginEdit();
-        editor.setBrickHits(selectedBrick, hits);
-    }
+    session.setBrushHits(hits);
 }
 
 bool MapEditorScreen::save() {
-    if (levelName.empty()) {
-        showMessage("Enter a level name first", true);
-        return false;
-    }
-    LevelData level = editor.level();
-    level.name = levelName;
-    const LevelFiles files = levelFilesFor(levelDirectory(targetMode), levelName);
-    if (auto result = saveLevel(level, files); !result) {
-        showMessage(result.error(), true);
-        return false;
-    }
-    editor.markSaved();
-    showMessage(std::format("Saved {} ({})", levelName, targetMode == GameMode::Normal ? "normal" : "performance"),
-                false);
-    return true;
+    return session.save();
 }
 
 void MapEditorScreen::handleShortcuts() {
@@ -204,62 +146,33 @@ void MapEditorScreen::handleShortcuts() {
     }
     const bool control = input::keyDown(SDL_SCANCODE_LCTRL) || input::keyDown(SDL_SCANCODE_RCTRL);
     if (control && input::keyPressed(SDL_SCANCODE_Z)) {
-        editor.undo();
+        session.handleShortcut(EditorShortcut::Undo);
     }
     if (control && input::keyPressed(SDL_SCANCODE_Y)) {
-        editor.redo();
+        session.handleShortcut(EditorShortcut::Redo);
     }
     if (control && input::keyPressed(SDL_SCANCODE_S)) {
-        save();
+        session.handleShortcut(EditorShortcut::Save);
     }
     if (control) {
         return;
     }
     for (int i = 0; i < ballColorCount; ++i) {
         if (input::keyPressed(static_cast<SDL_Scancode>(SDL_SCANCODE_1 + i))) {
-            selectColor(ballColorFromIndex(i));
+            session.handleShortcut(static_cast<EditorShortcut>(static_cast<int>(EditorShortcut::Color1) + i));
         }
     }
     if (input::keyPressed(SDL_SCANCODE_P)) {
-        tool = EditorTool::Paint;
+        session.handleShortcut(EditorShortcut::Paint);
     }
     if (input::keyPressed(SDL_SCANCODE_E)) {
-        tool = EditorTool::Extend;
+        session.handleShortcut(EditorShortcut::Extend);
     }
     if (input::keyPressed(SDL_SCANCODE_X)) {
-        tool = EditorTool::Erase;
+        session.handleShortcut(EditorShortcut::Erase);
     }
     if (input::keyPressed(SDL_SCANCODE_K)) {
-        tool = EditorTool::Pick;
-    }
-}
-
-void MapEditorScreen::applyBrickTool(GridCell cell, bool erasing) {
-    if (erasing || tool == EditorTool::Erase) {
-        editor.eraseCell(cell.column, cell.row);
-        return;
-    }
-    const int brickUnderCursor = editor.brickIdAt(cell.column, cell.row);
-    switch (tool) {
-    case EditorTool::Paint:
-        editor.paintCell(cell.column, cell.row, brushColor, brushHits);
-        break;
-    case EditorTool::Extend:
-        if (!draggingBricks && brickUnderCursor != emptyBrickId) {
-            selectedBrick = brickUnderCursor;
-        } else if (selectedBrick >= 0) {
-            editor.extendBrick(selectedBrick, cell.column, cell.row);
-        }
-        break;
-    case EditorTool::Pick:
-        selectedBrick = brickUnderCursor;
-        if (const BrickType* type = editor.level().bricks.findType(brickUnderCursor)) {
-            brushColor = type->color;
-            brushHits = type->hits;
-        }
-        break;
-    case EditorTool::Erase:
-        break;
+        session.handleShortcut(EditorShortcut::Pick);
     }
 }
 
@@ -267,28 +180,22 @@ void MapEditorScreen::handleBrickInput(Rect area) {
     const bool leftDown = input::mouseDown(input::MouseButton::Left);
     const bool rightDown = input::mouseDown(input::MouseButton::Right);
     if (!leftDown && !rightDown) {
-        draggingBricks = false;
-        strokeActive = false;
-        lastPaintedCell = {};
+        if (strokeInProgress) {
+            session.endStroke();
+            strokeInProgress = false;
+        }
         return;
     }
     const GridCell cell = brickCellAt(area, input::mousePosition());
     const bool pressed = input::mousePressed(input::MouseButton::Left) || input::mousePressed(input::MouseButton::Right);
     if (pressed && cell.isValid()) {
-        editor.beginEdit();
-        strokeActive = true;
-        draggingBricks = false;
-        lastPaintedCell = {};
+        session.beginStroke(rightDown);
+        strokeInProgress = true;
     }
-    if (!strokeActive || !cell.isValid()) {
+    if (!strokeInProgress || !cell.isValid()) {
         return;
     }
-    if (cell.column == lastPaintedCell.column && cell.row == lastPaintedCell.row) {
-        return;
-    }
-    applyBrickTool(cell, rightDown);
-    draggingBricks = lastPaintedCell.isValid() || tool != EditorTool::Extend || selectedBrick >= 0;
-    lastPaintedCell = cell;
+    session.strokeCell(cell.column, cell.row);
 }
 
 void MapEditorScreen::handleLauncherInput(Rect area) {
@@ -301,32 +208,27 @@ void MapEditorScreen::handleLauncherInput(Rect area) {
     if (!cell.isValid()) {
         return;
     }
-    editor.beginEdit();
     const bool removeRow = rightPressed && input::keyDown(SDL_SCANCODE_LSHIFT);
     if (removeRow) {
-        if (cell.row < editor.level().launchers.rowCount()) {
-            editor.removeLauncherRow(cell.row);
-        }
+        session.clickLauncher(cell.column, cell.row, LauncherClick::DeleteRow);
         return;
     }
     if (rightPressed) {
-        if (cell.row < editor.level().launchers.rowCount()) {
-            editor.setLauncher(cell.column, cell.row, std::nullopt);
-        }
+        session.clickLauncher(cell.column, cell.row, LauncherClick::Clear);
         return;
     }
-    editor.setLauncher(cell.column, cell.row, Launcher{brushColor, launcherBallCount});
+    session.clickLauncher(cell.column, cell.row, LauncherClick::Set);
 }
 
 void MapEditorScreen::update(float deltaTime) {
-    messageSeconds = std::max(0.0f, messageSeconds - deltaTime);
+    session.update(deltaTime);
     if (input::keyPressed(SDL_SCANCODE_ESCAPE)) {
         if (nameFocused) {
             nameFocused = false;
-        } else if (editor.isDirty() && !confirmLeave) {
-            confirmLeave = true;
         } else {
-            app.flow().activate(FlowAction::Back);
+            if (session.back() == EditorLeave::Leave) {
+                app.flow().activate(FlowAction::Back);
+            }
         }
         return;
     }
@@ -344,9 +246,9 @@ void MapEditorScreen::drawToolPanel(Rect area) {
     const float contentTop = area.y - toolsScroll;
     float cursor = contentTop + 8.0f;
     sectionTitle(area, cursor, "Tool");
-    for (const auto& [kind, name] : toolNames) {
-        if (ui::button(nextControl(area, cursor), name, true, tool == kind)) {
-            tool = kind;
+    for (const EditorToolButton& button : EditorSession::toolButtons()) {
+        if (ui::button(nextControl(area, cursor), std::string(button.label), true, session.tool() == button.tool)) {
+            session.setTool(button.tool);
         }
     }
 
@@ -358,24 +260,26 @@ void MapEditorScreen::drawToolPanel(Rect area) {
         const Rect swatch = ui::columnSlice(row, i % 4, 4, 8.0f);
         const BallColor color = ballColorFromIndex(i);
         gfx::fillRect(swatch, palette::ballColor(color));
-        if (color == brushColor) {
+        if (color == session.brushColor()) {
             gfx::strokeRect(ui::shrink(swatch, -3.0f), 2.0f, palette::textStrong);
         }
         if (ui::isClicked(swatch)) {
-            selectColor(color);
+            session.selectColor(color);
         }
     }
 
     sectionTitle(area, cursor, "Brick");
-    if (ui::stepper(nextControl(area, cursor), "Hits", brushHits, 1, maximumHits)) {
-        changeSelectedHits(brushHits);
+    int hits = session.brushHits();
+    if (ui::stepper(nextControl(area, cursor), "Hits", hits, 1, editorMaximumHits)) {
+        session.setBrushHits(hits);
     }
-    const std::string selection =
-        selectedBrick >= 0 ? std::format("Selected id {}", selectedBrick) : std::string("No brick selected");
-    ui::drawTextInRect(selection, nextControl(area, cursor, 24.0f), 18.0f, palette::textMuted, ui::Align::Left);
+    ui::drawTextInRect(session.selectionText(), nextControl(area, cursor, 24.0f), 18.0f, palette::textMuted, ui::Align::Left);
 
     sectionTitle(area, cursor, "Launcher");
-    ui::stepper(nextControl(area, cursor), "Balls", launcherBallCount, 1, maximumLauncherBalls);
+    int balls = session.launcherBalls();
+    if (ui::stepper(nextControl(area, cursor), "Balls", balls, 1, editorMaximumLauncherBalls)) {
+        session.setLauncherBalls(balls);
+    }
     ui::drawTextInRect("L-click set, R-click clear", nextControl(area, cursor, 22.0f), 16.0f, palette::textMuted,
                        ui::Align::Left);
     ui::drawTextInRect("Shift+R-click delete row", nextControl(area, cursor, 22.0f), 16.0f, palette::textMuted,
@@ -393,47 +297,46 @@ void MapEditorScreen::drawPropertyPanel(Rect area) {
     const float contentTop = area.y - propertiesScroll;
     float cursor = contentTop + 8.0f;
     sectionTitle(area, cursor, "Level");
-    ui::textField(nextControl(area, cursor), levelName, nameFocused, maximumNameLength);
-    const Rect modeRow = nextControl(area, cursor);
-    if (ui::button(ui::columnSlice(modeRow, 0, 2, 8.0f), "Normal", true, targetMode == GameMode::Normal)) {
-        targetMode = GameMode::Normal;
+    std::string name = session.name();
+    if (ui::textField(nextControl(area, cursor), name, nameFocused, editorMaximumNameLength)) {
+        session.setName(name);
     }
-    if (ui::button(ui::columnSlice(modeRow, 1, 2, 8.0f), "Perf", true, targetMode == GameMode::Performance)) {
-        targetMode = GameMode::Performance;
+    const Rect modeRow = nextControl(area, cursor);
+    if (ui::button(ui::columnSlice(modeRow, 0, 2, 8.0f), "Normal", true, session.mode() == GameMode::Normal)) {
+        session.setMode(GameMode::Normal);
+    }
+    if (ui::button(ui::columnSlice(modeRow, 1, 2, 8.0f), "Perf", true, session.mode() == GameMode::Performance)) {
+        session.setMode(GameMode::Performance);
     }
 
     sectionTitle(area, cursor, "Board");
-    const BrickLayout& bricks = editor.level().bricks;
+    const BrickLayout& bricks = session.level().bricks;
     int width = bricks.width;
     int height = bricks.height;
     int playable = bricks.playableHeight;
-    const bool widthChanged = ui::stepper(nextControl(area, cursor), "Width", width, 1, maximumBoardSize);
-    const bool heightChanged = ui::stepper(nextControl(area, cursor), "Brick rows", height, 1, maximumBoardSize);
+    const bool widthChanged = ui::stepper(nextControl(area, cursor), "Width", width, 1, editorMaximumBoardSize);
+    const bool heightChanged = ui::stepper(nextControl(area, cursor), "Brick rows", height, 1, editorMaximumBoardSize);
     const bool playableChanged =
-        ui::stepper(nextControl(area, cursor), "Total rows", playable, height, maximumBoardSize + maximumBoardSize);
+        ui::stepper(nextControl(area, cursor), "Total rows", playable, height, editorMaximumTotalRows);
     if (widthChanged || heightChanged || playableChanged) {
-        editor.beginEdit();
-        editor.resizeBoard(width, height, std::max(playable, height));
+        session.setBoardSize(width, height, playable);
     }
 
     sectionTitle(area, cursor, "Launchers");
-    int columns = editor.level().launchers.columns;
-    int visibleRows = editor.level().launchers.visibleRows;
-    if (ui::stepper(nextControl(area, cursor), "Columns", columns, 1, 8)) {
-        editor.beginEdit();
-        editor.setLauncherColumns(columns);
+    int columns = session.level().launchers.columns;
+    int visibleRows = session.level().launchers.visibleRows;
+    if (ui::stepper(nextControl(area, cursor), "Columns", columns, 1, editorMaximumLauncherColumns)) {
+        session.setLauncherColumns(columns);
     }
-    if (ui::stepper(nextControl(area, cursor), "Visible rows", visibleRows, 1, 8)) {
-        editor.beginEdit();
-        editor.setVisibleRows(visibleRows);
+    if (ui::stepper(nextControl(area, cursor), "Visible rows", visibleRows, 1, editorMaximumVisibleRows)) {
+        session.setVisibleRows(visibleRows);
     }
     if (ui::button(nextControl(area, cursor), "Auto-fill to match bricks")) {
-        editor.beginEdit();
-        editor.autoFillLaunchers(launcherBallCount > 0 ? launcherBallCount : autoFillBallsPerLauncher);
+        session.autoFillLaunchers();
     }
 
     sectionTitle(area, cursor, "Validation");
-    const EditorValidation validation = editor.validate(targetMode);
+    const EditorValidation validation = session.validation();
     if (validation.isPlayable()) {
         ui::drawText("Ready to play", {area.x + 12.0f, cursor}, 20.0f, palette::success);
         cursor += 26.0f;
@@ -446,22 +349,22 @@ void MapEditorScreen::drawPropertyPanel(Rect area) {
     const float buttonsTop = contentTop + area.height - (controlHeight + controlGap) * 4.0f - 8.0f;
     cursor = std::max(cursor + 8.0f, buttonsTop);
     const Rect undoRow = nextControl(area, cursor);
-    if (ui::button(ui::columnSlice(undoRow, 0, 2, 8.0f), "Undo", editor.canUndo())) {
-        editor.undo();
+    if (ui::button(ui::columnSlice(undoRow, 0, 2, 8.0f), "Undo", session.canUndo())) {
+        session.undo();
     }
-    if (ui::button(ui::columnSlice(undoRow, 1, 2, 8.0f), "Redo", editor.canRedo())) {
-        editor.redo();
+    if (ui::button(ui::columnSlice(undoRow, 1, 2, 8.0f), "Redo", session.canRedo())) {
+        session.redo();
     }
-    if (ui::button(nextControl(area, cursor), editor.isDirty() ? "Save *  (Ctrl+S)" : "Save  (Ctrl+S)")) {
+    if (ui::button(nextControl(area, cursor), std::string(session.saveLabel()))) {
         save();
     }
-    if (ui::button(nextControl(area, cursor), "Save & Play", validation.isPlayable()) && save()) {
-        app.flow().playFromEditor(targetMode, levelFilesFor(levelDirectory(targetMode), levelName));
+    if (ui::button(nextControl(area, cursor), "Save & Play", validation.isPlayable())) {
+        if (auto files = session.saveAndPlay()) {
+            app.flow().playFromEditor(session.mode(), *files);
+        }
     }
-    if (ui::button(nextControl(area, cursor), confirmLeave ? "Discard changes?" : "Back")) {
-        if (editor.isDirty() && !confirmLeave) {
-            confirmLeave = true;
-        } else {
+    if (ui::button(nextControl(area, cursor), std::string(session.backLabel()))) {
+        if (session.back() == EditorLeave::Leave) {
             app.flow().activate(FlowAction::Back);
         }
     }
@@ -481,7 +384,7 @@ void MapEditorScreen::drawPanelTabs(Rect area) {
 
 void MapEditorScreen::drawBrickGrid(Rect area) {
     ui::drawPanel(area, palette::boardBackdrop, 0.02f);
-    const BrickLayout& bricks = editor.level().bricks;
+    const BrickLayout& bricks = session.level().bricks;
     const Rect grid = brickGridRect(area);
     const float cell = brickCellSize(area);
     gfx::fillRect(grid, palette::shade(palette::boardBackdrop, 0.7f));
@@ -495,7 +398,7 @@ void MapEditorScreen::drawBrickGrid(Rect area) {
             const BrickType* type = id == emptyBrickId ? nullptr : bricks.findType(id);
             if (type) {
                 Color fill = palette::brickColor(type->color);
-                if (id == selectedBrick) {
+                if (id == session.selectedBrick()) {
                     fill = palette::shade(fill, 1.35f);
                 }
                 gfx::fillRect(rect, fill);
@@ -527,7 +430,7 @@ void MapEditorScreen::drawBrickGrid(Rect area) {
         }
     }
     const std::string size = std::format("{} x {}", bricks.width, bricks.height);
-    const std::string footer = size + "  |  L-drag: tool  R-drag: erase  Ctrl+Z/Y";
+    const std::string footer = session.footerText();
     const bool footerFits = ui::measureText(footer, 18.0f).x <= area.width - 20.0f;
     ui::drawText(footerFits ? footer : size, {area.x + 10.0f, area.y + area.height - 26.0f}, 18.0f,
                  palette::textMuted);
@@ -535,7 +438,7 @@ void MapEditorScreen::drawBrickGrid(Rect area) {
 
 void MapEditorScreen::drawLauncherGrid(Rect area) {
     ui::drawPanel(area, palette::panel, 0.04f);
-    const LauncherLayout& launchers = editor.level().launchers;
+    const LauncherLayout& launchers = session.level().launchers;
     const Rect grid = launcherGridRect(area);
     const float cell = launcherCellSize(area);
     const GridCell hovered = launcherCellAt(area, input::mousePosition());
@@ -560,7 +463,7 @@ void MapEditorScreen::drawLauncherGrid(Rect area) {
             }
         }
     }
-    const EditorValidation validation = editor.validate(targetMode);
+    const EditorValidation validation = session.validation();
     float x = area.x + 12.0f;
     const float y = area.y + area.height - 30.0f;
     for (int color = 0; color < ballColorCount; ++color) {
@@ -576,14 +479,15 @@ void MapEditorScreen::drawLauncherGrid(Rect area) {
 }
 
 void MapEditorScreen::drawMessage() {
-    if (messageSeconds <= 0.0f) {
+    const EditorMessage& msg = session.message();
+    if (msg.secondsLeft <= 0.0f) {
         return;
     }
-    const Vec2 extent = ui::measureText(message, 22.0f);
+    const Vec2 extent = ui::measureText(msg.text, 22.0f);
     const Rect rect{(static_cast<float>(gfx::screenWidth()) - extent.x) * 0.5f - 18.0f, 20.0f, extent.x + 36.0f,
                          44.0f};
-    ui::drawPanel(rect, messageIsError ? palette::danger : palette::success, 0.4f);
-    ui::drawTextInRect(message, rect, 22.0f, palette::textStrong);
+    ui::drawPanel(rect, msg.isError ? palette::danger : palette::success, 0.4f);
+    ui::drawTextInRect(msg.text, rect, 22.0f, palette::textStrong);
 }
 
 void MapEditorScreen::draw() {

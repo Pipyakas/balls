@@ -1,6 +1,7 @@
 #include "screens/DebugPanel.h"
 
 #include "render/Palette.h"
+#include "ui/MenuModel.h"
 #include "ui/Widgets.h"
 
 #include <algorithm>
@@ -54,18 +55,6 @@ private:
     float cursor;
 };
 
-std::string withThousands(BallCount value) {
-    std::string digits = std::to_string(value);
-    for (int insertAt = static_cast<int>(digits.size()) - 3; insertAt > 0; insertAt -= 3) {
-        digits.insert(static_cast<size_t>(insertAt), ",");
-    }
-    return digits;
-}
-
-std::string ballLimitText(BallCount limit) {
-    return limit == unlimitedBalls ? std::string("Max (2^64-1)") : withThousands(limit);
-}
-
 Color fpsColor(float fps) {
     constexpr float targetFps = 60.0f;
     return fps >= targetFps ? palette::success : palette::danger;
@@ -74,90 +63,56 @@ Color fpsColor(float fps) {
 } // namespace
 
 void drawDebugPanel(Rect area, const SessionView& session, const FrameTimings& frames, DebugPanelState& state,
-                    bool showBackend, std::string_view deviceDescription) {
+                    bool showBackend, std::string_view deviceDescription, std::string_view renderer) {
     ui::drawPanel(area, palette::panel, 0.03f);
-    // The rows depend on the backend, the probe and the Advanced Settings section, so the gadget scrolls over the
-    // height it measured while drawing the previous frame rather than an estimate that drifts as rows are added.
+    const FrameSample& sample = frames.average();
+    DebugGadgetOptions options;
+    options.showBackend = showBackend;
+    options.renderer = renderer.empty() ? std::string(deviceDescription) : std::string(renderer);
+    // SDL's own rows: the work rate without the present wait, the rate frames reach the screen, and the CPU and
+    // present split of the frame.
+    options.portRows = {{"Work FPS", std::format("{:.0f}", frames.workFramesPerSecond())},
+                        {"Min work FPS", std::format("{:.0f}", frames.worstWorkFpsLastSecond())},
+                        {"Shown FPS", std::format("{:.0f}", frames.shownFramesPerSecond())},
+                        {"CPU", std::format("{:.2f} ms", sample.cpuMs)},
+                        {"Present", std::format("{:.2f} ms", sample.presentMs)}};
+    const std::vector<DebugRow> rows = debugGadgetRows(session, frames, options);
     const float contentHeight = std::max(state.contentHeight, area.height);
     float visibleHeight = 0.0f;
     ui::scrollFrame(area, state.scroll, contentHeight, visibleHeight);
     const Rect inner{area.x, area.y - state.scroll, area.width, contentHeight};
     PanelWriter writer(inner);
     gfx::beginClip(area);
-    const SimulationStats& stats = session.stats;
-
-    writer.heading("Performance");
-    const FrameSample& sample = frames.average();
-    const float fps = static_cast<float>(frames.framesPerSecond());
-    const float minimumFps = static_cast<float>(frames.worstFpsLastSecond());
-    writer.row("FPS", std::format("{:.0f}", fps), fpsColor(fps));
-    writer.row("Min FPS (1s)", std::format("{:.0f}", minimumFps), fpsColor(minimumFps));
-    const float workFps = static_cast<float>(frames.workFramesPerSecond());
-    const float minimumWorkFps = static_cast<float>(frames.worstWorkFpsLastSecond());
-    writer.row("Work FPS", std::format("{:.0f}", workFps), fpsColor(workFps));
-    writer.row("Min work FPS", std::format("{:.0f}", minimumWorkFps), fpsColor(minimumWorkFps));
-    writer.row("Shown FPS", std::format("{:.0f}", frames.shownFramesPerSecond()));
-    writer.row("Frame", std::format("{:.2f} ms", sample.frameMs));
-    writer.row("CPU", std::format("{:.2f} ms", sample.cpuMs));
-    writer.row("  Physics", std::format("{:.2f} ms  x{}", stats.lastFramePhysicsMs, stats.ticksLastFrame));
-    const float physicsFps = static_cast<float>(session.physicsFramesPerSecond);
-    writer.row("Physics FPS", std::format("{:.0f}", physicsFps), fpsColor(physicsFps));
-    writer.row("GPU", std::format("{:.2f} ms", sample.gpuMs));
-    if (const double kernelMs = session.deviceStepMs; showBackend && kernelMs > 0.0) {
-        writer.row("  Physics kernel", std::format("{:.2f} ms", kernelMs));
-    }
-    if (const std::optional<HybridSplit>& hybrid = session.hybrid; showBackend && hybrid) {
-        writer.row("  CPU share",
-                   std::format("{:.1f}%", 100.0 * static_cast<double>(hybrid->cpuBalls) /
-                                              static_cast<double>(std::max<BallCount>(hybrid->totalBalls, 1))));
-        writer.row("  CPU / GPU step",
-                   std::format("{:.2f} / {:.2f} ms", hybrid->cpuStepMs, hybrid->gpuStepMs));
-    }
-    writer.row("Present", std::format("{:.2f} ms", sample.presentMs));
-    const CapacityProbe& probe = session.probe;
-    if (probe.phase() != ProbePhase::Idle) {
-        writer.row("Probe", std::format("{} {:.0f}/{:.0f} fps", probePhaseName(probe.phase()),
-                                        probe.lastFps(), probe.targetFps()));
-    }
-    if (showBackend) {
-        writer.row("Backend", backendKindName(session.backend));
-        if (!deviceDescription.empty()) {
-            writer.row("Renderer", deviceDescription);
-        } else if (const std::string detail = backendStatus(session.backend).detail; !detail.empty()) {
-            writer.row("Device", detail);
+    for (const DebugRow& row : rows) {
+        switch (row.kind) {
+        case DebugRow::Kind::Heading:
+            writer.heading(row.label);
+            break;
+        case DebugRow::Kind::Value: {
+            Color color = palette::text;
+            switch (row.tone) {
+            case UiTone::Muted:
+                color = palette::textMuted;
+                break;
+            case UiTone::Accent:
+                color = palette::accent;
+                break;
+            case UiTone::Success:
+                color = palette::success;
+                break;
+            case UiTone::Danger:
+                color = palette::danger;
+                break;
+            default:
+                break;
+            }
+            writer.row(row.label, row.value, color);
+            break;
         }
-    }
-    if (showBackend) {
-        const bool collisionsWanted = session.collisionsRequested;
-        const bool collisionsOn = session.collisionsActive;
-        writer.row("Ball collisions", collisionsWanted ? (collisionsOn ? "On" : "On (unsupported)") : "Off",
-                   collisionsWanted && !collisionsOn ? palette::danger : palette::text);
-    }
-
-    writer.heading("Objects");
-    const BallCount balls = stats.ballCount;
-    const BallCount bricks = static_cast<BallCount>(session.board->aliveBrickCount());
-    const BallCount launchers = static_cast<BallCount>(session.launchers.launcherCount());
-    writer.row("Total objects", withThousands(balls + bricks + launchers));
-    writer.row("Balls", withThousands(balls));
-    writer.row("Bricks", withThousands(bricks));
-    writer.row("Launchers", withThousands(launchers));
-    writer.row("Waiting to spawn", withThousands(session.pendingSpawn));
-    if (session.mode == GameMode::Performance) {
-        const std::string resolvedLimit =
-            session.machineLimit ? std::format("Auto {}", withThousands(*session.machineLimit))
-                                       : std::string("Auto (probe needed)");
-        writer.row("Ball limit",
-                   session.usingMachineLimit ? resolvedLimit : ballLimitText(session.ballLimit));
-    }
-
-    writer.heading("Balls per color");
-    for (int color = 0; color < ballColorCount; ++color) {
-        writer.colorRow(color, withThousands(stats.ballsByColor[color]));
-    }
-    if (!session.backendFault.empty()) {
-        writer.heading("Backend fault");
-        writer.row("Fell back to CPU", "", palette::danger);
+        case DebugRow::Kind::Color:
+            writer.colorRow(row.colorIndex, row.value);
+            break;
+        }
     }
     state.contentHeight = writer.contentHeight();
     ui::scrollHints(area, state.scroll, contentHeight, palette::panel);
@@ -178,9 +133,9 @@ void drawPortraitDebugStrip(Rect area, const SessionView& session, const FrameTi
         std::format("{:.0f}", minimumFps),
         std::format("{:.2f}", sample.frameMs),
         std::format("{:.2f}", sample.gpuMs),
-        withThousands(session.stats.ballCount),
-        withThousands(static_cast<BallCount>(session.board->aliveBrickCount())),
-        withThousands(session.launchers.launcherCount()),
+        groupedCount(session.stats.ballCount),
+        groupedCount(static_cast<BallCount>(session.board->aliveBrickCount())),
+        groupedCount(session.launchers.launcherCount()),
         std::string(backendKindName(session.backend)),
     };
     constexpr const char* labels[itemCount] = {"FPS",   "Min",    "Frame",  "GPU",
