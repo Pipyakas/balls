@@ -96,7 +96,7 @@ void GameplayScreen::applyDefaultBallLimit() {
 void GameplayScreen::useAutoBallLimit() {
 #if defined(BALLS_FIXED_TARGET)
     // The scoring build's Auto is its preallocated capacity, never a remembered probe.
-    runner->post([](GameSession& session) { session.startCapacityProbe(); });
+    runner->post([](GameSession& session) { session.useCapacityBallLimit(); });
 #else
     const MachineProfile profile = app.machineProfile();
     const int targetFps = probeTargetFps;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "game/AdditionGovernor.h"
 #include "game/CapacityProbe.h"
 #include "game/GameMode.h"
 #include "game/LauncherQueue.h"
@@ -69,6 +70,8 @@ public:
     void cancelCapacityProbe();
     void reportFrameSeconds(double frameSeconds, double workSeconds);
     void useMachineBallLimit(BallCount limit);
+    // Auto as the backend's capacity, following it from board to board, without adding balls.
+    void useCapacityBallLimit();
     void fillWithBalls(BallCount count);
     bool isUsingMachineBallLimit() const { return machineLimitSelected; }
     std::optional<BallCount> machineBallLimit() const;
@@ -92,6 +95,8 @@ public:
 
 private:
     void launchAcrossColors(BallCount count);
+    // Spawns and fills this frame's balls, no more than the governor allows, and times them for it.
+    void addBallsWithinBudget(float deltaTime);
     // Hands the probe's pending balls to the simulation until this frame's time budget is spent; true once none are left.
     bool drainPendingProbeBalls();
     void releaseLauncher(const Launcher& launcher);
@@ -105,6 +110,10 @@ private:
     LevelData levelData;
     BackendKind backendKind;
     Simulation physicsSimulation;
+    AdditionGovernor additionGovernor;
+    // Balls still to launch toward the ball limit (the scoring build's Auto ramp and /fill), as many a frame as the
+    // governor allows.
+    BallCount fillRemaining = 0;
     LauncherQueue launcherQueue;
     SpawnController spawnController;
     SessionState sessionState = SessionState::Ready;

@@ -259,6 +259,7 @@ std::string controlGameJson(ControlGame& game) {
         "\"balls\":{},\"bricks\":{},\"launchersLeft\":{},\"pendingSpawn\":{},\"spawned\":{},\"hits\":{},"
         "\"physicsMs\":{:.3f},\"kernelMs\":{:.3f},\"ticks\":{},\"spawnRate\":{},\"multiplier\":{},"
         "\"ballLimit\":{},\"elapsed\":{:.2f},\"physicsFps\":{:.1f},\"physicsFrameMs\":{:.3f},"
+        "\"physicsLongestFrameMs\":{:.3f},\"physicsSlowFrames\":{},"
         "\"probe\":{{\"phase\":\"{}\",\"target\":{:.0f},\"fps\":{:.1f},\"best\":{}}},"
         "\"ballsByColor\":{{{}}},\"launchers\":[{}]}}",
         gameModeName(game.gameMode()), jsonEscape(game.levelName()), levelDiskNotice(game.diskState()),
@@ -268,7 +269,8 @@ std::string controlGameJson(ControlGame& game) {
         launchers.launcherCount(), view->pendingSpawn, stats.totalBallsSpawned, stats.totalHits,
         stats.lastFramePhysicsMs, view->deviceStepMs, stats.ticksLastFrame, spawnRateOptions[view->spawnRateIndex],
         ballMultiplierOptions[view->ballMultiplierIndex], view->ballLimit, view->elapsedSeconds,
-        view->physicsFramesPerSecond, view->physicsFrameMs, probePhaseName(probe.phase()), probe.targetFps(),
+        view->physicsFramesPerSecond, view->physicsFrameMs, view->physicsLongestFrameMs, view->physicsSlowFrames,
+        probePhaseName(probe.phase()), probe.targetFps(),
         probe.lastFps(), probe.bestPassingCount(), ballsByColor, launcherColumns);
 }
 

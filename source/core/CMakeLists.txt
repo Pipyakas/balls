@@ -22,6 +22,7 @@ add_library(balls_core STATIC
     sim/BackendBenchmark.cpp
     sim/PhysicsAccuracy.cpp
     sim/ReferenceBackend.cpp
+    game/AdditionGovernor.cpp
     game/CapacityProbe.cpp
     game/LauncherQueue.cpp
     game/SpawnController.cpp

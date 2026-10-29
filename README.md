@@ -40,7 +40,7 @@ picks the renderer (default: `nvrhi` on desktop, `webgpu` on Android). With NVRH
 `-DBALLS_PROFILE=scoring` builds for the target PC only (i9-14900K, GTX 1650): AVX2 code throughout, sm_75
 CUDA kernels, and the CUDA+AVX2 pair as the one physics backend, with no backend menu or machine benchmark. The pair
 allocates its whole memory budget once per process (free VRAM less 512 MB, available RAM less the usual margin), so
-balls never grow, copy or page-fault during play. Auto is that capacity, with no probe. The default, `all`, is the extended build with every backend; set
+balls never grow, copy or page-fault during play. Auto is that capacity, with no probe, and ramping up to it keeps every physics frame within 1/60 s. The default, `all`, is the extended build with every backend; set
 `BALLS_PREALLOCATE=1` there to try the same up-front allocation on the pair.
 
 `build.bat` (Windows) and `build.sh` (Linux) at the project root are the one entry point for every front end and

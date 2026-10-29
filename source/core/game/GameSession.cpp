@@ -6,9 +6,18 @@
 #include <chrono>
 #include <utility>
 
+namespace {
+
+double secondsSince(std::chrono::steady_clock::time_point start) {
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+}
+
+}
+
 GameSession::GameSession(GameMode mode, LevelData level, BackendKind backend)
     : gameMode(mode), levelData(std::move(level)), backendKind(backend),
-      physicsSimulation(createBackend(isBackendAvailable(backend) ? backend : fastestAvailableCpuBackend())) {
+      physicsSimulation(createBackend(isBackendAvailable(backend) ? backend : fastestAvailableCpuBackend())),
+      additionGovernor(physicsSimulation.tuning().tickSeconds) {
     if (!isBackendAvailable(backend)) {
         backendKind = fastestAvailableCpuBackend();
     }
@@ -20,6 +29,8 @@ void GameSession::restart() {
     launcherQueue.load(levelData.launchers);
     spawnController.clear();
     pendingProbeBalls = 0;
+    fillRemaining = 0;
+    additionGovernor = AdditionGovernor(physicsSimulation.tuning().tickSeconds);
     spawnController.setBallsPerSecond(gameMode == GameMode::Normal ? normalModeSpawnRate
                                                                    : static_cast<float>(spawnRateOptions[selectedSpawnRate]));
     sessionState = gameMode == GameMode::Normal ? SessionState::Running : SessionState::Ready;
@@ -61,13 +72,14 @@ void GameSession::startCapacityProbe(double targetFps) {
         return;
     }
 #if defined(BALLS_FIXED_TARGET)
-    // The scoring build allocates its whole memory budget up front, and in free flight a frame costs the same
-    // whatever the ball count, so the most balls it holds is that capacity: nothing is left to measure.
     (void)targetFps;
-    cancelCapacityProbe();
-    measuredMachineLimit.reset();
-    machineLimitSelected = true;
-    machineLimitIsCapacity = true;
+    useCapacityBallLimit();
+    // Auto then ramps the balls up to that capacity like the probe did, as fast as 60 FPS allows.
+    if (sessionState == SessionState::Ready) {
+        autoRelease = false;
+        sessionState = SessionState::Running;
+    }
+    fillRemaining = unlimitedBalls;
 #else
     if (sessionState == SessionState::Ready) {
         autoRelease = false;
@@ -82,12 +94,14 @@ void GameSession::startCapacityProbe(double targetFps) {
 
 void GameSession::cancelCapacityProbe() {
     pendingProbeBalls = 0;
+    fillRemaining = 0;
     probe.cancel();
 }
 
 void GameSession::reportFrameSeconds(double frameSeconds, double workSeconds) {
     latestFrameSeconds = frameSeconds;
     latestWorkSeconds = workSeconds;
+    additionGovernor.recordFrame(workSeconds);
     pumpCapacityProbe();
 }
 
@@ -155,7 +169,12 @@ void GameSession::fillWithBalls(BallCount count) {
     cancelCapacityProbe();
     useMachineBallLimit(count);
     const BallCount live = physicsSimulation.liveBallCount();
+#if defined(BALLS_FIXED_TARGET)
+    // Over frames, within the 60 FPS budget.
+    fillRemaining = count > live ? count - live : 0;
+#else
     launchAcrossColors(count > live ? count - live : 0);
+#endif
 }
 
 void GameSession::selectSpawnRate(int optionIndex) {
@@ -163,6 +182,15 @@ void GameSession::selectSpawnRate(int optionIndex) {
     if (gameMode == GameMode::Performance) {
         spawnController.setBallsPerSecond(static_cast<float>(spawnRateOptions[selectedSpawnRate]));
     }
+}
+
+// The scoring build allocates its whole memory budget up front, and in free flight a frame costs the same whatever
+// the ball count, so the most balls it holds is that capacity: nothing is left to measure.
+void GameSession::useCapacityBallLimit() {
+    cancelCapacityProbe();
+    measuredMachineLimit.reset();
+    machineLimitSelected = true;
+    machineLimitIsCapacity = true;
 }
 
 std::optional<BallCount> GameSession::machineBallLimit() const {
@@ -331,16 +359,72 @@ void GameSession::update(float deltaTime) {
                 releaseLauncher(*launcher);
             }
         }
-        const BallCount limit = gameMode == GameMode::Performance ? ballLimit() : unlimitedBalls;
-        spawnController.update(deltaTime, physicsSimulation, remainingCapacity(limit, physicsSimulation.liveBallCount()));
     }
+    addBallsWithinBudget(deltaTime);
     if (sessionState != SessionState::Ready) {
+        const auto stepStart = std::chrono::steady_clock::now();
         physicsSimulation.advance(deltaTime);
+        additionGovernor.recordStep(secondsSince(stepStart), physicsSimulation.stats().ticksLastFrame,
+                                    physicsSimulation.liveBallCount());
         recoverFromBackendFault();
     }
     if (sessionState == SessionState::Running && physicsSimulation.isCleared()) {
         sessionState = SessionState::Won;
     }
+}
+
+void GameSession::addBallsWithinBudget(float deltaTime) {
+    const bool spawning = sessionState == SessionState::Running;
+    if (!spawning && fillRemaining == 0) {
+        return;
+    }
+    const auto start = std::chrono::steady_clock::now();
+    const BallCount before = physicsSimulation.liveBallCount();
+    const BallCount limit = gameMode == GameMode::Performance ? ballLimit() : unlimitedBalls;
+    const bool freeFlight = physicsSimulation.isCleared() && !physicsSimulation.ballCollisionsActive();
+    const BallCount allowance =
+        std::min(additionGovernor.allowance(before, freeFlight), remainingCapacity(limit, before));
+    if (spawning) {
+        spawnController.update(deltaTime, physicsSimulation, allowance);
+    }
+    if (fillRemaining > 0) {
+        const BallCount live = physicsSimulation.liveBallCount();
+        const BallCount used = live > before ? live - before : 0;
+        const BallCount room = std::min(remainingCapacity(limit, live), physicsSimulation.ballRoom());
+        if (room == 0) {
+            fillRemaining = 0;
+        } else {
+            // In slices handed to the backend one by one, so a frame whose additions cost more than the governor
+            // expected stops short instead of running over.
+            constexpr BallCount fillSliceBalls = BallCount{1} << 18;
+            constexpr BallCount smallestFillSlice = BallCount{1} << 12;
+            constexpr double sliceCostMargin = 1.25;
+            const double fillSeconds = additionGovernor.additionSeconds(before, freeFlight);
+            BallCount batch = std::min({fillRemaining, room, allowance > used ? allowance - used : 0});
+            physicsSimulation.flushSpawns();
+            double secondsPerBall = additionGovernor.predictedSeconds(1);
+            while (batch > 0) {
+                const double left = fillSeconds - secondsSince(start);
+                const BallCount fits =
+                    left > 0.0 ? static_cast<BallCount>(left / (secondsPerBall * sliceCostMargin)) : 0;
+                const BallCount slice = std::min({batch, fillSliceBalls, fits});
+                if (slice == 0 || (slice < smallestFillSlice && slice < batch)) {
+                    break;
+                }
+                const auto sliceStart = std::chrono::steady_clock::now();
+                launchAcrossColors(slice);
+                physicsSimulation.flushSpawns();
+                if (slice >= smallestFillSlice) {
+                    secondsPerBall = secondsSince(sliceStart) / static_cast<double>(slice);
+                }
+                batch -= slice;
+                fillRemaining -= slice;
+            }
+        }
+    }
+    physicsSimulation.flushSpawns();
+    const BallCount after = physicsSimulation.liveBallCount();
+    additionGovernor.recordAdditions(secondsSince(start), after > before ? after - before : 0);
 }
 
 void GameSession::recoverFromBackendFault() {
