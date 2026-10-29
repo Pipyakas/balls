@@ -470,10 +470,11 @@ void MapEditorScreen::drawLauncherGrid(Rect area) {
         if (validation.brickHits[color] == 0 && validation.balls[color] == 0) {
             continue;
         }
-        const bool balanced = validation.balls[color] >= validation.brickHits[color];
+        const BallColor ballColor = ballColorFromIndex(color);
         gfx::fillCircle({x + 7.0f, y + 10.0f}, 7.0f, palette::ballColor(color));
-        const std::string text = std::format("{}/{}", validation.balls[color], validation.brickHits[color]);
-        ui::drawText(text, {x + 18.0f, y}, 18.0f, balanced ? palette::text : palette::danger);
+        const std::string text = session.colorTallyText(ballColor);
+        ui::drawText(text, {x + 18.0f, y}, 18.0f,
+                     session.colorTallyMatches(ballColor) ? palette::success : palette::text);
         x += 30.0f + ui::measureText(text, 18.0f).x;
     }
 }
