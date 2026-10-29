@@ -6,6 +6,7 @@
 #include "control/ControlApi.h"
 #include "game/FrameTimings.h"
 #include "game/GameSession.h"
+#include "game/PhysicsRate.h"
 #include "game/SessionRunner.h"
 #include "game/MachineProfile.h"
 #include "game/Settings.h"
@@ -139,6 +140,8 @@ struct BallsSession {
     std::unique_ptr<SessionRunner> runner;
     std::shared_ptr<const SessionView> view;
     PhysicsFrameInput frameInput;
+    // Physics ms and FPS when game runs on the caller's thread; the runner measures its own.
+    PhysicsRate rate;
     int visibilityWidth = 0;
     std::vector<int32_t> collisionChanges;
     std::vector<SessionEvent> switchEvents;
@@ -148,6 +151,17 @@ struct BallsSession {
     std::string levelName;
 
     bool threaded() const { return runner != nullptr; }
+    // The newest view: the runner's latest frame, or one described now from the game on the caller's thread.
+    std::shared_ptr<const SessionView> latestView() const {
+        if (runner) {
+            return view;
+        }
+        auto described = std::make_shared<SessionView>();
+        describeSession(*game, *described);
+        described->physicsFrameMs = rate.lastFrameMs();
+        described->physicsFramesPerSecond = rate.framesPerSecond();
+        return described;
+    }
     // Runs a command on the session: at once, or at the start of the next physics frame.
     void apply(SessionRunner::Command command) {
         if (runner) {
@@ -295,15 +309,7 @@ struct BallsControl final : ControlHost {
         }
         std::shared_ptr<const SessionView> sessionView() override {
             BallsSession* session = context().session;
-            if (session == nullptr) {
-                return nullptr;
-            }
-            if (session->threaded()) {
-                return session->view;
-            }
-            auto view = std::make_shared<SessionView>();
-            describeSession(*session->game, *view);
-            return view;
+            return session != nullptr ? session->latestView() : nullptr;
         }
         void post(std::function<void(GameSession&)> command) override {
             if (context().session != nullptr) {
@@ -833,7 +839,9 @@ void balls_session_update(BallsSession* session, float deltaSeconds) {
     if (!session->threaded()) {
         // A backend built off the frame is adopted here, before the tick that would run on it (SessionRunner's order).
         session->game->pollBackgroundWork();
+        const PhysicsRate::Clock::time_point workStart = PhysicsRate::Clock::now();
         session->game->update(deltaSeconds);
+        session->rate.frame(workStart, PhysicsRate::Clock::now());
         return;
     }
     // The physics thread keeps its own pace; the host's frame only hands over its timings and takes the newest view.
@@ -1764,15 +1772,7 @@ int32_t balls_flow_level_row(const BallsFlow* flow, int32_t index, BallsFlowLeve
 namespace {
 
 std::shared_ptr<const SessionView> latestView(BallsSession* session) {
-    if (session == nullptr) {
-        return nullptr;
-    }
-    if (session->threaded()) {
-        return session->view;
-    }
-    auto view = std::make_shared<SessionView>();
-    describeSession(*session->game, *view);
-    return view;
+    return session != nullptr ? session->latestView() : nullptr;
 }
 
 void writeOption(const UiOption& source, int32_t kind, BallsUiOption& out) {

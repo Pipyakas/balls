@@ -1,9 +1,9 @@
 #pragma once
 
+#include "game/PhysicsRate.h"
 #include "game/SessionRunner.h"
 #include "game/SessionView.h"
 
-#include <chrono>
 #include <memory>
 #include <vector>
 
@@ -43,10 +43,6 @@ private:
     std::unique_ptr<SessionRunner> runner;
     std::shared_ptr<const SessionView> latest;
     std::vector<SessionEvent> events;
-    // On the game thread a physics frame is a tick that stepped the session; measured like SessionRunner's, so the
-    // debug gadget's Physics FPS and the control API read the same either way.
-    std::chrono::steady_clock::time_point rateWindowStart = std::chrono::steady_clock::now();
-    int framesInWindow = 0;
-    double framesPerSecond = 0.0;
-    double lastFrameMs = 0.0;
+    // On the game thread a physics frame is a tick that stepped the session.
+    PhysicsRate rate;
 };
