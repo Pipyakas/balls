@@ -25,7 +25,7 @@ option(BALLS_ENABLE_CUDA "Build the CUDA physics backend (needs NVRTC at build t
 option(BALLS_STATIC_CRT "Link the static MSVC runtime (physics plugins need the shared runtime)" OFF)
 # Off by default: it made no measurable difference to the physics (AVX2 972 vs 985 M ball-steps/s, the CUDA work
 # runs on the GPU) and redid code generation for the whole program at every link, which made a one-line change
-# take 19 s to rebuild instead of 5. Renamed from BALLS_LTO so existing build trees drop their cached ON.
+# take 19 s to rebuild instead of 5.
 option(BALLS_WHOLE_PROGRAM_OPTIMIZATION "Enable whole-program optimization (/GL /LTCG)" OFF)
 set(BALLS_CUDA_SDK_DIR "${CMAKE_SOURCE_DIR}/.deps/cuda/sdk" CACHE PATH "Directory with CUDA include/ and bin/ (scripts/FetchCudaSdk.ps1)")
 option(BALLS_ENABLE_ROCM "Build the ROCm physics backend (needs HSA headers and an amdgcn clang)" ON)
