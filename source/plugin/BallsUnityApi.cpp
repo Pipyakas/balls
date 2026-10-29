@@ -19,6 +19,7 @@
 #include "sim/DeviceInventory.h"
 #include "sim/Simulation.h"
 #include "ui/GameplayLayout.h"
+#include "ui/ScreenFlow.h"
 #include "ui/Theme.h"
 
 #include <algorithm>
@@ -207,6 +208,22 @@ int32_t fromDiskState(LevelDiskState state) {
     }
     return BALLS_DISK_UNCHANGED;
 }
+
+struct BallsFlow {
+    ScreenFlow flow;
+};
+
+GameMode toGameMode(int32_t mode) { return mode == BALLS_MODE_PERFORMANCE ? GameMode::Performance : GameMode::Normal; }
+
+int32_t fromGameMode(GameMode mode) { return mode == GameMode::Performance ? BALLS_MODE_PERFORMANCE : BALLS_MODE_NORMAL; }
+
+void fillLevelInfo(const LevelFiles& files, BallsLevelInfo& info) {
+    copyName(files.name, info.name, sizeof info.name);
+    copyPath(files.bricksPath, info.bricksPath, sizeof info.bricksPath);
+    copyPath(files.launchersPath, info.launchersPath, sizeof info.launchersPath);
+}
+
+bool hasText(const char* text) { return text != nullptr && text[0] != 0; }
 
 struct BallsFrameTimings {
     FrameTimings timings;
@@ -1737,6 +1754,240 @@ int32_t balls_editor_problem(const BallsEditor* editor, int32_t index, char* buf
         return 0;
     }
     return writeText(editor->validation.problems[static_cast<size_t>(index)], buffer, size);
+}
+
+
+BallsFlow* balls_flow_create(const char* normalLevels, const char* performanceLevels) {
+    if (normalLevels == nullptr || performanceLevels == nullptr) {
+        setError("both level folders are required");
+        return nullptr;
+    }
+    return new BallsFlow{ScreenFlow(std::filesystem::path(normalLevels), std::filesystem::path(performanceLevels))};
+}
+
+void balls_flow_destroy(BallsFlow* flow) { delete flow; }
+
+void balls_flow_update(BallsFlow* flow, float deltaSeconds) {
+    if (flow != nullptr) {
+        flow->flow.update(deltaSeconds);
+    }
+}
+
+int32_t balls_flow_activate(BallsFlow* flow, int32_t action, int32_t row) {
+    if (flow == nullptr || action < BALLS_FLOW_NORMAL_MODE || action > BALLS_FLOW_BACK) {
+        return 0;
+    }
+    return flow->flow.activate(static_cast<FlowAction>(action), row) ? 1 : 0;
+}
+
+int32_t balls_flow_escape(BallsFlow* flow) { return flow != nullptr && flow->flow.escape() ? 1 : 0; }
+
+void balls_flow_show_main_menu(BallsFlow* flow) {
+    if (flow != nullptr) {
+        flow->flow.showMainMenu();
+    }
+}
+
+void balls_flow_show_level_select(BallsFlow* flow, int32_t mode) {
+    if (flow != nullptr) {
+        flow->flow.showLevelSelect(toGameMode(mode));
+    }
+}
+
+int32_t balls_flow_start_game(BallsFlow* flow, int32_t mode, const char* levelName) {
+    if (flow == nullptr || !hasText(levelName)) {
+        return 0;
+    }
+    const GameMode gameMode = toGameMode(mode);
+    const LevelFiles files = levelFilesFor(flow->flow.levelFolderFor(gameMode), levelName);
+    if (!std::filesystem::exists(files.bricksPath) || !std::filesystem::exists(files.launchersPath)) {
+        setError("no level named " + std::string(levelName));
+        return 0;
+    }
+    flow->flow.startGame(gameMode, files);
+    return 1;
+}
+
+void balls_flow_open_editor(BallsFlow* flow, int32_t mode, const char* levelName) {
+    if (flow == nullptr) {
+        return;
+    }
+    const GameMode gameMode = toGameMode(mode);
+    std::optional<LevelFiles> files;
+    if (hasText(levelName)) {
+        files = levelFilesFor(flow->flow.levelFolderFor(gameMode), levelName);
+    }
+    flow->flow.openEditor(gameMode, std::move(files));
+}
+
+void balls_flow_show_settings(BallsFlow* flow) {
+    if (flow != nullptr) {
+        flow->flow.showSettings();
+    }
+}
+
+void balls_flow_run_machine_benchmark(BallsFlow* flow) {
+    if (flow != nullptr) {
+        flow->flow.runMachineBenchmark();
+    }
+}
+
+void balls_flow_level_loaded(BallsFlow* flow) {
+    if (flow != nullptr) {
+        flow->flow.levelLoaded();
+    }
+}
+
+void balls_flow_level_failed(BallsFlow* flow, const char* error) {
+    if (flow != nullptr) {
+        flow->flow.levelFailed(error != nullptr ? error : "");
+    }
+}
+
+void balls_flow_session_state(BallsFlow* flow, int32_t state) {
+    if (flow == nullptr) {
+        return;
+    }
+    flow->flow.sessionStateChanged(state == BALLS_STATE_WON       ? SessionState::Won
+                                   : state == BALLS_STATE_RUNNING ? SessionState::Running
+                                                                  : SessionState::Ready);
+}
+
+void balls_flow_benchmark_finished(BallsFlow* flow) {
+    if (flow != nullptr) {
+        flow->flow.benchmarkFinished();
+    }
+}
+
+void balls_flow_play_from_editor(BallsFlow* flow, int32_t mode, const char* levelName) {
+    if (flow == nullptr || !hasText(levelName)) {
+        return;
+    }
+    const GameMode gameMode = toGameMode(mode);
+    flow->flow.playFromEditor(gameMode, levelFilesFor(flow->flow.levelFolderFor(gameMode), levelName));
+}
+
+void balls_flow_import(BallsFlow* flow, const char* const* picked, int32_t pickedCount) {
+    if (flow == nullptr || picked == nullptr || pickedCount <= 0) {
+        return;
+    }
+    std::vector<std::filesystem::path> paths;
+    for (int32_t index = 0; index < pickedCount; ++index) {
+        if (picked[index] != nullptr) {
+            paths.emplace_back(picked[index]);
+        }
+    }
+    flow->flow.importLevels(paths);
+}
+
+void balls_flow_show_toast(BallsFlow* flow, const char* text, int32_t isError) {
+    if (flow != nullptr && text != nullptr) {
+        flow->flow.showToast(text, isError != 0);
+    }
+}
+
+int32_t balls_flow_take_request(BallsFlow* flow, BallsFlowRequest* request) {
+    if (flow == nullptr || request == nullptr) {
+        return 0;
+    }
+    const std::optional<FlowRequest> next = flow->flow.takeRequest();
+    if (!next) {
+        return 0;
+    }
+    std::memset(request, 0, sizeof *request);
+    request->kind = static_cast<int32_t>(next->kind);
+    request->mode = fromGameMode(next->mode);
+    if (next->files) {
+        request->hasLevel = 1;
+        fillLevelInfo(*next->files, request->level);
+    }
+    copyPath(next->folder, request->folder, sizeof request->folder);
+    return 1;
+}
+
+int32_t balls_flow_take_scroll_to_row(BallsFlow* flow) {
+    if (flow == nullptr) {
+        return -1;
+    }
+    const std::optional<int> row = flow->flow.takeScrollToRow();
+    return row ? *row : -1;
+}
+
+void balls_flow_state(const BallsFlow* flow, BallsFlowState* state) {
+    if (flow == nullptr || state == nullptr) {
+        return;
+    }
+    const ScreenFlow& source = flow->flow;
+    std::memset(state, 0, sizeof *state);
+    state->screen = static_cast<int32_t>(source.screen());
+    state->overlay = static_cast<int32_t>(source.overlay());
+    state->mode = fromGameMode(source.mode());
+    state->paused = source.isPaused() ? 1 : 0;
+    state->diskState = fromDiskState(source.diskState());
+    state->canRunMachineBenchmark = source.canRunMachineBenchmark() ? 1 : 0;
+    state->benchmarkSettled = source.benchmarkSettled() ? 1 : 0;
+    state->buttonCount = static_cast<int32_t>(source.buttons().size());
+    state->levelCount = static_cast<int32_t>(source.levelRows().size());
+    state->hasLevel = source.level() ? 1 : 0;
+    state->toastSecondsLeft = source.toast().secondsLeft;
+    state->toastIsError = source.toast().isError ? 1 : 0;
+}
+
+int32_t balls_flow_text(const BallsFlow* flow, int32_t which, char* buffer, int32_t size) {
+    if (flow == nullptr) {
+        return writeText(std::string_view{}, buffer, size);
+    }
+    const ScreenFlow& source = flow->flow;
+    switch (which) {
+    case BALLS_FLOW_TEXT_TITLE:
+        return writeText(source.title(), buffer, size);
+    case BALLS_FLOW_TEXT_FOOTNOTE:
+        return writeText(source.footnote(), buffer, size);
+    case BALLS_FLOW_TEXT_GAME_TITLE:
+        return writeText(source.gameTitle(), buffer, size);
+    case BALLS_FLOW_TEXT_DISK_NOTICE:
+        return writeText(source.diskNotice(), buffer, size);
+    case BALLS_FLOW_TEXT_LOAD_ERROR:
+        return writeText(source.loadError(), buffer, size);
+    case BALLS_FLOW_TEXT_TOAST:
+        return writeText(source.toast().text, buffer, size);
+    case BALLS_FLOW_TEXT_SCREEN_NAME:
+        return writeText(flowScreenName(source.screen()), buffer, size);
+    case BALLS_FLOW_TEXT_LEVEL_FOLDER:
+        return writeText(source.levelFolder().string(), buffer, size);
+    default:
+        return writeText(std::string_view{}, buffer, size);
+    }
+}
+
+int32_t balls_flow_button(const BallsFlow* flow, int32_t index, BallsFlowButton* button) {
+    if (flow == nullptr || button == nullptr) {
+        return 0;
+    }
+    const std::vector<FlowButton> buttons = flow->flow.buttons();
+    if (index < 0 || index >= static_cast<int32_t>(buttons.size())) {
+        return 0;
+    }
+    const FlowButton& source = buttons[static_cast<size_t>(index)];
+    std::memset(button, 0, sizeof *button);
+    button->action = static_cast<int32_t>(source.action);
+    button->enabled = source.enabled ? 1 : 0;
+    copyName(source.label, button->label, sizeof button->label);
+    return 1;
+}
+
+int32_t balls_flow_level_row(const BallsFlow* flow, int32_t index, BallsFlowLevelRow* row) {
+    if (flow == nullptr || row == nullptr) {
+        return 0;
+    }
+    const std::span<const FlowLevelRow> rows = flow->flow.levelRows();
+    if (index < 0 || index >= static_cast<int32_t>(rows.size())) {
+        return 0;
+    }
+    std::memset(row, 0, sizeof *row);
+    copyName(rows[static_cast<size_t>(index)].name, row->name, sizeof row->name);
+    row->highlighted = rows[static_cast<size_t>(index)].highlighted ? 1 : 0;
+    return 1;
 }
 
 } // extern "C"

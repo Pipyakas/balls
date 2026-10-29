@@ -8,7 +8,7 @@
 
 #include <stdint.h>
 
-#define BALLS_UNITY_ABI_VERSION 3
+#define BALLS_UNITY_ABI_VERSION 4
 
 #if defined(_WIN32)
 #define BALLS_API __declspec(dllexport)
@@ -604,6 +604,143 @@ BALLS_API void balls_editor_mark_saved(BallsEditor* editor);
 
 BALLS_API void balls_editor_validate(const BallsEditor* editor, int32_t mode, BallsValidation* validation);
 BALLS_API int32_t balls_editor_problem(const BallsEditor* editor, int32_t index, char* buffer, int32_t size);
+
+// The core's screen flow (ui/ScreenFlow.h): which screen and overlay are up, their buttons, Level select's list and
+// the toast. The host draws them, reports clicks with balls_flow_activate and carries out each request it takes.
+enum {
+    BALLS_SCREEN_MAIN_MENU = 0,
+    BALLS_SCREEN_LEVEL_SELECT = 1,
+    BALLS_SCREEN_GAMEPLAY = 2,
+    BALLS_SCREEN_LOAD_ERROR = 3,
+    BALLS_SCREEN_MAP_EDITOR = 4,
+    BALLS_SCREEN_SETTINGS = 5,
+    BALLS_SCREEN_MACHINE_BENCHMARK = 6,
+};
+
+enum {
+    BALLS_OVERLAY_NONE = 0,
+    BALLS_OVERLAY_PAUSE = 1,
+    BALLS_OVERLAY_WIN = 2,
+    BALLS_OVERLAY_SETTINGS = 3,
+};
+
+// FlowAction, in order.
+enum {
+    BALLS_FLOW_NORMAL_MODE = 0,
+    BALLS_FLOW_PERFORMANCE_MODE = 1,
+    BALLS_FLOW_MAP_EDITOR = 2,
+    BALLS_FLOW_SETTINGS = 3,
+    BALLS_FLOW_QUIT = 4,
+    BALLS_FLOW_PLAY_LEVEL = 5,
+    BALLS_FLOW_EDIT_LEVEL = 6,
+    BALLS_FLOW_NEW_LEVEL = 7,
+    BALLS_FLOW_IMPORT = 8,
+    BALLS_FLOW_OPEN_FOLDER = 9,
+    BALLS_FLOW_TOGGLE_PAUSE = 10,
+    BALLS_FLOW_RESUME = 11,
+    BALLS_FLOW_RESTART = 12,
+    BALLS_FLOW_PAUSE_SETTINGS = 13,
+    BALLS_FLOW_MAIN_MENU = 14,
+    BALLS_FLOW_NEXT_LEVEL = 15,
+    BALLS_FLOW_RUN_MACHINE_BENCHMARK = 16,
+    BALLS_FLOW_SKIP_BENCHMARK = 17,
+    BALLS_FLOW_CONTINUE_FROM_BENCHMARK = 18,
+    BALLS_FLOW_BACK = 19,
+};
+
+// FlowRequestKind, in order.
+enum {
+    BALLS_REQUEST_START_GAME = 0,
+    BALLS_REQUEST_RELOAD_GAME = 1,
+    BALLS_REQUEST_RESTART_GAME = 2,
+    BALLS_REQUEST_END_GAME = 3,
+    BALLS_REQUEST_OPEN_EDITOR = 4,
+    BALLS_REQUEST_START_BENCHMARK = 5,
+    BALLS_REQUEST_SKIP_BENCHMARK = 6,
+    BALLS_REQUEST_PICK_LEVEL_FILES = 7,
+    BALLS_REQUEST_OPEN_FOLDER = 8,
+    BALLS_REQUEST_QUIT = 9,
+};
+
+enum {
+    BALLS_FLOW_TEXT_TITLE = 0,
+    BALLS_FLOW_TEXT_FOOTNOTE = 1,
+    BALLS_FLOW_TEXT_GAME_TITLE = 2,
+    BALLS_FLOW_TEXT_DISK_NOTICE = 3,
+    BALLS_FLOW_TEXT_LOAD_ERROR = 4,
+    BALLS_FLOW_TEXT_TOAST = 5,
+    BALLS_FLOW_TEXT_SCREEN_NAME = 6,  // the control API's /state "screen"
+    BALLS_FLOW_TEXT_LEVEL_FOLDER = 7,
+};
+
+typedef struct BallsFlow BallsFlow;
+
+typedef struct BallsFlowState {
+    int32_t screen;
+    int32_t overlay;
+    int32_t mode;
+    int32_t paused;
+    int32_t diskState;  // BALLS_DISK_*
+    int32_t canRunMachineBenchmark;
+    int32_t benchmarkSettled;
+    int32_t buttonCount;
+    int32_t levelCount;
+    int32_t hasLevel;
+    float toastSecondsLeft;
+    int32_t toastIsError;
+} BallsFlowState;
+
+typedef struct BallsFlowButton {
+    int32_t action;
+    int32_t enabled;
+    char label[64];
+} BallsFlowButton;
+
+typedef struct BallsFlowLevelRow {
+    char name[128];
+    int32_t highlighted;
+} BallsFlowLevelRow;
+
+typedef struct BallsFlowRequest {
+    int32_t kind;
+    int32_t mode;
+    int32_t hasLevel;
+    BallsLevelInfo level;
+    char folder[512];
+} BallsFlowRequest;
+
+BALLS_API BallsFlow* balls_flow_create(const char* normalLevels, const char* performanceLevels);
+BALLS_API void balls_flow_destroy(BallsFlow* flow);
+BALLS_API void balls_flow_update(BallsFlow* flow, float deltaSeconds);
+// 1 when the action applied to the screen that is up; row is the level row for PLAY_LEVEL and EDIT_LEVEL.
+BALLS_API int32_t balls_flow_activate(BallsFlow* flow, int32_t action, int32_t row);
+BALLS_API int32_t balls_flow_escape(BallsFlow* flow);
+
+BALLS_API void balls_flow_show_main_menu(BallsFlow* flow);
+BALLS_API void balls_flow_show_level_select(BallsFlow* flow, int32_t mode);
+// The level by name in the mode's folder; 0 when there is no such level.
+BALLS_API int32_t balls_flow_start_game(BallsFlow* flow, int32_t mode, const char* levelName);
+// A null or empty name opens a new level.
+BALLS_API void balls_flow_open_editor(BallsFlow* flow, int32_t mode, const char* levelName);
+BALLS_API void balls_flow_show_settings(BallsFlow* flow);
+BALLS_API void balls_flow_run_machine_benchmark(BallsFlow* flow);
+
+BALLS_API void balls_flow_level_loaded(BallsFlow* flow);
+BALLS_API void balls_flow_level_failed(BallsFlow* flow, const char* error);
+BALLS_API void balls_flow_session_state(BallsFlow* flow, int32_t state);
+BALLS_API void balls_flow_benchmark_finished(BallsFlow* flow);
+BALLS_API void balls_flow_play_from_editor(BallsFlow* flow, int32_t mode, const char* levelName);
+BALLS_API void balls_flow_import(BallsFlow* flow, const char* const* picked, int32_t pickedCount);
+BALLS_API void balls_flow_show_toast(BallsFlow* flow, const char* text, int32_t isError);
+
+// 1 and fills the request when one is waiting.
+BALLS_API int32_t balls_flow_take_request(BallsFlow* flow, BallsFlowRequest* request);
+// The row to scroll to after an import, once; -1 when none.
+BALLS_API int32_t balls_flow_take_scroll_to_row(BallsFlow* flow);
+BALLS_API void balls_flow_state(const BallsFlow* flow, BallsFlowState* state);
+BALLS_API int32_t balls_flow_text(const BallsFlow* flow, int32_t which, char* buffer, int32_t size);
+BALLS_API int32_t balls_flow_button(const BallsFlow* flow, int32_t index, BallsFlowButton* button);
+BALLS_API int32_t balls_flow_level_row(const BallsFlow* flow, int32_t index, BallsFlowLevelRow* row);
 
 #ifdef __cplusplus
 }

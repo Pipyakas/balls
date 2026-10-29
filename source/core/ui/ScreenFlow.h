@@ -158,6 +158,7 @@ public:
     // Level select.
     std::span<const FlowLevelRow> levelRows() const { return rows; }
     const std::filesystem::path& levelFolder() const { return folderFor(currentMode); }
+    const std::filesystem::path& levelFolderFor(GameMode mode) const { return folderFor(mode); }
     // The row to scroll to after an import, once.
     std::optional<int> takeScrollToRow();
 
