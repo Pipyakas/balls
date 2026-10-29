@@ -58,16 +58,16 @@ public:
     const std::string& modelName() const { return gpuModel; }
     int ordinal() const { return deviceOrdinal; }
     size_t totalMemoryBytes() const { return totalMemory; }
-    int pciDomain() const { return pciDomain_; }
-    int pciBus() const { return pciBus_; }
-    int pciDevice() const { return pciDevice_; }
-    bool isIntegrated() const { return integrated_; }
+    int pciDomain() const { return pciDomainNumber; }
+    int pciBus() const { return pciBusNumber; }
+    int pciDevice() const { return pciDeviceNumber; }
+    bool isIntegrated() const { return integratedGpu; }
 
-    hsa_agent_t agent() const { return agent_; }
-    hsa_agent_t cpuAgent() const { return cpuAgent_; }
-    hsa_amd_memory_pool_t vramPool() const { return vramPool_; }
-    hsa_amd_memory_pool_t kernargPool() const { return kernargPool_; }
-    hsa_amd_memory_pool_t hostPool() const { return hostPool_; }
+    hsa_agent_t agent() const { return gpuAgent; }
+    hsa_agent_t cpuAgent() const { return hostAgent; }
+    hsa_amd_memory_pool_t vramPool() const { return vramMemoryPool; }
+    hsa_amd_memory_pool_t kernargPool() const { return kernargMemoryPool; }
+    hsa_amd_memory_pool_t hostPool() const { return hostMemoryPool; }
     const HsaApi& api() const;
 
     std::string describe(hsa_status_t status, const char* what) const;
@@ -78,16 +78,16 @@ private:
     explicit RocmDriver(int ordinal);
 
     int deviceOrdinal = 0;
-    int pciDomain_ = -1, pciBus_ = -1, pciDevice_ = -1;
-    bool integrated_ = false;
+    int pciDomainNumber = -1, pciBusNumber = -1, pciDeviceNumber = -1;
+    bool integratedGpu = false;
     size_t totalMemory = 0;
     std::string gpuName;
     std::string gpuModel;
     std::string errorMessage;
 
-    hsa_agent_t agent_{};
-    hsa_agent_t cpuAgent_{};
-    hsa_amd_memory_pool_t vramPool_{};
-    hsa_amd_memory_pool_t kernargPool_{};
-    hsa_amd_memory_pool_t hostPool_{};
+    hsa_agent_t gpuAgent{};
+    hsa_agent_t hostAgent{};
+    hsa_amd_memory_pool_t vramMemoryPool{};
+    hsa_amd_memory_pool_t kernargMemoryPool{};
+    hsa_amd_memory_pool_t hostMemoryPool{};
 };

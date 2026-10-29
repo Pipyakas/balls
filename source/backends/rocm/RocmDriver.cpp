@@ -124,15 +124,15 @@ RocmDriver::RocmDriver(int ordinal) : deviceOrdinal(ordinal) {
         errorMessage = "no ROCm device";
         return;
     }
-    agent_ = ctx.gpus[ordinal];
-    cpuAgent_ = ctx.cpu;
+    gpuAgent = ctx.gpus[ordinal];
+    hostAgent = ctx.cpu;
 
     char name[256]{};
-    api.agentGetInfo(agent_, HSA_AGENT_INFO_NAME, name);
+    api.agentGetInfo(gpuAgent, HSA_AGENT_INFO_NAME, name);
     gpuModel = name;
     gpuName = name;
     char product[256]{};
-    if (api.agentGetInfo(agent_, static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_PRODUCT_NAME), product) == HSA_STATUS_SUCCESS && product[0]) {
+    if (api.agentGetInfo(gpuAgent, static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_PRODUCT_NAME), product) == HSA_STATUS_SUCCESS && product[0]) {
         gpuName = product;
     }
 
@@ -161,9 +161,9 @@ RocmDriver::RocmDriver(int ordinal) : deviceOrdinal(ordinal) {
         }
         return HSA_STATUS_SUCCESS;
     };
-    api.amdAgentIterateMemoryPools(agent_, gpuPoolCb, &gpuCtx);
+    api.amdAgentIterateMemoryPools(gpuAgent, gpuPoolCb, &gpuCtx);
     if (gpuCtx.total > 0) totalMemory = gpuCtx.total;
-    if (gpuCtx.foundVram) vramPool_ = gpuCtx.vramPool;
+    if (gpuCtx.foundVram) vramMemoryPool = gpuCtx.vramPool;
 
     // Iterate CPU agent pools to find kernarg and host pools
     if (ctx.foundCpu) {
@@ -193,18 +193,18 @@ RocmDriver::RocmDriver(int ordinal) : deviceOrdinal(ordinal) {
             }
             return HSA_STATUS_SUCCESS;
         };
-        api.amdAgentIterateMemoryPools(cpuAgent_, cpuPoolCb, &cpuCtx);
-        if (cpuCtx.foundKernarg) kernargPool_ = cpuCtx.kernargPool;
-        if (cpuCtx.foundHost) hostPool_ = cpuCtx.hostPool;
+        api.amdAgentIterateMemoryPools(hostAgent, cpuPoolCb, &cpuCtx);
+        if (cpuCtx.foundKernarg) kernargMemoryPool = cpuCtx.kernargPool;
+        if (cpuCtx.foundHost) hostMemoryPool = cpuCtx.hostPool;
     }
 
     uint32_t bdfid = 0;
-    if (api.agentGetInfo(agent_, static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_BDFID), &bdfid) == HSA_STATUS_SUCCESS) {
-        pciBus_ = (bdfid >> 8) & 0xff;
-        pciDevice_ = bdfid & 0xff;
+    if (api.agentGetInfo(gpuAgent, static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_BDFID), &bdfid) == HSA_STATUS_SUCCESS) {
+        pciBusNumber = (bdfid >> 8) & 0xff;
+        pciDeviceNumber = bdfid & 0xff;
     }
     uint32_t domain = 0;
-    if (api.agentGetInfo(agent_, static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_DOMAIN), &domain) == HSA_STATUS_SUCCESS) {
-        pciDomain_ = static_cast<int>(domain);
+    if (api.agentGetInfo(gpuAgent, static_cast<hsa_agent_info_t>(HSA_AMD_AGENT_INFO_DOMAIN), &domain) == HSA_STATUS_SUCCESS) {
+        pciDomainNumber = static_cast<int>(domain);
     }
 }
