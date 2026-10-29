@@ -111,7 +111,7 @@ namespace Balls.Editor
             {
                 return fromScript;
             }
-            string repositoryRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", ".."));
+            string repositoryRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "..", ".."));
             string scripted = Path.Combine(repositoryRoot, "build", "win32-unity", "bin", "Release");
             string byHand = Path.Combine(repositoryRoot, "build", "bin", "Release");
             string scriptedPlugin = Path.Combine(scripted, "balls_unity.dll");
@@ -199,7 +199,7 @@ namespace Balls.Editor
         [MenuItem("Balls/Copy Fonts")]
         public static void CopyFonts()
         {
-            string repositoryRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", ".."));
+            string repositoryRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "..", ".."));
             string source = Path.Combine(repositoryRoot, "data", "assets", "fonts");
             string destination = Path.Combine(Application.dataPath, "Balls", "Resources", "Fonts");
             if (!Directory.Exists(source))
@@ -218,7 +218,7 @@ namespace Balls.Editor
         [MenuItem("Balls/Copy Levels")]
         public static void CopyLevels()
         {
-            string repositoryRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", ".."));
+            string repositoryRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "..", ".."));
             string source = Path.Combine(repositoryRoot, "data", "assets", "levels");
             string destination = Path.Combine(Application.streamingAssetsPath, "levels");
             if (!Directory.Exists(source))

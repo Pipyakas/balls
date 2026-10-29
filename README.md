@@ -97,8 +97,8 @@ The engine front ends follow the same pattern from Windows:
 | Command | Output |
 |---|---|
 | `build.bat unreal win64`, `build.bat unreal linux` | `dist\win32-ue\ColorBlastBalls.exe`, `dist\linux-ue\` (needs the engine fork at `UE_ROOT`) |
-| `build.bat unity win64` | `dist\win32-unity\ColorBlastBallsUnity.exe` (Mono player; needs the Unity version in `frontends\unity\ProjectSettings\ProjectVersion.txt`, or `UNITY_EXE`) |
-| `build.bat unity linux` | `dist\linux-unity\ColorBlastBallsUnity.x86_64` (IL2CPP; needs the Linux `.so` files, built on Linux, in `frontends\unity\NativeLibraries\linux-x86_64`) |
+| `build.bat unity win64` | `dist\win32-unity\ColorBlastBallsUnity.exe` (Mono player; needs the Unity version in `source\frontends\unity\ProjectSettings\ProjectVersion.txt`, or `UNITY_EXE`) |
+| `build.bat unity linux` | `dist\linux-unity\ColorBlastBallsUnity.x86_64` (IL2CPP; needs the Linux `.so` files, built on Linux, in `source\frontends\unity\NativeLibraries\linux-x86_64`) |
 
 Every build starts with a setup check (`source/frontends/<name>/setup.ps1`, `setup.sh` on Linux) that lists each
 thing the chosen variant needs with `ok` or `MISS`: for Windows desktop builds Visual Studio 2022 with the C++
