@@ -5,14 +5,14 @@ rem   build.bat               the Windows player (win64)
 rem   build.bat <variant>     one of the variants below
 rem   build.bat --variants    lists them as id;description, which the root build.bat menu reads
 rem   build.bat --setup [variant]   only checks this PC can build it, naming what is missing
-rem The Unity project itself lives in frontends\unity. The editor is found from UNITY_EXE, else from the version in
+rem The Unity project lives in this folder. The editor is found from UNITY_EXE, else from the version in
 rem its ProjectVersion.txt under C:\Unity or the Unity Hub's install folder.
 for %%I in ("%~dp0..\..\..") do set "ROOT=%%~fI"
 cd /d "%ROOT%"
 
 if /i "%~1"=="--variants" (
     echo win64;Windows - Unity player ^(Mono^) with the core's native plugins
-    echo linux;Linux x86_64 - Unity IL2CPP player ^(needs the Linux .so files built on Linux in frontends\unity\NativeLibraries\linux-x86_64^)
+    echo linux;Linux x86_64 - Unity IL2CPP player ^(needs the Linux .so files built on Linux in source\frontends\unity\NativeLibraries\linux-x86_64^)
     exit /b 0
 )
 
@@ -25,7 +25,7 @@ set "SETUP_ONLY="
 if /i "%~1"=="--setup" (set "SETUP_ONLY=1" & shift /1)
 set "VARIANT=%~1"
 if not defined VARIANT set "VARIANT=win64"
-set "PROJECT_DIR=%ROOT%\frontends\unity"
+set "PROJECT_DIR=%ROOT%\source\frontends\unity"
 set "BUILD_DIR=build\win32-unity"
 set "PLAYER_NAME="
 if /i "%VARIANT%"=="win64" (
@@ -78,10 +78,10 @@ where cmake >nul 2>&1 && (
 )
 if /i "%VARIANT%"=="linux" (
     if exist "%PROJECT_DIR%\NativeLibraries\linux-x86_64\libballs_unity.so" (
-        echo   [ ok ] Linux native plugins   frontends\unity\NativeLibraries\linux-x86_64
+        echo   [ ok ] Linux native plugins   source\frontends\unity\NativeLibraries\linux-x86_64
     ) else (
         echo   [MISS] Linux native plugins   build them on Linux: cmake -S . -B build/linux-unity -DBALLS_FRONTEND=none
-        echo                                  then copy build/linux-unity/bin/*.so into frontends\unity\NativeLibraries\linux-x86_64
+        echo                                  then copy build/linux-unity/bin/*.so into source\frontends\unity\NativeLibraries\linux-x86_64
         set "MISSING=1"
     )
 )
@@ -115,7 +115,7 @@ start "" /wait "%UNITY_EXE%" -batchmode -quit -projectPath "%PROJECT_DIR%" -exec
 set "UNITY_RESULT=%ERRORLEVEL%"
 rem Opening the project removes the import settings of plugins that are absent on this PC (the Linux .so files on
 rem Windows); they are tracked, so they are put back.
-where git >nul 2>&1 && git checkout -- frontends/unity/Assets/Plugins frontends/unity/Assets/StreamingAssets 2>nul
+where git >nul 2>&1 && git checkout -- source/frontends/unity/Assets/Plugins source/frontends/unity/Assets/StreamingAssets 2>nul
 if not "%UNITY_RESULT%"=="0" (
     echo Unity exited with %UNITY_RESULT%; see %UNITY_LOG%.
     goto :failed

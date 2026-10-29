@@ -408,7 +408,7 @@ namespace Balls.App
         public string LevelDirectoryFor(int mode)
         {
             string root = Application.isEditor
-                ? Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "..", "data", "assets", "levels"))
+                ? Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "..", "..", "data", "assets", "levels"))
                 : Path.Combine(Application.streamingAssetsPath, "levels");
             return Path.Combine(root, mode == PerformanceMode ? "performance" : "normal");
         }

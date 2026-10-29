@@ -6,7 +6,7 @@ This directory contains the Unity Burst / DOTS implementation of the ball-steppi
 
 ## 1. Source Mapping Table
 
-Every function, constant, and struct from [`source/core/sim/kernels/BallStepCore.h`](file:///D:/UnrealProjects/balls/wt-unity/source/core/sim/kernels/BallStepCore.h) is ported one-to-one into [`BallStep.cs`](file:///D:/UnrealProjects/balls/wt-unity/frontends/unity/Assets/Balls/Runtime/Physics/Burst/BallStep.cs).
+Every function, constant, and struct from [`source/core/sim/kernels/BallStepCore.h`](../../../../../../../core/sim/kernels/BallStepCore.h) is ported one-to-one into [`BallStep.cs`](BallStep.cs).
 
 | C++ Reference (`BallStepCore.h`) | Line in C++ | C# Port (`BallStep.cs`) | Purpose / Description |
 |---|---|---|---|
@@ -80,12 +80,12 @@ Step parameters are constructed in C++ by `Simulation::stepParams(int substeps)`
 
 ## 4. Deliverables Summary
 
-1. [`BallStep.cs`](file:///D:/UnrealProjects/balls/wt-unity/frontends/unity/Assets/Balls/Runtime/Physics/Burst/BallStep.cs)
+1. [`BallStep.cs`](BallStep.cs)
    - Contains `StepParams`, `BoardView`, `FreeFlightPosition`, and the `BallStep` static utility class.
    - Exact parity with `BallStepCore.h`: exact mathematical formulas, reflection rules, retargeting logic, coordinate packing, and closed-form free flight helpers.
    - Includes PascalCase aliases for standard C# idioms while keeping exact original lowercase names.
 
-2. [`BurstBallStore.cs`](file:///D:/UnrealProjects/balls/wt-unity/frontends/unity/Assets/Balls/Runtime/Physics/Burst/BurstBallStore.cs)
+2. [`BurstBallStore.cs`](BurstBallStore.cs)
    - Contains `BallData` (24 bytes) and `BallSpawn` (20 bytes).
    - `BurstBallStore` unmanaged struct:
      - `AddBall(float x, float y, float vx, float vy, int color, int bounces = 0)`
@@ -95,7 +95,7 @@ Step parameters are constructed in C++ by `Simulation::stepParams(int substeps)`
      - `PackForRender(NativeArray<uint> destination)` producing the exact 32-bit packed layout expected by `BallRenderSystem` and shaders (`Balls/Procedural`).
      - `Count`, `Capacity`, `EnsureCapacity`, `Clear`, and `Dispose`.
 
-3. [`BurstBallStepJob.cs`](file:///D:/UnrealProjects/balls/wt-unity/frontends/unity/Assets/Balls/Runtime/Physics/Burst/BurstBallStepJob.cs)
+3. [`BurstBallStepJob.cs`](BurstBallStepJob.cs)
    - `BallHit` struct `{ uint ball; int brick; }`.
    - `BurstBallStepJob`: `IJobParallelFor` stepping balls using `BallStep.stepBallSubsteps`, collecting hits into `NativeQueue<BallHit>.ParallelWriter`, with optional direct render packing.
    - `BurstFreeFlightJob`: `IJobParallelFor` evaluating closed-form wall reflections using `BallStep.flyFreely`.

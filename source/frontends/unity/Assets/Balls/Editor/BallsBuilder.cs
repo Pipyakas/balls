@@ -29,7 +29,7 @@ namespace Balls.Editor
         {
             string pluginDir = Path.GetFullPath(Path.Combine(Application.dataPath, "Plugins", "x86_64"));
             BallsNative.balls_set_plugin_directory(pluginDir);
-            string levelDir = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "..", "data", "assets", "levels", "normal"));
+            string levelDir = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", "..", "..", "data", "assets", "levels", "normal"));
             App.ParityProbe.RunControlledSuite(levelDir, "DA_FirstLevel");
             var result = App.ParityProbe.Run(levelDir, "DA_FirstLevel", 200, 300);
             Debug.Log($"balls: parity compared={result.compared} mismatches={result.mismatches} " +
