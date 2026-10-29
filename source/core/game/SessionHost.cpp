@@ -2,6 +2,13 @@
 
 #include <utility>
 
+namespace {
+
+// The window SessionRunner averages its physics frame rate over.
+constexpr double rateWindowSeconds = 0.5;
+
+} // namespace
+
 SessionHost::SessionHost(GameMode mode, LevelData level, BackendKind backend, SessionThreading threading) {
     if (threading == SessionThreading::PhysicsThread) {
         runner = std::make_unique<SessionRunner>(mode, std::move(level), backend);
@@ -52,8 +59,19 @@ void SessionHost::tick(const PhysicsFrameInput& input, float deltaSeconds) {
                           outcome->kind, outcome->forBallCollisions});
     }
     if (!input.paused) {
+        using Clock = std::chrono::steady_clock;
+        const Clock::time_point workStart = Clock::now();
         session->reportFrameSeconds(input.uiFrameSeconds, input.uiWorkSeconds);
         session->update(deltaSeconds);
+        const Clock::time_point workEnd = Clock::now();
+        lastFrameMs = std::chrono::duration<double, std::milli>(workEnd - workStart).count();
+        ++framesInWindow;
+        if (const double windowSeconds = std::chrono::duration<double>(workEnd - rateWindowStart).count();
+            windowSeconds >= rateWindowSeconds) {
+            framesPerSecond = static_cast<double>(framesInWindow) / windowSeconds;
+            framesInWindow = 0;
+            rateWindowStart = workEnd;
+        }
     }
     refreshView();
 }
@@ -63,5 +81,7 @@ std::vector<SessionEvent> SessionHost::takeEvents() { return std::exchange(event
 void SessionHost::refreshView() {
     auto view = std::make_shared<SessionView>();
     describeSession(*session, *view, latest.get());
+    view->physicsFrameMs = lastFrameMs;
+    view->physicsFramesPerSecond = framesPerSecond;
     latest = std::move(view);
 }
