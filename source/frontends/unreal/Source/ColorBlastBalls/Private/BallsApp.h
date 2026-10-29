@@ -6,6 +6,7 @@
 #include "CoreMinimal.h"
 
 #include <filesystem>
+#include <memory>
 #include <optional>
 
 class FBallsBoardView;
@@ -40,7 +41,12 @@ public:
 
     // One toast at a time, shown over whichever screen is up (3 s).
     void ShowToast(FString Text, bool bIsError);
-    const FBallsToast& GetToast() const { return Toast; }
+    const FBallsToast& GetToast() const;
+    // The core's single source of navigation truth.
+    ScreenFlow& GetScreenFlow() const { return *Flow; }
+    void ProcessFlowRequests();
+    void ApplyFlowScreen();
+    bool ActivateFlow(FlowAction Action, int32 Row = -1);
     // Level import ("Importing levels"): files from the picker or dropped on the window. Outside Level select
     // the drop only toasts a hint.
     void ImportLevels(const TArray<FString>& Paths);
@@ -76,14 +82,8 @@ public:
     // "First launch: machine benchmark". The winner becomes the default backend and is stored with the machine
     // profile, so later launches skip the measurement until the hardware fingerprint changes.
     void ShowBenchmark();
-    void SkipBenchmark();
     void FinishBenchmark(bool bComplete);
-    // Back to the Main menu, or to Settings when the run came from there.
-    void LeaveBenchmark();
-    // Settings' "Run machine benchmark" returns to Settings when it finishes.
-    void SetBenchmarkReturnToSettings(bool bValue) { bBenchmarkReturnToSettings = bValue; }
     FBallsMachineBenchmark& GetBenchmark() { return Benchmark; }
-    bool IsBenchmarkSettled() const { return bBenchmarkSettled; }
     FString GetBenchmarkWinnerLabel() const;
 
     // "Launch options and automation": the core's control API handler, called on the game thread. OutBody is
@@ -91,7 +91,6 @@ public:
     void HandleControl(const FString& Path, const TMap<FString, FString>& Query, FString& OutBody, int32& OutCode);
     // The routes only Unreal has (console variables, graphics quality), for the control server to bind.
     static TArray<FString> OwnControlPaths();
-    std::string_view GetScreenName() const;
 
 private:
     enum class EScreen { MainMenu, LevelSelect, Gameplay, MapEditor, Settings, Benchmark };
@@ -117,11 +116,11 @@ private:
     EBallsGraphics GraphicsQuality = EBallsGraphics::Minimum;
     bool bOrientationApplied = false;
     TWeakPtr<SBallsLevelSelect> LevelSelect;
-    FBallsToast Toast;
+    std::unique_ptr<ScreenFlow> Flow;
     FrameTimings Frames;
     MachineProfile Profile;
     FBallsMachineBenchmark Benchmark{Profile};
-    bool bBenchmarkSettled = false;
-    bool bBenchmarkReturnToSettings = false;
-    double BenchmarkSettledAt = 0.0;
+    FlowScreen LastAppliedFlowScreen = FlowScreen::MainMenu;
+    GameMode LastAppliedFlowMode = GameMode::Normal;
+    bool bFlowScreenApplied = false;
 };

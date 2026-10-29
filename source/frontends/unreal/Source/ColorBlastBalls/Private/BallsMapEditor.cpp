@@ -31,6 +31,7 @@ FBallsMapEditor::FBallsMapEditor(FBallsApp& InApp, GameMode Mode, std::optional<
 }
 
 void FBallsMapEditor::NewLevel() {
+    bConfirmLeave = false;
     LevelNameValue = "NewLevel";
     EditorState.newLevel(LevelNameValue, 10, 8, 20, 3, 3);
     SelectedBrickId = -1;
@@ -47,6 +48,7 @@ void FBallsMapEditor::Tick(float DeltaSeconds) {
 }
 
 void FBallsMapEditor::SetBrushColor(BallColor Color) {
+    bConfirmLeave = false;
     CurrentColor = Color;
     if (CurrentTool == FEditorTool::Pick && SelectedBrickId >= 0) {
         EditorState.beginEdit();
@@ -55,6 +57,7 @@ void FBallsMapEditor::SetBrushColor(BallColor Color) {
 }
 
 void FBallsMapEditor::SetBrushHits(int Hits) {
+    bConfirmLeave = false;
     CurrentHits = FMath::Clamp(Hits, 1, MaximumHits);
     if (CurrentTool == FEditorTool::Pick && SelectedBrickId >= 0) {
         EditorState.beginEdit();
@@ -69,6 +72,7 @@ void FBallsMapEditor::SetLauncherBalls(int Count) {
 void FBallsMapEditor::SetBoardWidth(int Width) {
     const BrickLayout& Bricks = EditorState.level().bricks;
     EditorState.beginEdit();
+    bConfirmLeave = false;
     EditorState.resizeBoard(FMath::Clamp(Width, 1, MaximumBoardSize), Bricks.height,
                             FMath::Max(Bricks.playableHeight, Bricks.height));
 }
@@ -77,33 +81,39 @@ void FBallsMapEditor::SetBrickRows(int Rows) {
     const BrickLayout& Bricks = EditorState.level().bricks;
     const int NewRows = FMath::Clamp(Rows, 1, MaximumBoardSize);
     EditorState.beginEdit();
+    bConfirmLeave = false;
     EditorState.resizeBoard(Bricks.width, NewRows, FMath::Max(Bricks.playableHeight, NewRows));
 }
 
 void FBallsMapEditor::SetPlayableRows(int Rows) {
     const BrickLayout& Bricks = EditorState.level().bricks;
     EditorState.beginEdit();
+    bConfirmLeave = false;
     EditorState.resizeBoard(Bricks.width, Bricks.height,
                             FMath::Max(FMath::Clamp(Rows, Bricks.height, MaximumBoardSize * 2), Bricks.height));
 }
 
 void FBallsMapEditor::SetLauncherColumns(int Columns) {
     EditorState.beginEdit();
+    bConfirmLeave = false;
     EditorState.setLauncherColumns(FMath::Clamp(Columns, 1, 8));
 }
 
 void FBallsMapEditor::SetVisibleRows(int Rows) {
     EditorState.beginEdit();
+    bConfirmLeave = false;
     EditorState.setVisibleRows(FMath::Clamp(Rows, 1, 8));
 }
 
 void FBallsMapEditor::AutoFillLaunchers() {
     EditorState.beginEdit();
+    bConfirmLeave = false;
     EditorState.autoFillLaunchers(LauncherBallCount > 0 ? LauncherBallCount : 10);
 }
 
 void FBallsMapEditor::BeginStroke(bool bErase) {
     EditorState.beginEdit();
+    bConfirmLeave = false;
     bStrokeActive = true;
     bEraseStroke = bErase;
     bDragging = false;
@@ -169,6 +179,7 @@ void FBallsMapEditor::ApplyLauncherCell(int Column, int Row, bool bErase, bool b
         return;
     }
     EditorState.beginEdit();
+    bConfirmLeave = false;
     if (bRemoveRow) {
         if (Row < Launchers.rowCount()) {
             EditorState.removeLauncherRow(Row);
@@ -259,7 +270,9 @@ void FBallsMapEditor::Save() {
 
 void FBallsMapEditor::SaveAndPlay() {
     if (SaveInternal()) {
-        App.StartGame(TargetMode, Files());
+        App.GetScreenFlow().playFromEditor(TargetMode, Files());
+        App.ProcessFlowRequests();
+        App.ApplyFlowScreen();
     }
 }
 
@@ -269,5 +282,8 @@ void FBallsMapEditor::Back() {
         ShowMessage("Unsaved changes - press Back again to discard", true);
         return;
     }
-    App.ShowMainMenu();
+    bConfirmLeave = false;
+    App.GetScreenFlow().activate(FlowAction::Back);
+    App.ProcessFlowRequests();
+    App.ApplyFlowScreen();
 }

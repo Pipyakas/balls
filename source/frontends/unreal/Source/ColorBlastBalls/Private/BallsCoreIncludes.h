@@ -23,5 +23,6 @@ THIRD_PARTY_INCLUDES_START
 #include "sim/DeviceInventory.h"
 #include "sim/Simulation.h"
 #include "ui/GameplayLayout.h"
+#include "ui/ScreenFlow.h"
 #include "ui/Theme.h"
 THIRD_PARTY_INCLUDES_END

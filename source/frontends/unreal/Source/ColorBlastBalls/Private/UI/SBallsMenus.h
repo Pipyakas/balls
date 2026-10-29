@@ -72,21 +72,14 @@ public:
     SLATE_END_ARGS()
 
     void Construct(const FArguments& InArgs);
-    // Re-reads the level folder now; the list also follows it live (about twice a second).
     void Refresh();
-    // Scrolls to a level and highlights it for 2 s, after an import.
     void Highlight(const FString& LevelName);
 
 private:
     EActiveTimerReturnType Poll(double CurrentTime, float DeltaTime);
     void RebuildList();
-    FString Signature() const;
 
     FBallsApp* App = nullptr;
     GameMode Mode = GameMode::Normal;
-    std::vector<LevelFiles> Levels;
-    FString ShownSignature;
     TSharedPtr<SScrollBox> List;
-    FString HighlightName;
-    double HighlightUntil = 0.0;
 };

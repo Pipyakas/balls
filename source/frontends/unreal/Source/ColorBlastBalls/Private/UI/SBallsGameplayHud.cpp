@@ -34,6 +34,7 @@ float PhysicsGroupHeight() {
 }
 constexpr float OverlayWidth = 420.0f;
 constexpr float OverlayButtonHeight = 60.0f;
+constexpr int32 MaximumOverlayButtons = 4;
 constexpr float LauncherGapShare = 0.18f;
 constexpr float MaximumLauncherSize = 110.0f;
 constexpr float BackRowFade = 0.55f;
@@ -440,9 +441,7 @@ private:
     // the top gadget in portrait; only its height differs (56 and 44).
     void PaintHeaderTitle(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,
                           const FBallsGameplayLayout& Layout) const {
-        FString Title = FString::Printf(TEXT("%s - %s"),
-                                        Gameplay->GetMode() == GameMode::Normal ? TEXT("Normal") : TEXT("Performance"),
-                                        *BallsText::FromUtf8(Gameplay->GetFiles().name));
+        FString Title = BallsText::FromUtf8(App->GetScreenFlow().gameTitle());
         const FSlateFontInfo TitleFont = BallsStyle::Font(22.0f);
         const float TitleRoom = Layout.Header.GetSize().X - 16.0f - 96.0f - 20.0f;
         while (Title.Len() > 4 && BallsStyle::Measure(Title, TitleFont).X > TitleRoom) {
@@ -471,7 +470,7 @@ private:
         return Area;
     }
 
-    FString MapNoticeText() const { return BallsText::FromUtf8(levelDiskNotice(Gameplay->GetDiskState())); }
+    FString MapNoticeText() const { return BallsText::FromUtf8(App->GetScreenFlow().diskNotice()); }
 
     // The board frame is the gadget color around the 3D board: four strips, so the board stays visible.
     void PaintBoardFrame(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,
@@ -845,10 +844,10 @@ void SBallsGameplayHud::Construct(const FArguments& InArgs) {
             })
             .Size(FVector2D(96.0f, 40.0f))
             [
-                BallsWidgets::Button(TAttribute<FText>::CreateLambda([Game] {
-                                         return LabelText(Game->IsPaused() ? TEXT("Resume") : TEXT("Pause"));
+                BallsWidgets::Button(TAttribute<FText>::CreateLambda([this] {
+                                         return LabelText(App->GetScreenFlow().isPaused() ? TEXT("Resume") : TEXT("Pause"));
                                      }),
-                                     [Game] { Game->SetPaused(!Game->IsPaused()); }, 20.0f)
+                                     [this] { App->ActivateFlow(FlowAction::TogglePause); }, 20.0f)
             ]
             + SCanvas::Slot()
             .Position_Lambda([this] { return Shrink(CurrentLayout().InteractionSection, 14.0f).GetTopLeft(); })
@@ -880,7 +879,7 @@ void SBallsGameplayHud::Construct(const FArguments& InArgs) {
             .HeightOverride(56.0f)
             .Visibility_Lambda([Game] { return Game->HasGame() ? EVisibility::Collapsed : EVisibility::Visible; })
             [
-                BallsWidgets::Button(LabelText(TEXT("Back")), [this] { App->ShowLevelSelect(Gameplay->GetMode()); }, 24.0f)
+                BallsWidgets::Button(LabelText(TEXT("Back")), [this] { App->ActivateFlow(FlowAction::Back); }, 24.0f)
             ]
         ]
     ];
@@ -1058,13 +1057,38 @@ TSharedRef<SWidget> SBallsGameplayHud::MakeOverlay() {
         return SNew(SBox).HeightOverride(OverlayButtonHeight).Padding(0.0f, 0.0f, 0.0f, 14.0f)
             [BallsWidgets::Button(MoveTemp(Label), MoveTemp(OnClicked), 26.0f)];
     };
+    // The overlay's buttons are the core flow's (pause: Resume, Restart, Settings, Main Menu; win: Next Level,
+    // Restart, Main Menu); the slots past the current list collapse.
+    TSharedRef<SVerticalBox> OverlayButtons = SNew(SVerticalBox);
+    for (int32 Index = 0; Index < MaximumOverlayButtons; ++Index) {
+        auto Button = [this, Index]() -> std::optional<FlowButton> {
+            const std::vector<FlowButton> Buttons = App->GetScreenFlow().buttons();
+            return Index < static_cast<int32>(Buttons.size()) ? std::optional<FlowButton>(Buttons[Index]) : std::nullopt;
+        };
+        OverlayButtons->AddSlot().AutoHeight()
+        [
+            SNew(SBox)
+            .Visibility_Lambda([Button] { return Button() ? EVisibility::Visible : EVisibility::Collapsed; })
+            [
+                OverlayButton(TAttribute<FText>::CreateLambda([Button] {
+                                  const std::optional<FlowButton> Shown = Button();
+                                  return LabelText(Shown ? BallsText::FromUtf8(Shown->label) : FString());
+                              }),
+                              [this, Button] {
+                                  if (const std::optional<FlowButton> Shown = Button()) {
+                                      App->ActivateFlow(Shown->action);
+                                  }
+                              })
+            ]
+        ];
+    }
     return SNew(SBorder)
         .BorderImage(BallsStyle::White())
         .BorderBackgroundColor(BallsPalette::Linear(BallsPalette::BoardBackdrop, 0.7f))
         .HAlign(HAlign_Center)
         .VAlign(VAlign_Center)
-        .Visibility_Lambda([Game] {
-            return Game->GetView() && (Game->IsPaused() || Game->IsWon()) ? EVisibility::Visible : EVisibility::Collapsed;
+        .Visibility_Lambda([Game, this] {
+            return Game->GetView() && (App->GetScreenFlow().overlay() != FlowOverlay::None) ? EVisibility::Visible : EVisibility::Collapsed;
         })
         [
             SNew(SBox)
@@ -1075,48 +1099,24 @@ TSharedRef<SWidget> SBallsGameplayHud::MakeOverlay() {
                 .Padding(30.0f, 24.0f)
                 [
                     SNew(SWidgetSwitcher)
-                    .WidgetIndex_Lambda([Game] { return Game->IsSettingsOpen() ? 1 : 0; })
+                    .WidgetIndex_Lambda([this] { return App->GetScreenFlow().overlay() == FlowOverlay::Settings ? 1 : 0; })
                     + SWidgetSwitcher::Slot()
                     [
                     SNew(SVerticalBox)
                     + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.0f, 0.0f, 0.0f, 24.0f)
                     [
                         SNew(STextBlock)
-                        .Text_Lambda([Game] { return LabelText(Game->IsWon() ? TEXT("Level Complete!") : TEXT("Paused")); })
+                        .Text_Lambda([this] { return LabelText(BallsText::FromUtf8(App->GetScreenFlow().title())); })
                         .Font(BallsStyle::Font(44.0f, true))
-                        .ColorAndOpacity_Lambda([Game] {
-                            return FSlateColor(BallsPalette::Linear(Game->IsWon() ? BallsPalette::Accent : BallsPalette::Text));
+                        .ColorAndOpacity_Lambda([this] {
+                            return FSlateColor(BallsPalette::Linear(App->GetScreenFlow().overlay() == FlowOverlay::Win
+                                                                        ? BallsPalette::Accent
+                                                                        : BallsPalette::Text));
                         })
                     ]
                     + SVerticalBox::Slot().AutoHeight()
                     [
-                        OverlayButton(TAttribute<FText>::CreateLambda([Game] {
-                                          return LabelText(Game->IsWon() ? TEXT("Next Level") : TEXT("Resume"));
-                                      }),
-                                      [Game] {
-                                          if (Game->IsWon()) {
-                                              Game->OpenNextLevel();
-                                          } else {
-                                              Game->SetPaused(false);
-                                          }
-                                      })
-                    ]
-                    + SVerticalBox::Slot().AutoHeight()
-                    [
-                        OverlayButton(LabelText(TEXT("Restart")), [Game] { Game->Restart(); })
-                    ]
-                    + SVerticalBox::Slot().AutoHeight()
-                    [
-                        // Settings belong to the pause overlay; the win overlay only offers the next steps.
-                        SNew(SBox)
-                        .Visibility_Lambda([Game] { return Game->IsWon() ? EVisibility::Collapsed : EVisibility::Visible; })
-                        [
-                            OverlayButton(LabelText(TEXT("Settings")), [Game] { Game->SetSettingsOpen(true); })
-                        ]
-                    ]
-                    + SVerticalBox::Slot().AutoHeight()
-                    [
-                        OverlayButton(LabelText(TEXT("Main Menu")), [Owner] { Owner->ShowMainMenu(); })
+                        OverlayButtons
                     ]
                     ]
                     + SWidgetSwitcher::Slot()
@@ -1137,7 +1137,7 @@ TSharedRef<SWidget> SBallsGameplayHud::MakeOverlay() {
                         [
                             SNew(SBox).HeightOverride(OverlayButtonHeight)
                             [
-                                BallsWidgets::Button(LabelText(TEXT("Back")), [Game] { Game->SetSettingsOpen(false); }, 26.0f)
+                                BallsWidgets::Button(LabelText(TEXT("Back")), [this] { App->ActivateFlow(FlowAction::Back); }, 26.0f)
                             ]
                         ]
                     ]

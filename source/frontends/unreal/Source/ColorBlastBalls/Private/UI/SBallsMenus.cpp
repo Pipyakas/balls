@@ -172,23 +172,23 @@ void SBallsMainMenu::Construct(const FArguments& InArgs) {
             ]
             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, MenuButtonGap * 0.5f)
             [
-                MenuButton(TEXT("Normal Mode"), [Owner] { Owner->ShowLevelSelect(GameMode::Normal); })
+                MenuButton(TEXT("Normal Mode"), [Owner] { Owner->ActivateFlow(FlowAction::NormalMode); })
             ]
             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, MenuButtonGap * 0.5f)
             [
-                MenuButton(TEXT("Performance Mode"), [Owner] { Owner->ShowLevelSelect(GameMode::Performance); })
+                MenuButton(TEXT("Performance Mode"), [Owner] { Owner->ActivateFlow(FlowAction::PerformanceMode); })
             ]
             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, MenuButtonGap * 0.5f)
             [
-                MenuButton(TEXT("Map Editor"), [Owner] { Owner->ShowMapEditor(GameMode::Normal, std::nullopt); })
+                MenuButton(TEXT("Map Editor"), [Owner] { Owner->ActivateFlow(FlowAction::MapEditor); })
             ]
             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, MenuButtonGap * 0.5f)
             [
-                MenuButton(TEXT("Settings"), [Owner] { Owner->ShowSettings(); })
+                MenuButton(TEXT("Settings"), [Owner] { Owner->ActivateFlow(FlowAction::Settings); })
             ]
             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, MenuButtonGap * 0.5f)
             [
-                MenuButton(TEXT("Quit"), [Owner] { Owner->Quit(); })
+                MenuButton(TEXT("Quit"), [Owner] { Owner->ActivateFlow(FlowAction::Quit); })
             ]
         ]
     ];
@@ -411,14 +411,13 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
     AddHint(TEXT("One backend per device. Two or more devices run as Hybrid, splitting the balls between them; one runs "
                  "that backend alone."));
 
-    if (InArgs._bAllowBenchmark) {
+    if (InArgs._bAllowBenchmark && Owner->GetScreenFlow().canRunMachineBenchmark()) {
         Column->AddSlot().AutoHeight().Padding(0.0f, OptionGap, 0.0f, OptionGap)
         [
             SNew(SBox).HeightOverride(OptionHeight)
             [
                 BallsWidgets::Button(FText::FromString(TEXT("Run machine benchmark")), [Owner] {
-                    Owner->SetBenchmarkReturnToSettings(true);
-                    Owner->ShowBenchmark();
+                    Owner->ActivateFlow(FlowAction::RunMachineBenchmark);
                 }, 20.0f)
             ]
         ];
@@ -462,7 +461,7 @@ void SBallsSettingsPage::Construct(const FArguments& InArgs) {
                     + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left).Padding(0.0f, 24.0f, 0.0f, 0.0f)
                     [
                         SizedButton(200.0f, 56.0f, BallsWidgets::Button(FText::FromString(TEXT("Back")),
-                                                                         [Owner] { Owner->ShowMainMenu(); }, 24.0f))
+                                                                         [Owner] { Owner->ActivateFlow(FlowAction::Back); }, 24.0f))
                     ]
                 ]
             ]
@@ -470,26 +469,14 @@ void SBallsSettingsPage::Construct(const FArguments& InArgs) {
     ];
 }
 
-FString SBallsLevelSelect::Signature() const {
-    FString Result;
-    for (const LevelFiles& Files : Levels) {
-        std::error_code Error;
-        const auto Bricks = std::filesystem::last_write_time(Files.bricksPath, Error);
-        const auto Launchers = std::filesystem::last_write_time(Files.launchersPath, Error);
-        Result += FString::Printf(TEXT("%s:%lld:%lld;"), *BallsText::FromUtf8(Files.name),
-                                  static_cast<long long>(Bricks.time_since_epoch().count()),
-                                  static_cast<long long>(Launchers.time_since_epoch().count()));
-    }
-    return Result;
-}
-
 void SBallsLevelSelect::RebuildList() {
     const float Offset = List->GetScrollOffset();
     List->ClearChildren();
     FBallsApp* Owner = App;
-    const GameMode LevelMode = Mode;
-    for (const LevelFiles& Files : Levels) {
-        const FString Name = BallsText::FromUtf8(Files.name);
+    const auto& Rows = Owner->GetScreenFlow().levelRows();
+    for (int32 Index = 0; Index < static_cast<int32>(Rows.size()); ++Index) {
+        const FlowLevelRow& Row = Rows[static_cast<size_t>(Index)];
+        const FString Name = BallsText::FromUtf8(Row.name);
         List->AddSlot().Padding(0.0f, RowGap * 0.5f)
         [
             SNew(SBox).HeightOverride(RowHeight)
@@ -497,22 +484,26 @@ void SBallsLevelSelect::RebuildList() {
                 SNew(SHorizontalBox)
                 + SHorizontalBox::Slot().FillWidth(1.0f)
                 [
-                    BallsWidgets::Button(FText::FromString(Name), [Owner, LevelMode, Files] { Owner->StartGame(LevelMode, Files); },
+                    BallsWidgets::Button(FText::FromString(Name), [Owner, Index] { Owner->ActivateFlow(FlowAction::PlayLevel, Index); },
                                          24.0f, true,
-                                         TAttribute<bool>::CreateLambda([this, Name] {
-                                             return Name == HighlightName && FPlatformTime::Seconds() < HighlightUntil;
+                                         TAttribute<bool>::CreateLambda([Owner, Index] {
+                                             const auto& R = Owner->GetScreenFlow().levelRows();
+                                             if (Index < 0 || Index >= static_cast<int32>(R.size())) {
+                                                 return false;
+                                             }
+                                             return R[static_cast<size_t>(Index)].highlighted;
                                          }))
                 ]
                 + SHorizontalBox::Slot().AutoWidth().Padding(8.0f, 0.0f, 0.0f, 0.0f)
                 [
                     SizedButton(110.0f, RowHeight,
                                 BallsWidgets::Button(FText::FromString(TEXT("Edit")),
-                                                     [Owner, LevelMode, Files] { Owner->ShowMapEditor(LevelMode, Files); }, 20.0f))
+                                                     [Owner, Index] { Owner->ActivateFlow(FlowAction::EditLevel, Index); }, 20.0f))
                 ]
             ]
         ];
     }
-    if (Levels.empty()) {
+    if (Rows.empty()) {
         List->AddSlot()
         [
             SNew(STextBlock)
@@ -522,38 +513,23 @@ void SBallsLevelSelect::RebuildList() {
             .Justification(ETextJustify::Center)
         ];
     }
-    List->SetScrollOffset(Offset);
+    if (const std::optional<int> ScrollRow = Owner->GetScreenFlow().takeScrollToRow()) {
+        List->SetScrollOffset(FMath::Max(0.0f, static_cast<float>(*ScrollRow) * (RowHeight + RowGap) - RowHeight));
+    } else {
+        List->SetScrollOffset(Offset);
+    }
 }
 
 void SBallsLevelSelect::Refresh() {
-    Levels = findLevels(App->LevelDirectory(Mode));
-    ShownSignature = Signature();
     RebuildList();
 }
 
 void SBallsLevelSelect::Highlight(const FString& LevelName) {
-    HighlightName = LevelName;
-    HighlightUntil = FPlatformTime::Seconds() + 2.0;
-    for (int32 Index = 0; Index < static_cast<int32>(Levels.size()); ++Index) {
-        if (BallsText::FromUtf8(Levels[Index].name) == LevelName) {
-            // Rows are RowHeight + RowGap apart; show the new one a little below the top.
-            List->SetScrollOffset(FMath::Max(0.0f, static_cast<float>(Index) * (RowHeight + RowGap) - RowHeight));
-            break;
-        }
-    }
+    (void)LevelName;
 }
 
-// The list follows the folder: a level added, changed or removed while this screen is open shows up within a poll.
 EActiveTimerReturnType SBallsLevelSelect::Poll(double, float) {
-    std::vector<LevelFiles> Current = findLevels(App->LevelDirectory(Mode));
-    std::swap(Levels, Current);
-    const FString NewSignature = Signature();
-    if (NewSignature != ShownSignature) {
-        ShownSignature = NewSignature;
-        RebuildList();
-    } else {
-        Levels = std::move(Current);
-    }
+    RebuildList();
     return EActiveTimerReturnType::Continue;
 }
 
@@ -561,12 +537,10 @@ void SBallsLevelSelect::Construct(const FArguments& InArgs) {
     App = InArgs._App;
     Mode = InArgs._Mode;
     FBallsApp* Owner = App;
-    const GameMode LevelMode = Mode;
     List = SNew(SScrollBox);
-    Refresh();
+    RebuildList();
     RegisterActiveTimer(0.5f, FWidgetActiveTimerDelegate::CreateSP(this, &SBallsLevelSelect::Poll));
 
-    const FString FolderPath = FString(UTF8_TO_TCHAR(App->LevelDirectory(Mode).string().c_str()));
     auto Action = [](const TCHAR* Label, TFunction<void()> OnClicked) {
         return SNew(SBox).WidthOverride(200.0f).HeightOverride(56.0f)
             [BallsWidgets::Button(FText::FromString(Label), MoveTemp(OnClicked), 22.0f)];
@@ -593,7 +567,7 @@ void SBallsLevelSelect::Construct(const FArguments& InArgs) {
                     + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.0f, 0.0f, 0.0f, 30.0f)
                     [
                         SNew(STextBlock)
-                        .Text(FText::FromString(Mode == GameMode::Normal ? TEXT("Normal Mode") : TEXT("Performance Mode")))
+                        .Text_Lambda([Owner] { return FText::FromString(BallsText::FromUtf8(Owner->GetScreenFlow().title())); })
                         .Font(BallsStyle::Font(52.0f, true))
                         .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Accent))
                     ]
@@ -605,7 +579,7 @@ void SBallsLevelSelect::Construct(const FArguments& InArgs) {
                     [
                         // So a tester knows where to drop files.
                         SNew(STextBlock)
-                        .Text(FText::FromString(TEXT("Levels folder: ") + FolderPath))
+                        .Text_Lambda([Owner] { return FText::FromString(BallsText::FromUtf8(Owner->GetScreenFlow().footnote())); })
                         .Font(BallsStyle::Font(16.0f))
                         .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
                         .AutoWrapText(true)
@@ -615,11 +589,11 @@ void SBallsLevelSelect::Construct(const FArguments& InArgs) {
                         SNew(SHorizontalBox)
                         + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
                         [
-                            Action(TEXT("Back"), [Owner] { Owner->ShowMainMenu(); })
+                            Action(TEXT("Back"), [Owner] { Owner->ActivateFlow(FlowAction::Back); })
                         ]
                         + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
                         [
-                            Action(TEXT("New Level"), [Owner, LevelMode] { Owner->ShowMapEditor(LevelMode, std::nullopt); })
+                            Action(TEXT("New Level"), [Owner] { Owner->ActivateFlow(FlowAction::NewLevel); })
                         ]
                     ]
                     + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 8.0f, 0.0f, 0.0f)
@@ -631,7 +605,7 @@ void SBallsLevelSelect::Construct(const FArguments& InArgs) {
                         ]
                         + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
                         [
-                            Action(TEXT("Open Folder"), [Owner, LevelMode] { Owner->OpenLevelFolder(LevelMode); })
+                            Action(TEXT("Open Folder"), [Owner] { Owner->OpenLevelFolder(Owner->GetScreenFlow().mode()); })
                         ]
                     ]
                 ]

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "BallsApp.h"
 #include "BallsCoreIncludes.h"
 #include "CoreMinimal.h"
 
@@ -42,26 +43,26 @@ public:
     void SelectBallLimit(int32 Index);
     void SwitchBackend(BackendKind Kind);
     void Restart();
-    void SetPaused(bool bInPaused) {
-        bPaused = bInPaused;
-        bSettingsOpen = false;
-    }
-    void SetSettingsOpen(bool bOpen) { bSettingsOpen = bOpen; }
-    void OpenNextLevel();
 
     // The level files changed under a running game. The game is never swapped mid-play: the header says so and
     // Restart loads the new version ("Changes to the level being played").
-    LevelDiskState GetDiskState() const { return Watcher.diskState(); }
+    LevelDiskState GetDiskState() const { return App.GetScreenFlow().diskState(); }
 
     // ControlGame: the HTTP control API's view of this game, answered by the core.
     GameMode gameMode() const override { return Mode; }
     std::string levelName() const override { return Files.name; }
     std::string levelLoadError() const override { return TCHAR_TO_UTF8(*LoadError); }
-    LevelDiskState diskState() const override { return Watcher.diskState(); }
+    LevelDiskState diskState() const override { return App.GetScreenFlow().diskState(); }
     std::shared_ptr<const SessionView> sessionView() override { return View; }
     void post(std::function<void(GameSession&)> Command) override;
-    bool isPaused() const override { return bPaused; }
-    void setPaused(bool bPause) override { SetPaused(bPause); }
+    bool isPaused() const override { return App.GetScreenFlow().isPaused(); }
+    void setPaused(bool bPause) override {
+        if (bPause != App.GetScreenFlow().isPaused()) {
+            App.GetScreenFlow().activate(FlowAction::TogglePause);
+            App.ProcessFlowRequests();
+            App.ApplyFlowScreen();
+        }
+    }
     void restart() override { Restart(); }
     int capacityProbeTargetFps() const override { return ProbeTargetFps; }
     void startCapacityProbe(int TargetFps) override;
@@ -78,8 +79,8 @@ public:
     void SetVisibilitySlotCells(float Cells) { VisibilitySlotCells = Cells; }
     const FString& GetLoadError() const { return LoadError; }
     const FBallsToast& GetToast() const;
-    bool IsPaused() const { return bPaused; }
-    bool IsSettingsOpen() const { return bSettingsOpen; }
+    bool IsPaused() const { return App.GetScreenFlow().isPaused(); }
+    bool IsSettingsOpen() const { return App.GetScreenFlow().overlay() == FlowOverlay::Settings; }
     bool IsWon() const;
 
 private:
@@ -95,9 +96,6 @@ private:
     std::shared_ptr<const SessionView> View;
     float VisibilitySlotCells = 0.0f;
     FString LoadError;
-    LevelWatcher Watcher;
-    bool bPaused = false;
-    bool bSettingsOpen = false;
     bool bProbeResultShown = true;
     int32 ProbeTargetFps = static_cast<int32>(defaultProbeTargetFps);
 };
