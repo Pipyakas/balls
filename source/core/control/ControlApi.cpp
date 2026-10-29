@@ -12,13 +12,10 @@
 
 namespace {
 
-constexpr int minimumProbeTargetFps = 10;
-constexpr int maximumProbeTargetFps = 1000;
-
 constexpr std::string_view knownPaths[] = {
     "/state",  "/screenshot", "/play",  "/levels", "/editor", "/menu",      "/quit",           "/settings",
     "/vsync",  "/benchmark",  "/benchmark/skip", "/benchmark/continue", "/launch", "/launcher", "/start",
-    "/probe",  "/rate",       "/fill",  "/limit",  "/multiplier", "/backend", "/pause",   "/resume", "/restart",
+    "/rate",   "/fill",       "/limit", "/multiplier", "/backend", "/pause",   "/resume", "/restart",
 };
 
 std::string_view candidateStatusName(CandidateStatus status) {
@@ -58,12 +55,13 @@ std::optional<bool> flag(const ControlRequest& request, std::string_view key) {
 
 std::optional<LevelFiles> findLevelNamed(const ControlHost& host, GameMode mode, std::string_view name) {
     for (const LevelFiles& files : findLevels(host.levelDirectory(mode))) {
-        if (equalsIgnoringCase(files.name, name)) {
+        if (files.name == name) {
             return files;
         }
     }
     return std::nullopt;
 }
+
 
 std::string stateJson(ControlHost& host) {
     const ControlFrontEndState front = host.frontEndState();
@@ -157,15 +155,6 @@ std::optional<ControlResponse> handleGameRoute(ControlGame& game, const ControlR
         game.post([](GameSession& session) { session.startAutoRelease(); });
         return done;
     }
-    if (path == "/probe") {
-        if (flag(request, "cancel").value_or(false)) {
-            game.post([](GameSession& session) { session.cancelCapacityProbe(); });
-        } else {
-            game.startCapacityProbe(std::clamp(request.integer("fps").value_or(game.capacityProbeTargetFps()),
-                                               minimumProbeTargetFps, maximumProbeTargetFps));
-        }
-        return ControlResponse::ok(std::format("{{\"ok\":true,\"target\":{}}}", game.capacityProbeTargetFps()));
-    }
     if (path == "/rate") {
         const int index = request.integer("index").value_or(view->spawnRateIndex);
         game.post([index](GameSession& session) { session.selectSpawnRate(index); });
@@ -179,7 +168,7 @@ std::optional<ControlResponse> handleGameRoute(ControlGame& game, const ControlR
     if (path == "/limit") {
         const int index = request.integer("index").value_or(view->ballLimitIndex);
         game.post([index](GameSession& session) {
-            session.cancelCapacityProbe();
+            session.cancelFill();
             session.selectBallLimit(index);
         });
         return done;
@@ -252,7 +241,6 @@ std::string controlGameJson(ControlGame& game) {
         launcherColumns += "]";
     }
     constexpr std::array<const char*, 3> stateNames{"ready", "running", "won"};
-    const CapacityProbe& probe = view->probe;
     return std::format(
         "{{\"mode\":\"{}\",\"level\":\"{}\",\"diskNotice\":\"{}\",\"state\":\"{}\",\"paused\":{},\"backend\":\"{}\","
         "\"pendingBackend\":\"{}\",\"refilling\":{},\"backendFault\":\"{}\",\"collisions\":{},"
@@ -260,7 +248,6 @@ std::string controlGameJson(ControlGame& game) {
         "\"physicsMs\":{:.3f},\"kernelMs\":{:.3f},\"ticks\":{},\"spawnRate\":{},\"multiplier\":{},"
         "\"ballLimit\":{},\"elapsed\":{:.2f},\"physicsFps\":{:.1f},\"physicsFrameMs\":{:.3f},"
         "\"physicsLongestFrameMs\":{:.3f},\"physicsSlowFrames\":{},"
-        "\"probe\":{{\"phase\":\"{}\",\"target\":{:.0f},\"fps\":{:.1f},\"best\":{}}},"
         "\"ballsByColor\":{{{}}},\"launchers\":[{}]}}",
         gameModeName(game.gameMode()), jsonEscape(game.levelName()), levelDiskNotice(game.diskState()),
         stateNames[static_cast<int>(view->state)], game.isPaused(), backendKindName(view->backend),
@@ -270,8 +257,7 @@ std::string controlGameJson(ControlGame& game) {
         stats.lastFramePhysicsMs, view->deviceStepMs, stats.ticksLastFrame, spawnRateOptions[view->spawnRateIndex],
         ballMultiplierOptions[view->ballMultiplierIndex], view->ballLimit, view->elapsedSeconds,
         view->physicsFramesPerSecond, view->physicsFrameMs, view->physicsLongestFrameMs, view->physicsSlowFrames,
-        probePhaseName(probe.phase()), probe.targetFps(),
-        probe.lastFps(), probe.bestPassingCount(), ballsByColor, launcherColumns);
+        ballsByColor, launcherColumns);
 }
 
 std::optional<ControlResponse> handleControlRequest(ControlHost& host, const ControlRequest& request) {
@@ -318,36 +304,33 @@ std::optional<ControlResponse> handleControlRequest(ControlHost& host, const Con
         }
         const std::string levelName = request.text("level").value_or("");
         const std::optional<LevelFiles> level = levelName.empty() ? std::nullopt : findLevelNamed(host, *mode, levelName);
-        if (path == "/play") {
-            if (!level) {
-                return ControlResponse::error(404, std::format("no level '{}' in {} mode", levelName, gameModeName(*mode)));
+        if (levelName.empty()) {
+            if (path == "/play") {
+                return ControlResponse::error(400, "missing level");
             }
+            if (path == "/levels") {
+                return host.showLevelSelect(*mode) ? ControlResponse::ok() : ControlResponse::error(404, "no level select screen");
+            }
+            return host.openEditor(*mode, std::nullopt) ? ControlResponse::ok() : ControlResponse::error(404, "no editor screen");
+        }
+        if (!level) {
+            return ControlResponse::error(404, std::format("level {} not found", levelName));
+        }
+        if (path == "/play") {
             host.play(*mode, *level);
             return ControlResponse::ok();
         }
-        const bool shown = path == "/levels" ? host.showLevelSelect(*mode) : host.openEditor(*mode, level);
-        return shown ? ControlResponse::ok() : ControlResponse::error(404, std::format("{} is not available here", path));
-    }
-    if (path == "/backend") {
-        const std::string name = request.text("kind").value_or("");
-        const std::optional<BackendKind> kind = parseBackendKind(name);
-        if (!kind || !isBackendAvailable(*kind)) {
-            return ControlResponse::error(409, "backend unknown or unavailable");
+        if (path == "/editor") {
+            return host.openEditor(*mode, level) ? ControlResponse::ok() : ControlResponse::error(404, "no editor screen");
         }
-        if (ControlGame* game = host.game(); game && game->sessionView()) {
-            game->post([kind = *kind](GameSession& session) { session.requestBackend(kind); });
-        } else {
-            host.applySettings(host.settings(), *kind);
-        }
-        return ControlResponse::ok();
     }
     if (ControlGame* game = host.game()) {
-        if (auto response = handleGameRoute(*game, request)) {
-            return response;
+        if (const auto handled = handleGameRoute(*game, request)) {
+            return handled;
         }
     }
-    if (auto response = host.handleOwnRoute(request)) {
-        return response;
+    if (const auto own = host.handleOwnRoute(request)) {
+        return own;
     }
-    return ControlResponse::error(404, std::format("unknown command {} on screen {}", path, host.frontEndState().screen));
+    return ControlResponse::error(404, std::format("unknown route {}", path));
 }

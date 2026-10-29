@@ -71,15 +71,15 @@ constexpr size_t zen4LaneCount = 16;
 // The predicate is an instruction immediate, so it has to be a constant: clang rejects a runtime argument once the
 // call is not inlined, and MSVC 14.44 crashes on it.
 template <int Predicate>
-inline __m512 cmp_ps(__m512 a, __m512 b) {
+inline __m512 compareMask(__m512 a, __m512 b) {
     const __mmask16 mask = _mm512_cmp_ps_mask(a, b, Predicate);
     return _mm512_castsi512_ps(_mm512_maskz_set1_epi32(mask, -1));
 }
-inline __m512i cmpgt_epi32(__m512i a, __m512i b) {
+inline __m512i greaterThanMask(__m512i a, __m512i b) {
     const __mmask16 mask = _mm512_cmpgt_epi32_mask(a, b);
     return _mm512_maskz_set1_epi32(mask, -1);
 }
-inline __m512i cmpeq_epi32(__m512i a, __m512i b) {
+inline __m512i equalMask(__m512i a, __m512i b) {
     const __mmask16 mask = _mm512_cmpeq_epi32_mask(a, b);
     return _mm512_maskz_set1_epi32(mask, -1);
 }
@@ -224,7 +224,7 @@ struct GridTarget {
         hash = _mm512_xor_si512(hash, _mm512_srli_epi32(hash, 16));
         const __m512i rejected = _mm512_and_si512(hash, bidderMask);
         return static_cast<unsigned>(
-            _mm512_movepi32_mask(cmpeq_epi32(rejected, _mm512_setzero_si512())));
+            _mm512_movepi32_mask(equalMask(rejected, _mm512_setzero_si512())));
     }
 
     void place(__m512i packed, unsigned lanes) const {
@@ -248,8 +248,8 @@ struct GridTarget {
     }
 };
 
-inline __m512 lessThan(__m512 a, __m512 b) { return cmp_ps<_CMP_LT_OQ>(a, b); }
-inline __m512 greaterThan(__m512 a, __m512 b) { return cmp_ps<_CMP_GT_OQ>(a, b); }
+inline __m512 lessThan(__m512 a, __m512 b) { return compareMask<_CMP_LT_OQ>(a, b); }
+inline __m512 greaterThan(__m512 a, __m512 b) { return compareMask<_CMP_GT_OQ>(a, b); }
 
 struct ContactSearch {
     __m512 distanceSquared;
@@ -265,7 +265,7 @@ inline void considerCell(ContactSearch& best, const int32_t* paddedCells, __m512
                          __m512i row, __mmask16 lanes, const LaneConstants& k) {
     const __m512i index = _mm512_add_epi32(_mm512_mullo_epi32(row, k.paddedWidth), _mm512_add_epi32(column, k.paddedOffset));
     const __m512i brick = _mm512_mask_i32gather_epi32(k.minusOneInt, lanes, index, paddedCells, 4);
-    const __m512 occupied = _mm512_castsi512_ps(cmpgt_epi32(brick, k.minusOneInt));
+    const __m512 occupied = _mm512_castsi512_ps(greaterThanMask(brick, k.minusOneInt));
     const __m512 cellLeft = _mm512_cvtepi32_ps(column);
     const __m512 cellTop = _mm512_cvtepi32_ps(row);
     const __m512 closestX = _mm512_min_ps(_mm512_max_ps(x, cellLeft), _mm512_add_ps(cellLeft, k.one));
@@ -482,7 +482,7 @@ LaneStepResult stepLanes(LaneState& state, const LaneConstants& k, const BoardVi
     __m512 sameColor = k.zero;
     __m512 contact = k.zero;
     __m512 embedded = k.zero;
-    const __m512i maybeNear = _mm512_xor_si512(cmpgt_epi32(row, k.lastNearRow), k.minusOneInt);
+    const __m512i maybeNear = _mm512_xor_si512(greaterThanMask(row, k.lastNearRow), k.minusOneInt);
     const __m512i cellIndex = _mm512_add_epi32(_mm512_mullo_epi32(row, k.paddedWidth), _mm512_add_epi32(column, k.paddedOffset));
     const __m512i nearBrick = (_mm512_test_epi32_mask(maybeNear, maybeNear) == 0)
                                   ? _mm512_setzero_si512()
@@ -504,12 +504,12 @@ LaneStepResult stepLanes(LaneState& state, const LaneConstants& k, const BoardVi
             considerCell(best, board.paddedCells, x, y, otherColumn, otherRow, awayBoth, k);
         }
 
-        contact = _mm512_castsi512_ps(cmpgt_epi32(best.brick, k.minusOneInt));
+        contact = _mm512_castsi512_ps(greaterThanMask(best.brick, k.minusOneInt));
         const __m512i gatherIndex = selectInt(contact, best.brick, k.sentinelBrick);
         const __m512i brickColor = _mm512_i32gather_epi32(gatherIndex, board.brickColors, 4);
-        sameColor = _mm512_castsi512_ps(cmpeq_epi32(brickColor, state.color));
+        sameColor = _mm512_castsi512_ps(equalMask(brickColor, state.color));
         embedded = _mm512_andnot_ps(
-            sameColor, _mm512_and_ps(contact, cmp_ps<_CMP_LE_OQ>(best.distanceSquared, k.embeddedEpsilon)));
+            sameColor, _mm512_and_ps(contact, compareMask<_CMP_LE_OQ>(best.distanceSquared, k.embeddedEpsilon)));
         const __m512 reflect = _mm512_andnot_ps(embedded, _mm512_andnot_ps(sameColor, contact));
 
         const __m512 distance = _mm512_sqrt_ps(_mm512_max_ps(best.distanceSquared, k.embeddedEpsilon));
@@ -531,7 +531,7 @@ LaneStepResult stepLanes(LaneState& state, const LaneConstants& k, const BoardVi
 
     const __m512i bounces = _mm512_sub_epi32(state.bounces, _mm512_castps_si512(bounced));
     const __m512 retarget =
-        _mm512_and_ps(bounced, _mm512_castsi512_ps(cmpgt_epi32(bounces, k.retargetThreshold)));
+        _mm512_and_ps(bounced, _mm512_castsi512_ps(greaterThanMask(bounces, k.retargetThreshold)));
     if (!(_mm512_movepi32_mask(_mm512_castps_si512(retarget)) == 0)) {
         const __m512i cellColumn = _mm512_cvttps_epi32(_mm512_floor_ps(x));
         const __m512i cellRow = _mm512_cvttps_epi32(_mm512_floor_ps(y));
@@ -551,9 +551,9 @@ LaneStepResult stepLanes(LaneState& state, const LaneConstants& k, const BoardVi
             _mm512_div_ps(k.one, _mm512_sqrt_ps(_mm512_max_ps(lengthSquared, k.retargetEpsilon)));
         const __m512 directionX = _mm512_mul_ps(toTargetX, inverseLength);
         const __m512 directionY = _mm512_mul_ps(toTargetY, inverseLength);
-        const __m512 facing = cmp_ps<_CMP_GE_OQ>(
+        const __m512 facing = compareMask<_CMP_GE_OQ>(
             _mm512_fmadd_ps(directionX, normalX, _mm512_mul_ps(directionY, normalY)), k.zero);
-        const __m512 hasTarget = _mm512_castsi512_ps(cmpgt_epi32(target, k.minusOneInt));
+        const __m512 hasTarget = _mm512_castsi512_ps(greaterThanMask(target, k.minusOneInt));
         __m512 apply = _mm512_and_ps(_mm512_and_ps(retarget, hasTarget),
                                      _mm512_and_ps(facing, greaterThan(lengthSquared, k.retargetEpsilon)));
         // Few lanes retarget in a step, so the line-of-sight walk runs per lane.
@@ -618,16 +618,6 @@ LaneState decodeLanes(__m512i position, __m512i state, const LaneConstants& k) {
             _mm512_mul_ps(dy, scale),
             _mm512_and_si512(_mm512_srli_epi32(state, compact::colorShift), k.colorMask),
             _mm512_and_si512(_mm512_srli_epi32(state, compact::bounceShift), k.bounceMask)};
-}
-
-__m512i encodeAxisLanes(__m512 value, __m512 toPosition, const LaneConstants& k) {
-    const __m512 scaled = _mm512_fmadd_ps(value, toPosition, k.halfCell);
-    return _mm512_cvttps_epi32(_mm512_min_ps(_mm512_max_ps(scaled, k.zero), k.positionMax));
-}
-
-__m512i encodePositionLanes(const LaneState& lanes, const LaneConstants& k) {
-    return _mm512_or_si512(encodeAxisLanes(lanes.x, k.xToPosition, k),
-                           _mm512_slli_epi32(encodeAxisLanes(lanes.y, k.yToPosition, k), 16));
 }
 
 __m512i roundingDitherLanes(__m512i previousPosition) {
@@ -762,7 +752,7 @@ void Zen4Backend::stepRange(const StepParams& params, size_t begin, size_t end, 
             _mm512_stream_si512(reinterpret_cast<__m512i*>(packedPositions + i), packed);
         }
 
-        unsigned hitLanes = static_cast<unsigned>(_mm512_movepi32_mask(cmpgt_epi32(hitBrick, k.minusOneInt))) &
+        unsigned hitLanes = static_cast<unsigned>(_mm512_movepi32_mask(greaterThanMask(hitBrick, k.minusOneInt))) &
                             laneLimit;
         if (hitLanes != 0) {
             alignas(64) int32_t bricks[zen4LaneCount];

@@ -707,11 +707,6 @@ private:
         Writer.Row(TEXT("Frame ms"), FString::Printf(TEXT("%.2f"), Sample.frameMs));
         Writer.Row(TEXT("Physics ms"), FString::Printf(TEXT("%.2f"), Stats.lastFramePhysicsMs));
         Writer.Row(TEXT("GPU ms"), FString::Printf(TEXT("%.2f"), Sample.gpuMs));
-        const CapacityProbe& Probe = Session.probe;
-        if (Probe.phase() != ProbePhase::Idle) {
-            Writer.Row(TEXT("Probe"), FString::Printf(TEXT("%s %.0f/%.0f fps"), ANSI_TO_TCHAR(probePhaseName(Probe.phase())),
-                                                      Probe.lastFps(), Probe.targetFps()));
-        }
         Writer.Row(TEXT("Backend"), BallsText::FromUtf8(backendKindName(Session.backend)));
         Writer.Row(TEXT("Renderer"), FString::Printf(TEXT("Unreal / %s / %s"), GDynamicRHI ? GDynamicRHI->GetName() : TEXT("RHI"),
                                                      *GRHIAdapterName));
@@ -738,7 +733,7 @@ private:
             const BallCount Limit = Session.ballLimit;
             const std::optional<BallCount> Measured = Session.machineLimit;
             const FString Resolved = Measured ? TEXT("Auto ") + BallsText::Grouped(*Measured)
-                                              : FString(TEXT("Auto (probe needed)"));
+                                              : FString(TEXT("Auto"));
             Writer.Row(TEXT("Ball limit"), Session.usingMachineLimit ? Resolved
                                            : Limit == unlimitedBalls          ? FString(TEXT("Max (2^64-1)"))
                                                                               : BallsText::Grouped(Limit));
@@ -1043,9 +1038,8 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
                                   [Game](int32 Index) { Game->SelectBallMultiplier(Index); }),
            false);
 
-    // The first entry is Auto (the probe result for this machine); the rest are the fixed limits. Every Performance
-    // game starts on Auto. While Auto is chosen, a Target FPS stepper and a muted status line sit under the dropdown;
-    // there is no separate probe button.
+    // The first entry is Auto (the backend's capacity); the rest are the fixed limits. Every Performance
+    // game starts on Auto.
     AddLabel(TEXT("Ball limit"));
     TArray<FString> LimitNames;
     if (const SessionView* Current = Game->GetView()) {
@@ -1069,35 +1063,6 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
                    }
                }),
            false);
-    Column->AddSlot().AutoHeight()
-    [
-        SNew(SVerticalBox)
-        .Visibility_Lambda([Game] { return Game->IsAutoLimit() ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed; })
-        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 4.0f)
-        [
-            SNew(STextBlock)
-            .Text(LabelText(TEXT("Target FPS")))
-            .Font(BallsStyle::Font(15.0f))
-            .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
-        ]
-        + SVerticalBox::Slot().AutoHeight()
-        [
-            SNew(SBox).HeightOverride(ControlRowHeight)
-            [
-                BallsWidgets::Stepper([Game] { return Game->GetProbeTargetFps(); },
-                                      [Game](int32 Fps) { Game->SetProbeTargetFps(Fps); },
-                                      probeTargetFpsMinimum, probeTargetFpsMaximum)
-            ]
-        ]
-        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f, 0.0f, ControlGap * 0.6f)
-        [
-            SNew(STextBlock)
-            .Text_Lambda([Game] { return LabelText(Game->GetProbeStatus()); })
-            .Font(BallsStyle::Font(15.0f))
-            .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
-        ]
-    ];
-
     AddLabel(TEXT("Physics"));
     auto BackendRowsNow = [Session]() {
         if (const SessionView* Current = Session()) {

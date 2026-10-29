@@ -38,8 +38,6 @@ public:
     bool isPaused() const override;
     void setPaused(bool pause) override;
     void restart() override;
-    int capacityProbeTargetFps() const override { return probeTargetFps; }
-    void startCapacityProbe(int targetFps) override;
 
 private:
     void loadSession();
@@ -48,7 +46,6 @@ private:
     void useAutoBallLimit();
     void handleSessionEvents();
     void tickPhysics(const GameplayLayout& layout);
-    void startProbe();
     void selectComputeAdapter(int adapter);
     std::vector<int> renderAdapterChoices() const;
     std::vector<int> computeAdapterChoices() const;
@@ -78,7 +75,6 @@ private:
     std::unique_ptr<SessionRunner> runner;
     std::shared_ptr<const SessionView> view;
     std::string loadError;
-    int probeTargetFps = 60;
     float controlsScroll = 0.0f;
     float performanceControlsHeight = 0.0f;
     float normalScroll = 0.0f;

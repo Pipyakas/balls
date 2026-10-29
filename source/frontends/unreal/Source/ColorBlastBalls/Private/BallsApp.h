@@ -62,7 +62,7 @@ public:
     const Settings& GetSettings() const { return CurrentSettings; }
     // Saves the settings and applies them to the running game.
     void UpdateSettings(const Settings& Next);
-    // The capacity probe's result per backend and the machine benchmark, saved per machine in Saved/Balls.
+    // The machine benchmark, saved per machine in Saved/Balls.
     MachineProfile& GetMachineProfile() { return Profile; }
     // A forced orientation resizes the window on desktop (portrait: 90% of the display height at 9:16; landscape:
     // 1440 x 900); where it cannot, the layout letterboxes instead.

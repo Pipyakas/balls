@@ -21,54 +21,59 @@ struct ScratchFolder {
     }
 };
 
-}
+} // namespace
 
-TEST_CASE("ball limits read the SDL and Unreal line format") {
-    const MeasuredBallLimits limits = parseBallLimits("AVX2 60 1250000\nVulkan 30 900000\r\nnot a line\n");
-    EXPECT(limits.size() == 2);
-    EXPECT(limits.at(BackendKind::Avx2).balls == 1'250'000);
-    EXPECT(limits.at(BackendKind::Avx2).targetFps == 60.0);
-    EXPECT(limits.at(BackendKind::Vulkan).targetFps == 30.0);
-}
-
-TEST_CASE("ball limits read the limit lines of Unity's old profile file") {
-    const MeasuredBallLimits limits =
-        parseBallLimits("cpu\tSome CPU\ncores\t4\nscore\tAVX2\t390000000\nlimit\tAVX2\t800000\t60.0\nlimit\tCUDA\t5\tbad\n");
-    EXPECT(limits.size() == 1);
-    EXPECT(limits.at(BackendKind::Avx2).balls == 800'000);
-    EXPECT(limits.at(BackendKind::Avx2).targetFps == 60.0);
-}
-
-TEST_CASE("ball limits survive a serialize and parse round trip") {
-    const MeasuredBallLimits original{{BackendKind::Scalar, {60.0, 1000}}, {BackendKind::CudaAvx2, {120.0, 7'000'000'000ull}}};
-    const MeasuredBallLimits parsed = parseBallLimits(serializeBallLimits(original));
-    EXPECT(parsed.size() == original.size());
-    EXPECT(parsed.at(BackendKind::CudaAvx2).balls == 7'000'000'000ull);
-    EXPECT(parsed.at(BackendKind::Scalar).targetFps == 60.0);
-}
-
-TEST_CASE("a machine profile keeps its limits in its folder") {
-    const ScratchFolder folder("balls_profile_test");
-    {
-        MachineProfile profile(folder.path);
-        profile.load();
-        EXPECT(!profile.ballLimit(BackendKind::Avx2));
-        profile.rememberBallLimit(BackendKind::Avx2, 60.0, 4321);
-    }
-    MachineProfile reloaded(folder.path);
-    reloaded.load();
-    EXPECT(reloaded.ballLimit(BackendKind::Avx2) && reloaded.ballLimit(BackendKind::Avx2)->balls == 4321);
-}
-
-TEST_CASE("a machine profile adopts Unity's old file until it saves its own") {
-    const ScratchFolder folder("balls_profile_legacy_test");
-    std::ofstream(folder.path / "machine-profile.txt") << "limit\tVulkan\t2500\t60.0\n";
+TEST_CASE("a machine profile starts empty when no benchmark record exists") {
+    const ScratchFolder folder("balls_profile_empty_test");
     MachineProfile profile(folder.path);
     profile.load();
-    EXPECT(profile.ballLimit(BackendKind::Vulkan) && profile.ballLimit(BackendKind::Vulkan)->balls == 2500);
-    profile.rememberBallLimit(BackendKind::Scalar, 60.0, 10);
+    EXPECT(!profile.benchmark().has_value());
+}
+
+TEST_CASE("a machine profile preserves benchmark records across save and load") {
+    const ScratchFolder folder("balls_profile_benchmark_test");
+    BenchmarkRecord record;
+    record.fingerprint.cpuModel = "Test CPU";
+    record.fingerprint.logicalCores = 8;
+    record.complete = true;
+    BenchmarkCandidate winner;
+    winner.kind = BackendKind::Avx2;
+    winner.label = "AVX2";
+    record.winner = winner;
+    CandidateResult candidateResult;
+    candidateResult.candidate = winner;
+    candidateResult.status = CandidateStatus::Done;
+    candidateResult.ballStepsPerSecond = 500'000'000.0;
+    candidateResult.estimatedBalls = 1'000'000.0;
+    record.results.push_back(candidateResult);
+
+    {
+        MachineProfile profile(folder.path);
+        profile.rememberBenchmark(record);
+    }
+
     MachineProfile reloaded(folder.path);
     reloaded.load();
-    EXPECT(reloaded.ballLimit(BackendKind::Vulkan).has_value());
-    EXPECT(reloaded.ballLimit(BackendKind::Scalar).has_value());
+    EXPECT(reloaded.benchmark().has_value());
+    EXPECT(reloaded.benchmark()->fingerprint.cpuModel == "Test CPU");
+    EXPECT(reloaded.benchmark()->winner.has_value());
+    EXPECT(reloaded.benchmark()->winner->kind == BackendKind::Avx2);
+    EXPECT(reloaded.benchmark()->results.size() == 1);
+    EXPECT(reloaded.benchmark()->results[0].ballStepsPerSecond == 500'000'000.0);
+}
+
+TEST_CASE("a machine profile ignores older files with remembered ball limits") {
+    const ScratchFolder folder("balls_profile_legacy_test");
+    // Write legacy limit formats from older versions
+    std::ofstream(folder.path / "limits.txt") << "AVX2 60 1250000\nVulkan 30 900000\n";
+    std::ofstream(folder.path / "machine-profile.txt") << "limit\tVulkan\t2500\t60.0\n";
+
+    MachineProfile profile(folder.path);
+    profile.load();
+    // No benchmark record should be loaded from limits files
+    EXPECT(!profile.benchmark().has_value());
+}
+
+TEST_CASE("targetMachineWinner handles missing and invalid files gracefully") {
+    EXPECT(!targetMachineWinner("non_existent_target_benchmark.txt").has_value());
 }

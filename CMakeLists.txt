@@ -25,7 +25,7 @@ option(BALLS_ENABLE_CUDA "Build the CUDA physics backend (needs NVRTC at build t
 option(BALLS_STATIC_CRT "Link the static MSVC runtime (physics plugins need the shared runtime)" OFF)
 # Off by default: it made no measurable difference to the physics (AVX2 972 vs 985 M ball-steps/s, the CUDA work
 # runs on the GPU) and redid code generation for the whole program at every link, which made a one-line change
-# take 19 s to rebuild instead of 5. Renamed from BALLS_LTO so existing build trees drop their cached ON.
+# take 19 s to rebuild instead of 5.
 option(BALLS_WHOLE_PROGRAM_OPTIMIZATION "Enable whole-program optimization (/GL /LTCG)" OFF)
 set(BALLS_CUDA_SDK_DIR "${CMAKE_SOURCE_DIR}/.deps/cuda/sdk" CACHE PATH "Directory with CUDA include/ and bin/ (scripts/FetchCudaSdk.ps1)")
 option(BALLS_ENABLE_ROCM "Build the ROCm physics backend (needs HSA headers and an amdgcn clang)" ON)
@@ -59,7 +59,9 @@ if(MSVC)
     set(BALLS_AVX2_FLAGS /arch:AVX2)
     set(BALLS_AVX512_FLAGS /arch:AVX512)
 else()
-    set(BALLS_WARNINGS -Wall -Wextra -Wpedantic)
+    # Aggregates here rely on default member initializers for the members they leave out, which -Wextra reports as
+    # missing initializers.
+    set(BALLS_WARNINGS -Wall -Wextra -Wpedantic -Wno-missing-field-initializers)
     set(BALLS_OPTIMIZE $<$<CONFIG:Release,RelWithDebInfo>:-O3 -ffast-math>)
     if(BALLS_PROFILE STREQUAL "scoring")
         set(BALLS_AVX2_FLAGS -mavx2 -mfma -mtune=raptorlake)
@@ -193,8 +195,8 @@ if(TARGET nvrhi AND TARGET nvrhi_vk)
 endif()
 
 enable_testing()
-add_executable(balls_tests source/tests/TestMain.cpp source/tests/LevelTests.cpp source/tests/SimulationTests.cpp
-    source/tests/GameTests.cpp source/tests/SessionRunnerTests.cpp source/tests/ProbeTests.cpp source/tests/EditorTests.cpp source/tests/SettingsTests.cpp
+add_executable(balls_tests source/tests/TestMain.cpp source/tests/LevelTests.cpp source/tests/GameplayRulesTests.cpp source/tests/SimulationTests.cpp
+    source/tests/GameTests.cpp source/tests/SessionRunnerTests.cpp source/tests/EditorTests.cpp source/tests/SettingsTests.cpp
     source/tests/BrickBoardTests.cpp
     source/tests/LayoutTests.cpp
     source/tests/EditorSessionTests.cpp

@@ -5,7 +5,7 @@
 // One rendered frame as a front end measured it. Fields a front end cannot measure stay 0.
 struct FrameSample {
     double frameMs = 0.0;
-    // What the frame costs the machine when the display never makes it wait: what the capacity probe uses, so VSync,
+    // What the frame costs the machine when the display never makes it wait: what ball filling uses, so VSync,
     // a frame cap or a Remote Desktop compositor do not cap what it measures. Each front end knows its own waits.
     double workMs = 0.0;
     // CPU time of the frame (SDL), or the game thread (Unreal).

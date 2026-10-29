@@ -176,3 +176,22 @@ TEST_CASE("near-brick flags and changed cells stay exact while bricks break and 
         EXPECT(board.nearBrickFlags() == referenceNearFlags(board));
     }
 }
+
+TEST_CASE("a broken brick keeps animating for its break burst, then stops") {
+    BrickLayout layout;
+    layout.width = 1;
+    layout.height = 1;
+    layout.playableHeight = 2;
+    layout.cellIds = {0};
+    layout.types = {{0, BallColor::Red, 1}};
+    BrickBoard board;
+    board.load(layout);
+    EXPECT(board.applyHit(0));
+    EXPECT(!board.bricks()[0].isAlive());
+    EXPECT(board.bricks()[0].breakBurst == brickBreakBurstSeconds);
+    EXPECT(std::ranges::find(board.animatingBrickIndices(), 0) != board.animatingBrickIndices().end());
+    board.animate(brickBreakBurstSeconds * 0.5f);
+    EXPECT(board.isAnimating());
+    board.animate(brickBreakBurstSeconds);
+    EXPECT(!board.isAnimating());
+}

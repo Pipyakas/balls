@@ -422,7 +422,7 @@ bool CudaBackend::ensureBallCapacity(size_t required) {
 }
 
 // Near the top of device memory the old and new arrays do not fit side by side, so the balls wait in host memory
-// while the device arrays are replaced. Only the capacity probe grows this far, so the copy's cost is a one-off.
+// while the device arrays are replaced. Only filling to capacity grows this far, so the copy's cost is a one-off.
 bool CudaBackend::growThroughHost(size_t wanted) {
     if (fixedCapacity) {
         return false;

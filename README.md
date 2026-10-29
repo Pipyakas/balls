@@ -10,15 +10,34 @@ split of the balls between those two, and Hybrid, which runs one backend on each
 and every GPU) and splits the balls between all of them (see
 [data/docs/hybrid-physics.md](data/docs/hybrid-physics.md)).
 
+## Quick start
+
+On Windows 10/11 with Visual Studio 2022 (C++ workload), CMake 3.25+ and Python 3:
+
+1. Double-click `build.bat` (or run it from a terminal). It checks the PC first and names anything missing, then
+   builds the submission version into `dist\win32-sdl\balls.exe`. The first build downloads its dependencies.
+2. Run `dist\win32-sdl\balls.exe`. Normal mode has the campaign levels; Performance mode has the samples'
+   `DA_1000Bricks` and our `Unlimited` level, whose launchers never run out.
+3. For the most balls in Performance mode: pick `Unlimited`, set Spawn / sec to `Max` and Ball count to `x10000`,
+   leave Ball limit on `Auto`, then `Start`. Auto is everything the physics can hold, measured when the game starts,
+   and balls are only added as fast as every physics frame stays within 1/60 s. Close other programs first,
+   GPU-heavy ones especially (see the scoring profile below).
+4. Tests: see [Tests and benchmark](#tests-and-benchmark).
+
+The submission is tagged (`git tag -l`); each tag is a build that passed the tests and was played on the target PC.
+
 ## Features
 
 - **Normal mode (campaign).** Pick launchers from a 3-column queue. Each one releases its exact number of balls.
   Balls bounce with mirror reflection off walls and bricks, and break bricks of their own color. After the third
   bounce they home toward the nearest brick of their color.
 - **Performance mode.** Start with one click and launchers release automatically. Spawn speed can be set to
-  10 / 50 / 200 / 1000 / 2000 balls per second or Max. A ball-count multiplier (x1 to x1000) scales the stress
-  test. You can switch the physics backend live from the control gadget's Advanced Settings, and pick one
+  10 / 50 / 200 / 1000 / 2000 balls per second or faster up to Max, and seven launchers release at once so every
+  color is on the board together. A ball-count multiplier (x1 to x10000) scales the stress test. In the extended
+  build you can switch the physics backend live from the control gadget's Advanced Settings, and pick one
   backend per device for Hybrid (for example AVX2 on the CPU, CUDA on an RTX card and Vulkan on a Radeon).
+- **Effects.** Bricks flash when hit, slide up into gaps and burst into pieces when broken; a ball that hits its
+  brick leaves a ring in its color and shrinks away.
 - **Three-section screen.** The main board, the user interaction section (the only place that accepts gameplay
   input) and a debug panel. The debug panel shows FPS, min FPS, total objects, the ball count per color and the
   backend.
@@ -137,13 +156,13 @@ disabled and the game runs on AVX2 (or Scalar on CPUs without AVX2).
 
 ### Tests and benchmark
 
+After `build.bat`, the unit tests and the benchmark build and run from the same folder:
+
 ```powershell
-cmake --build build/win32 --config Release --target balls_tests balls_bench
-build/win32/bin/Release/balls_tests.exe
-build/win32/bin/Release/balls_bench.exe --balls 2000,200000,1000000 --ticks 240
-build/win32/bin/Release/balls_bench.exe --full --balls 100000
-build/win32/bin/Release/balls_bench.exe --roofline --balls 4000000,40000000
-python scripts/bench/probe_bench.py --backends cuda avx2 --fps 60
+cmake --build build/win32-scoring --config Release --target balls_tests balls_bench
+build/win32-scoring/bin/Release/balls_tests.exe
+build/win32-scoring/bin/Release/balls_bench.exe --balls 2000,200000,1000000 --ticks 240
+build/win32-scoring/bin/Release/balls_bench.exe --fill --balls 262144 --ticks 100
 ```
 
 ### Shaders
@@ -229,6 +248,11 @@ Each level is a pair of files in `data/assets/levels/normal` or `data/assets/lev
 
 Colors: Red, Orange, Yellow, Green, Blue, Indigo, Violet.
 
+`data/assets/levels/Gameplay.txt` holds the rules every level plays by, in the same `[Section]` / `Key Value` text:
+ball radius and speed, how many bounces before a ball heads for the nearest brick of its color, the launch angle,
+the physics tick rate and the Normal-mode spawn rate. Values the simulation cannot run (a ball that would cross more
+than its radius in a tick, say) are refused with the level's load error, and a key left out keeps its built-in value.
+
 `performance/Unlimited` has the `DA_1000Bricks` board with one launcher per color at the largest count the format
 takes (2,147,483,647), so even at x1 it holds more balls than any machine's capacity: auto release keeps spawning
 until the ball limit stops it.
@@ -270,4 +294,4 @@ CMakeLists.txt        builds everything under source/
   no `develop` or any other integration branch: one trunk, short-lived feature branches.
 - `submission` is generated from `main` for the game's scoring repository.
 - Commits use `feat:` / `fix:` / `perf:` / `refactor:` / `build:` / `docs:` / `chore:` prefixes.
-- Commit small, working steps and push after every commit, so other machines and agents never wait on unpushed work.
+- Commit small, working steps and push after every commit, so other machines never wait on unpushed work.

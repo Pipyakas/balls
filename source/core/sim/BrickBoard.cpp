@@ -6,7 +6,6 @@
 namespace {
 
 constexpr float riseSpeedCellsPerSecond = 10.0f;
-constexpr float hitFlashSeconds = 0.15f;
 constexpr int32_t emptyCell = -1;
 
 }
@@ -121,11 +120,12 @@ bool BrickBoard::applyHit(int brickIndex) {
     }
     --brick.hitsLeft;
     --remainingHits[toIndex(brick.color)];
-    brick.hitFlash = hitFlashSeconds;
+    brick.hitFlash = brickHitFlashSeconds;
     startAnimating(brickIndex);
     if (brick.isAlive()) {
         return true;
     }
+    brick.breakBurst = brickBreakBurstSeconds;
     placeBrick(brickIndex, emptyCell);
     queueBricksBelow(brickIndex);
     --aliveCount;
@@ -272,7 +272,8 @@ void BrickBoard::animate(float deltaTime) {
         Brick& brick = brickList[static_cast<size_t>(index)];
         brick.riseOffset = std::max(0.0f, brick.riseOffset - riseSpeedCellsPerSecond * deltaTime);
         brick.hitFlash = std::max(0.0f, brick.hitFlash - deltaTime);
-        if (brick.riseOffset > 0.0f || brick.hitFlash > 0.0f) {
+        brick.breakBurst = std::max(0.0f, brick.breakBurst - deltaTime);
+        if (brick.riseOffset > 0.0f || brick.hitFlash > 0.0f || brick.breakBurst > 0.0f) {
             animatingBricks[kept++] = index;
         } else {
             brickAnimating[static_cast<size_t>(index)] = 0;

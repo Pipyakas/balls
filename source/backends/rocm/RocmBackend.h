@@ -39,7 +39,7 @@ public:
     bool resolvesHitsOnDevice() const override { return true; }
     DeviceHitResults deviceHitResults() const override;
     void uploadBrickHits(std::span<const int32_t> hitsLeft) override;
-    bool shareRenderBuffer(unsigned int openGlBuffer, size_t capacityBytes) override { return false; }
+    bool shareRenderBuffer(unsigned int, size_t) override { return false; }
     void setVisibilityGrid(int width, int height) override;
     double deviceStepMs() const override { return lastStepKernelMs; }
     bool supportsBallCollisions() const override { return false; }

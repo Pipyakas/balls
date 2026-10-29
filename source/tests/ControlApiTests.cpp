@@ -26,12 +26,8 @@ public:
     bool isPaused() const override { return paused; }
     void setPaused(bool pause) override { paused = pause; }
     void restart() override { session.restart(); }
-    int capacityProbeTargetFps() const override { return probeTarget; }
-    void startCapacityProbe(int targetFps) override { probeTarget = targetFps; }
-
     GameSession session;
     bool paused = false;
-    int probeTarget = 60;
 
 private:
     static LevelData loadLevelNamed(GameMode mode) {

@@ -1,3 +1,4 @@
+#include "common/Environment.h"
 #include "cpu/ScalarBackend.h"
 
 #if defined(BALLS_HAS_AVX2_BACKEND)
@@ -29,18 +30,8 @@ constexpr const char* unknownKind = "unknown backend";
 constexpr const char* threadCountVariable = "BALLS_CPU_THREADS";
 
 unsigned int requestedThreadCount() {
-#if defined(_WIN32)
-    char* value = nullptr;
-    size_t length = 0;
-    if (_dupenv_s(&value, &length, threadCountVariable) != 0 || !value) {
-        return 0;
-    }
-    const int parsed = std::atoi(value);
-    std::free(value);
-#else
-    const char* value = std::getenv(threadCountVariable);
-    const int parsed = value ? std::atoi(value) : 0;
-#endif
+    const std::optional<std::string> value = environmentVariable(threadCountVariable);
+    const int parsed = value ? std::atoi(value->c_str()) : 0;
     return parsed > 0 ? static_cast<unsigned int>(parsed) : 0;
 }
 

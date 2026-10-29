@@ -10,14 +10,17 @@
 #include <random>
 #include <vector>
 
+// The physics side of GameplayRules, whose defaults it starts from.
 struct SimulationTuning {
-    float ballRadius = 0.2f;
-    float ballSpeed = 14.0f;
-    float tickSeconds = 1.0f / 120.0f;
-    int maxTicksPerFrame = 4;
-    int retargetBounceThreshold = 3;
-    float launchHalfAngleDegrees = 55.0f;
+    float ballRadius = GameplayRules{}.ballRadius;
+    float ballSpeed = GameplayRules{}.ballSpeed;
+    float tickSeconds = 1.0f / static_cast<float>(GameplayRules{}.ticksPerSecond);
+    int maxTicksPerFrame = GameplayRules{}.maxTicksPerFrame;
+    int retargetBounceThreshold = GameplayRules{}.retargetBounces;
+    float launchHalfAngleDegrees = GameplayRules{}.launchHalfAngleDegrees;
 };
+
+SimulationTuning simulationTuning(const GameplayRules& rules);
 
 // What replaceBackend hands back: the backend it retired, to be destroyed off the frame, and how many balls could not
 // be moved across and have to be launched into the new backend again.
@@ -67,6 +70,7 @@ public:
     const PhysicsBackend& backend() const { return *physics; }
     const SimulationStats& stats() const { return statistics; }
     const SimulationTuning& tuning() const { return settings; }
+    void setTuning(const SimulationTuning& tuning) { settings = tuning; }
     BallCount liveBallCount() const { return physics->ballCount() + pendingSpawns.size(); }
     BallCount ballRoom() const;
     bool isCleared() const { return brickBoard.aliveBrickCount() == 0; }

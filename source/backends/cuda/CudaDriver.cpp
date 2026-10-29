@@ -1,6 +1,7 @@
 #include "cuda/CudaDriver.h"
 
 #include "BallKernelImages.h"
+#include "common/Environment.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -19,19 +20,7 @@ std::string imageName(const BallKernelImage& image) {
 }
 
 std::string forcedImageName() {
-#if defined(_WIN32)
-    char* value = nullptr;
-    size_t length = 0;
-    if (_dupenv_s(&value, &length, forcedImageVariable) != 0 || !value) {
-        return {};
-    }
-    std::string name(value);
-    std::free(value);
-    return name;
-#else
-    const char* value = std::getenv(forcedImageVariable);
-    return value ? value : "";
-#endif
+    return environmentVariable(forcedImageVariable).value_or("");
 }
 
 std::vector<const BallKernelImage*> imagesToTry(int computeMajor, int computeMinor) {

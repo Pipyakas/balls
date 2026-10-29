@@ -26,7 +26,7 @@ constexpr float ProgressWidth = 220.0f;
 constexpr float ProgressHeight = 8.0f;
 constexpr float ButtonWidth = 220.0f;
 constexpr float ButtonHeight = 56.0f;
-constexpr double PollSeconds = 0.1;
+constexpr float PollSeconds = 0.1f;
 
 FString ResultText(const CandidateResult& Result) {
     // The core's text for a finished row; Unreal shows "waiting" for one not started yet.

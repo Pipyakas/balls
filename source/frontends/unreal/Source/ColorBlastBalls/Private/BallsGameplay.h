@@ -17,27 +17,17 @@ class FBallsGameplay : public ControlGame {
 public:
     FBallsGameplay(FBallsApp& App, GameMode Mode, LevelFiles Files);
 
-    void Tick(float DeltaSeconds, double FrameSeconds, double WorkSeconds);
+    void Tick(float DeltaSeconds, double WorkSeconds);
     bool HandleKey(const FKey& Key);
     // Pushes the app-wide Settings (ball collisions) into the running session.
     void ApplySettings();
 
     void ChooseLauncher(int32 Column, int32 Row);
     void StartAutoRelease();
-    // Auto means the most balls this machine holds at the target frame rate: the remembered probe result when it
-    // was measured at this target, otherwise a new probe. Every Performance game starts on it.
+    // Auto sets the physics backend's capacity as the ball limit. Every Performance game starts on it.
     void UseAutoBallLimit();
-    void StartCapacityProbe();
-    void CancelCapacityProbe();
-    // True while the Auto ball limit is chosen (resolved or still probing).
-    bool IsAutoLimit() const { return View && (View->usingMachineLimit || View->probe.isActive()); }
-    // The muted line under the Auto dropdown: running, done, or the remembered result.
-    FString GetProbeStatus() const;
-    int32 GetProbeTargetFps() const { return ProbeTargetFps; }
-    // Changing the target probes again while Auto is chosen.
-    void SetProbeTargetFps(int32 Fps);
-    static constexpr int32 MinimumProbeTargetFps = 10;
-    static constexpr int32 MaximumProbeTargetFps = 1000;
+    // True while the Auto ball limit is chosen.
+    bool IsAutoLimit() const { return View && View->usingMachineLimit; }
     void SelectSpawnRate(int32 Index);
     void SelectBallMultiplier(int32 Index);
     void SelectBallLimit(int32 Index);
@@ -64,8 +54,6 @@ public:
         }
     }
     void restart() override { Restart(); }
-    int capacityProbeTargetFps() const override { return ProbeTargetFps; }
-    void startCapacityProbe(int TargetFps) override;
 
     GameMode GetMode() const { return Mode; }
     const LevelFiles& GetFiles() const { return Files; }
@@ -96,5 +84,4 @@ private:
     std::shared_ptr<const SessionView> View;
     float VisibilitySlotCells = 0.0f;
     FString LoadError;
-    int32 ProbeTargetFps = static_cast<int32>(defaultProbeTargetFps);
 };

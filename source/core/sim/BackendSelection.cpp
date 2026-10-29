@@ -1,5 +1,6 @@
 #include "sim/BackendSelection.h"
 
+#include "common/Environment.h"
 #include "sim/BackendWorker.h"
 #include "sim/DeviceComposer.h"
 #include "sim/DeviceInventory.h"
@@ -300,8 +301,7 @@ BackendHandle createComposedBackend(std::span<const BackendPick> picks) {
         return std::move(parts.front().backend);
     }
     DeviceComposerTuning tuning;
-    const char* noPark = std::getenv("BALLS_COMPOSER_NO_PARK");
-    tuning.parkLosingParts = !(noPark && std::string_view(noPark) == "1");
+    tuning.parkLosingParts = environmentVariable("BALLS_COMPOSER_NO_PARK") != "1";
     return DeviceComposer::create(std::move(parts), tuning);
 }
 

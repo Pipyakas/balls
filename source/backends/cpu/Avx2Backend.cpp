@@ -561,16 +561,6 @@ LaneState decodeLanes(__m256i position, __m256i state, const LaneConstants& k) {
             _mm256_and_si256(_mm256_srli_epi32(state, compact::bounceShift), k.bounceMask)};
 }
 
-__m256i encodeAxisLanes(__m256 value, __m256 toPosition, const LaneConstants& k) {
-    const __m256 scaled = _mm256_fmadd_ps(value, toPosition, k.halfCell);
-    return _mm256_cvttps_epi32(_mm256_min_ps(_mm256_max_ps(scaled, k.zero), k.positionMax));
-}
-
-__m256i encodePositionLanes(const LaneState& lanes, const LaneConstants& k) {
-    return _mm256_or_si256(encodeAxisLanes(lanes.x, k.xToPosition, k),
-                           _mm256_slli_epi32(encodeAxisLanes(lanes.y, k.yToPosition, k), 16));
-}
-
 __m256i roundingDitherLanes(__m256i previousPosition) {
     __m256i hash = _mm256_mullo_epi32(previousPosition, _mm256_set1_epi32(static_cast<int>(0x9E3779B1u)));
     hash = _mm256_xor_si256(hash, _mm256_srli_epi32(hash, 15));

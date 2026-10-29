@@ -13,6 +13,15 @@ constexpr int maximumScatterAttempts = 8;
 
 }
 
+SimulationTuning simulationTuning(const GameplayRules& rules) {
+    return {rules.ballRadius,
+            rules.ballSpeed,
+            1.0f / static_cast<float>(rules.ticksPerSecond),
+            rules.maxTicksPerFrame,
+            rules.retargetBounces,
+            rules.launchHalfAngleDegrees};
+}
+
 Simulation::Simulation(BackendHandle backend, SimulationTuning tuning)
     : settings(tuning), physics(std::move(backend)) {}
 
@@ -119,7 +128,7 @@ BallCount Simulation::ballRoom() const {
     return limit > live ? limit - live : 0;
 }
 
-// Spawns are 20 bytes against 8 stored, so a probe step of billions of balls hands them to the backend in batches
+// Spawns are 20 bytes against 8 stored, so a fill step of billions of balls hands them to the backend in batches
 // instead of holding them all.
 void Simulation::flushSpawnsIfLarge() {
     if (pendingSpawns.size() >= spawnFlushBalls) {

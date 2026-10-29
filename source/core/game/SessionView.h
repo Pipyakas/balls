@@ -1,6 +1,5 @@
 #pragma once
 
-#include "game/CapacityProbe.h"
 #include "game/GameMode.h"
 #include "game/GameSession.h"
 #include "game/LauncherQueue.h"
@@ -47,7 +46,6 @@ struct SessionView {
     BallCount ballLimit = 0;
     bool usingMachineLimit = false;
     std::optional<BallCount> machineLimit;
-    CapacityProbe probe;
 
     BackendKind backend = BackendKind::Scalar;
     std::optional<BackendKind> pendingBackend;

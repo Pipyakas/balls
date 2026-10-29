@@ -8,6 +8,10 @@
 #include <utility>
 #include <vector>
 
+// How long the effects of a hit and of a break last, for the front ends that draw them.
+inline constexpr float brickHitFlashSeconds = 0.15f;
+inline constexpr float brickBreakBurstSeconds = 0.3f;
+
 struct BrickCell {
     int column = 0;
     int row = 0;
@@ -21,6 +25,8 @@ struct Brick {
     std::vector<BrickCell> cells;
     float riseOffset = 0.0f;
     float hitFlash = 0.0f;
+    // Counts down from brickBreakBurstSeconds once the brick breaks, while its pieces fly apart.
+    float breakBurst = 0.0f;
 
     bool isAlive() const { return hitsLeft > 0; }
 };
@@ -52,8 +58,10 @@ public:
     const std::vector<int>& aliveBrickIndices() const { return aliveBricks; }
     const ColorTally& remainingHitsByColor() const { return remainingHits; }
     uint64_t revision() const { return changeRevision; }
-    // True while a hit flash or a falling brick still changes what is drawn from frame to frame.
+    // True while a hit flash, a break or a falling brick still changes what is drawn from frame to frame.
     bool isAnimating() const { return !animatingBricks.empty(); }
+    // The bricks, alive or just broken, whose hit flash, break burst or rise is still running.
+    const std::vector<int>& animatingBrickIndices() const { return animatingBricks; }
 
 private:
     int freeRowsAbove(int brickIndex) const;

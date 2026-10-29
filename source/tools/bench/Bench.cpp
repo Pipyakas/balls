@@ -1,3 +1,4 @@
+#include "common/Environment.h"
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
 #include "sim/BackendBenchmark.h"
@@ -579,18 +580,9 @@ void runCpuRoofline(size_t ballCount, int passes) {
 } // namespace
 
 int main(int argumentCount, char** arguments) {
-#if defined(_MSC_VER)
-    char* computeGpu = nullptr;
-    size_t computeGpuLength = 0;
-    if (_dupenv_s(&computeGpu, &computeGpuLength, "BALLS_COMPUTE_GPU") == 0 && computeGpu) {
-        setComputeGpuPreference(computeGpu);
-        std::free(computeGpu);
+    if (const std::optional<std::string> computeGpu = environmentVariable("BALLS_COMPUTE_GPU")) {
+        setComputeGpuPreference(*computeGpu);
     }
-#else
-    if (const char* computeGpu = std::getenv("BALLS_COMPUTE_GPU")) {
-        setComputeGpuPreference(computeGpu);
-    }
-#endif
     const BenchOptions options = parseOptions(argumentCount, arguments);
     if (options.listDevices) {
         listPhysicalDevices();

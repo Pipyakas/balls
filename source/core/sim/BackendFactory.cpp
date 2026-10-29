@@ -1,5 +1,6 @@
 #include "sim/BackendFactory.h"
 
+#include "common/Environment.h"
 #include "sim/BackendSelection.h"
 #include "sim/DeviceInventory.h"
 #include "sim/HybridBackend.h"
@@ -337,8 +338,7 @@ bool preallocatesPair() {
 #if defined(BALLS_FIXED_TARGET)
     return true;
 #else
-    const char* variable = std::getenv("BALLS_PREALLOCATE");
-    return variable && std::string_view(variable) == "1";
+    return environmentVariable("BALLS_PREALLOCATE") == "1";
 #endif
 }
 

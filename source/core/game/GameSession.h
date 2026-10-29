@@ -1,7 +1,6 @@
 #pragma once
 
 #include "game/AdditionGovernor.h"
-#include "game/CapacityProbe.h"
 #include "game/GameMode.h"
 #include "game/LauncherQueue.h"
 #include "game/SpawnController.h"
@@ -23,7 +22,6 @@ enum class SessionState { Ready, Running, Won };
 inline constexpr std::array<int, 10> spawnRateOptions{10, 50, 200, 1000, 2000, 10'000, 50'000, 200'000, 1'000'000, 0};
 inline constexpr std::array<BallCount, 5> ballMultiplierOptions{1, 10, 100, 1000, 10000};
 inline constexpr std::array<BallCount, 5> ballLimitOptions{10'000, 100'000, 1'000'000, 10'000'000, unlimitedBalls};
-inline constexpr float normalModeSpawnRate = 60.0f;
 
 struct BackendSwitchOutcome {
     BackendKind kind = BackendKind::Scalar;
@@ -66,9 +64,9 @@ public:
     // Once per finished request, so the caller can react to the switch or to its failure.
     std::optional<BackendSwitchOutcome> takeBackendSwitchOutcome();
     BallCount ballsLeftToRefill() const { return refillRemaining; }
-    void startCapacityProbe(double targetFps = defaultProbeTargetFps);
-    void cancelCapacityProbe();
-    void reportFrameSeconds(double frameSeconds, double workSeconds);
+    void fillToBallLimit();
+    void cancelFill();
+    void reportFrameWorkSeconds(double workSeconds);
     void useMachineBallLimit(BallCount limit);
     // Auto as the backend's capacity, following it from board to board, without adding balls.
     void useCapacityBallLimit();
@@ -84,7 +82,6 @@ public:
     const LauncherQueue& launchers() const { return launcherQueue; }
     const SpawnController& spawner() const { return spawnController; }
     BackendKind backend() const { return backendKind; }
-    const CapacityProbe& capacityProbe() const { return probe; }
     int spawnRateIndex() const { return selectedSpawnRate; }
     int ballMultiplierIndex() const { return selectedMultiplier; }
     int ballLimitIndex() const { return selectedBallLimit; }
@@ -97,11 +94,8 @@ private:
     void launchAcrossColors(BallCount count);
     // Spawns and fills this frame's balls, no more than the governor allows, and times them for it.
     void addBallsWithinBudget(float deltaTime);
-    // Hands the probe's pending balls to the simulation until this frame's time budget is spent; true once none are left.
-    bool drainPendingProbeBalls();
     void releaseLauncher(const Launcher& launcher);
     void recoverFromBackendFault();
-    void pumpCapacityProbe();
     void switchBackendNow(BackendKind kind);
     void adoptBackend(BackendKind kind, BackendHandle backend);
     void refillBatch();
@@ -122,15 +116,10 @@ private:
     int selectedBallLimit = static_cast<int>(ballLimitOptions.size()) - 1;
     bool autoRelease = false;
     double elapsed = 0.0;
-    double latestFrameSeconds = 0.0;
-    double latestWorkSeconds = 0.0;
-    CapacityProbe probe;
-    int probeColorIndex = 0;
-    // Balls the probe asked for that have not been launched yet; a big jump is spread over frames, not one stall.
-    BallCount pendingProbeBalls = 0;
+    int fillColorIndex = 0;
     std::optional<BallCount> measuredMachineLimit;
     bool machineLimitSelected = false;
-    // Set when Auto is the backend's fixed capacity rather than a probed count, so the limit follows the capacity
+    // Set when Auto is the backend's fixed capacity, so the limit follows the capacity
     // the backend settles on for each board.
     bool machineLimitIsCapacity = false;
     std::string backendFault;

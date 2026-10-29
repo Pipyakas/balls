@@ -320,13 +320,7 @@ struct BallsControl final : ControlHost {
         bool isPaused() const override { return context().paused != 0; }
         void setPaused(bool paused) override { owner.queue({BALLS_CONTROL_SET_PAUSED, 0, paused ? 1 : 0}); }
         void restart() override { owner.queue({BALLS_CONTROL_RESTART}); }
-        // A probe asked for in this request answers with its own target; the host stores it when it runs the action.
-        int capacityProbeTargetFps() const override { return requestedProbeFps ? *requestedProbeFps : context().probeTargetFps; }
-        void startCapacityProbe(int targetFps) override {
-            requestedProbeFps = targetFps;
-            owner.queue({BALLS_CONTROL_START_PROBE, 0, targetFps});
-        }
-        std::optional<int> requestedProbeFps;
+
     };
 
     std::filesystem::path normalLevels;
@@ -556,6 +550,8 @@ int32_t balls_devices_find(BallsDeviceInfo* devices, int32_t capacity) {
     return written;
 }
 
+// These helpers return C++ types, so they keep C++ linkage inside the extern "C" block.
+extern "C++" {
 namespace {
 
 std::vector<BackendPick> toPicks(const BallsPick* picks, int32_t count) {
@@ -586,6 +582,7 @@ int32_t writePicks(std::span<const BackendPick> picks, BallsPick* out, int32_t c
 }
 
 }  // namespace
+}  // extern "C++"
 
 int32_t balls_picks_get(BallsPick* picks, int32_t capacity) {
     return writePicks(backendPicks(), picks, capacity);
@@ -862,15 +859,15 @@ void balls_session_update(BallsSession* session, float deltaSeconds) {
     }
 }
 
-void balls_session_report_frame(BallsSession* session, double frameSeconds, double workSeconds) {
+// The frame time stays in the signature for the ABI; only the work time is used (see PhysicsFrameInput).
+void balls_session_report_frame(BallsSession* session, double, double workSeconds) {
     if (session == nullptr) {
         return;
     }
     if (session->threaded()) {
-        session->frameInput.uiFrameSeconds = frameSeconds;
         session->frameInput.uiWorkSeconds = workSeconds;
     } else {
-        session->game->reportFrameSeconds(frameSeconds, workSeconds);
+        session->game->reportFrameWorkSeconds(workSeconds);
     }
 }
 
@@ -1012,45 +1009,32 @@ int32_t balls_session_take_switch_outcome(BallsSession* session, int32_t* kind) 
     return outcome->succeeded ? 1 : 2;
 }
 
+// Kept for Unity C ABI compatibility.
 void balls_session_start_capacity_probe(BallsSession* session, double targetFps) {
+    (void)targetFps;
     if (session != nullptr) {
-        session->apply([targetFps](GameSession& game) { game.startCapacityProbe(targetFps); });
+        session->apply([](GameSession& game) { game.fillToBallLimit(); });
     }
 }
 
+// Kept for Unity C ABI compatibility.
 void balls_session_cancel_capacity_probe(BallsSession* session) {
     if (session != nullptr) {
-        session->apply([](GameSession& game) { game.cancelCapacityProbe(); });
+        session->apply([](GameSession& game) { game.cancelFill(); });
     }
 }
 
+// Kept for Unity C ABI compatibility.
 void balls_session_probe(const BallsSession* session, BallsProbeInfo* probe) {
-    if (session == nullptr || probe == nullptr) {
+    (void)session;
+    if (probe == nullptr) {
         return;
     }
-    const CapacityProbe& source = session->threaded() ? session->view->probe : session->game->capacityProbe();
-    probe->active = source.isActive() ? 1 : 0;
-    switch (source.phase()) {
-    case ProbePhase::Settling:
-        probe->phase = BALLS_PROBE_SETTLING;
-        break;
-    case ProbePhase::Measuring:
-        probe->phase = BALLS_PROBE_MEASURING;
-        break;
-    case ProbePhase::Confirming:
-        probe->phase = BALLS_PROBE_CONFIRMING;
-        break;
-    case ProbePhase::Done:
-        probe->phase = BALLS_PROBE_DONE;
-        break;
-    case ProbePhase::Idle:
-    default:
-        probe->phase = BALLS_PROBE_IDLE;
-        break;
-    }
-    probe->lastFps = source.lastFps();
-    probe->targetFps = source.targetFps();
-    probe->bestPassingCount = source.bestPassingCount();
+    probe->active = 0;
+    probe->phase = BALLS_PROBE_IDLE;
+    probe->lastFps = 0.0;
+    probe->targetFps = 0.0;
+    probe->bestPassingCount = 0;
 }
 
 int32_t balls_session_has_machine_ball_limit(const BallsSession* session) {
@@ -1373,7 +1357,6 @@ int32_t balls_control_handle(BallsControl* control, const BallsControlContext* c
         return 400;
     }
     control->context = context;
-    control->gameInPlay.requestedProbeFps.reset();
     control->currentSettings = toCoreSettings(context->settings);
     const ControlRequest request = parseControlTarget(target);
     const bool known = std::ranges::find(controlApiPaths(), std::string_view(request.path)) != controlApiPaths().end();
@@ -1479,27 +1462,21 @@ void balls_profile_close(BallsProfile* profile) {
     delete profile;
 }
 
+// Kept for Unity C ABI compatibility.
 int32_t balls_profile_ball_limit(const BallsProfile* profile, int32_t kind, double* targetFps, uint64_t* balls) {
-    if (profile == nullptr) {
-        return 0;
-    }
-    const std::optional<MachineProfile::MeasuredLimit> limit = profile->profile.ballLimit(toBackendKind(kind));
-    if (!limit) {
-        return 0;
-    }
-    if (targetFps != nullptr) {
-        *targetFps = limit->targetFps;
-    }
-    if (balls != nullptr) {
-        *balls = limit->balls;
-    }
-    return 1;
+    (void)profile;
+    (void)kind;
+    (void)targetFps;
+    (void)balls;
+    return 0;
 }
 
+// Kept for Unity C ABI compatibility.
 void balls_profile_remember_ball_limit(BallsProfile* profile, int32_t kind, double targetFps, uint64_t balls) {
-    if (profile != nullptr) {
-        profile->profile.rememberBallLimit(toBackendKind(kind), targetFps, balls);
-    }
+    (void)profile;
+    (void)kind;
+    (void)targetFps;
+    (void)balls;
 }
 
 int32_t balls_profile_benchmark_score(const BallsProfile* profile, int32_t kind, double* ballStepsPerSecond) {
@@ -1770,6 +1747,8 @@ int32_t balls_flow_level_row(const BallsFlow* flow, int32_t index, BallsFlowLeve
 }
 
 
+// These helpers return C++ types, so they keep C++ linkage inside the extern "C" block.
+extern "C++" {
 namespace {
 
 std::shared_ptr<const SessionView> latestView(BallsSession* session) {
@@ -1807,6 +1786,7 @@ int32_t writeBackendRows(const std::vector<BackendRow>& rows, BallsUiOption* opt
 }
 
 } // namespace
+}  // extern "C++"
 
 int32_t balls_menu_options(int32_t list, int32_t value, BallsSession* session, BallsUiOption* options,
                            int32_t capacity) {
@@ -1858,9 +1838,10 @@ int32_t balls_menu_auto_ball_limit(BallsSession* session) {
     return view && isAutoBallLimit(*view) ? 1 : 0;
 }
 
+// Kept for Unity C ABI compatibility.
 int32_t balls_menu_probe_status(BallsSession* session, char* buffer, int32_t size) {
-    const std::shared_ptr<const SessionView> view = latestView(session);
-    return writeText(view ? probeStatusText(*view) : std::string{}, buffer, size);
+    (void)session;
+    return writeText(std::string_view{}, buffer, size);
 }
 
 int32_t balls_menu_device_rows(const BallsPick* picks, int32_t pickCount, BallsDevicePickRow* rows, int32_t capacity) {
@@ -1931,7 +1912,11 @@ int32_t balls_menu_message(int32_t which, int32_t kind, uint64_t balls, double f
     case BALLS_MENU_TEXT_BACKEND_FAILED:
         return writeText(backendFailedMessage(toBackendKind(kind)), buffer, size);
     case BALLS_MENU_TEXT_PROBE_RESULT:
-        return writeText(probeResultMessage(toBackendKind(kind), static_cast<BallCount>(balls), fps), buffer, size);
+        // Kept for Unity C ABI compatibility.
+        (void)kind;
+        (void)balls;
+        (void)fps;
+        return writeText(std::string_view{}, buffer, size);
     case BALLS_MENU_TEXT_COMPUTE_GPU:
         return writeText(computeGpuMessage(text != nullptr ? text : ""), buffer, size);
     default:
