@@ -50,6 +50,11 @@ TEST_CASE("with no finished candidate the default falls back to AVX2, else Scala
            BackendKind::Scalar);
 }
 
+#if defined(BALLS_FIXED_TARGET)
+TEST_CASE("the scoring build never runs the machine benchmark") {
+    EXPECT(!benchmarkNeeded(std::nullopt, sampleFingerprint()));
+}
+#else
 TEST_CASE("the benchmark runs without a result, after a skip, and when the hardware fingerprint changes") {
     const HardwareFingerprint machine = sampleFingerprint();
     EXPECT(benchmarkNeeded(std::nullopt, machine));
@@ -65,6 +70,7 @@ TEST_CASE("the benchmark runs without a result, after a skip, and when the hardw
     newVersion.gameVersion = "0.2.0";
     EXPECT(benchmarkNeeded(record, newVersion));
 }
+#endif
 
 TEST_CASE("a benchmark record survives a save and load") {
     BenchmarkRecord record{sampleFingerprint(),

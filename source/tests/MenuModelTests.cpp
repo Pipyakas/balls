@@ -67,7 +67,8 @@ TEST_CASE("Settings rows follow the design: orientation, off and on, every selec
     EXPECT(selectedIndex(orientationOptions(LayoutOrientation::Portrait)) == 2);
     EXPECT(selectedIndex(offOnOptions(true)) == 1);
 
-    const std::vector<BackendRow> rows = defaultBackendRows(fastestAvailableCpuBackend(), {});
+    // offeredBackend: the scoring build lists only the CUDA+AVX2 pair, whatever the CPU backend is.
+    const std::vector<BackendRow> rows = defaultBackendRows(offeredBackend(fastestAvailableCpuBackend()), {});
     EXPECT(!rows.empty());
     int selected = 0;
     for (const BackendRow& row : rows) {

@@ -67,12 +67,12 @@ struct BackendStatus {
 
 BackendStatus backendStatus(BackendKind kind);
 // The backends the game offers and picks from. Scalar is the one-thread fallback and the only backend with ball
-// collisions, so it is left out whenever any other backend is available. The fixed CUDA+AVX2 pair is never offered:
-// Hybrid composes the same two devices (and any others), so menus show Hybrid in its place. The pair still runs when
-// asked for by name (launch options, the control API, the bench tool).
+// collisions, so it is left out whenever any other backend is available. The fixed CUDA+AVX2 pair is never offered
+// in the multi-target build: Hybrid composes the same two devices (and any others), so menus show Hybrid in its place.
+// In the fixed scoring build (BALLS_FIXED_TARGET), only CudaAvx2 is selectable and offered.
 std::vector<BackendKind> selectableBackends();
 bool isBackendSelectable(BackendKind kind);
-// The kind menus show for `kind`: Hybrid for the CUDA+AVX2 pair, which settings saved before it was hidden name.
+// The kind menus show for `kind`: Hybrid for the CUDA+AVX2 pair in general builds, or CudaAvx2 under BALLS_FIXED_TARGET.
 BackendKind offeredBackend(BackendKind kind);
 // The same for one backend on one plugin device (DeviceBackendOption), cached like backendStatus.
 BackendStatus deviceBackendStatus(BackendKind kind, int pluginDevice);

@@ -168,7 +168,13 @@ public:
     LevelDiskState diskState() const { return watcher.diskState(); }
 
     // Settings opened from the Main menu (a page) can run the machine benchmark; from Pause it cannot end the game.
-    bool canRunMachineBenchmark() const { return currentScreen == FlowScreen::Settings; }
+    bool canRunMachineBenchmark() const {
+#if defined(BALLS_FIXED_TARGET)
+        return false;
+#else
+        return currentScreen == FlowScreen::Settings;
+#endif
+    }
     bool benchmarkSettled() const { return benchmarkDone; }
 
     void showToast(std::string text, bool isError = false);

@@ -140,6 +140,11 @@ BackendKind chooseStartupBackend(std::optional<BackendKind> commandLine, std::st
     if (commandLine && isBackendAvailable(*commandLine)) {
         return *commandLine;
     }
+#if defined(BALLS_FIXED_TARGET)
+    if (isBackendAvailable(BackendKind::CudaAvx2)) {
+        return BackendKind::CudaAvx2;
+    }
+#endif
     const auto usable = [](BackendKind kind) { return isBackendAvailable(kind) && isBackendSelectable(kind); };
     if (const auto saved = parseSavedBackendKind(settingsDefault); saved && usable(offeredBackend(*saved))) {
         return offeredBackend(*saved);

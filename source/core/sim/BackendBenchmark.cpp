@@ -208,7 +208,13 @@ std::vector<BenchmarkCandidate> benchmarkCandidates() {
 }
 
 bool benchmarkNeeded(const std::optional<BenchmarkRecord>& stored, const HardwareFingerprint& current) {
+#if defined(BALLS_FIXED_TARGET)
+    (void)stored;
+    (void)current;
+    return false;
+#else
     return !stored || !stored->complete || stored->fingerprint != current;
+#endif
 }
 
 std::optional<size_t> bestCandidate(std::span<const CandidateResult> results) {

@@ -188,6 +188,7 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
     ui::drawText(std::string(menuText::physicsHeading), {innerX, cursor}, sectionSize, palette::textMuted);
     cursor += sectionHeight;
     ui::drawText(std::string(menuText::defaultBackendLabel), {innerX, cursor}, sectionSize, palette::text);
+#if !defined(BALLS_FIXED_TARGET)
     if (canRunBenchmark) {
         const Rect runBenchmark{innerX + innerWidth - runBenchmarkWidth, cursor - optionGap, runBenchmarkWidth,
                                 sectionHeight + optionGap * 0.5f};
@@ -195,6 +196,9 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
             edit.runBenchmark = true;
         }
     }
+#else
+    (void)canRunBenchmark;
+#endif
     cursor += sectionHeight;
     for (const BackendRow& rowInfo : defaultBackendRows(selectedBackend, benchmarkScores)) {
         const BackendKind kind = rowInfo.kind;

@@ -141,6 +141,19 @@ BackendStatus deviceBackendStatus(BackendKind kind, int pluginDevice) {
     return cache.deviceStatuses.try_emplace(key, std::move(status)).first->second;
 }
 
+#if defined(BALLS_FIXED_TARGET)
+std::vector<BackendKind> selectableBackends() {
+    return {BackendKind::CudaAvx2};
+}
+
+BackendKind offeredBackend(BackendKind /*kind*/) {
+    return BackendKind::CudaAvx2;
+}
+
+bool isBackendSelectable(BackendKind kind) {
+    return kind == BackendKind::CudaAvx2;
+}
+#else
 std::vector<BackendKind> selectableBackends() {
     bool otherBackendAvailable = false;
     for (const BackendKind kind : allBackendKinds) {
@@ -164,6 +177,7 @@ bool isBackendSelectable(BackendKind kind) {
     const std::vector<BackendKind> kinds = selectableBackends();
     return std::find(kinds.begin(), kinds.end(), kind) != kinds.end();
 }
+#endif
 
 void refreshBackendStatuses() {
     BackendWorker::shared().run([] {
