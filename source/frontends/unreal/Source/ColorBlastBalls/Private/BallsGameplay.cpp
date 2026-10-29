@@ -53,38 +53,6 @@ void FBallsGameplay::UseAutoBallLimit() {
     Host->post([](GameSession& Session) { Session.useCapacityBallLimit(); });
 }
 
-void FBallsGameplay::StartCapacityProbe() {
-    if (Host) {
-        Host->post([TargetFps = static_cast<double>(ProbeTargetFps)](GameSession& Session) {
-            Session.startCapacityProbe(TargetFps);
-        });
-    }
-}
-
-void FBallsGameplay::CancelCapacityProbe() {
-    if (Host) {
-        Host->post([](GameSession& Session) { Session.cancelCapacityProbe(); });
-    }
-}
-
-void FBallsGameplay::SetProbeTargetFps(int32 Fps) {
-    const int32 Clamped = FMath::Clamp(Fps, MinimumProbeTargetFps, MaximumProbeTargetFps);
-    if (Clamped == ProbeTargetFps) {
-        return;
-    }
-    ProbeTargetFps = Clamped;
-    if (IsAutoLimit()) {
-        StartCapacityProbe();
-    }
-}
-
-FString FBallsGameplay::GetProbeStatus() const {
-    if (!View) {
-        return FString();
-    }
-    return BallsText::FromUtf8(probeStatusText(*View));
-}
-
 // Loads the files as they are now: a parse failure drops to the load-error screen instead of keeping the old game.
 void FBallsGameplay::ReloadFromDisk() {
     Result<LevelData> Level = loadLevel(Files);
@@ -173,7 +141,7 @@ void FBallsGameplay::SelectBallMultiplier(int32 Index) {
 void FBallsGameplay::SelectBallLimit(int32 Index) {
     if (Host) {
         Host->post([Index](GameSession& Session) {
-            Session.cancelCapacityProbe();
+            Session.cancelFill();
             Session.selectBallLimit(Index);
         });
     }
@@ -199,11 +167,6 @@ void FBallsGameplay::post(std::function<void(GameSession&)> Command) {
     if (Host) {
         Host->post(std::move(Command));
     }
-}
-
-void FBallsGameplay::startCapacityProbe(int TargetFps) {
-    ProbeTargetFps = TargetFps;
-    StartCapacityProbe();
 }
 
 void FBallsGameplay::Restart() {

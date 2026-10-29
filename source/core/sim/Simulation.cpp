@@ -119,7 +119,7 @@ BallCount Simulation::ballRoom() const {
     return limit > live ? limit - live : 0;
 }
 
-// Spawns are 20 bytes against 8 stored, so a probe step of billions of balls hands them to the backend in batches
+// Spawns are 20 bytes against 8 stored, so a fill step of billions of balls hands them to the backend in batches
 // instead of holding them all.
 void Simulation::flushSpawnsIfLarge() {
     if (pendingSpawns.size() >= spawnFlushBalls) {

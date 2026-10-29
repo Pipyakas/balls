@@ -44,9 +44,6 @@ public:
     virtual void setPaused(bool paused) = 0;
     // Restart as the button does: it reloads files that changed on disk, or leaves when they were removed.
     virtual void restart() = 0;
-    virtual int capacityProbeTargetFps() const = 0;
-    // Remembers the target, as the gadget's stepper does, and starts the probe at it.
-    virtual void startCapacityProbe(int targetFps) = 0;
 };
 
 // What /state reports about the front end itself.

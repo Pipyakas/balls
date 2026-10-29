@@ -47,18 +47,12 @@ inline constexpr std::string_view releaseLabel = "Release";
 inline constexpr std::string_view spawnRateLabel = "Spawn / sec";
 inline constexpr std::string_view ballCountLabel = "Ball count";
 inline constexpr std::string_view ballLimitLabel = "Ball limit";
-inline constexpr std::string_view targetFpsLabel = "Target FPS";
 inline constexpr std::string_view renderGpuLabel = "Render GPU";
 inline constexpr std::string_view computeGpuLabel = "Compute GPU (Vulkan backend)";
 inline constexpr std::string_view ballCollisionsLabel = "Ball collisions";
 inline constexpr std::string_view allLaunchersReleased = "All launchers released";
 
 } // namespace menuText
-
-// The Target FPS stepper under Auto.
-inline constexpr int probeTargetFpsMinimum = 10;
-inline constexpr int probeTargetFpsMaximum = 1000;
-inline constexpr int probeTargetFpsDefault = 60;
 
 // "1,234,567".
 std::string groupedCount(BallCount value);
@@ -97,11 +91,9 @@ std::optional<std::vector<BackendPick>> pickDeviceOption(std::span<const Backend
 UiOption releaseButton(const SessionView& view);
 std::vector<UiOption> spawnRateChoices(int selectedIndex);
 std::vector<UiOption> ballMultiplierChoices(int selectedIndex);
-// Auto first, then the fixed limits. Auto is selected while the machine limit is in use or a probe runs.
+// Auto first, then the fixed limits. Auto is selected while the machine limit is in use.
 std::vector<UiOption> ballLimitChoices(const SessionView& view);
 bool isAutoBallLimit(const SessionView& view);
-// The muted line under Target FPS: "Probing... <balls>, <fps> fps", "Max @<fps> FPS: <balls>" or "Max: <balls>".
-std::string probeStatusText(const SessionView& view);
 // The in-game Physics list: like the default list, a backend still starting reads "<name> - starting...".
 std::vector<BackendRow> gameplayBackendRows(const SessionView& view);
 
@@ -136,6 +128,5 @@ std::vector<DebugRow> debugGadgetRows(const SessionView& view, const FrameTiming
 
 // Toasts the gameplay screen shows for session events.
 std::string backendFailedMessage(BackendKind kind);
-std::string probeResultMessage(BackendKind kind, BallCount balls, double fps);
 std::string physicsOnMessage(std::span<const BackendPick> picks);
 std::string computeGpuMessage(std::string_view gpuName);

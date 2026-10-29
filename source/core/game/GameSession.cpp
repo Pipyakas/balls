@@ -33,7 +33,6 @@ void GameSession::restart() {
     launcherQueue.load(levelData.launchers);
     spawnController.clear();
     spawnController.setInterleaved(gameMode == GameMode::Performance);
-    pendingProbeBalls = 0;
     fillRemaining = 0;
     additionGovernor = AdditionGovernor(physicsSimulation.tuning().tickSeconds);
     spawnController.setBallsPerSecond(gameMode == GameMode::Normal ? normalModeSpawnRate
@@ -72,11 +71,10 @@ void GameSession::startAutoRelease() {
     }
 }
 
-void GameSession::startCapacityProbe(double targetFps) {
+void GameSession::fillToBallLimit() {
     if (gameMode != GameMode::Performance) {
         return;
     }
-    (void)targetFps;
     useCapacityBallLimit();
     // Auto then ramps the balls up to that capacity, as fast as 60 FPS allows.
     if (sessionState == SessionState::Ready) {
@@ -86,73 +84,21 @@ void GameSession::startCapacityProbe(double targetFps) {
     fillRemaining = unlimitedBalls;
 }
 
-void GameSession::cancelCapacityProbe() {
-    pendingProbeBalls = 0;
+void GameSession::cancelFill() {
     fillRemaining = 0;
-    probe.cancel();
 }
 
 void GameSession::reportFrameSeconds(double frameSeconds, double workSeconds) {
-    latestFrameSeconds = frameSeconds;
-    latestWorkSeconds = workSeconds;
+    (void)frameSeconds;
     additionGovernor.recordFrame(workSeconds);
-    pumpCapacityProbe();
 }
 
-void GameSession::pumpCapacityProbe() {
-    if (!probe.isActive() || gameMode != GameMode::Performance || latestFrameSeconds <= 0.0) {
-        return;
-    }
-    // The probe measures a count of balls, so it waits (and its windows do not advance) until the last ball of its
-    // previous jump is in, unless the frames collapse on the way: then the rest of the jump is dropped.
-    if (pendingProbeBalls > 0) {
-        if (probe.abandonsJump(latestFrameSeconds, physicsSimulation.liveBallCount())) {
-            pendingProbeBalls = 0;
-            if (const auto trim = probe.takeTrimRequest()) {
-                physicsSimulation.trimBallsTo(*trim);
-            }
-            return;
-        }
-        if (!drainPendingProbeBalls()) {
-            return;
-        }
-    }
-    const BallCount addition = probe.update(latestFrameSeconds, latestWorkSeconds, physicsSimulation.liveBallCount(),
-                                            physicsSimulation.ballRoom());
-    if (const auto trim = probe.takeTrimRequest()) {
-        physicsSimulation.trimBallsTo(*trim);
-    }
-    if (probe.phase() == ProbePhase::Done) {
-        useMachineBallLimit(probe.bestPassingCount());
-        return;
-    }
-    pendingProbeBalls += addition;
-    drainPendingProbeBalls();
-}
-
-// About 65 ns a ball: a probe jump to hundreds of millions of balls in one call froze the whole game for ten
-// seconds, so a frame launches only what fits in this budget and the rest follows on the next frames.
-bool GameSession::drainPendingProbeBalls() {
-    constexpr auto budget = std::chrono::milliseconds(4);
-    constexpr BallCount slice = 1 << 16;
-    const auto deadline = std::chrono::steady_clock::now() + budget;
-    while (pendingProbeBalls > 0) {
-        const BallCount batch = std::min(pendingProbeBalls, slice);
-        launchAcrossColors(batch);
-        pendingProbeBalls -= batch;
-        if (std::chrono::steady_clock::now() >= deadline) {
-            break;
-        }
-    }
-    return pendingProbeBalls == 0;
-}
-
-// Probe and fill balls come out of the launch point like any released ball. Scattering them over the board put
+// Fill balls come out of the launch point like any released ball. Scattering them over the board put
 // about one in six inside a brick, where they showed until the next steps pushed them out.
 void GameSession::launchAcrossColors(BallCount count) {
     for (BallCount remaining = count; remaining > 0;) {
-        const BallColor color = ballColorFromIndex(probeColorIndex % ballColorCount);
-        probeColorIndex = (probeColorIndex + 1) % ballColorCount;
+        const BallColor color = ballColorFromIndex(fillColorIndex % ballColorCount);
+        fillColorIndex = (fillColorIndex + 1) % ballColorCount;
         const BallCount batch = std::min(remaining, static_cast<BallCount>(1 << 20));
         physicsSimulation.launchBalls(color, batch);
         remaining -= batch;
@@ -160,7 +106,7 @@ void GameSession::launchAcrossColors(BallCount count) {
 }
 
 void GameSession::fillWithBalls(BallCount count) {
-    cancelCapacityProbe();
+    cancelFill();
     useMachineBallLimit(count);
     const BallCount live = physicsSimulation.liveBallCount();
     // Over frames, within the 60 FPS budget.
@@ -177,7 +123,7 @@ void GameSession::selectSpawnRate(int optionIndex) {
 // Auto is the most balls the backend holds, worked out again every launch and never saved: in free flight a frame
 // costs the same whatever the ball count, and balls are only added as fast as 60 FPS allows.
 void GameSession::useCapacityBallLimit() {
-    cancelCapacityProbe();
+    cancelFill();
     measuredMachineLimit.reset();
     machineLimitSelected = true;
     machineLimitIsCapacity = true;
@@ -282,8 +228,6 @@ void GameSession::pollBackgroundWork() {
 }
 
 void GameSession::adoptBackend(BackendKind kind, BackendHandle backend) {
-    // A probe measures one backend; carried over, it would count the switch as a slow frame and trim to nothing.
-    probe.cancel();
     BackendReplacement replacement = physicsSimulation.replaceBackend(std::move(backend));
     BackendWorker::shared().retire(std::move(replacement.retired));
     backendKind = kind;

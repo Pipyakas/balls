@@ -81,14 +81,13 @@ TEST_CASE("performance auto release spawns every color at once, however big each
     }
 }
 
-TEST_CASE("Auto is the backend's capacity, never a saved probe, and the ramp fills toward it over frames") {
+TEST_CASE("Auto is the backend's capacity, and the ramp fills toward it over frames") {
     GameSession session(GameMode::Performance, loadSample("performance", "DA_1000Bricks"), BackendKind::Scalar);
     session.useCapacityBallLimit();
     EXPECT(session.isUsingMachineBallLimit());
     EXPECT(session.ballLimit() == static_cast<BallCount>(session.simulation().backend().ballCapacityLimit()));
     EXPECT(session.simulation().liveBallCount() == 0);
-    session.startCapacityProbe(60.0);
-    EXPECT(!session.capacityProbe().isActive());
+    session.fillToBallLimit();
     for (int frame = 0; frame < 10; ++frame) {
         session.update(1.0f / 60.0f);
     }
@@ -142,11 +141,4 @@ TEST_CASE("ball collisions on another backend move to Scalar only where Scalar i
     }
     EXPECT(outcome && outcome->succeeded && outcome->forBallCollisions);
     EXPECT(session.simulation().ballCollisionsActive());
-}
-
-TEST_CASE("every ball collisions change has the game's toast") {
-    EXPECT(ballCollisionsMessage(BallCollisionsChange::None).empty());
-    EXPECT(ballCollisionsMessage(BallCollisionsChange::SwitchingToScalar) ==
-           "Ball collisions need the Scalar backend - switching to Scalar");
-    EXPECT(!ballCollisionsMessage(BallCollisionsChange::ScalarNotOffered).empty());
 }

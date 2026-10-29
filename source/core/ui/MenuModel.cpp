@@ -151,7 +151,7 @@ std::vector<UiOption> ballMultiplierChoices(int selectedIndex) {
     return options;
 }
 
-bool isAutoBallLimit(const SessionView& view) { return view.usingMachineLimit || view.probe.isActive(); }
+bool isAutoBallLimit(const SessionView& view) { return view.usingMachineLimit; }
 
 std::vector<UiOption> ballLimitChoices(const SessionView& view) {
     const bool autoLimit = isAutoBallLimit(view);
@@ -163,19 +163,6 @@ std::vector<UiOption> ballLimitChoices(const SessionView& view) {
     return options;
 }
 
-std::string probeStatusText(const SessionView& view) {
-    const CapacityProbe& probe = view.probe;
-    if (probe.isActive()) {
-        return std::format("Probing... {} balls, {:.0f} fps", groupedCount(view.liveBalls), probe.lastFps());
-    }
-    if (probe.phase() == ProbePhase::Done) {
-        return std::format("Max @{:.0f} FPS: {}", probe.targetFps(), groupedCount(probe.bestPassingCount()));
-    }
-    if (view.machineLimit) {
-        return std::format("Max: {}", groupedCount(*view.machineLimit));
-    }
-    return {};
-}
 
 std::vector<BackendRow> gameplayBackendRows(const SessionView& view) {
     std::vector<BackendRow> rows;
@@ -220,10 +207,6 @@ std::vector<DebugRow> debugGadgetRows(const SessionView& view, const FrameTiming
     for (const auto& [label, value] : options.portRows) {
         rows.value(label, value);
     }
-    if (const CapacityProbe& probe = view.probe; probe.phase() != ProbePhase::Idle) {
-        rows.value("Probe", std::format("{} {:.0f}/{:.0f} fps", probePhaseName(probe.phase()), probe.lastFps(),
-                                        probe.targetFps()));
-    }
     if (options.showBackend) {
         rows.value("Backend", std::string(backendKindName(view.backend)));
         if (!options.renderer.empty()) {
@@ -259,7 +242,7 @@ std::vector<DebugRow> debugGadgetRows(const SessionView& view, const FrameTiming
     if (view.mode == GameMode::Performance) {
         std::string limit;
         if (view.usingMachineLimit) {
-            limit = view.machineLimit ? "Auto " + groupedCount(*view.machineLimit) : std::string("Auto (probe needed)");
+            limit = view.machineLimit ? "Auto " + groupedCount(*view.machineLimit) : std::string("Auto");
         } else {
             limit = view.ballLimit == unlimitedBalls ? std::string("Max (2^64-1)") : groupedCount(view.ballLimit);
         }
@@ -281,10 +264,6 @@ std::string backendFailedMessage(BackendKind kind) {
     return std::format("Could not start the {} backend", backendKindName(kind));
 }
 
-std::string probeResultMessage(BackendKind kind, BallCount balls, double fps) {
-    return std::format("{} limit on this machine: {} balls @{:.0f} FPS", backendKindName(kind), groupedCount(balls),
-                       fps);
-}
 
 std::string physicsOnMessage(std::span<const BackendPick> picks) { return "Physics on " + backendPicksLabel(picks); }
 
