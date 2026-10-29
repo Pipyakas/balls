@@ -38,6 +38,7 @@ void CapacityProbe::start(double targetFramesPerSecondValue) {
     lowestFailing = 0;
     measuredWorkSeconds = 0.0;
     consecutiveSlowWindows = 0;
+    collapsedSeconds = 0.0;
     trimRequest.reset();
 }
 
@@ -45,6 +46,26 @@ void CapacityProbe::cancel() {
     probePhase = ProbePhase::Idle;
     firstAdditionDue = false;
     trimRequest.reset();
+}
+
+bool CapacityProbe::abandonsJump(double frameSeconds, BallCount liveBalls) {
+    if (!isActive() || probePhase == ProbePhase::Confirming) {
+        return false;
+    }
+    if (frameSeconds * targetFramesPerSecond * probeCollapseFpsShare <= 1.0) {
+        collapsedSeconds = 0.0;
+        return false;
+    }
+    collapsedSeconds += frameSeconds;
+    if (collapsedSeconds < probeCollapseSeconds) {
+        return false;
+    }
+    collapsedSeconds = 0.0;
+    consecutiveSlowWindows = 0;
+    windowElapsed = 0.0;
+    settled = false;
+    handleSlowCount(liveBalls);
+    return true;
 }
 
 std::optional<BallCount> CapacityProbe::takeTrimRequest() {
@@ -130,6 +151,15 @@ BallCount CapacityProbe::updateRamp(BallCount liveBalls, BallCount room) {
     }
     consecutiveSlowWindows = 0;
     bestPassing = liveBalls;
+    collapsedSeconds = 0.0;
+    // Within the bisect tolerance of the lowest failing count there is nothing left to search. A count at or past
+    // it that now passes means that failure was a passing hitch; without this, the bisect target sits at or below the
+    // live count and the ramp would creep up by the minimum addition forever.
+    if (lowestFailing > 0 && static_cast<double>(lowestFailing) <=
+                                 static_cast<double>(liveBalls) * (1.0 + probeBisectTolerance)) {
+        beginConfirmation(bestPassing);
+        return 0;
+    }
     const BallCount addition = std::min(grownAddition(liveBalls), room);
     if (addition == 0) {
         beginConfirmation(bestPassing);

@@ -23,6 +23,11 @@ inline constexpr double probeGrowthResponse = 0.5;
 inline constexpr double probePredictionSafety = 0.97;
 inline constexpr double probeMaximumJump = 4.0;
 inline constexpr double probeBisectTolerance = 0.03;
+// A jump's balls go in over many frames, during which the probe cannot measure. Frames below this share of the
+// target rate for this long mean the jump went past what the machine holds (a backend spilling to slower memory,
+// say), so the rest of it is dropped instead of being added at a few frames a second.
+inline constexpr double probeCollapseFpsShare = 1.0 / 3.0;
+inline constexpr double probeCollapseSeconds = 0.5;
 
 const char* probePhaseName(ProbePhase phase);
 
@@ -33,6 +38,9 @@ public:
     // room: how many more balls the backend can hold; reaching it ends the ramp like a slow frame would.
     BallCount update(double frameSeconds, double workSeconds, BallCount liveBalls,
                      BallCount room = std::numeric_limits<BallCount>::max());
+    // Called for each frame while the balls of the last jump are still going in. True when those frames have
+    // collapsed: the jump ends there, the live count counts as failing and a trim request bisects back down.
+    bool abandonsJump(double frameSeconds, BallCount liveBalls);
     std::optional<BallCount> takeTrimRequest();
 
     bool isActive() const;
@@ -63,5 +71,6 @@ private:
     double targetFramesPerSecond = defaultProbeTargetFps;
     BallCount bestPassing = 0;
     int consecutiveSlowWindows = 0;
+    double collapsedSeconds = 0.0;
     std::optional<BallCount> trimRequest;
 };
