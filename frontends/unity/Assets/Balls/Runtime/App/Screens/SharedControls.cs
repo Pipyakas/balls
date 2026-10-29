@@ -53,16 +53,19 @@ namespace Balls.App.Screens
                 string hint = offOpt.Detail;
                 if (!string.IsNullOrEmpty(hint))
                 {
-                    int lineCount = hint.Contains("Needs Scalar") ? 3 : 2;
-                    widgets.Muted(new Rect(content.x, y, content.width, lineCount * HintLine), hint, TypeSizes.Tiny);
-                    return y + lineCount * HintLine + 8f;
+                    GUIStyle hintStyle = app.Theme.TextStyle(TypeSizes.Tiny, Palette.TextMuted);
+                    hintStyle.wordWrap = true;
+                    float hintHeight = hintStyle.CalcHeight(new GUIContent(hint), content.width);
+                    if (hintHeight < HintLine) hintHeight = HintLine;
+                    GUI.Label(app.Theme.Units(content.x, y, content.width, hintHeight), hint, hintStyle);
+                    return y + hintHeight + 8f;
                 }
             }
             return y + 8f;
         }
 
         public static float BallCollisionsHeight() =>
-            26f + 42f + (BallsNative.BackendAvailable(BallsNative.BackendScalar) ? 2 : 3) * HintLine + 8f;
+            26f + 42f + 3 * HintLine + 8f;
 
         private static void SetCollisions(BallsApp app, bool on)
         {

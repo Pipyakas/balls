@@ -633,7 +633,7 @@ namespace Balls.App.Screens
             {
                 y = content.y;
                 bool compact = compactLayout;
-                float physicsHeight = 24f + AvailableBackendCount() * 38f;
+                float physicsHeight = 24f + BackendChoiceCount() * 38f;
                 float gpuHeight = GpuChoicesHeight();
                 y += DrawRelease(session, content, y);
                 y += DrawSpawnControls(widgets, backend, content, y);
@@ -791,7 +791,7 @@ namespace Balls.App.Screens
 
         /// <summary>Draws the toggle at the bottom of the launcher gadget, and the Physics group under it when open.</summary>
         private float AdvancedSectionHeight() => advancedOpen
-            ? 58f + AvailableBackendCount() * 38f + 8f + SharedControls.BallCollisionsHeight()
+            ? 58f + BackendChoiceCount() * 38f + 8f + SharedControls.BallCollisionsHeight()
             : 34f;
 
         private void DrawAdvancedSection(Widgets widgets, SessionInfo session, Rect inner)
@@ -814,22 +814,64 @@ namespace Balls.App.Screens
             widgets.Label(new Rect(area.x, area.y, area.width, 22f), "Physics", TypeSizes.Small,
                 Palette.Accent, TextAnchor.UpperLeft, true);
             float y = area.y + 24f;
-            for (int kind = 0; kind < BallsNative.BackendCount; ++kind)
+            IntPtr sessionHandle = SessionSystem.Current != null ? SessionSystem.Current.SessionHandle : IntPtr.Zero;
+            if (sessionHandle != IntPtr.Zero)
             {
-                if (kind == BallsNative.BackendHybrid && !BallsNative.BackendAvailable(kind))
+                List<NativeUiOption> options = BallsNative.MenuOptions(BallsNative.MenuGameplayBackends, 0, sessionHandle);
+                for (int i = 0; i < options.Count; ++i)
                 {
-                    continue;
+                    NativeUiOption opt = options[i];
+                    int kind = opt.kind;
+                    bool available = opt.enabled != 0;
+                    string label = opt.Label;
+                    string detail = string.IsNullOrEmpty(opt.Detail) ? null : opt.Detail;
+                    bool selected = opt.selected != 0;
+                    if (widgets.OptionRow(new Rect(area.x, y, area.width, 34f), label, selected, available, detail) && available)
+                    {
+                        App.SwitchBackend(kind);
+                    }
+                    y += 38f;
                 }
-                bool available = BallsNative.BackendAvailable(kind);
-                bool starting = session.pendingBackend == kind;
-                string detail = starting ? "starting..." : BallsNative.BackendTextCached(kind, available);
-                if (widgets.OptionRow(new Rect(area.x, y, area.width, 34f), BallsNative.BackendName(kind),
-                        session.backend == kind || starting, available, detail) && available)
-                {
-                    App.SwitchBackend(kind);
-                }
-                y += 38f;
             }
+            else
+            {
+                for (int kind = 0; kind < BallsNative.BackendCount; ++kind)
+                {
+                    if (kind == BallsNative.BackendHybrid && !BallsNative.BackendAvailable(kind))
+                    {
+                        continue;
+                    }
+                    bool available = BallsNative.BackendAvailable(kind);
+                    bool starting = session.pendingBackend == kind;
+                    string detail = starting ? "starting..." : BallsNative.BackendTextCached(kind, available);
+                    if (widgets.OptionRow(new Rect(area.x, y, area.width, 34f), BallsNative.BackendName(kind),
+                            session.backend == kind || starting, available, detail) && available)
+                    {
+                        App.SwitchBackend(kind);
+                    }
+                    y += 38f;
+                }
+            }
+            // Unity's showcase backend, kept after the core rows.
+            bool burstAvailable = true;
+            bool burstStarting = session.pendingBackend == Balls.Physics.Burst.BurstGameBackend.BackendBurst;
+            string burstDetail = burstStarting ? "starting..." : null;
+            if (widgets.OptionRow(new Rect(area.x, y, area.width, 34f), "Burst",
+                    session.backend == Balls.Physics.Burst.BurstGameBackend.BackendBurst || burstStarting, burstAvailable, burstDetail) && burstAvailable)
+            {
+                App.SwitchBackend(Balls.Physics.Burst.BurstGameBackend.BackendBurst);
+            }
+            y += 38f;
+        }
+
+        private int BackendChoiceCount()
+        {
+            IntPtr sessionHandle = SessionSystem.Current != null ? SessionSystem.Current.SessionHandle : IntPtr.Zero;
+            if (sessionHandle != IntPtr.Zero)
+            {
+                return BallsNative.MenuOptions(BallsNative.MenuGameplayBackends, 0, sessionHandle).Count + 1;
+            }
+            return AvailableBackendCount();
         }
 
         /// <summary>
@@ -948,6 +990,70 @@ namespace Balls.App.Screens
         }
 
         private void DrawDebugGadget(BoardInfoData board, SessionInfo session, SessionStatsData stats)
+        {
+            IntPtr sessionHandle = SessionSystem.Current != null ? SessionSystem.Current.SessionHandle : IntPtr.Zero;
+            if (sessionHandle == IntPtr.Zero)
+            {
+                // Burst backend has no native session; keep its existing readout.
+                DrawDebugGadgetBurst(board, session, stats);
+                return;
+            }
+            Widgets widgets = App.Widgets;
+            Rect gadget = layout.Debug;
+            Rect inner = widgets.Gadget(gadget, null);
+            IntPtr timingsHandle = SessionSystem.Current != null ? SessionSystem.Current.FrameTimingsHandle : IntPtr.Zero;
+            bool showBackend = advancedOpen;
+            List<NativeDebugRow> rows = BallsNative.MenuDebugRows(sessionHandle, timingsHandle, showBackend ? 1 : 0, BallsApp.RendererText);
+
+            float contentHeight = 12f;
+            foreach (NativeDebugRow r in rows)
+            {
+                if (r.kind == 0) contentHeight += 6f + 26f + 4f;
+                else if (r.kind == 2) contentHeight += 24f;
+                else contentHeight += 22f + 26f + 18f;
+            }
+            contentHeight += 12f;
+
+            widgets.ScrollColumn(inner, contentHeight, ref debugScroll, content =>
+            {
+                float y = content.y + 12f;
+                Color ToneColor(int tone) => tone switch
+                {
+                    1 => Palette.TextMuted,
+                    2 => Palette.Accent,
+                    3 => Palette.Success,
+                    4 => Palette.Danger,
+                    _ => Palette.Text,
+                };
+                foreach (NativeDebugRow r in rows)
+                {
+                    if (r.kind == 0)
+                    {
+                        y += 6f;
+                        widgets.Label(new Rect(content.x, y, content.width, 22f), r.Label, TypeSizes.Small,
+                            Palette.Accent, TextAnchor.UpperLeft, true);
+                        y += 26f + 4f;
+                    }
+                    else if (r.kind == 2)
+                    {
+                        int colorIndex = Mathf.Clamp(r.colorIndex, 0, Palette.Balls.Length - 1);
+                        App.Theme.FillDisc(new Rect(content.x, y + 6f, 14f, 14f), Palette.Balls[colorIndex]);
+                        widgets.Label(new Rect(content.x + 22f, y, content.width - 22f, 22f), r.Label, TypeSizes.Small,
+                            Palette.TextMuted);
+                        widgets.Label(new Rect(content.x, y, content.width, 22f), r.Value, TypeSizes.Small,
+                            Palette.Text, TextAnchor.UpperRight);
+                        y += 24f;
+                    }
+                    else
+                    {
+                        widgets.Readout(new Rect(content.x, y, content.width, 40f), r.Label, r.Value, ToneColor(r.tone));
+                        y += 46f;
+                    }
+                }
+            });
+        }
+
+        private void DrawDebugGadgetBurst(BoardInfoData board, SessionInfo session, SessionStatsData stats)
         {
             Widgets widgets = App.Widgets;
             Rect gadget = layout.Debug;
