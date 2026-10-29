@@ -90,17 +90,7 @@ FString FBallsGameplay::GetProbeStatus() const {
     if (!View) {
         return FString();
     }
-    const CapacityProbe& Probe = View->probe;
-    if (Probe.isActive()) {
-        return FString::Printf(TEXT("Probing... %s balls, %.0f fps"), *BallsText::Grouped(View->liveBalls), Probe.lastFps());
-    }
-    if (Probe.phase() == ProbePhase::Done) {
-        return FString::Printf(TEXT("Max @%.0f FPS: %s"), Probe.targetFps(), *BallsText::Grouped(Probe.bestPassingCount()));
-    }
-    if (View->machineLimit) {
-        return FString::Printf(TEXT("Max: %s"), *BallsText::Grouped(*View->machineLimit));
-    }
-    return FString();
+    return BallsText::FromUtf8(probeStatusText(*View));
 }
 
 // Loads the files as they are now: a parse failure drops to the load-error screen instead of keeping the old game.
@@ -143,12 +133,10 @@ void FBallsGameplay::Tick(float DeltaSeconds, double FrameSeconds, double WorkSe
             ShowToast(BallsText::FromUtf8(ballCollisionsMessage(Event.collisionsChange)), false);
         } else if (Event.kind == SessionEventKind::BackendSwitched) {
             // A switch inside a game lasts for that game only; the Settings page owns the remembered default.
-            ShowToast(TEXT("Backend: ") + BallsText::FromUtf8(backendKindName(Event.backend)), false);
+            ShowToast(BallsText::FromUtf8(physicsOnMessage(displayedPicks(Event.backend))), false);
             ApplyDefaultBallLimit();
         } else {
-            ShowToast(FString::Printf(TEXT("%s failed: %s"), *BallsText::FromUtf8(backendKindName(Event.backend)),
-                                      View ? *BallsText::FromUtf8(View->backendFault) : TEXT("")),
-                      true);
+            ShowToast(BallsText::FromUtf8(backendFailedMessage(Event.backend)), true);
         }
     }
     if (!View) {
@@ -160,9 +148,7 @@ void FBallsGameplay::Tick(float DeltaSeconds, double FrameSeconds, double WorkSe
         bProbeResultShown = false;
     } else if (!bProbeResultShown && Probe.phase() == ProbePhase::Done) {
         App.GetMachineProfile().rememberBallLimit(View->backend, Probe.targetFps(), Probe.bestPassingCount());
-        ShowToast(FString::Printf(TEXT("%s limit on this machine: %s balls @%.0f FPS"),
-                                  *BallsText::FromUtf8(backendKindName(View->backend)),
-                                  *BallsText::Grouped(Probe.bestPassingCount()), Probe.targetFps()),
+        ShowToast(BallsText::FromUtf8(probeResultMessage(View->backend, Probe.bestPassingCount(), Probe.targetFps())),
                   false);
         bProbeResultShown = true;
     }

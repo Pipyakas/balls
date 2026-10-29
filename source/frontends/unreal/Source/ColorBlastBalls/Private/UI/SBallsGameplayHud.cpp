@@ -758,12 +758,53 @@ private:
     }
 
     // Portrait has no room for the three groups, so it shows the 48-unit stats strip instead (see PaintStatsStrip).
-    void PaintDebugPanel(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,
-                         const SessionView& Session, const FSlateRect& Area) const {
+     void PaintDebugPanel(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,
+                          const SessionView& Session, const FSlateRect& Area) const {
         FPanelWriter Writer(Out, Layer, Geometry, Area);
-        WritePerformance(Writer, Session);
-        WriteObjects(Writer, Session);
-        WriteColors(Writer, Session);
+        const FrameTimings& Frames = App->GetFrameTimings();
+        DebugGadgetOptions Options;
+        Options.showBackend = true;
+        Options.renderer = TCHAR_TO_UTF8(*FString::Printf(TEXT("Unreal / %s / %s"),
+                                                          GDynamicRHI ? GDynamicRHI->GetName() : TEXT("RHI"),
+                                                          *GRHIAdapterName));
+        const FrameSample& Sample = Frames.average();
+        Options.portRows = {
+            {"Work FPS", TCHAR_TO_UTF8(*FString::Printf(TEXT("%.0f"), Frames.workFramesPerSecond()))},
+            {"Min work FPS (1s)", TCHAR_TO_UTF8(*FString::Printf(TEXT("%.0f"), Frames.worstWorkFpsLastSecond()))},
+            {"CPU", TCHAR_TO_UTF8(*FString::Printf(TEXT("%.2f ms"), Sample.cpuMs))},
+            {"Present", TCHAR_TO_UTF8(*FString::Printf(TEXT("%.2f ms"), Sample.presentMs))}};
+        const std::vector<DebugRow> Rows = debugGadgetRows(Session, Frames, Options);
+        for (const DebugRow& Row : Rows) {
+            switch (Row.kind) {
+            case DebugRow::Kind::Heading:
+                Writer.Heading(BallsText::FromUtf8(Row.label));
+                break;
+            case DebugRow::Kind::Value: {
+                FLinearColor Color = BallsPalette::Linear(BallsPalette::Text);
+                switch (Row.tone) {
+                case UiTone::Muted:
+                    Color = BallsPalette::Linear(BallsPalette::TextMuted);
+                    break;
+                case UiTone::Accent:
+                    Color = BallsPalette::Linear(BallsPalette::Accent);
+                    break;
+                case UiTone::Success:
+                    Color = BallsPalette::Linear(BallsPalette::Success);
+                    break;
+                case UiTone::Danger:
+                    Color = BallsPalette::Linear(BallsPalette::Danger);
+                    break;
+                default:
+                    break;
+                }
+                Writer.Row(BallsText::FromUtf8(Row.label), BallsText::FromUtf8(Row.value), Color);
+                break;
+            }
+            case DebugRow::Kind::Color:
+                Writer.ColorRow(Row.colorIndex, BallsText::FromUtf8(Row.value));
+                break;
+            }
+        }
     }
 
     void PaintToast(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry) const {
@@ -897,16 +938,43 @@ TSharedRef<SWidget> SBallsGameplayHud::MakeNormalPhysicsGroup() {
         .Font(BallsStyle::Font(20.0f))
         .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
     ];
+    auto NormalBackendRows = [Game]() {
+        if (const SessionView* V = Game->GetView()) {
+            return gameplayBackendRows(*V);
+        }
+        return std::vector<BackendRow>{};
+    };
     for (const BackendKind Kind : allBackendKinds) {
         Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, PhysicsRowGap)
         [
             SNew(SBox).HeightOverride(PhysicsRowHeight)
             [
-                BallsWidgets::Button(LabelText(BallsText::FromUtf8(backendKindName(Kind))),
-                                     [Game, Kind] { Game->SwitchBackend(Kind); }, 18.0f, isBackendAvailable(Kind),
-                                     TAttribute<bool>::CreateLambda([Game, Kind] {
-                                         return Game->GetView() && Game->GetView()->backend == Kind;
-                                     }))
+                BallsWidgets::Button(
+                    TAttribute<FText>::CreateLambda([NormalBackendRows, Kind] {
+                        for (const BackendRow& Row : NormalBackendRows()) {
+                            if (Row.kind == Kind) {
+                                return LabelText(BallsText::FromUtf8(Row.option.label));
+                            }
+                        }
+                        return LabelText(BallsText::FromUtf8(backendKindName(Kind)));
+                    }),
+                    [Game, Kind] { Game->SwitchBackend(Kind); }, 18.0f,
+                    TAttribute<bool>::CreateLambda([NormalBackendRows, Kind] {
+                        for (const BackendRow& Row : NormalBackendRows()) {
+                            if (Row.kind == Kind) {
+                                return Row.option.enabled;
+                            }
+                        }
+                        return isBackendAvailable(Kind);
+                    }),
+                    TAttribute<bool>::CreateLambda([NormalBackendRows, Kind] {
+                        for (const BackendRow& Row : NormalBackendRows()) {
+                            if (Row.kind == Kind) {
+                                return Row.option.selected;
+                            }
+                        }
+                        return false;
+                    }))
             ]
         ];
     }
@@ -944,19 +1012,22 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
     AddRow(BallsWidgets::Button(
         TAttribute<FText>::CreateLambda([Session] {
             const SessionView* Current = Session();
-            if (!Current || Current->state == SessionState::Ready) {
+            if (!Current) {
                 return LabelText(TEXT("Start (1 click)"));
             }
-            return LabelText(FString::Printf(TEXT("Auto releasing - %d launchers left"), Current->launchers.launcherCount()));
+            return LabelText(BallsText::FromUtf8(releaseButton(*Current).label));
         }),
         // The full design label is the longest string in the gadget; 16 keeps it inside the 310-wide panel.
         [Game] { Game->StartAutoRelease(); }, 16.0f,
-        TAttribute<bool>::CreateLambda([Session] { return Session() && Session()->state == SessionState::Ready; })));
+        TAttribute<bool>::CreateLambda([Session] {
+            const SessionView* Current = Session();
+            return Current && releaseButton(*Current).enabled;
+        })));
 
     AddLabel(TEXT("Spawn / sec"));
     TArray<FString> RateNames;
-    for (const int32 Rate : spawnRateOptions) {
-        RateNames.Add(Rate == 0 ? FString(TEXT("Max")) : FString::FromInt(Rate));
+    for (const UiOption& Option : spawnRateChoices(0)) {
+        RateNames.Add(BallsText::FromUtf8(Option.label));
     }
     AddRow(BallsWidgets::Dropdown(RateNames, [Session] { return Session() ? Session()->spawnRateIndex : 0; },
                                   [Game](int32 Index) { Game->SelectSpawnRate(Index); }),
@@ -964,8 +1035,8 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
 
     AddLabel(TEXT("Ball count"));
     TArray<FString> MultiplierNames;
-    for (const BallCount Multiplier : ballMultiplierOptions) {
-        MultiplierNames.Add(FString::Printf(TEXT("x%llu"), static_cast<unsigned long long>(Multiplier)));
+    for (const UiOption& Option : ballMultiplierChoices(0)) {
+        MultiplierNames.Add(BallsText::FromUtf8(Option.label));
     }
     AddRow(BallsWidgets::Dropdown(MultiplierNames, [Session] { return Session() ? Session()->ballMultiplierIndex : 0; },
                                   [Game](int32 Index) { Game->SelectBallMultiplier(Index); }),
@@ -976,9 +1047,15 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
     // there is no separate probe button.
     AddLabel(TEXT("Ball limit"));
     TArray<FString> LimitNames;
-    LimitNames.Add(TEXT("Auto"));
-    for (const BallCount Limit : ballLimitOptions) {
-        LimitNames.Add(BallsText::BallLimitShort(Limit));
+    if (const SessionView* Current = Game->GetView()) {
+        for (const UiOption& Option : ballLimitChoices(*Current)) {
+            LimitNames.Add(BallsText::FromUtf8(Option.label));
+        }
+    } else {
+        LimitNames.Add(TEXT("Auto"));
+        for (const BallCount Limit : ballLimitOptions) {
+            LimitNames.Add(BallsText::BallLimitShort(Limit));
+        }
     }
     AddRow(BallsWidgets::Dropdown(
                LimitNames,
@@ -1008,7 +1085,7 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
             [
                 BallsWidgets::Stepper([Game] { return Game->GetProbeTargetFps(); },
                                       [Game](int32 Fps) { Game->SetProbeTargetFps(Fps); },
-                                      FBallsGameplay::MinimumProbeTargetFps, FBallsGameplay::MaximumProbeTargetFps)
+                                      probeTargetFpsMinimum, probeTargetFpsMaximum)
             ]
         ]
         + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 4.0f, 0.0f, ControlGap * 0.6f)
@@ -1021,22 +1098,68 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
     ];
 
     AddLabel(TEXT("Physics"));
-    for (const BackendKind Kind : allBackendKinds) {
-        AddRow(BallsWidgets::Button(LabelText(BallsText::FromUtf8(backendKindName(Kind))),
-                                    [Game, Kind] { Game->SwitchBackend(Kind); }, 18.0f, isBackendAvailable(Kind),
-                                    TAttribute<bool>::CreateLambda([Session, Kind] {
-                                        return Session() && Session()->backend == Kind;
-                                    })));
-        if (!isBackendAvailable(Kind)) {
-            Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap * 0.6f)
-            [
-                SNew(STextBlock)
-                .Text(LabelText(BallsText::FromUtf8(backendUnavailableReason(Kind))))
-                .Font(BallsStyle::Font(15.0f))
-                .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
-                .AutoWrapText(true)
-            ];
+    auto BackendRowsNow = [Session]() {
+        if (const SessionView* Current = Session()) {
+            return gameplayBackendRows(*Current);
         }
+        return std::vector<BackendRow>{};
+    };
+    for (const BackendKind Kind : allBackendKinds) {
+        AddRow(BallsWidgets::Button(
+            TAttribute<FText>::CreateLambda([BackendRowsNow, Kind] {
+                const std::vector<BackendRow> Rows = BackendRowsNow();
+                for (const BackendRow& Row : Rows) {
+                    if (Row.kind == Kind) {
+                        return LabelText(BallsText::FromUtf8(Row.option.label));
+                    }
+                }
+                return LabelText(BallsText::FromUtf8(backendKindName(Kind)));
+            }),
+            [Game, Kind] { Game->SwitchBackend(Kind); }, 18.0f,
+            TAttribute<bool>::CreateLambda([BackendRowsNow, Kind] {
+                const std::vector<BackendRow> Rows = BackendRowsNow();
+                for (const BackendRow& Row : Rows) {
+                    if (Row.kind == Kind) {
+                        return Row.option.enabled;
+                    }
+                }
+                return isBackendAvailable(Kind);
+            }),
+            TAttribute<bool>::CreateLambda([BackendRowsNow, Kind] {
+                const std::vector<BackendRow> Rows = BackendRowsNow();
+                for (const BackendRow& Row : Rows) {
+                    if (Row.kind == Kind) {
+                        return Row.option.selected;
+                    }
+                }
+                return false;
+            })));
+        // Unavailable reason as the muted detail.
+        Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap * 0.6f)
+        [
+            SNew(STextBlock)
+            .Text_Lambda([BackendRowsNow, Kind] {
+                const std::vector<BackendRow> Rows = BackendRowsNow();
+                for (const BackendRow& Row : Rows) {
+                    if (Row.kind == Kind && !Row.option.enabled && !Row.option.detail.empty()) {
+                        return LabelText(BallsText::FromUtf8(Row.option.detail));
+                    }
+                }
+                return LabelText(FString());
+            })
+            .Font(BallsStyle::Font(15.0f))
+            .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
+            .AutoWrapText(true)
+            .Visibility_Lambda([BackendRowsNow, Kind] {
+                const std::vector<BackendRow> Rows = BackendRowsNow();
+                for (const BackendRow& Row : Rows) {
+                    if (Row.kind == Kind && !Row.option.enabled && !Row.option.detail.empty()) {
+                        return EVisibility::Visible;
+                    }
+                }
+                return EVisibility::Collapsed;
+            })
+        ];
     }
 
     // The Unreal port's own lever: the post chain (bloom, TAA, auto-exposure, screen percentage) is what keeps this
