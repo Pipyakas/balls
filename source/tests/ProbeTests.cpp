@@ -97,3 +97,90 @@ TEST_CASE("cancel returns the probe to idle") {
     EXPECT(probe.update(fastFrame, 0.0, liveBalls) == 0);
     EXPECT(!probe.takeTrimRequest().has_value());
 }
+
+namespace {
+
+// A machine where stepping is nearly free (the board is cleared), so the probe asks for its largest jumps, but the
+// balls of a jump go in a slice per frame and past a cliff each frame takes most of a second.
+constexpr BallCount spillBalls = 2'000'000;
+constexpr BallCount drainSlice = 20'000;
+constexpr double cheapWork = 0.001;
+constexpr double spilledFrame = 0.45;
+constexpr double simulatedSeconds = 60.0;
+
+struct SpillingMachine {
+    BallCount liveBalls = 0;
+    BallCount pending = 0;
+
+    double nextFrame() const { return liveBalls > spillBalls ? spilledFrame : 1.0 / 60.0; }
+
+    void drain() {
+        const BallCount batch = std::min(pending, drainSlice);
+        liveBalls += batch;
+        pending -= batch;
+    }
+};
+
+}
+
+TEST_CASE("probe drops a jump whose balls collapse the frame rate while they go in") {
+    CapacityProbe probe;
+    SpillingMachine machine;
+    probe.start();
+    double seconds = 0.0;
+    while (seconds < simulatedSeconds && probe.isActive()) {
+        const double frame = machine.nextFrame();
+        seconds += frame;
+        // As GameSession does: while a jump's balls go in, the probe only watches for a collapse.
+        if (machine.pending > 0) {
+            if (probe.abandonsJump(frame, machine.liveBalls)) {
+                machine.pending = 0;
+                if (const auto trim = probe.takeTrimRequest()) {
+                    machine.liveBalls = std::min(machine.liveBalls, *trim);
+                }
+                continue;
+            }
+            machine.drain();
+            if (machine.pending > 0) {
+                continue;
+            }
+        }
+        const double work = machine.liveBalls > spillBalls ? spilledFrame : cheapWork;
+        machine.pending += probe.update(frame, work, machine.liveBalls);
+        if (const auto trim = probe.takeTrimRequest()) {
+            machine.liveBalls = std::min(machine.liveBalls, *trim);
+        }
+    }
+    EXPECT(probe.phase() == ProbePhase::Done);
+    EXPECT(probe.bestPassingCount() <= spillBalls);
+    EXPECT(probe.bestPassingCount() * 100 >= spillBalls * 80);
+    EXPECT(machine.nextFrame() < spilledFrame);
+}
+
+TEST_CASE("probe finishes when a count it once failed passes later") {
+    // Stepping is nearly free (a cleared board), so only a hitch fails a window. After the bisect, counts at and past
+    // that failure pass; the probe must confirm there rather than creep on by the minimum addition.
+    constexpr double hitchStart = 1.0;
+    constexpr double hitchEnd = 6.0;
+    constexpr BallCount backendCapacity = 4'000'000'000;
+    CapacityProbe probe;
+    BallCount liveBalls = 0;
+    probe.start();
+    double seconds = 0.0;
+    int additions = 0;
+    for (int frames = 0; frames < frameBudget && probe.isActive(); ++frames) {
+        const bool hitch = seconds >= hitchStart && seconds < hitchEnd;
+        const double frame = hitch ? slowFrame : fastFrame;
+        seconds += frame;
+        const BallCount addition =
+            probe.update(frame, hitch ? slowFrame : 0.001, liveBalls, backendCapacity - liveBalls);
+        additions += addition > 0 ? 1 : 0;
+        liveBalls += addition;
+        if (const auto trim = probe.takeTrimRequest()) {
+            liveBalls = std::min(liveBalls, *trim);
+        }
+    }
+    EXPECT(probe.phase() == ProbePhase::Done);
+    EXPECT(additions <= 30);
+    EXPECT(liveBalls == probe.bestPassingCount());
+}

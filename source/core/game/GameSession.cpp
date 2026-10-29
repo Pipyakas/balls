@@ -86,9 +86,18 @@ void GameSession::pumpCapacityProbe() {
         return;
     }
     // The probe measures a count of balls, so it waits (and its windows do not advance) until the last ball of its
-    // previous jump is in.
-    if (pendingProbeBalls > 0 && !drainPendingProbeBalls()) {
-        return;
+    // previous jump is in, unless the frames collapse on the way: then the rest of the jump is dropped.
+    if (pendingProbeBalls > 0) {
+        if (probe.abandonsJump(latestFrameSeconds, physicsSimulation.liveBallCount())) {
+            pendingProbeBalls = 0;
+            if (const auto trim = probe.takeTrimRequest()) {
+                physicsSimulation.trimBallsTo(*trim);
+            }
+            return;
+        }
+        if (!drainPendingProbeBalls()) {
+            return;
+        }
     }
     const BallCount addition = probe.update(latestFrameSeconds, latestWorkSeconds, physicsSimulation.liveBallCount(),
                                             physicsSimulation.ballRoom());
