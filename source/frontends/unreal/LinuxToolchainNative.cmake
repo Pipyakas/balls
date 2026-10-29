@@ -3,11 +3,12 @@
 # agree on the standard library; a native build with the system libstdc++ would break that.
 #
 # LinuxToolchain.cmake does the same for a Windows host cross-compiling to Linux (clang.exe). This one is the native
-# twin, selected by BuildCoreLinux.sh with -DBALLS_LINUX_TOOLCHAIN=<engine toolchain root>.
-if(NOT DEFINED BALLS_LINUX_TOOLCHAIN)
+# twin, selected by BuildCoreLinux.sh, which exports BALLS_LINUX_TOOLCHAIN: an environment variable, because CMake
+# reads the toolchain file again inside every try_compile, where command-line variables are not passed on.
+if(NOT DEFINED ENV{BALLS_LINUX_TOOLCHAIN})
     message(FATAL_ERROR "BALLS_LINUX_TOOLCHAIN is not set; point it at the engine's x86_64-unknown-linux-gnu toolchain.")
 endif()
-file(TO_CMAKE_PATH "${BALLS_LINUX_TOOLCHAIN}" BALLS_LINUX_SYSROOT)
+file(TO_CMAKE_PATH "$ENV{BALLS_LINUX_TOOLCHAIN}" BALLS_LINUX_SYSROOT)
 
 set(CMAKE_SYSTEM_NAME Linux)
 set(CMAKE_SYSTEM_PROCESSOR x86_64)

@@ -32,8 +32,10 @@ if command -v flock >/dev/null 2>&1; then
     flock 9
 fi
 
+# An environment variable, not -D: CMake re-reads the toolchain file inside each try_compile, which only inherits
+# the environment.
+export BALLS_LINUX_TOOLCHAIN="$TOOLCHAIN"
 cmake -S "$REPO" -B "$OUT" -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_TOOLCHAIN_FILE="$HERE/LinuxToolchainNative.cmake" \
-    -DBALLS_LINUX_TOOLCHAIN="$TOOLCHAIN" \
     -DBALLS_FRONTEND=none -DBALLS_ENABLE_CUDA=OFF -DBALLS_BUILD_TOOLS=OFF
 cmake --build "$OUT" --target balls_core balls_physics_plugins --parallel
