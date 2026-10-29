@@ -550,6 +550,8 @@ int32_t balls_devices_find(BallsDeviceInfo* devices, int32_t capacity) {
     return written;
 }
 
+// These helpers return C++ types, so they keep C++ linkage inside the extern "C" block.
+extern "C++" {
 namespace {
 
 std::vector<BackendPick> toPicks(const BallsPick* picks, int32_t count) {
@@ -580,6 +582,7 @@ int32_t writePicks(std::span<const BackendPick> picks, BallsPick* out, int32_t c
 }
 
 }  // namespace
+}  // extern "C++"
 
 int32_t balls_picks_get(BallsPick* picks, int32_t capacity) {
     return writePicks(backendPicks(), picks, capacity);
@@ -1744,6 +1747,8 @@ int32_t balls_flow_level_row(const BallsFlow* flow, int32_t index, BallsFlowLeve
 }
 
 
+// These helpers return C++ types, so they keep C++ linkage inside the extern "C" block.
+extern "C++" {
 namespace {
 
 std::shared_ptr<const SessionView> latestView(BallsSession* session) {
@@ -1781,6 +1786,7 @@ int32_t writeBackendRows(const std::vector<BackendRow>& rows, BallsUiOption* opt
 }
 
 } // namespace
+}  // extern "C++"
 
 int32_t balls_menu_options(int32_t list, int32_t value, BallsSession* session, BallsUiOption* options,
                            int32_t capacity) {
