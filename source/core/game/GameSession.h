@@ -18,7 +18,8 @@
 
 enum class SessionState { Ready, Running, Won };
 
-inline constexpr std::array<int, 6> spawnRateOptions{10, 50, 200, 1000, 2000, 0};
+// The game's five rates (10 to 2000), then faster ones: at 2000 a x10000 launcher takes minutes to empty. 0 is Max.
+inline constexpr std::array<int, 10> spawnRateOptions{10, 50, 200, 1000, 2000, 10'000, 50'000, 200'000, 1'000'000, 0};
 inline constexpr std::array<BallCount, 5> ballMultiplierOptions{1, 10, 100, 1000, 10000};
 inline constexpr std::array<BallCount, 5> ballLimitOptions{10'000, 100'000, 1'000'000, 10'000'000, unlimitedBalls};
 inline constexpr float normalModeSpawnRate = 60.0f;

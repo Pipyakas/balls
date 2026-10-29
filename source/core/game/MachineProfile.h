@@ -51,8 +51,9 @@ inline constexpr std::string_view targetBenchmarkFileName = "target-benchmark.tx
 std::optional<BenchmarkCandidate> targetMachineWinner(const std::filesystem::path& recordFile);
 
 // The backend a new game starts on ("Default backend and machine benchmark"): the command line, then the Settings
-// default (this machine's own benchmark winner or the player's pick, kind or device picks), then the target PC's
-// winner, then the fastest CPU backend, skipping any that cannot load or is not offered here.
+// default (this machine's own benchmark winner or the player's pick, kind or device picks), then Hybrid on its
+// default devices, then the target PC's winner, then the fastest CPU backend, skipping any that cannot load or is not
+// offered here. A saved or recorded CUDA+AVX2 pair means Hybrid, which replaced it in the menus.
 BackendKind chooseStartupBackend(std::optional<BackendKind> commandLine, std::string_view settingsDefault,
                                  const std::filesystem::path& targetRecordFile);
 

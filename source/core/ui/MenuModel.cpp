@@ -21,6 +21,14 @@ std::string ballLimitOptionLabel(BallCount limit) {
     return limit >= 1'000'000 ? std::format("{}M", limit / 1'000'000) : std::format("{}k", limit / 1'000);
 }
 
+// 10 to 2000 as written, then 10k, 50k, 200k, 1M like the ball limits.
+std::string spawnRateOptionLabel(int rate) {
+    if (rate < 10'000) {
+        return std::to_string(rate);
+    }
+    return rate >= 1'000'000 ? std::format("{}M", rate / 1'000'000) : std::format("{}k", rate / 1'000);
+}
+
 std::string benchmarkScore(std::span<const CandidateResult> scores, BackendKind kind) {
     const std::string shown = kind == BackendKind::Hybrid ? formatBackendPicks(displayedPicks(kind)) : std::string{};
     const auto found = std::ranges::find_if(scores, [&](const CandidateResult& result) {
@@ -128,7 +136,7 @@ std::vector<UiOption> spawnRateChoices(int selectedIndex) {
     std::vector<UiOption> options;
     for (size_t index = 0; index < ::spawnRateOptions.size(); ++index) {
         const int rate = ::spawnRateOptions[index];
-        options.push_back({rate == 0 ? std::string("Max") : std::to_string(rate), true,
+        options.push_back({rate == 0 ? std::string("Max") : spawnRateOptionLabel(rate), true,
                            static_cast<int>(index) == selectedIndex});
     }
     return options;

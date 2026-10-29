@@ -52,43 +52,6 @@ constexpr int minimumProbeTargetFps = 10;
 constexpr int maximumProbeTargetFps = 1000;
 constexpr int defaultTargetFps = 60;
 
-std::string spawnRateLabel(int rate) {
-    return rate == 0 ? std::string("Max") : std::to_string(rate);
-}
-
-std::string ballLimitLabel(BallCount limit) {
-    if (limit == unlimitedBalls) {
-        return "Max 2^64-1";
-    }
-    return limit >= 1'000'000 ? std::format("{}M", limit / 1'000'000) : std::format("{}k", limit / 1'000);
-}
-
-std::string ballLimitOptionLabel(BallCount limit) {
-    return ballLimitLabel(limit);
-}
-
-std::string groupedBalls(BallCount value) {
-    std::string digits = std::to_string(value);
-    for (int insertAt = static_cast<int>(digits.size()) - 3; insertAt > 0; insertAt -= 3) {
-        digits.insert(static_cast<size_t>(insertAt), ",");
-    }
-    return digits;
-}
-
-std::string probeStatus(const SessionView& view) {
-    const CapacityProbe& probe = view.probe;
-    if (probe.isActive()) {
-        return std::format("Probing... {} balls, {:.0f} fps", groupedBalls(view.liveBalls), probe.lastFps());
-    }
-    if (probe.phase() == ProbePhase::Done) {
-        return std::format("Max @{:.0f} FPS: {}", probe.targetFps(), groupedBalls(probe.bestPassingCount()));
-    }
-    if (const auto measured = view.machineLimit) {
-        return std::format("Max: {}", groupedBalls(*measured));
-    }
-    return {};
-}
-
 } // namespace
 
 GameplayScreen::GameplayScreen(App& app, GameMode mode, LevelFiles files)
@@ -401,10 +364,12 @@ void GameplayScreen::drawAdapterList(Rect area, const std::vector<GpuAdapterInfo
     }
 }
 
+// The backend the physics list highlights: the one starting, else the one running.
+BackendKind GameplayScreen::shownBackend() const { return view->pendingBackend.value_or(view->backend); }
+
 // Changing a device's backend switches the running game to the kind the picks make (Hybrid, or one backend).
 void GameplayScreen::drawDevicePicker(Rect area) {
-    const BackendKind shown = view->pendingBackend.value_or(view->backend);
-    if (const auto changed = ::drawDevicePicker(area, displayedPicks(shown), gameplayDevicePicker)) {
+    if (const auto changed = ::drawDevicePicker(area, displayedPicks(shownBackend()), gameplayDevicePicker)) {
         setBackendPicks(*changed);
         refreshBackendStatuses();
         const BackendKind kind = kindForPicks(*changed);
@@ -577,7 +542,9 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
     if (advancedOpen) {
         const float backendHeight = (controlRowHeight + controlGap) * selectableBackends().size() - controlGap;
         drawBackendList(group("Physics", backendHeight), view->backend);
-        drawDevicePicker(group("Devices", devicePickerHeight(gameplayDevicePicker)));
+        if (showsDevicePicks(shownBackend())) {
+            drawDevicePicker(group("Devices", devicePickerHeight(gameplayDevicePicker)));
+        }
         if (const std::vector<int> choices = renderAdapterChoices(); !choices.empty()) {
             drawAdapterList(group("Render GPU", listHeight(choices.size())), app.renderAdapters(), choices,
                             app.renderAdapterIndex(), false);
@@ -604,7 +571,9 @@ float GameplayScreen::normalContentHeight() const {
     const float advancedHeight = app.settings().advancedSettings
                                      ? groupGap + groupLabelHeight +
                                            (controlRowHeight + controlGap) * selectableBackends().size() - controlGap +
-                                           groupGap + groupLabelHeight + devicePickerHeight(gameplayDevicePicker) +
+                                           (showsDevicePicks(shownBackend())
+                                                ? groupGap + groupLabelHeight + devicePickerHeight(gameplayDevicePicker)
+                                                : 0.0f) +
                                            groupGap + groupLabelHeight + collisionsGroupHeight
                                      : 0.0f;
     return launcherHeight + groupGap + advancedHeaderHeight + advancedHeight;
@@ -688,9 +657,11 @@ void GameplayScreen::drawNormalControls(Rect area) {
         cursor += groupLabelHeight;
         drawBallCollisions({inner.x, cursor, width, collisionsGroupHeight});
         cursor += collisionsGroupHeight + groupGap;
-        ui::drawText("Devices", {inner.x, cursor}, 20.0f, palette::textMuted);
-        cursor += groupLabelHeight;
-        drawDevicePicker({inner.x, cursor, width, devicePickerHeight(gameplayDevicePicker)});
+        if (showsDevicePicks(shownBackend())) {
+            ui::drawText(std::string(menuText::devicesLabel), {inner.x, cursor}, 20.0f, palette::textMuted);
+            cursor += groupLabelHeight;
+            drawDevicePicker({inner.x, cursor, width, devicePickerHeight(gameplayDevicePicker)});
+        }
     }
     ui::scrollHints(inner, normalScroll, normalContentHeight(), palette::panel);
     gfx::endClip();

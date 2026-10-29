@@ -141,11 +141,14 @@ BackendKind chooseStartupBackend(std::optional<BackendKind> commandLine, std::st
         return *commandLine;
     }
     const auto usable = [](BackendKind kind) { return isBackendAvailable(kind) && isBackendSelectable(kind); };
-    if (const auto saved = parseSavedBackendKind(settingsDefault); saved && usable(*saved)) {
-        return *saved;
+    if (const auto saved = parseSavedBackendKind(settingsDefault); saved && usable(offeredBackend(*saved))) {
+        return offeredBackend(*saved);
     }
-    if (const auto target = targetMachineWinner(targetRecordFile); target && usable(target->kind)) {
-        return target->kind;
+    if (usable(BackendKind::Hybrid)) {
+        return BackendKind::Hybrid;
+    }
+    if (const auto target = targetMachineWinner(targetRecordFile); target && usable(offeredBackend(target->kind))) {
+        return offeredBackend(target->kind);
     }
     return fastestAvailableCpuBackend();
 }

@@ -64,6 +64,7 @@ private:
     void drawNormalControls(Rect area);
     float normalContentHeight() const;
     void drawBackendList(Rect area, BackendKind selected);
+    BackendKind shownBackend() const;
     void drawDevicePicker(Rect area);
     void drawBallCollisions(Rect area);
     int drawOptionDropdown(Rect area, std::string_view current, std::span<const std::string> options,

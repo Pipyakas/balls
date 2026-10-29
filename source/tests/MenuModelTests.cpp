@@ -34,7 +34,7 @@ const DebugRow* findRow(const std::vector<DebugRow>& rows, std::string_view labe
 } // namespace
 
 TEST_CASE("the control gadget lists the game's spawn rates, ball counts and ball limits with Auto first") {
-    EXPECT((labels(spawnRateChoices(2)) == std::vector<std::string>{"10", "50", "200", "1000", "2000", "Max"}));
+    EXPECT((labels(spawnRateChoices(2)) == std::vector<std::string>{"10", "50", "200", "1000", "2000", "10k", "50k", "200k", "1M", "Max"}));
     EXPECT(selectedIndex(spawnRateChoices(2)) == 2);
     EXPECT((labels(ballMultiplierChoices(0)) == std::vector<std::string>{"x1", "x10", "x100", "x1000", "x10000"}));
 

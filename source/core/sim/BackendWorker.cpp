@@ -151,12 +151,14 @@ std::vector<BackendKind> selectableBackends() {
     }
     std::vector<BackendKind> kinds;
     for (const BackendKind kind : allBackendKinds) {
-        if (kind != BackendKind::Scalar || !otherBackendAvailable) {
+        if (kind != BackendKind::CudaAvx2 && (kind != BackendKind::Scalar || !otherBackendAvailable)) {
             kinds.push_back(kind);
         }
     }
     return kinds;
 }
+
+BackendKind offeredBackend(BackendKind kind) { return kind == BackendKind::CudaAvx2 ? BackendKind::Hybrid : kind; }
 
 bool isBackendSelectable(BackendKind kind) {
     const std::vector<BackendKind> kinds = selectableBackends();
