@@ -123,29 +123,6 @@ std::filesystem::path SettingsFile() {
 
 std::filesystem::path ProfileFolder() { return SettingsFile().parent_path(); }
 
-// Builds before the core owned the machine profile kept the probe limits in GameUserSettings.ini as
-// "Limit.<backend>=<fps> <balls>"; carry them over to the profile once.
-void AdoptIniBallLimits(MachineProfile& Profile) {
-    if (!GConfig) {
-        return;
-    }
-    for (const BackendKind Kind : allBackendKinds) {
-        const FString Key = TEXT("Limit.") + BallsText::FromUtf8(backendKindName(Kind));
-        FString Value;
-        FString Target;
-        FString Balls;
-        if (!GConfig->GetString(PreferencesSection, *Key, Value, GGameUserSettingsIni) ||
-            !Value.Split(TEXT(" "), &Target, &Balls)) {
-            continue;
-        }
-        if (!Profile.ballLimit(Kind)) {
-            Profile.rememberBallLimit(Kind, FCString::Atod(*Target), FCString::Strtoui64(*Balls, nullptr, 10));
-        }
-        GConfig->RemoveKey(PreferencesSection, *Key, GGameUserSettingsIni);
-    }
-    GConfig->Flush(false, GGameUserSettingsIni);
-}
-
 // The Unreal port owns this one: the design has no graphics level, but its post chain costs more than the scene.
 EBallsGraphics SavedGraphics() {
     // The command line wins: screenshots and measurements pin the level they want to capture.
@@ -187,7 +164,6 @@ FBallsApp::FBallsApp(UWorld* InWorld)
     : World(InWorld), CurrentSettings(loadSettings(SettingsFile())), bVSync(SavedVSync()),
       GraphicsQuality(SavedGraphics()), Profile(ProfileFolder()) {
     Profile.load();
-    AdoptIniBallLimits(Profile);
 #if PLATFORM_ANDROID
     StageAndroidLevels();
 #endif
@@ -708,7 +684,6 @@ void FBallsApp::Tick(float DeltaSeconds) {
     if (!Current) {
         return;
     }
-    // Probe windows use the limiting CPU/GPU work rate, not cadence imposed by VSync or the compositor.
     // After a hitch the spawn budget and brick animation must not jump by the whole stall: clamp like the SDL front end.
     Current->Tick(FMath::Min(DeltaSeconds, MaximumFrameSeconds), Frames.latest().workMs / 1000.0,
                   Frames.latest().workMs / 1000.0);

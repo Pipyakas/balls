@@ -27,7 +27,7 @@ public:
     // GameSession::setBallCollisions; anything other than None comes back as a BallCollisionsChanged event.
     void setBallCollisions(bool enabled);
     // Once per UI frame. On the UI thread it steps the session by deltaSeconds unless paused, using the input's frame
-    // times for the capacity probe; on the physics thread it hands the input over and takes the newest view.
+    // times for the addition governor; on the physics thread it hands the input over and takes the newest view.
     void tick(const PhysicsFrameInput& input, float deltaSeconds);
     // Null only while the physics thread has not published its first view.
     std::shared_ptr<const SessionView> view() const { return latest; }

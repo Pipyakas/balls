@@ -36,26 +36,21 @@ constexpr float groupLabelHeight = 26.0f;
 constexpr float groupGap = 14.0f;
 constexpr float minimumControlColumnWidth = 220.0f;
 constexpr float controlColumnGap = 16.0f;
-constexpr float probeStatusHeight = 28.0f;
 constexpr float advancedHeaderHeight = 40.0f;
 constexpr float collisionsHintSize = 15.0f;
 constexpr float collisionsHintHeight = 40.0f;
 constexpr float collisionsGroupHeight = controlRowHeight + controlGap + collisionsHintHeight;
-constexpr float probeStatusSize = 17.0f;
 
 float listHeight(size_t rows) {
     return (controlRowHeight + controlGap) * static_cast<float>(rows) - controlGap;
 }
 
 constexpr double millisecondsPerSecond = 1000.0;
-constexpr int minimumProbeTargetFps = 10;
-constexpr int maximumProbeTargetFps = 1000;
-constexpr int defaultTargetFps = 60;
 
 } // namespace
 
 GameplayScreen::GameplayScreen(App& app, GameMode mode, LevelFiles files)
-    : app(app), mode(mode), files(std::move(files)), probeTargetFps(defaultTargetFps) {
+    : app(app), mode(mode), files(std::move(files)) {
     loadSession();
     refreshSettings();
 }
@@ -103,11 +98,6 @@ void GameplayScreen::handleSessionEvents() {
             app.showToast(backendFailedMessage(event.backend), true);
         }
     }
-}
-
-void GameplayScreen::startProbe() {
-    const double targetFps = static_cast<double>(probeTargetFps);
-    runner->post([targetFps](GameSession& session) { session.startCapacityProbe(targetFps); });
 }
 
 LevelDiskState GameplayScreen::diskState() const {
@@ -208,7 +198,7 @@ void GameplayScreen::update(float /*deltaTime*/) {
         return;
     }
     app.flow().sessionStateChanged(view->state);
-    const GameplayLayout layout = computeGameplayLayout(
+    const GameplayLayout layout = computeGameplayLayout(\
         {static_cast<float>(gfx::screenWidth()), static_cast<float>(gfx::screenHeight())}, view->board->columns(),
         view->board->rows(), app.settings().layout, mode == GameMode::Normal ? view->launchers.visibleRows() : 0);
     if (!app.flow().isPaused()) {
@@ -217,7 +207,7 @@ void GameplayScreen::update(float /*deltaTime*/) {
     tickPhysics(layout);
 }
 
-// The physics thread keeps its own pace; this hands it the pause state, the UI's frame timings for the capacity probe
+// The physics thread keeps its own pace; this hands it the pause state, the UI's frame timings for the addition governor
 // and the visibility slot size. The view drawn this frame was taken above, so commands posted while drawing show
 // from a later view.
 void GameplayScreen::tickPhysics(const GameplayLayout& layout) {
@@ -482,27 +472,16 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
     const int selectedLimit = autoLimit ? 0 : view->ballLimitIndex + 1;
     const float dropdownHeight =
         controlRowHeight + (limitDropdownOpen ? (controlRowHeight + controlGap) * limitLabels.size() : 0.0f);
-    const float autoRowsHeight = autoLimit ? controlGap + controlRowHeight + probeStatusHeight : 0.0f;
-    const Rect limitArea = group("Ball limit", dropdownHeight + autoRowsHeight);
+    const Rect limitArea = group("Ball limit", dropdownHeight);
     const int pickedLimit = drawOptionDropdown(limitArea, limitLabels[selectedLimit], limitLabels, selectedLimit,
                                                limitDropdownOpen);
     if (pickedLimit == 0) {
         useAutoBallLimit();
     } else if (pickedLimit > 0) {
         runner->post([pickedLimit](GameSession& session) {
-            session.cancelCapacityProbe();
+            session.cancelFill();
             session.selectBallLimit(pickedLimit - 1);
         });
-    }
-    if (autoLimit && pickedLimit < 0) {
-        const float stepperY = limitArea.y + dropdownHeight + controlGap;
-        if (ui::stepper({limitArea.x, stepperY, limitArea.width, controlRowHeight}, "Target FPS", probeTargetFps,
-                        minimumProbeTargetFps, maximumProbeTargetFps)) {
-            startProbe();
-        }
-        ui::drawTextInRect(probeStatusText(*view),
-                           {limitArea.x, stepperY + controlRowHeight, limitArea.width, probeStatusHeight},
-                           probeStatusSize, palette::textMuted, ui::Align::Left);
     }
 
     // The section header spans both columns, under whichever column ended lower.
@@ -724,11 +703,6 @@ void GameplayScreen::post(std::function<void(GameSession&)> command) {
     if (runner) {
         runner->post(std::move(command));
     }
-}
-
-void GameplayScreen::startCapacityProbe(int targetFps) {
-    probeTargetFps = targetFps;
-    startProbe();
 }
 
 // The shared gameplay routes are the core's; the compute GPU list is SDL's own.

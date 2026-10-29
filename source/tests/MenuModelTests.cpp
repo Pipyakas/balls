@@ -47,9 +47,6 @@ TEST_CASE("the control gadget lists the game's spawn rates, ball counts and ball
     view.usingMachineLimit = true;
     EXPECT(isAutoBallLimit(view));
     EXPECT(selectedIndex(ballLimitChoices(view)) == 0);
-    EXPECT(probeStatusText(view).empty());
-    view.machineLimit = 8'199'650;
-    EXPECT(probeStatusText(view) == "Max: 8,199,650");
 }
 
 TEST_CASE("the release button starts once and then counts the launchers left") {
@@ -118,7 +115,7 @@ TEST_CASE("the debug gadget shows the game's rows and hides backend rows while A
     EXPECT(findRow(closed, "Ball collisions") == nullptr);
     EXPECT(findRow(closed, "Balls")->value == "1,234,567");
     EXPECT(findRow(closed, "Physics FPS")->tone == UiTone::Success);
-    EXPECT(findRow(closed, "Ball limit")->value == "Auto (probe needed)");
+    EXPECT(findRow(closed, "Ball limit")->value == "Auto");
     int colorRows = 0;
     for (const DebugRow& row : closed) {
         colorRows += row.kind == DebugRow::Kind::Color ? 1 : 0;
@@ -140,8 +137,6 @@ TEST_CASE("the debug gadget shows the game's rows and hides backend rows while A
 
 TEST_CASE("gameplay toasts read the same everywhere") {
     EXPECT(backendFailedMessage(BackendKind::Cuda) == "Could not start the CUDA backend");
-    EXPECT(probeResultMessage(BackendKind::Avx2, 8'199'650, 60.0) ==
-           "AVX2 limit on this machine: 8,199,650 balls @60 FPS");
     EXPECT(computeGpuMessage("RTX 3070") == "Vulkan physics on RTX 3070");
     EXPECT(groupedCount(1000) == "1,000");
     EXPECT(groupedCount(999) == "999");
