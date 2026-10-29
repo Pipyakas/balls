@@ -13,7 +13,7 @@ namespace Balls.App.Screens
     public static class SharedControls
     {
         private const string DevicesHint =
-            "One backend per device. Two or more devices run as Hybrid, splitting the balls between them; one runs that backend alone.";
+            "The devices Hybrid splits the balls between, one backend each. Leaving one device on runs that backend alone.";
         private const float HintLine = 20f;
 
         /// <summary>The Ball collisions pair, Off / On side by side, saved with the settings; returns the next y.</summary>
@@ -85,6 +85,11 @@ namespace Balls.App.Screens
         public static float DrawDevicePicks(BallsApp app, Widgets widgets, Rect content, float y, int runningKind,
             Action<List<BallsNative.Pick>> applied)
         {
+            // The rows belong to Hybrid and show only while it is selected (the core's showsDevicePicks).
+            if (runningKind != BallsNative.BackendHybrid)
+            {
+                return y;
+            }
             widgets.Label(new Rect(content.x, y, content.width, 22f), "Devices", TypeSizes.Small, Palette.Accent,
                 TextAnchor.UpperLeft, true);
             y += 26f;

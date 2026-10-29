@@ -18,6 +18,7 @@
 #include "sim/BackendBenchmark.h"
 #include "sim/BackendFactory.h"
 #include "sim/BackendSelection.h"
+#include "sim/BackendWorker.h"
 #include "sim/DeviceInventory.h"
 #include "sim/Simulation.h"
 #include "ui/GameplayLayout.h"
@@ -644,11 +645,11 @@ int32_t balls_backend_parse_saved(const char* text) {
         return -1;
     }
     const std::optional<BackendKind> kind = parseSavedBackendKind(text);
-    // The pair has no BALLS_BACKEND_* value of its own here, so it cannot be handed to the host.
-    if (!kind || *kind == BackendKind::CudaAvx2) {
+    if (!kind) {
         return -1;
     }
-    return fromBackendKind(*kind);
+    // A saved CUDA+AVX2 pair, which menus no longer offer, means Hybrid.
+    return fromBackendKind(offeredBackend(*kind));
 }
 
 int32_t balls_compute_gpu(char* buffer, int32_t size) {
