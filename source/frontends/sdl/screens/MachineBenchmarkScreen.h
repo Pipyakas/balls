@@ -23,7 +23,7 @@ public:
     std::string stateJson() const override { return controlBenchmarkJson(controlState()); }
     // The live run as the control API's /benchmark reports it.
     ControlBenchmarkState controlState() const;
-    std::optional<ControlResponse> handleControl(const ControlRequest& request) override;
+    void skip();
 
 private:
     void finish(bool complete);
@@ -35,5 +35,4 @@ private:
     std::string loadError;
     std::optional<BenchmarkCandidate> winner;
     std::vector<CandidateResult> finalResults;
-    float secondsSinceDone = 0.0f;
 };

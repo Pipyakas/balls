@@ -94,7 +94,7 @@ float settingsContentHeight() {
 
 SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind selectedBackend,
                                     std::span<const CandidateResult> benchmarkScores, bool webGpuSupported,
-                                    float& scroll) {
+                                    float& scroll, bool canRunBenchmark) {
     SettingsPanelEdit edit{current, false, false, std::nullopt};
     const Rect inner{area.x, area.y, area.width, area.height};
     float visibleHeight = 0.0f;
@@ -185,10 +185,12 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
     ui::drawText("Physics", {innerX, cursor}, sectionSize, palette::textMuted);
     cursor += sectionHeight;
     ui::drawText("Default backend", {innerX, cursor}, sectionSize, palette::text);
-    const Rect runBenchmark{innerX + innerWidth - runBenchmarkWidth, cursor - optionGap, runBenchmarkWidth,
-                            sectionHeight + optionGap * 0.5f};
-    if (ui::button(runBenchmark, "Run machine benchmark")) {
-        edit.runBenchmark = true;
+    if (canRunBenchmark) {
+        const Rect runBenchmark{innerX + innerWidth - runBenchmarkWidth, cursor - optionGap, runBenchmarkWidth,
+                                sectionHeight + optionGap * 0.5f};
+        if (ui::button(runBenchmark, "Run machine benchmark")) {
+            edit.runBenchmark = true;
+        }
     }
     cursor += sectionHeight;
     for (const BackendKind kind : selectableBackends()) {

@@ -94,12 +94,6 @@ GameplayScreen::GameplayScreen(App& app, GameMode mode, LevelFiles files)
     : app(app), mode(mode), files(std::move(files)), probeTargetFps(defaultTargetFps) {
     loadSession();
     refreshSettings();
-    watcher.watch(this->files);
-}
-
-void GameplayScreen::openSettingsOverlay() {
-    paused = true;
-    settingsOpen = true;
 }
 
 void GameplayScreen::refreshSettings() {
@@ -110,18 +104,19 @@ void GameplayScreen::refreshSettings() {
 }
 
 void GameplayScreen::loadSession() {
-    watcher.markLoaded();
     auto level = loadLevel(files);
     if (!level) {
         runner.reset();
         view.reset();
         loadError = level.error();
+        app.flow().levelFailed(loadError);
         return;
     }
     loadError.clear();
     view.reset();
     runner = std::make_unique<SessionRunner>(mode, std::move(*level), app.preferredBackend());
     applyDefaultBallLimit();
+    app.flow().levelLoaded();
 }
 
 void GameplayScreen::applyDefaultBallLimit() {
@@ -150,11 +145,11 @@ void GameplayScreen::useAutoBallLimit() {
 void GameplayScreen::handleSessionEvents() {
     for (const SessionEvent& event : runner->takeEvents()) {
         if (event.kind == SessionEventKind::BallCollisionsChanged) {
-            showToast(std::string(ballCollisionsMessage(event.collisionsChange)), false);
+            app.showToast(std::string(ballCollisionsMessage(event.collisionsChange)), false);
         } else if (event.kind == SessionEventKind::BackendSwitched) {
             applyDefaultBallLimit();
         } else {
-            showToast(std::format("Could not start the {} backend", backendKindName(event.backend)), true);
+            app.showToast(std::format("Could not start the {} backend", backendKindName(event.backend)), true);
         }
     }
 }
@@ -173,27 +168,44 @@ void GameplayScreen::rememberFinishedProbe() {
     if (!probeResultSaved && probe.phase() == ProbePhase::Done) {
         app.machineProfile().rememberBallLimit(view->backend, probe.targetFps(),
                                                probe.bestPassingCount());
-        showToast(std::format("{} limit on this machine: {} balls @{:.0f} FPS",
-                              backendKindName(view->backend), groupedBalls(probe.bestPassingCount()),
-                              probe.targetFps()),
-                  false);
+        app.showToast(std::format("{} limit on this machine: {} balls @{:.0f} FPS",
+                                  backendKindName(view->backend), groupedBalls(probe.bestPassingCount()),
+                                  probe.targetFps()),
+                      false);
         probeResultSaved = true;
     }
 }
 
-void GameplayScreen::restartLevel() {
-    paused = false;
-    if (watcher.diskState() == LevelDiskState::Removed) {
-        app.showLevelSelect(mode);
-    } else if (watcher.diskState() == LevelDiskState::Changed) {
-        loadSession();
-    } else {
-        runner->post([](GameSession& session) { session.restart(); });
+LevelDiskState GameplayScreen::diskState() const {
+    return app.flow().diskState();
+}
+
+bool GameplayScreen::isPaused() const {
+    return app.flow().isPaused();
+}
+
+void GameplayScreen::setPaused(bool pause) {
+    if (pause && !app.flow().isPaused()) {
+        app.flow().activate(FlowAction::TogglePause);
+    } else if (!pause && app.flow().isPaused()) {
+        if (app.flow().overlay() == FlowOverlay::Settings) {
+            app.flow().activate(FlowAction::Back);
+        }
+        app.flow().activate(FlowAction::Resume);
     }
 }
 
-void GameplayScreen::showToast(std::string text, bool isError) {
-    toast = {std::move(text), theme::toastSeconds, isError};
+void GameplayScreen::restart() {
+    if (app.flow().overlay() == FlowOverlay::None) {
+        app.flow().activate(FlowAction::TogglePause);
+    }
+    app.flow().activate(FlowAction::Restart);
+}
+
+void GameplayScreen::restartSession() {
+    if (runner) {
+        runner->post([](GameSession& session) { session.restart(); });
+    }
 }
 
 float portraitLauncherPressSlop() {
@@ -251,28 +263,21 @@ void GameplayScreen::handleLauncherClick(const GameplayLayout& layout) {
     }
 }
 
-void GameplayScreen::update(float deltaTime) {
-    toast.secondsLeft = std::max(0.0f, toast.secondsLeft - deltaTime);
-    // With a game running the change only shows as the watcher's disk state; the load-error screen retries at once.
-    if (watcher.pollChanged(std::chrono::steady_clock::now()) && !runner) {
-        loadSession();
-    }
+void GameplayScreen::update(float /*deltaTime*/) {
     if (!runner) {
-        if (input::keyPressed(SDL_SCANCODE_ESCAPE)) {
-            app.showLevelSelect(mode);
-        }
         return;
     }
     view = runner->view();
     handleSessionEvents();
     if (!view) {
-        runner->tick({paused, 0.0, 0.0, 0.0f});
+        runner->tick({app.flow().isPaused(), 0.0, 0.0, 0.0f});
         return;
     }
+    app.flow().sessionStateChanged(view->state);
     const GameplayLayout layout = computeGameplayLayout(
         {static_cast<float>(gfx::screenWidth()), static_cast<float>(gfx::screenHeight())}, view->board->columns(),
         view->board->rows(), app.settings().layout, mode == GameMode::Normal ? view->launchers.visibleRows() : 0);
-    if (!paused) {
+    if (!app.flow().isPaused()) {
         handleLauncherClick(layout);
     }
     tickPhysics(layout);
@@ -285,21 +290,11 @@ void GameplayScreen::update(float deltaTime) {
 void GameplayScreen::tickPhysics(const GameplayLayout& layout) {
     const FrameSample& lastFrame = app.frameTimings().latest();
     PhysicsFrameInput input;
-    input.paused = paused;
+    input.paused = app.flow().isPaused();
     input.uiFrameSeconds = lastFrame.workMs / millisecondsPerSecond;
     input.uiWorkSeconds = std::max(lastFrame.cpuMs, lastFrame.gpuMs) / millisecondsPerSecond;
     input.visibilitySlotCells = BallView::slotCells(layout.board, view->ballRadius);
     runner->tick(input);
-}
-
-void GameplayScreen::openNextLevel() {
-    const auto levels = findLevels(levelDirectory(mode));
-    const auto current = std::ranges::find(levels, files.name, &LevelFiles::name);
-    if (current != levels.end() && std::next(current) != levels.end()) {
-        app.startGame(mode, *std::next(current));
-    } else {
-        app.showLevelSelect(mode);
-    }
 }
 
 // The whole header is the Pause / Resume control. It names the action only while hovered or pressed, so the rest of
@@ -311,11 +306,10 @@ void GameplayScreen::drawHeader(const GameplayLayout& layout) {
     const bool pressed = hovered && input::mouseDown(input::MouseButton::Left);
     ui::drawPanel(header, pressed ? palette::controlPressed : (hovered ? palette::controlHover : palette::panel), 0.25f);
     if (hovered) {
-        ui::drawTextInRect(paused ? "Resume" : "Pause", header, 22.0f, palette::textStrong);
+        ui::drawTextInRect(app.flow().isPaused() ? "Resume" : "Pause", header, 22.0f, palette::textStrong);
     } else {
-        const char* modeName = mode == GameMode::Normal ? "Normal" : "Performance";
-        const std::string title = std::format("{} - {}", modeName, files.name);
-        const std::string_view notice = levelDiskNotice(watcher.diskState());
+        const std::string title = app.flow().gameTitle();
+        const std::string_view notice = app.flow().diskNotice();
         const Rect titleRect{header.x + titleInset, header.y, header.width - titleInset * 2.0f, header.height};
         if (notice.empty()) {
             ui::drawScrollingText(title, titleRect, 22.0f, palette::text);
@@ -328,7 +322,7 @@ void GameplayScreen::drawHeader(const GameplayLayout& layout) {
         }
     }
     if (hovered && input::mouseReleased(input::MouseButton::Left)) {
-        paused = !paused;
+        app.flow().activate(FlowAction::TogglePause);
     }
 }
 
@@ -362,14 +356,14 @@ std::string shortAdapterName(const GpuAdapterInfo& adapter) {
     return name;
 }
 
-}
+} // namespace
 
 void GameplayScreen::selectComputeAdapter(int adapter) {
     setComputeGpuPreference(std::to_string(adapter));
     refreshBackendStatuses();
     if (view->backend == BackendKind::Vulkan || view->pendingBackend == BackendKind::Vulkan) {
         runner->post([](GameSession& session) { session.requestBackend(BackendKind::Vulkan); });
-        showToast("Vulkan physics on " + app.computeAdapters()[static_cast<size_t>(adapter)].name, false);
+        app.showToast("Vulkan physics on " + app.computeAdapters()[static_cast<size_t>(adapter)].name, false);
     }
 }
 
@@ -417,7 +411,7 @@ void GameplayScreen::drawDevicePicker(Rect area) {
         refreshBackendStatuses();
         const BackendKind kind = kindForPicks(*changed);
         runner->post([kind](GameSession& session) { session.requestBackend(kind); });
-        showToast("Physics on " + backendPicksLabel(*changed), false);
+        app.showToast("Physics on " + backendPicksLabel(*changed), false);
     }
 }
 
@@ -661,7 +655,7 @@ void GameplayScreen::drawPortraitLauncherRow(Rect area) {
     }
     gfx::beginClip(inner);
     drawPortraitLaunchers(view->launchers, grid, portraitLauncherScroll,
-                          !paused && view->state == SessionState::Running);
+                          !app.flow().isPaused() && view->state == SessionState::Running);
     if (view->launchers.isEmpty()) {
         ui::drawTextInRect("All launchers released", inner, 26.0f, palette::textMuted);
     }
@@ -693,7 +687,7 @@ void GameplayScreen::drawNormalControls(Rect area) {
     const LauncherGridLayout grid =
         computeLauncherGrid(ui::shrink(launcherArea, 12.0f), view->launchers.columnCount(),
                             view->launchers.visibleRows());
-    drawLaunchers(view->launchers, grid, !paused && view->state == SessionState::Running);
+    drawLaunchers(view->launchers, grid, !app.flow().isPaused() && view->state == SessionState::Running);
     if (view->launchers.isEmpty()) {
         ui::drawTextInRect("All launchers released", launcherArea, 26.0f, palette::textMuted);
     }
@@ -722,86 +716,60 @@ void GameplayScreen::drawNormalControls(Rect area) {
 }
 
 void GameplayScreen::drawOverlay() {
-    const bool won = view->state == SessionState::Won && mode == GameMode::Normal;
-    if (!paused && !won) {
+    const FlowOverlay overlay = app.flow().overlay();
+    if (overlay == FlowOverlay::None) {
         return;
-    }
-    if (input::keyPressed(SDL_SCANCODE_ESCAPE) && settingsOpen) {
-        settingsOpen = false;
     }
     const float width = static_cast<float>(gfx::screenWidth());
     const float height = static_cast<float>(gfx::screenHeight());
     gfx::fillRect({0.0f, 0.0f, width, height}, gfx::fade(palette::boardBackdrop, 0.7f));
-    if (settingsOpen) {
+    if (overlay == FlowOverlay::Settings) {
         const Rect panel{(width - settingsPanelWidth) * 0.5f, (height - settingsPanelHeight) * 0.5f,
                          settingsPanelWidth, settingsPanelHeight};
         ui::drawPanel(panel, palette::panel, 0.08f);
         const SettingsPanelEdit edit =
             drawSettingsPanel(panel, app.settings(), app.preferredBackend(), app.benchmarkScores(),
-                              app.isWebGpuSupported(), pauseSettingsScroll);
+                              app.isWebGpuSupported(), pauseSettingsScroll, app.flow().canRunMachineBenchmark());
         if (edit.changed) {
             app.applySettings(edit.settings, edit.backend);
         }
         if (edit.runBenchmark) {
-            app.showMachineBenchmark();
+            app.flow().activate(FlowAction::RunMachineBenchmark);
         }
         if (edit.backPressed) {
-            settingsOpen = false;
+            app.flow().activate(FlowAction::Back);
         }
         return;
     }
-    const int buttonCount = 4;
-    const float panelHeight = 120.0f + buttonCount * (overlayButtonHeight + 14.0f);
+    const auto buttons = app.flow().buttons();
+    const float panelHeight = 120.0f + static_cast<float>(buttons.size()) * (overlayButtonHeight + 14.0f);
     const Rect panel{(width - overlayWidth) * 0.5f, (height - panelHeight) * 0.5f, overlayWidth, panelHeight};
     ui::drawPanel(panel, palette::panel, 0.08f);
-    ui::drawText(won ? "Level Complete!" : "Paused", {panel.x + panel.width * 0.5f, panel.y + 28.0f}, 44.0f,
-                 won ? palette::accent : palette::text, ui::Align::Center);
+    ui::drawText(app.flow().title(), {panel.x + panel.width * 0.5f, panel.y + 28.0f}, 44.0f,
+                 overlay == FlowOverlay::Win ? palette::accent : palette::text, ui::Align::Center);
     auto overlayButton = [&](int index) {
         return Rect{panel.x + 30.0f,
                     panel.y + 100.0f + static_cast<float>(index) * (overlayButtonHeight + 14.0f),
                     panel.width - 60.0f, overlayButtonHeight};
     };
-    if (ui::button(overlayButton(0), won ? "Next Level" : "Resume")) {
-        if (won) {
-            openNextLevel();
-        } else {
-            paused = false;
+    for (size_t index = 0; index < buttons.size(); ++index) {
+        if (ui::button(overlayButton(static_cast<int>(index)), buttons[index].label, buttons[index].enabled)) {
+            app.flow().activate(buttons[index].action);
         }
     }
-    if (ui::button(overlayButton(1), "Restart")) {
-        restartLevel();
-    }
-    if (ui::button(overlayButton(2), "Settings")) {
-        settingsOpen = true;
-    }
-    if (ui::button(overlayButton(3), "Main Menu")) {
-        app.showMainMenu();
-    }
-}
-
-void GameplayScreen::drawToast() {
-    if (toast.secondsLeft <= 0.0f) {
-        return;
-    }
-    const float alpha = std::min(1.0f, toast.secondsLeft);
-    const Vec2 extent = ui::measureText(toast.text, 24.0f);
-    const Rect rect{(static_cast<float>(gfx::screenWidth()) - extent.x) * 0.5f - 20.0f, 24.0f,
-                    extent.x + 40.0f, 48.0f};
-    ui::drawPanel(rect, gfx::fade(toast.isError ? palette::danger : palette::control, alpha), 0.4f);
-    ui::drawTextInRect(toast.text, rect, 24.0f, gfx::fade(palette::text, alpha));
 }
 
 void GameplayScreen::draw() {
     if (!runner) {
         const float centerX = static_cast<float>(gfx::screenWidth()) * 0.5f;
-        ui::drawText("Level failed to load", {centerX, 200.0f}, 40.0f, palette::danger, ui::Align::Center);
-        ui::drawText(loadError, {centerX, 260.0f}, 22.0f, palette::text, ui::Align::Center);
-        ui::drawText("Fix the file and save - it reloads automatically", {centerX, 300.0f}, 22.0f,
-                     palette::textMuted, ui::Align::Center);
-        if (ui::button({centerX - 120.0f, 360.0f, 240.0f, 56.0f}, "Back")) {
-            app.showLevelSelect(mode);
+        ui::drawText(app.flow().title(), {centerX, 200.0f}, 40.0f, palette::danger, ui::Align::Center);
+        ui::drawText(app.flow().loadError(), {centerX, 260.0f}, 22.0f, palette::text, ui::Align::Center);
+        ui::drawText(app.flow().footnote(), {centerX, 300.0f}, 22.0f, palette::textMuted, ui::Align::Center);
+        for (const FlowButton& button : app.flow().buttons()) {
+            if (ui::button({centerX - 120.0f, 360.0f, 240.0f, 56.0f}, button.label, button.enabled)) {
+                app.flow().activate(button.action);
+            }
         }
-        drawToast();
         return;
     }
     if (!view) {
@@ -825,7 +793,6 @@ void GameplayScreen::draw() {
         drawDebugPanel(layout.debugSection, *view, app.frameTimings(), debugState, app.settings().advancedSettings);
     }
     drawOverlay();
-    drawToast();
 }
 
 void GameplayScreen::post(std::function<void(GameSession&)> command) {

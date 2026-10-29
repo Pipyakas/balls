@@ -320,8 +320,14 @@ void MapEditorScreen::handleLauncherInput(Rect area) {
 
 void MapEditorScreen::update(float deltaTime) {
     messageSeconds = std::max(0.0f, messageSeconds - deltaTime);
-    if (input::keyPressed(SDL_SCANCODE_ESCAPE) && !nameFocused) {
-        app.showMainMenu();
+    if (input::keyPressed(SDL_SCANCODE_ESCAPE)) {
+        if (nameFocused) {
+            nameFocused = false;
+        } else if (editor.isDirty() && !confirmLeave) {
+            confirmLeave = true;
+        } else {
+            app.flow().activate(FlowAction::Back);
+        }
         return;
     }
     handleShortcuts();
@@ -450,13 +456,13 @@ void MapEditorScreen::drawPropertyPanel(Rect area) {
         save();
     }
     if (ui::button(nextControl(area, cursor), "Save & Play", validation.isPlayable()) && save()) {
-        app.startGame(targetMode, levelFilesFor(levelDirectory(targetMode), levelName));
+        app.flow().playFromEditor(targetMode, levelFilesFor(levelDirectory(targetMode), levelName));
     }
     if (ui::button(nextControl(area, cursor), confirmLeave ? "Discard changes?" : "Back")) {
         if (editor.isDirty() && !confirmLeave) {
             confirmLeave = true;
         } else {
-            app.showMainMenu();
+            app.flow().activate(FlowAction::Back);
         }
     }
     propertiesContentHeight = cursor - contentTop;

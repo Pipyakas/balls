@@ -39,27 +39,16 @@ void MainMenuScreen::draw() {
     drawDecorativeBalls(time);
     const float centerX = static_cast<float>(gfx::screenWidth()) * 0.5f;
     const float top = static_cast<float>(gfx::screenHeight()) * 0.22f;
-    ui::drawText("BALLS", {centerX, top + titleSize * 0.5f}, titleSize, palette::accent, ui::Align::Center);
+    ui::drawText(app.flow().title(), {centerX, top + titleSize * 0.5f}, titleSize, palette::accent, ui::Align::Center);
 
     const float firstButtonY = top + titleSize * 2.2f;
-    auto buttonRect = [&](int index) {
-        return Rect{centerX - buttonWidth * 0.5f,
-                    firstButtonY + static_cast<float>(index) * (buttonHeight + buttonGap), buttonWidth,
-                    buttonHeight};
-    };
-    if (ui::button(buttonRect(0), "Normal Mode")) {
-        app.showLevelSelect(GameMode::Normal);
-    }
-    if (ui::button(buttonRect(1), "Performance Mode")) {
-        app.showLevelSelect(GameMode::Performance);
-    }
-    if (ui::button(buttonRect(2), "Map Editor")) {
-        app.openEditor(GameMode::Normal, std::nullopt);
-    }
-    if (ui::button(buttonRect(3), "Settings")) {
-        app.showSettings();
-    }
-    if (ui::button(buttonRect(4), "Quit")) {
-        app.quit();
+    const auto buttons = app.flow().buttons();
+    for (size_t i = 0; i < buttons.size(); ++i) {
+        const Rect rect{centerX - buttonWidth * 0.5f,
+                        firstButtonY + static_cast<float>(i) * (buttonHeight + buttonGap), buttonWidth,
+                        buttonHeight};
+        if (ui::button(rect, buttons[i].label, buttons[i].enabled)) {
+            app.flow().activate(buttons[i].action);
+        }
     }
 }
