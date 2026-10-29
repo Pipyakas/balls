@@ -742,6 +742,72 @@ BALLS_API int32_t balls_flow_text(const BallsFlow* flow, int32_t which, char* bu
 BALLS_API int32_t balls_flow_button(const BallsFlow* flow, int32_t index, BallsFlowButton* button);
 BALLS_API int32_t balls_flow_level_row(const BallsFlow* flow, int32_t index, BallsFlowLevelRow* row);
 
+// The core's menu model (ui/MenuModel.h): the game's option rows for Settings and the control gadget, the debug
+// gadget's rows and the gameplay toasts, so the host draws them instead of rebuilding them.
+typedef struct BallsUiOption {
+    char label[128];
+    int32_t enabled;
+    int32_t selected;
+    char detail[256];
+    int32_t kind;  // the backend of a backend row or device option, -1 for Off and plain options
+} BallsUiOption;
+
+enum {
+    BALLS_MENU_ORIENTATION = 0,      // value: BallsSettings.orientation
+    BALLS_MENU_OFF_ON = 1,           // value: 1 when on
+    BALLS_MENU_SPAWN_RATE = 2,       // session options from here on
+    BALLS_MENU_BALL_MULTIPLIER = 3,
+    BALLS_MENU_BALL_LIMIT = 4,       // Auto first
+    BALLS_MENU_GAMEPLAY_BACKENDS = 5,
+    BALLS_MENU_RELEASE = 6,          // one option: the Release button
+    BALLS_MENU_BALL_COLLISIONS = 7,  // value: 1 when requested; detail of the first option holds the hint
+};
+
+// Fills up to capacity options and returns how many the list has. Session lists read the session's latest view.
+BALLS_API int32_t balls_menu_options(int32_t list, int32_t value, BallsSession* session, BallsUiOption* options,
+                                     int32_t capacity);
+// The Default backend rows, with the profile's benchmark scores as details (the profile may be null).
+BALLS_API int32_t balls_menu_default_backends(int32_t preferredKind, const BallsProfile* profile,
+                                              BallsUiOption* options, int32_t capacity);
+// 1 while Auto is the ball limit; the probe line under Target FPS.
+BALLS_API int32_t balls_menu_auto_ball_limit(BallsSession* session);
+BALLS_API int32_t balls_menu_probe_status(BallsSession* session, char* buffer, int32_t size);
+
+typedef struct BallsDevicePickRow {
+    char device[32];
+    char label[256];
+    int32_t optionCount;
+    BallsUiOption options[12];  // Off first
+} BallsDevicePickRow;
+
+// One row per physical device for the picks shown; returns how many devices there are.
+BALLS_API int32_t balls_menu_device_rows(const BallsPick* picks, int32_t pickCount, BallsDevicePickRow* rows,
+                                         int32_t capacity);
+// The picks after a click on option `option` of device row `row`: their count, or -1 when the click changes nothing.
+BALLS_API int32_t balls_menu_pick_device(const BallsPick* picks, int32_t pickCount, int32_t row, int32_t option,
+                                         BallsPick* result, int32_t capacity);
+
+typedef struct BallsDebugRow {
+    int32_t kind;  // 0 heading, 1 value, 2 ball color
+    int32_t tone;  // 0 text, 1 muted, 2 accent, 3 success, 4 danger
+    int32_t colorIndex;
+    char label[64];
+    char value[192];
+} BallsDebugRow;
+
+// The debug gadget's rows; showBackend while Advanced Settings is open; renderer may be null.
+BALLS_API int32_t balls_menu_debug_rows(BallsSession* session, const BallsFrameTimings* timings, int32_t showBackend,
+                                        const char* renderer, BallsDebugRow* rows, int32_t capacity);
+
+enum {
+    BALLS_MENU_TEXT_BACKEND_FAILED = 0,  // kind
+    BALLS_MENU_TEXT_PROBE_RESULT = 1,    // kind, balls, fps
+    BALLS_MENU_TEXT_COMPUTE_GPU = 2,     // text: the GPU name
+};
+BALLS_API int32_t balls_menu_message(int32_t which, int32_t kind, uint64_t balls, double fps, const char* text,
+                                     char* buffer, int32_t size);
+BALLS_API int32_t balls_menu_physics_on(const BallsPick* picks, int32_t pickCount, char* buffer, int32_t size);
+
 #ifdef __cplusplus
 }
 #endif

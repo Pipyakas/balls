@@ -19,6 +19,7 @@
 #include "sim/DeviceInventory.h"
 #include "sim/Simulation.h"
 #include "ui/GameplayLayout.h"
+#include "ui/MenuModel.h"
 #include "ui/ScreenFlow.h"
 #include "ui/Theme.h"
 
@@ -1988,6 +1989,188 @@ int32_t balls_flow_level_row(const BallsFlow* flow, int32_t index, BallsFlowLeve
     copyName(rows[static_cast<size_t>(index)].name, row->name, sizeof row->name);
     row->highlighted = rows[static_cast<size_t>(index)].highlighted ? 1 : 0;
     return 1;
+}
+
+
+namespace {
+
+std::shared_ptr<const SessionView> latestView(BallsSession* session) {
+    if (session == nullptr) {
+        return nullptr;
+    }
+    if (session->threaded()) {
+        return session->view;
+    }
+    auto view = std::make_shared<SessionView>();
+    describeSession(*session->game, *view);
+    return view;
+}
+
+void writeOption(const UiOption& source, int32_t kind, BallsUiOption& out) {
+    std::memset(&out, 0, sizeof out);
+    copyName(source.label, out.label, sizeof out.label);
+    out.enabled = source.enabled ? 1 : 0;
+    out.selected = source.selected ? 1 : 0;
+    copyName(source.detail, out.detail, sizeof out.detail);
+    out.kind = kind;
+}
+
+int32_t writeOptions(const std::vector<UiOption>& source, BallsUiOption* options, int32_t capacity) {
+    if (options != nullptr) {
+        const int32_t written = std::min(static_cast<int32_t>(source.size()), std::max(capacity, 0));
+        for (int32_t index = 0; index < written; ++index) {
+            writeOption(source[static_cast<size_t>(index)], -1, options[index]);
+        }
+    }
+    return static_cast<int32_t>(source.size());
+}
+
+int32_t writeBackendRows(const std::vector<BackendRow>& rows, BallsUiOption* options, int32_t capacity) {
+    if (options != nullptr) {
+        const int32_t written = std::min(static_cast<int32_t>(rows.size()), std::max(capacity, 0));
+        for (int32_t index = 0; index < written; ++index) {
+            const BackendRow& row = rows[static_cast<size_t>(index)];
+            writeOption(row.option, fromBackendKind(row.kind), options[index]);
+        }
+    }
+    return static_cast<int32_t>(rows.size());
+}
+
+} // namespace
+
+int32_t balls_menu_options(int32_t list, int32_t value, BallsSession* session, BallsUiOption* options,
+                           int32_t capacity) {
+    switch (list) {
+    case BALLS_MENU_ORIENTATION:
+        return writeOptions(orientationOptions(static_cast<LayoutOrientation>(value)), options, capacity);
+    case BALLS_MENU_OFF_ON:
+        return writeOptions(offOnOptions(value != 0), options, capacity);
+    case BALLS_MENU_BALL_COLLISIONS: {
+        const BallCollisionsChoice choice = ballCollisionsChoice(value != 0);
+        std::vector<UiOption> withHint = choice.options;
+        withHint.front().detail = choice.hint;
+        return writeOptions(withHint, options, capacity);
+    }
+    default:
+        break;
+    }
+    const std::shared_ptr<const SessionView> view = latestView(session);
+    if (!view) {
+        return 0;
+    }
+    switch (list) {
+    case BALLS_MENU_SPAWN_RATE:
+        return writeOptions(spawnRateChoices(view->spawnRateIndex), options, capacity);
+    case BALLS_MENU_BALL_MULTIPLIER:
+        return writeOptions(ballMultiplierChoices(view->ballMultiplierIndex), options, capacity);
+    case BALLS_MENU_BALL_LIMIT:
+        return writeOptions(ballLimitChoices(*view), options, capacity);
+    case BALLS_MENU_GAMEPLAY_BACKENDS:
+        return writeBackendRows(gameplayBackendRows(*view), options, capacity);
+    case BALLS_MENU_RELEASE:
+        return writeOptions({releaseButton(*view)}, options, capacity);
+    default:
+        return 0;
+    }
+}
+
+int32_t balls_menu_default_backends(int32_t preferredKind, const BallsProfile* profile, BallsUiOption* options,
+                                    int32_t capacity) {
+    std::span<const CandidateResult> scores;
+    if (profile != nullptr && profile->profile.benchmark()) {
+        scores = profile->profile.benchmark()->results;
+    }
+    return writeBackendRows(defaultBackendRows(toBackendKind(preferredKind), scores), options, capacity);
+}
+
+int32_t balls_menu_auto_ball_limit(BallsSession* session) {
+    const std::shared_ptr<const SessionView> view = latestView(session);
+    return view && isAutoBallLimit(*view) ? 1 : 0;
+}
+
+int32_t balls_menu_probe_status(BallsSession* session, char* buffer, int32_t size) {
+    const std::shared_ptr<const SessionView> view = latestView(session);
+    return writeText(view ? probeStatusText(*view) : std::string{}, buffer, size);
+}
+
+int32_t balls_menu_device_rows(const BallsPick* picks, int32_t pickCount, BallsDevicePickRow* rows, int32_t capacity) {
+    const std::vector<DevicePickRow> source = devicePickRows(toPicks(picks, pickCount));
+    if (rows != nullptr) {
+        const int32_t written = std::min(static_cast<int32_t>(source.size()), std::max(capacity, 0));
+        for (int32_t index = 0; index < written; ++index) {
+            const DevicePickRow& row = source[static_cast<size_t>(index)];
+            BallsDevicePickRow& out = rows[index];
+            std::memset(&out, 0, sizeof out);
+            copyName(row.device, out.device, sizeof out.device);
+            copyName(row.label, out.label, sizeof out.label);
+            const size_t optionCount = std::min(row.options.size(), std::size(out.options));
+            out.optionCount = static_cast<int32_t>(optionCount);
+            for (size_t option = 0; option < optionCount; ++option) {
+                const std::optional<BackendKind>& kind = row.kinds[option];
+                writeOption(row.options[option], kind ? fromBackendKind(*kind) : -1, out.options[option]);
+            }
+        }
+    }
+    return static_cast<int32_t>(source.size());
+}
+
+int32_t balls_menu_pick_device(const BallsPick* picks, int32_t pickCount, int32_t row, int32_t option,
+                               BallsPick* result, int32_t capacity) {
+    const std::vector<BackendPick> current = toPicks(picks, pickCount);
+    const std::vector<DevicePickRow> rows = devicePickRows(current);
+    if (row < 0 || option < 0) {
+        return -1;
+    }
+    const std::optional<std::vector<BackendPick>> next =
+        pickDeviceOption(current, rows, static_cast<size_t>(row), static_cast<size_t>(option));
+    if (!next) {
+        return -1;
+    }
+    return writePicks(*next, result, capacity);
+}
+
+int32_t balls_menu_debug_rows(BallsSession* session, const BallsFrameTimings* timings, int32_t showBackend,
+                              const char* renderer, BallsDebugRow* rows, int32_t capacity) {
+    const std::shared_ptr<const SessionView> view = latestView(session);
+    if (!view || timings == nullptr) {
+        return 0;
+    }
+    DebugGadgetOptions gadget;
+    gadget.showBackend = showBackend != 0;
+    gadget.renderer = renderer != nullptr ? renderer : "";
+    const std::vector<DebugRow> source = debugGadgetRows(*view, timings->timings, gadget);
+    if (rows != nullptr) {
+        const int32_t written = std::min(static_cast<int32_t>(source.size()), std::max(capacity, 0));
+        for (int32_t index = 0; index < written; ++index) {
+            const DebugRow& row = source[static_cast<size_t>(index)];
+            BallsDebugRow& out = rows[index];
+            std::memset(&out, 0, sizeof out);
+            out.kind = static_cast<int32_t>(row.kind);
+            out.tone = static_cast<int32_t>(row.tone);
+            out.colorIndex = row.colorIndex;
+            copyName(row.label, out.label, sizeof out.label);
+            copyName(row.value, out.value, sizeof out.value);
+        }
+    }
+    return static_cast<int32_t>(source.size());
+}
+
+int32_t balls_menu_message(int32_t which, int32_t kind, uint64_t balls, double fps, const char* text, char* buffer,
+                           int32_t size) {
+    switch (which) {
+    case BALLS_MENU_TEXT_BACKEND_FAILED:
+        return writeText(backendFailedMessage(toBackendKind(kind)), buffer, size);
+    case BALLS_MENU_TEXT_PROBE_RESULT:
+        return writeText(probeResultMessage(toBackendKind(kind), static_cast<BallCount>(balls), fps), buffer, size);
+    case BALLS_MENU_TEXT_COMPUTE_GPU:
+        return writeText(computeGpuMessage(text != nullptr ? text : ""), buffer, size);
+    default:
+        return writeText(std::string_view{}, buffer, size);
+    }
+}
+
+int32_t balls_menu_physics_on(const BallsPick* picks, int32_t pickCount, char* buffer, int32_t size) {
+    return writeText(physicsOnMessage(toPicks(picks, pickCount)), buffer, size);
 }
 
 } // extern "C"
