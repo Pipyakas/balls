@@ -113,6 +113,8 @@ public:
     void undo();
     void redo();
     bool isDirty() const { return editor.isDirty(); }
+    // Back asked to confirm unsaved changes; any edit or a second Back ends it.
+    bool isConfirmingLeave() const { return confirmLeave; }
 
     bool save();
     // Saves and returns the files to play, when the level is valid and the save worked.

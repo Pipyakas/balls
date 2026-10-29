@@ -583,7 +583,7 @@ private:
                         const FBallsGameplayLayout& Layout) const {
         const LauncherQueue& Queue = Session.launchers;
         if (Queue.isEmpty()) {
-            DrawTextInRect(Out, Layer, Geometry, TEXT("All launchers released"), Layout.InteractionSection,
+            DrawTextInRect(Out, Layer, Geometry, BallsText::FromUtf8(std::string(menuText::allLaunchersReleased)), Layout.InteractionSection,
                            BallsStyle::Font(26.0f), BallsPalette::Linear(BallsPalette::TextMuted));
             return;
         }

@@ -9,10 +9,11 @@
 
 class FBallsApp;
 
-enum class FEditorTool { Paint, Extend, Erase, Pick };
+using FEditorTool = EditorTool;
 
-// Front-end state for the shared LevelEditor. Mirrors frontends/raylib/editor/MapEditorScreen:
-// tools, brush, level name, messages and the save/play/back flow. The Slate screen only draws it.
+// Front-end state for the shared LevelEditor. Now driven by the core's EditorSession: the tool, brush and launcher
+// count, strokes, launcher clicks, shortcuts, steppers' ranges, name rules, saving and the unsaved-changes
+// confirmation all live in the core. The Slate screen only draws it.
 class FBallsMapEditor {
 public:
     FBallsMapEditor(FBallsApp& App, GameMode Mode, std::optional<LevelFiles> Files);
@@ -20,24 +21,23 @@ public:
     void Tick(float DeltaSeconds);
     bool HandleKey(const FKey& Key);
 
-    LevelEditor& Editable() { return EditorState; }
-    const LevelEditor& Editable() const { return EditorState; }
-    GameMode Mode() const { return TargetMode; }
-    void SetMode(GameMode Mode) { TargetMode = Mode; }
+    const LevelData& Level() const { return Session.level(); }
+    GameMode Mode() const { return Session.mode(); }
+    void SetMode(GameMode Mode) { Session.setMode(Mode); }
 
-    const std::string& LevelName() const { return LevelNameValue; }
-    void SetLevelName(std::string Name) { LevelNameValue = std::move(Name); }
+    const std::string& LevelName() const { return Session.name(); }
+    void SetLevelName(std::string Name) { Session.setName(Name); }
 
-    FEditorTool Tool() const { return CurrentTool; }
-    void SetTool(FEditorTool Tool) { CurrentTool = Tool; }
+    EditorTool Tool() const { return Session.tool(); }
+    void SetTool(EditorTool Tool) { Session.setTool(Tool); }
 
-    BallColor BrushColor() const { return CurrentColor; }
-    void SetBrushColor(BallColor Color);
-    int BrushHits() const { return CurrentHits; }
-    void SetBrushHits(int Hits);
-    int LauncherBalls() const { return LauncherBallCount; }
-    void SetLauncherBalls(int Count);
-    int SelectedBrick() const { return SelectedBrickId; }
+    BallColor BrushColor() const { return Session.brushColor(); }
+    void SetBrushColor(BallColor Color) { Session.selectColor(Color); }
+    int BrushHits() const { return Session.brushHits(); }
+    void SetBrushHits(int Hits) { Session.setBrushHits(Hits); }
+    int LauncherBalls() const { return Session.launcherBalls(); }
+    void SetLauncherBalls(int Count) { Session.setLauncherBalls(Count); }
+    int SelectedBrick() const { return Session.selectedBrick(); }
 
     void SetBoardWidth(int Width);
     void SetBrickRows(int Rows);
@@ -51,45 +51,34 @@ public:
     void ApplyBrickCell(int Column, int Row, bool bErase);
     void ApplyLauncherCell(int Column, int Row, bool bErase, bool bRemoveRow);
 
-    void Undo() { EditorState.undo(); }
-    void Redo() { EditorState.redo(); }
+    void Undo() { Session.undo(); }
+    void Redo() { Session.redo(); }
     void Save();
     void SaveAndPlay();
     void Back();
 
-    bool IsDirty() const { return EditorState.isDirty(); }
-    bool ConfirmLeave() const { return bConfirmLeave; }
-    EditorValidation Validation() const { return EditorState.validate(TargetMode); }
+    bool IsDirty() const { return Session.isDirty(); }
+    bool ConfirmLeave() const;
+    EditorValidation Validation() const { return Session.validation(); }
     LevelFiles Files() const;
 
-    bool HasMessage() const { return MessageSecondsValue > 0.0f; }
-    const std::string& Message() const { return MessageText; }
-    bool MessageIsError() const { return bMessageError; }
-    float MessageSeconds() const { return MessageSecondsValue; }
+    bool HasMessage() const { return Session.message().secondsLeft > 0.0f; }
+    const std::string& Message() const { return Session.message().text; }
+    bool MessageIsError() const { return Session.message().isError; }
+    float MessageSeconds() const { return Session.message().secondsLeft; }
+
+    bool CanUndo() const { return Session.canUndo(); }
+    bool CanRedo() const { return Session.canRedo(); }
+
+    // Core labels, for the Slate screen.
+    std::string SaveLabel() const { return Session.saveLabel(); }
+    std::string_view BackLabel() const { return Session.backLabel(); }
+    std::string FooterText() const { return Session.footerText(); }
+    std::string SelectionText() const { return Session.selectionText(); }
+    std::string ColorTallyText(BallColor Color) const { return Session.colorTallyText(Color); }
+    bool ColorTallyMatches(BallColor Color) const { return Session.colorTallyMatches(Color); }
 
 private:
-    void NewLevel();
-    bool SaveInternal();
-    void ShowMessage(std::string Text, bool bError);
-
     FBallsApp& App;
-    GameMode TargetMode = GameMode::Normal;
-    LevelEditor EditorState;
-    std::string LevelNameValue;
-    FEditorTool CurrentTool = FEditorTool::Paint;
-    BallColor CurrentColor = BallColor::Red;
-    int CurrentHits = 1;
-    int LauncherBallCount = 10;
-    int SelectedBrickId = -1;
-
-    int LastColumn = -1;
-    int LastRow = -1;
-    bool bStrokeActive = false;
-    bool bDragging = false;
-    bool bEraseStroke = false;
-    bool bConfirmLeave = false;
-
-    std::string MessageText;
-    float MessageSecondsValue = 0.0f;
-    bool bMessageError = false;
+    EditorSession Session;
 };

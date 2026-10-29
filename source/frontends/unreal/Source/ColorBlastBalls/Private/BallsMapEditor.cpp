@@ -4,237 +4,79 @@
 
 #include "Framework/Application/SlateApplication.h"
 
-#include <algorithm>
+FBallsMapEditor::FBallsMapEditor(FBallsApp& InApp, GameMode Mode, std::optional<LevelFiles> Files)
+    : App(InApp), Session(Mode, Files, InApp.LevelDirectory(GameMode::Normal),
+                          InApp.LevelDirectory(GameMode::Performance)) {}
 
-namespace {
-
-constexpr int MaximumBoardSize = 200;
-constexpr int MaximumHits = 999;
-constexpr int MaximumLauncherBalls = 100000;
-constexpr float MessageLifetime = 3.0f;
-
-}
-
-FBallsMapEditor::FBallsMapEditor(FBallsApp& InApp, GameMode Mode, std::optional<LevelFiles> Files) : App(InApp) {
-    TargetMode = Mode;
-    if (Files) {
-        if (auto Loaded = loadLevel(*Files); Loaded) {
-            EditorState.load(std::move(*Loaded));
-            LevelNameValue = Files->name;
-            EditorState.markSaved();
-            return;
-        } else {
-            ShowMessage("Could not load: " + Loaded.error(), true);
-        }
-    }
-    NewLevel();
-}
-
-void FBallsMapEditor::NewLevel() {
-    bConfirmLeave = false;
-    LevelNameValue = "NewLevel";
-    EditorState.newLevel(LevelNameValue, 10, 8, 20, 3, 3);
-    SelectedBrickId = -1;
-}
-
-void FBallsMapEditor::ShowMessage(std::string Text, bool bError) {
-    MessageText = std::move(Text);
-    MessageSecondsValue = MessageLifetime;
-    bMessageError = bError;
-}
-
-void FBallsMapEditor::Tick(float DeltaSeconds) {
-    MessageSecondsValue = FMath::Max(0.0f, MessageSecondsValue - DeltaSeconds);
-}
-
-void FBallsMapEditor::SetBrushColor(BallColor Color) {
-    bConfirmLeave = false;
-    CurrentColor = Color;
-    if (CurrentTool == FEditorTool::Pick && SelectedBrickId >= 0) {
-        EditorState.beginEdit();
-        EditorState.setBrickColor(SelectedBrickId, Color);
-    }
-}
-
-void FBallsMapEditor::SetBrushHits(int Hits) {
-    bConfirmLeave = false;
-    CurrentHits = FMath::Clamp(Hits, 1, MaximumHits);
-    if (CurrentTool == FEditorTool::Pick && SelectedBrickId >= 0) {
-        EditorState.beginEdit();
-        EditorState.setBrickHits(SelectedBrickId, CurrentHits);
-    }
-}
-
-void FBallsMapEditor::SetLauncherBalls(int Count) {
-    LauncherBallCount = FMath::Clamp(Count, 1, MaximumLauncherBalls);
-}
+void FBallsMapEditor::Tick(float DeltaSeconds) { Session.update(DeltaSeconds); }
 
 void FBallsMapEditor::SetBoardWidth(int Width) {
-    const BrickLayout& Bricks = EditorState.level().bricks;
-    EditorState.beginEdit();
-    bConfirmLeave = false;
-    EditorState.resizeBoard(FMath::Clamp(Width, 1, MaximumBoardSize), Bricks.height,
-                            FMath::Max(Bricks.playableHeight, Bricks.height));
+    Session.setBoardSize(Width, Session.level().bricks.height, Session.level().bricks.playableHeight);
 }
 
 void FBallsMapEditor::SetBrickRows(int Rows) {
-    const BrickLayout& Bricks = EditorState.level().bricks;
-    const int NewRows = FMath::Clamp(Rows, 1, MaximumBoardSize);
-    EditorState.beginEdit();
-    bConfirmLeave = false;
-    EditorState.resizeBoard(Bricks.width, NewRows, FMath::Max(Bricks.playableHeight, NewRows));
+    Session.setBoardSize(Session.level().bricks.width, Rows, Session.level().bricks.playableHeight);
 }
 
 void FBallsMapEditor::SetPlayableRows(int Rows) {
-    const BrickLayout& Bricks = EditorState.level().bricks;
-    EditorState.beginEdit();
-    bConfirmLeave = false;
-    EditorState.resizeBoard(Bricks.width, Bricks.height,
-                            FMath::Max(FMath::Clamp(Rows, Bricks.height, MaximumBoardSize * 2), Bricks.height));
+    Session.setBoardSize(Session.level().bricks.width, Session.level().bricks.height, Rows);
 }
 
-void FBallsMapEditor::SetLauncherColumns(int Columns) {
-    EditorState.beginEdit();
-    bConfirmLeave = false;
-    EditorState.setLauncherColumns(FMath::Clamp(Columns, 1, 8));
-}
+void FBallsMapEditor::SetLauncherColumns(int Columns) { Session.setLauncherColumns(Columns); }
 
-void FBallsMapEditor::SetVisibleRows(int Rows) {
-    EditorState.beginEdit();
-    bConfirmLeave = false;
-    EditorState.setVisibleRows(FMath::Clamp(Rows, 1, 8));
-}
+void FBallsMapEditor::SetVisibleRows(int Rows) { Session.setVisibleRows(Rows); }
 
-void FBallsMapEditor::AutoFillLaunchers() {
-    EditorState.beginEdit();
-    bConfirmLeave = false;
-    EditorState.autoFillLaunchers(LauncherBallCount > 0 ? LauncherBallCount : 10);
-}
+void FBallsMapEditor::AutoFillLaunchers() { Session.autoFillLaunchers(); }
 
-void FBallsMapEditor::BeginStroke(bool bErase) {
-    EditorState.beginEdit();
-    bConfirmLeave = false;
-    bStrokeActive = true;
-    bEraseStroke = bErase;
-    bDragging = false;
-    LastColumn = -1;
-    LastRow = -1;
-}
+void FBallsMapEditor::BeginStroke(bool bErase) { Session.beginStroke(bErase); }
 
-void FBallsMapEditor::EndStroke() {
-    bStrokeActive = false;
-    bDragging = false;
-    LastColumn = -1;
-    LastRow = -1;
-}
+void FBallsMapEditor::EndStroke() { Session.endStroke(); }
 
-void FBallsMapEditor::ApplyBrickCell(int Column, int Row, bool bErase) {
-    if (!bStrokeActive) {
-        return;
-    }
-    const BrickLayout& Bricks = EditorState.level().bricks;
-    if (Column < 0 || Row < 0 || Column >= Bricks.width || Row >= Bricks.height) {
-        return;
-    }
-    if (Column == LastColumn && Row == LastRow) {
-        return;
-    }
-
-    if (bErase || CurrentTool == FEditorTool::Erase) {
-        EditorState.eraseCell(Column, Row);
-    } else {
-        const int Under = EditorState.brickIdAt(Column, Row);
-        switch (CurrentTool) {
-        case FEditorTool::Paint:
-            EditorState.paintCell(Column, Row, CurrentColor, CurrentHits);
-            break;
-        case FEditorTool::Extend:
-            if (!bDragging && Under != emptyBrickId) {
-                SelectedBrickId = Under;
-            } else if (SelectedBrickId >= 0) {
-                EditorState.extendBrick(SelectedBrickId, Column, Row);
-            }
-            break;
-        case FEditorTool::Pick:
-            SelectedBrickId = Under;
-            if (const BrickType* Type = EditorState.level().bricks.findType(Under)) {
-                CurrentColor = Type->color;
-                CurrentHits = Type->hits;
-            }
-            break;
-        case FEditorTool::Erase:
-            break;
-        }
-    }
-
-    bDragging = (LastColumn >= 0) || CurrentTool != FEditorTool::Extend || SelectedBrickId >= 0;
-    LastColumn = Column;
-    LastRow = Row;
-    (void)bEraseStroke;
-}
+void FBallsMapEditor::ApplyBrickCell(int Column, int Row, bool /*bErase*/) { Session.strokeCell(Column, Row); }
 
 void FBallsMapEditor::ApplyLauncherCell(int Column, int Row, bool bErase, bool bRemoveRow) {
-    const LauncherLayout& Launchers = EditorState.level().launchers;
-    if (Column < 0 || Row < 0 || Column >= Launchers.columns) {
-        return;
-    }
-    EditorState.beginEdit();
-    bConfirmLeave = false;
+    LauncherClick Click = LauncherClick::Set;
     if (bRemoveRow) {
-        if (Row < Launchers.rowCount()) {
-            EditorState.removeLauncherRow(Row);
-        }
-        return;
+        Click = LauncherClick::DeleteRow;
+    } else if (bErase) {
+        Click = LauncherClick::Clear;
     }
-    if (bErase) {
-        if (Row < Launchers.rowCount()) {
-            EditorState.setLauncher(Column, Row, std::nullopt);
-        }
-        return;
-    }
-    EditorState.setLauncher(Column, Row, Launcher{CurrentColor, LauncherBallCount});
+    Session.clickLauncher(Column, Row, Click);
 }
 
 bool FBallsMapEditor::HandleKey(const FKey& Key) {
     const bool bControl = FSlateApplication::Get().GetModifierKeys().IsControlDown();
     if (bControl) {
         if (Key == EKeys::Z) {
-            Undo();
-            return true;
+            return Session.handleShortcut(EditorShortcut::Undo);
         }
         if (Key == EKeys::Y) {
-            Redo();
-            return true;
+            return Session.handleShortcut(EditorShortcut::Redo);
         }
         if (Key == EKeys::S) {
-            Save();
-            return true;
+            return Session.handleShortcut(EditorShortcut::Save);
         }
         return false;
     }
 
     if (Key == EKeys::P) {
-        CurrentTool = FEditorTool::Paint;
-        return true;
+        return Session.handleShortcut(EditorShortcut::Paint);
     }
     if (Key == EKeys::E) {
-        CurrentTool = FEditorTool::Extend;
-        return true;
+        return Session.handleShortcut(EditorShortcut::Extend);
     }
     if (Key == EKeys::X) {
-        CurrentTool = FEditorTool::Erase;
-        return true;
+        return Session.handleShortcut(EditorShortcut::Erase);
     }
     if (Key == EKeys::K) {
-        CurrentTool = FEditorTool::Pick;
-        return true;
+        return Session.handleShortcut(EditorShortcut::Pick);
     }
     const FKey Digits[ballColorCount] = {EKeys::One, EKeys::Two,   EKeys::Three, EKeys::Four,
                                          EKeys::Five, EKeys::Six, EKeys::Seven};
     for (int Color = 0; Color < ballColorCount; ++Color) {
         if (Key == Digits[Color]) {
-            SetBrushColor(ballColorFromIndex(Color));
-            return true;
+            return Session.handleShortcut(static_cast<EditorShortcut>(
+                static_cast<int>(EditorShortcut::Color1) + Color));
         }
     }
     if (Key == EKeys::Escape) {
@@ -245,45 +87,26 @@ bool FBallsMapEditor::HandleKey(const FKey& Key) {
 }
 
 LevelFiles FBallsMapEditor::Files() const {
-    return levelFilesFor(App.LevelDirectory(TargetMode), LevelNameValue);
+    return levelFilesFor(App.LevelDirectory(Session.mode()), Session.name());
 }
 
-bool FBallsMapEditor::SaveInternal() {
-    if (LevelNameValue.empty()) {
-        ShowMessage("Enter a level name first", true);
-        return false;
-    }
-    LevelData Level = EditorState.level();
-    Level.name = LevelNameValue;
-    if (auto Result = saveLevel(Level, Files()); !Result) {
-        ShowMessage(Result.error(), true);
-        return false;
-    }
-    EditorState.markSaved();
-    ShowMessage("Saved " + LevelNameValue + (TargetMode == GameMode::Normal ? " (normal)" : " (performance)"), false);
-    return true;
-}
-
-void FBallsMapEditor::Save() {
-    SaveInternal();
-}
+void FBallsMapEditor::Save() { Session.save(); }
 
 void FBallsMapEditor::SaveAndPlay() {
-    if (SaveInternal()) {
-        App.GetScreenFlow().playFromEditor(TargetMode, Files());
+    if (auto Files = Session.saveAndPlay()) {
+        App.GetScreenFlow().playFromEditor(Session.mode(), *Files);
         App.ProcessFlowRequests();
         App.ApplyFlowScreen();
     }
 }
 
 void FBallsMapEditor::Back() {
-    if (EditorState.isDirty() && !bConfirmLeave) {
-        bConfirmLeave = true;
-        ShowMessage("Unsaved changes - press Back again to discard", true);
+    if (Session.back() == EditorLeave::Confirm) {
         return;
     }
-    bConfirmLeave = false;
     App.GetScreenFlow().activate(FlowAction::Back);
     App.ProcessFlowRequests();
     App.ApplyFlowScreen();
 }
+
+bool FBallsMapEditor::ConfirmLeave() const { return Session.isConfirmingLeave(); }
