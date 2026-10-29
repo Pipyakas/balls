@@ -48,9 +48,7 @@ constexpr float fontLoadPixels = 32.0f;
 constexpr float channelScale = 1.0f / 255.0f;
 constexpr const char* windowTitle = "Balls";
 constexpr const char* screenshotExtension = ".bmp";
-constexpr float toastSeconds = 3.0f;
 constexpr char importPathSeparator = '|';
-constexpr float toastTextSize = 24.0f;
 constexpr float toastHeight = 48.0f;
 constexpr float toastPadding = 20.0f;
 constexpr float toastMargin = 24.0f;
@@ -475,7 +473,7 @@ void App::handleEvent(const SDL_Event& event) {
     }
 }
 
-void App::showToast(std::string text, bool isError) { toast = {std::move(text), toastSeconds, isError}; }
+void App::showToast(std::string text, bool isError) { toast = {std::move(text), theme::toastSeconds, isError}; }
 
 void App::deliverImport(std::vector<std::filesystem::path> paths) {
     if (!currentScreen || !currentScreen->importLevels(paths)) {
@@ -544,11 +542,11 @@ void App::drawToast() {
     }
     const float alpha = std::min(1.0f, toast.secondsLeft);
     const float maximumWidth = static_cast<float>(gfx::screenWidth()) - 2.0f * toastMargin;
-    const float size = std::min(toastTextSize, toastTextSize * maximumWidth / std::max(ui::measureText(toast.text, toastTextSize).x, 1.0f));
+    const float size = std::min(theme::toastTextSize, theme::toastTextSize * maximumWidth / std::max(ui::measureText(toast.text, theme::toastTextSize).x, 1.0f));
     const Vec2 extent = ui::measureText(toast.text, size);
     const Rect rect{(static_cast<float>(gfx::screenWidth()) - extent.x) * 0.5f - toastPadding, currentScreen->toastTop(),
                     extent.x + 2.0f * toastPadding, toastHeight};
-    ui::drawPanel(rect, gfx::fade(toast.isError ? palette::danger : palette::panelLight, alpha), 0.4f);
+    ui::drawPanel(rect, gfx::fade(toast.isError ? palette::danger : palette::control, alpha), 0.4f);
     ui::drawTextInRect(toast.text, rect, size, gfx::fade(palette::text, alpha));
 }
 
@@ -634,7 +632,7 @@ void App::drawFrameTimingsOverlay() const {
     const float x = 26.0f;
     const float y = static_cast<float>(gfx::screenHeight()) - extent.y - 10.0f;
     ui::drawPanel({x - 10.0f, y - 4.0f, extent.x + 20.0f, extent.y + 8.0f},
-                  gfx::fade(palette::backgroundDeep, 0.85f));
+                  gfx::fade(palette::boardBackdrop, 0.85f));
     ui::drawText(text, {x, y}, 18.0f, palette::textMuted);
 }
 

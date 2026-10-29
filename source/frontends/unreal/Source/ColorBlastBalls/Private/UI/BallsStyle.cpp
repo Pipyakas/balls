@@ -49,13 +49,13 @@ FSlateFontInfo Font(float Size, bool bBold) {
 const FButtonStyle& Button() {
     static const FButtonStyle Style = [] {
         auto Fill = [](const FColor& Color) {
-            return FSlateRoundedBoxBrush(BallsPalette::Linear(Color), 0.0f, BallsPalette::Linear(BallsPalette::Frame), 1.0f);
+            return FSlateRoundedBoxBrush(BallsPalette::Linear(Color), 0.0f, BallsPalette::Linear(BallsPalette::Border), 1.0f);
         };
         FButtonStyle Result;
-        Result.SetNormal(Fill(BallsPalette::PanelLight));
+        Result.SetNormal(Fill(BallsPalette::Control));
         Result.SetHovered(Fill(BallsPalette::ControlHover));
         Result.SetPressed(Fill(BallsPalette::ControlPressed));
-        Result.SetDisabled(Fill(BallsPalette::PanelLight));
+        Result.SetDisabled(Fill(BallsPalette::Control));
         Result.SetNormalForeground(BallsPalette::Linear(BallsPalette::Text));
         Result.SetHoveredForeground(BallsPalette::Linear(BallsPalette::TextStrong));
         Result.SetPressedForeground(BallsPalette::Linear(BallsPalette::TextStrong));
@@ -70,7 +70,7 @@ const FButtonStyle& Button() {
 const FButtonStyle& SelectedButton() {
     static const FButtonStyle Style = [] {
         auto Fill = [](const FColor& Color) {
-            return FSlateRoundedBoxBrush(BallsPalette::Linear(Color), 0.0f, BallsPalette::Linear(BallsPalette::Frame), 1.0f);
+            return FSlateRoundedBoxBrush(BallsPalette::Linear(Color), 0.0f, BallsPalette::Linear(BallsPalette::Border), 1.0f);
         };
         FButtonStyle Result;
         Result.SetNormal(Fill(BallsPalette::Accent));
@@ -99,7 +99,7 @@ const FSlateBrush* RoundedBox(float Radius) {
 }
 
 const FSlateBrush* Panel() {
-    static const FSlateRoundedBoxBrush Brush(BallsPalette::Linear(BallsPalette::Panel), 0.0f, BallsPalette::Linear(BallsPalette::Frame), 1.0f);
+    static const FSlateRoundedBoxBrush Brush(BallsPalette::Linear(BallsPalette::Panel), 0.0f, BallsPalette::Linear(BallsPalette::Border), 1.0f);
     return &Brush;
 }
 

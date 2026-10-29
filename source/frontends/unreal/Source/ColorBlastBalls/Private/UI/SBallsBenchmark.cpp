@@ -53,7 +53,7 @@ TSharedRef<SWidget> ProgressBar(float Progress) {
             + SOverlay::Slot()
             [
                 SNew(SBorder).BorderImage(BallsStyle::White()).BorderBackgroundColor(
-                    BallsPalette::Linear(BallsPalette::PanelLight))
+                    BallsPalette::Linear(BallsPalette::Control))
             ]
             + SOverlay::Slot().HAlign(HAlign_Left)
             [
@@ -147,7 +147,7 @@ void SBallsBenchmark::Refresh() {
             [
                 SNew(SBorder)
                 .BorderImage(BallsStyle::White())
-                .BorderBackgroundColor(bWinner ? BallsPalette::Linear(BallsPalette::PanelLight)
+                .BorderBackgroundColor(bWinner ? BallsPalette::Linear(BallsPalette::Control)
                                                : BallsPalette::Linear(BallsPalette::Panel))
                 .Padding(FMargin(RowPadding, 0.0f))
                 .VAlign(VAlign_Center)

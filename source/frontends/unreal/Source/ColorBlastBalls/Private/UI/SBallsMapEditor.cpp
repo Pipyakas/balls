@@ -206,14 +206,14 @@ public:
         const BrickLayout& Bricks = Editor->Editable().level().bricks;
         const FVector2D Size = AllottedGeometry.GetLocalSize();
         DrawBox(OutDrawElements, LayerId, AllottedGeometry, FSlateRect(FVector2D::ZeroVector, Size),
-                BallsStyle::RoundedBox(0.0f), BallsPalette::Linear(BallsPalette::BackgroundDeep));
+                BallsStyle::RoundedBox(0.0f), BallsPalette::Linear(BallsPalette::BoardBackdrop));
 
         float Cell = 0.0f;
         const FSlateRect Grid = GridRect(AllottedGeometry, Cell);
         const FSlateRect BrickRows(Grid.Left, Grid.Top, Grid.Right, Grid.Top + Cell * static_cast<float>(Bricks.height));
         DrawBox(OutDrawElements, LayerId + 1, AllottedGeometry,
                 FSlateRect(Grid.Left, Grid.Top, Grid.Right, Grid.Bottom),
-                BallsStyle::White(), BallsPalette::Linear(BallsPalette::Shade(BallsPalette::BackgroundDeep, 0.7f)));
+                BallsStyle::White(), BallsPalette::Linear(BallsPalette::Shade(BallsPalette::BoardBackdrop, 0.7f)));
         DrawBox(OutDrawElements, LayerId + 1, AllottedGeometry, BrickRows, BallsStyle::White(),
                 BallsPalette::Linear(BallsPalette::Panel));
 
@@ -257,7 +257,7 @@ public:
                     }
                 } else {
                     DrawBox(OutDrawElements, LayerId + 2, AllottedGeometry, Rect, BallsStyle::White(),
-                            BallsPalette::Linear(BallsPalette::Frame));
+                            BallsPalette::Linear(BallsPalette::Border));
                 }
                 if (Hovered.X == Column && Hovered.Y == Row) {
                     DrawBox(OutDrawElements, LayerId + 5, AllottedGeometry, Rect, BallsStyle::White(),
@@ -381,7 +381,7 @@ public:
                                    BallsPalette::Linear(BallsPalette::Text));
                 } else {
                     DrawBox(OutDrawElements, LayerId + 1, AllottedGeometry, Rect, BallsStyle::White(),
-                            BallsPalette::Linear(BallsPalette::Frame));
+                            BallsPalette::Linear(BallsPalette::Border));
                 }
                 if (Row == Launchers.visibleRows - 1) {
                     DrawBox(OutDrawElements, LayerId + 2, AllottedGeometry,
@@ -606,7 +606,7 @@ TSharedRef<SWidget> SBallsMapEditor::MakePropertyPanel() {
         SAssignNew(NameBox, SEditableTextBox)
         .Font(BallsStyle::Font(20.0f))
         .ForegroundColor(FSlateColor(BallsPalette::Linear(BallsPalette::Text)))
-        .BackgroundColor(FSlateColor(BallsPalette::Linear(BallsPalette::PanelLight)))
+        .BackgroundColor(FSlateColor(BallsPalette::Linear(BallsPalette::Control)))
         .Padding(FMargin(8.0f, 4.0f))
         .Text(FText::FromString(BallsText::FromUtf8(E->LevelName())))
         .OnTextChanged_Lambda([E](const FText& Text) {

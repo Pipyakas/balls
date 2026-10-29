@@ -8,7 +8,7 @@
 
 #include <stdint.h>
 
-#define BALLS_UNITY_ABI_VERSION 2
+#define BALLS_UNITY_ABI_VERSION 3
 
 #if defined(_WIN32)
 #define BALLS_API __declspec(dllexport)
@@ -289,6 +289,55 @@ BALLS_API void balls_set_plugin_directory(const char* directory);
 BALLS_API int32_t balls_last_error(char* buffer, int32_t size);
 
 BALLS_API float balls_render_pack_scale(float fieldExtent);
+
+// The core's theme (ui/Theme.h), so the host converts the game's colors and sizes instead of copying them.
+enum {
+    BALLS_THEME_BACKGROUND = 0,
+    BALLS_THEME_BOARD_BACKDROP = 1,
+    BALLS_THEME_PANEL = 2,
+    BALLS_THEME_CONTROL = 3,
+    BALLS_THEME_CONTROL_HOVER = 4,
+    BALLS_THEME_CONTROL_PRESSED = 5,
+    BALLS_THEME_BORDER = 6,
+    BALLS_THEME_TEXT = 7,
+    BALLS_THEME_TEXT_STRONG = 8,
+    BALLS_THEME_TEXT_MUTED = 9,
+    BALLS_THEME_TEXT_DIM = 10,
+    BALLS_THEME_ACCENT = 11,
+    BALLS_THEME_DANGER = 12,
+    BALLS_THEME_SUCCESS = 13,
+    BALLS_THEME_COLOR_COUNT = 14,
+};
+
+enum {
+    BALLS_THEME_BRICK_SHADE = 0,
+    BALLS_THEME_BRICK_HIT_FLASH = 1,
+    BALLS_THEME_BRICK_HIT_FLASH_SECONDS = 2,
+    BALLS_THEME_TOAST_SECONDS = 3,
+    BALLS_THEME_TOAST_TEXT_SIZE = 4,
+    BALLS_THEME_OPTION_ROW_HEIGHT = 5,
+    BALLS_THEME_OPTION_ROW_GAP = 6,
+    BALLS_THEME_ADVANCED_HEADER_HEIGHT = 7,
+    BALLS_THEME_SIZE_DISPLAY = 8,
+    BALLS_THEME_SIZE_TITLE = 9,
+    BALLS_THEME_SIZE_LARGE = 10,
+    BALLS_THEME_SIZE_HEADING = 11,
+    BALLS_THEME_SIZE_BIG = 12,
+    BALLS_THEME_SIZE_MEDIUM = 13,
+    BALLS_THEME_SIZE_BODY = 14,
+    BALLS_THEME_SIZE_HEADER = 15,
+    BALLS_THEME_SIZE_LABEL = 16,
+    BALLS_THEME_SIZE_VALUE = 17,
+    BALLS_THEME_SIZE_SMALL = 18,
+    BALLS_THEME_SIZE_TINY = 19,
+    BALLS_THEME_VALUE_COUNT = 20,
+};
+
+// Colors are sRGB packed as 0xRRGGBBAA; an unknown id gives 0.
+BALLS_API uint32_t balls_theme_color(int32_t id);
+BALLS_API uint32_t balls_theme_ball_color(int32_t colorIndex);
+BALLS_API uint32_t balls_theme_brick_color(int32_t colorIndex);
+BALLS_API float balls_theme_value(int32_t id);
 
 BALLS_API void balls_compute_layout(float frameWidth, float frameHeight, int32_t boardColumns, int32_t boardRows,
                                     int32_t orientation, int32_t launcherRows, BallsLayout* layout);

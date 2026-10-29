@@ -25,7 +25,6 @@ namespace {
 
 constexpr float controlsScrollStep = 40.0f;
 
-constexpr float toastSeconds = 3.0f;
 constexpr float mainSectionCornerRadius = 0.0f;
 constexpr float overlayWidth = 420.0f;
 constexpr float overlayButtonHeight = 60.0f;
@@ -194,7 +193,7 @@ void GameplayScreen::restartLevel() {
 }
 
 void GameplayScreen::showToast(std::string text, bool isError) {
-    toast = {std::move(text), toastSeconds, isError};
+    toast = {std::move(text), theme::toastSeconds, isError};
 }
 
 float portraitLauncherPressSlop() {
@@ -334,7 +333,7 @@ void GameplayScreen::drawHeader(const GameplayLayout& layout) {
 }
 
 void GameplayScreen::drawMainSection(const GameplayLayout& layout) {
-    gfx::sceneRect(layout.mainSection, palette::backgroundDeep, mainSectionCornerRadius);
+    gfx::sceneRect(layout.mainSection, palette::boardBackdrop, mainSectionCornerRadius);
     drawBoardBackground(*view->board, layout.board);
     gfx::beginClip(layout.boardRect);
     drawBricks(*view->board, layout.board);
@@ -732,7 +731,7 @@ void GameplayScreen::drawOverlay() {
     }
     const float width = static_cast<float>(gfx::screenWidth());
     const float height = static_cast<float>(gfx::screenHeight());
-    gfx::fillRect({0.0f, 0.0f, width, height}, gfx::fade(palette::backgroundDeep, 0.7f));
+    gfx::fillRect({0.0f, 0.0f, width, height}, gfx::fade(palette::boardBackdrop, 0.7f));
     if (settingsOpen) {
         const Rect panel{(width - settingsPanelWidth) * 0.5f, (height - settingsPanelHeight) * 0.5f,
                          settingsPanelWidth, settingsPanelHeight};
@@ -788,7 +787,7 @@ void GameplayScreen::drawToast() {
     const Vec2 extent = ui::measureText(toast.text, 24.0f);
     const Rect rect{(static_cast<float>(gfx::screenWidth()) - extent.x) * 0.5f - 20.0f, 24.0f,
                     extent.x + 40.0f, 48.0f};
-    ui::drawPanel(rect, gfx::fade(toast.isError ? palette::danger : palette::panelLight, alpha), 0.4f);
+    ui::drawPanel(rect, gfx::fade(toast.isError ? palette::danger : palette::control, alpha), 0.4f);
     ui::drawTextInRect(toast.text, rect, 24.0f, gfx::fade(palette::text, alpha));
 }
 

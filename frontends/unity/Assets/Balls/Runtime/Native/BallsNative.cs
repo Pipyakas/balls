@@ -13,7 +13,27 @@ namespace Balls.Native
     {
         public const string Library = "balls_unity";
 
-        public const int AbiVersion = 2;
+        public const int AbiVersion = 3;
+
+        // Theme ids, as BALLS_THEME_* in BallsUnityApi.h.
+        public const int ThemeBackground = 0;
+        public const int ThemeBoardBackdrop = 1;
+        public const int ThemePanel = 2;
+        public const int ThemeControl = 3;
+        public const int ThemeControlHover = 4;
+        public const int ThemeControlPressed = 5;
+        public const int ThemeBorder = 6;
+        public const int ThemeText = 7;
+        public const int ThemeTextStrong = 8;
+        public const int ThemeTextMuted = 9;
+        public const int ThemeTextDim = 10;
+        public const int ThemeAccent = 11;
+        public const int ThemeDanger = 12;
+        public const int ThemeSuccess = 13;
+        public const int ThemeBrickShade = 0;
+        public const int ThemeToastSeconds = 3;
+        public const int ThemeToastTextSize = 4;
+        public const int ThemeSizeDisplay = 8;
 
         public const int ModeNormal = 0;
         public const int ModePerformance = 1;
@@ -46,6 +66,14 @@ namespace Balls.Native
         [DllImport(Library)] public static extern int balls_last_error(byte[] buffer, int size);
 
         [DllImport(Library)] public static extern float balls_render_pack_scale(float fieldExtent);
+
+        [DllImport(Library)] public static extern uint balls_theme_color(int id);
+
+        [DllImport(Library)] public static extern uint balls_theme_ball_color(int colorIndex);
+
+        [DllImport(Library)] public static extern uint balls_theme_brick_color(int colorIndex);
+
+        [DllImport(Library)] public static extern float balls_theme_value(int id);
 
         [DllImport(Library)] public static extern void balls_compute_layout(float frameWidth, float frameHeight, int boardColumns, int boardRows, int orientation, int launcherRows, out NativeLayout layout);
 

@@ -643,7 +643,7 @@ void SBallsLevelSelect::Construct(const FArguments& InArgs) {
             .BorderImage(BallsStyle::White())
             .BorderBackgroundColor_Lambda([Owner] {
                 const FBallsToast& Toast = Owner->GetToast();
-                return BallsPalette::Linear(Toast.bIsError ? BallsPalette::Danger : BallsPalette::PanelLight,
+                return BallsPalette::Linear(Toast.bIsError ? BallsPalette::Danger : BallsPalette::Control,
                                             FMath::Min(1.0f, Toast.SecondsLeft));
             })
             .Padding(20.0f, 10.0f)

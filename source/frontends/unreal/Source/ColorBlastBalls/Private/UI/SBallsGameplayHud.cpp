@@ -459,7 +459,7 @@ private:
         }
         DrawBox(Out, Layer, Geometry,
                 FSlateRect(Layout.Header.Left, Layout.Header.Bottom - 1.0f, Layout.Header.Right, Layout.Header.Bottom),
-                BallsStyle::RoundedBox(0.0f), BallsPalette::Linear(BallsPalette::Frame));
+                BallsStyle::RoundedBox(0.0f), BallsPalette::Linear(BallsPalette::Border));
     }
 
     // Landscape Normal mode keeps the bottom of the gadget for the Physics group.
@@ -479,7 +479,7 @@ private:
         const FSlateRect& Frame = Layout.MainSection;
         const FSlateRect& Board = Layout.Board;
         const FLinearColor Fill = BallsPalette::Linear(BallsPalette::Panel);
-        const FLinearColor Border = BallsPalette::Linear(BallsPalette::Frame);
+        const FLinearColor Border = BallsPalette::Linear(BallsPalette::Border);
         const FSlateBrush* Square = BallsStyle::RoundedBox(0.0f);
         DrawBox(Out, Layer, Geometry, FSlateRect(Frame.Left, Frame.Top, Frame.Right, Board.Top), Square, Fill);
         DrawBox(Out, Layer, Geometry, FSlateRect(Frame.Left, Board.Bottom, Frame.Right, Frame.Bottom), Square, Fill);
@@ -781,7 +781,7 @@ private:
                                   .Header.Top;
         const FSlateRect Rect(Left, SafeTop + 24.0f, Left + static_cast<float>(Extent.X) + 40.0f, SafeTop + 72.0f);
         DrawBox(Out, Layer, Geometry, Rect, BallsStyle::RoundedBox(0.0f),
-                BallsPalette::Linear(Toast.bIsError ? BallsPalette::Danger : BallsPalette::PanelLight, Alpha));
+                BallsPalette::Linear(Toast.bIsError ? BallsPalette::Danger : BallsPalette::Control, Alpha));
         DrawTextInRect(Out, Layer + 1, Geometry, Toast.Text, Rect, Font, BallsPalette::Linear(BallsPalette::Text, Alpha));
     }
 
@@ -1060,7 +1060,7 @@ TSharedRef<SWidget> SBallsGameplayHud::MakeOverlay() {
     };
     return SNew(SBorder)
         .BorderImage(BallsStyle::White())
-        .BorderBackgroundColor(BallsPalette::Linear(BallsPalette::BackgroundDeep, 0.7f))
+        .BorderBackgroundColor(BallsPalette::Linear(BallsPalette::BoardBackdrop, 0.7f))
         .HAlign(HAlign_Center)
         .VAlign(VAlign_Center)
         .Visibility_Lambda([Game] {

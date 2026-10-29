@@ -161,7 +161,7 @@ namespace Balls.App
 
         public void Toast(string text, bool error = false)
         {
-            toast = new ToastMessage { text = text, error = error, until = Time.realtimeSinceStartup + 3f };
+            toast = new ToastMessage { text = text, error = error, until = Time.realtimeSinceStartup + Palette.ToastSeconds };
         }
 
         public void Update()

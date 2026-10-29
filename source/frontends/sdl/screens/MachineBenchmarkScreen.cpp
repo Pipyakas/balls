@@ -83,7 +83,7 @@ void MachineBenchmarkScreen::drawRow(const CandidateResult& result, float top, b
     const float left = (static_cast<float>(gfx::screenWidth()) - listWidth) * 0.5f;
     const Rect row{left, top, listWidth, rowHeight};
     ui::drawPanel(row, isWinner ? gfx::fade(palette::accent, 0.18f) : palette::panel);
-    ui::drawBorder(row, 0.08f, isWinner ? palette::accent : palette::frame);
+    ui::drawBorder(row, 0.08f, isWinner ? palette::accent : palette::border);
     const float textY = top + (rowHeight - rowTextSize) * 0.5f;
     constexpr float padding = 20.0f;
     ui::drawText(result.candidate.label, {left + padding, textY}, rowTextSize,
@@ -92,7 +92,7 @@ void MachineBenchmarkScreen::drawRow(const CandidateResult& result, float top, b
     const float right = left + listWidth - padding;
     if (result.status == CandidateStatus::Running) {
         const Rect track{right - progressWidth, top + (rowHeight - progressHeight) * 0.5f, progressWidth, progressHeight};
-        gfx::fillRounded(track, 0.5f, palette::panelLight);
+        gfx::fillRounded(track, 0.5f, palette::control);
         Rect filled = track;
         filled.width = track.width * static_cast<float>(std::clamp(result.progress, 0.0, 1.0));
         gfx::fillRounded(filled, 0.5f, palette::accent);

@@ -52,7 +52,6 @@ namespace Balls.App
             ReadCommandLine();
             RenderAssets.Set(ballMaterial, quadMaterial);
             RenderAssets.SetBallRadius(ballRadius);
-            RenderPrimitives.SetPalette(RenderAssets.BallMaterial());
 
             app = new BallsApp();
             app.AddScreen(new MainMenuScreen());
@@ -73,6 +72,8 @@ namespace Balls.App
                     app.StartupError = $"balls_unity.dll speaks ABI {version}, the front end expects {BallsNative.AbiVersion}";
                     return;
                 }
+                Balls.Ui.Palette.LoadFromCore();
+                RenderPrimitives.SetPalette(RenderAssets.BallMaterial());
                 BallsNative.balls_set_plugin_directory(PluginDirectory());
                 app.LoadSettings();
                 app.ApplyOrientation();

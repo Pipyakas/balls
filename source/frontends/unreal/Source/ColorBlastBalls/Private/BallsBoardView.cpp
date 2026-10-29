@@ -138,7 +138,7 @@ void FBallsBoardView::SpawnScene() {
     UStaticMeshComponent* BackdropComponent = NewObject<UStaticMeshComponent>(Actor, TEXT("Backdrop"));
     BackdropComponent->SetStaticMesh(Cube);
     BackdropComponent->SetMobility(EComponentMobility::Movable);
-    BackdropComponent->SetMaterial(0, MakeColoredMaterial(BackdropComponent, BallsPalette::BackgroundDeep, 0.9f));
+    BackdropComponent->SetMaterial(0, MakeColoredMaterial(BackdropComponent, BallsPalette::BoardBackdrop, 0.9f));
     BackdropComponent->SetupAttachment(Root);
     BackdropComponent->RegisterComponent();
     Backdrop.Reset(BackdropComponent);

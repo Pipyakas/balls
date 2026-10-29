@@ -349,7 +349,7 @@ void FBallsApp::ShowLevelSelect(GameMode Mode) {
     SetScreen(EScreen::LevelSelect, Screen);
 }
 
-void FBallsApp::ShowToast(FString Text, bool bIsError) { Toast = {MoveTemp(Text), 3.0f, bIsError}; }
+void FBallsApp::ShowToast(FString Text, bool bIsError) { Toast = {MoveTemp(Text), theme::toastSeconds, bIsError}; }
 
 void FBallsApp::ImportLevels(const TArray<FString>& Paths) {
     const TSharedPtr<SBallsLevelSelect> Screen = LevelSelect.Pin();

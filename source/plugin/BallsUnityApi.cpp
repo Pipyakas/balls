@@ -19,6 +19,7 @@
 #include "sim/DeviceInventory.h"
 #include "sim/Simulation.h"
 #include "ui/GameplayLayout.h"
+#include "ui/Theme.h"
 
 #include <algorithm>
 #include <cctype>
@@ -414,6 +415,38 @@ int32_t balls_last_error(char* buffer, int32_t size) {
 
 float balls_render_pack_scale(float fieldExtent) {
     return renderPackScale(fieldExtent);
+}
+
+namespace {
+
+uint32_t packThemeColor(ThemeColor color) {
+    return (uint32_t{color.r} << 24) | (uint32_t{color.g} << 16) | (uint32_t{color.b} << 8) | uint32_t{color.a};
+}
+
+} // namespace
+
+uint32_t balls_theme_color(int32_t id) {
+    static constexpr ThemeColor colors[BALLS_THEME_COLOR_COUNT] = {
+        theme::background, theme::boardBackdrop, theme::panel,     theme::control,   theme::controlHover,
+        theme::controlPressed, theme::border,    theme::text,      theme::textStrong, theme::textMuted,
+        theme::textDim,    theme::accent,        theme::danger,    theme::success,
+    };
+    return id >= 0 && id < BALLS_THEME_COLOR_COUNT ? packThemeColor(colors[id]) : 0;
+}
+
+uint32_t balls_theme_ball_color(int32_t colorIndex) { return packThemeColor(theme::ballColor(colorIndex)); }
+
+uint32_t balls_theme_brick_color(int32_t colorIndex) { return packThemeColor(theme::brickColor(colorIndex)); }
+
+float balls_theme_value(int32_t id) {
+    static constexpr float values[BALLS_THEME_VALUE_COUNT] = {
+        theme::brickShade,    theme::brickHitFlash, theme::brickHitFlashSeconds, theme::toastSeconds,
+        theme::toastTextSize, theme::optionRowHeight, theme::optionRowGap,      theme::advancedHeaderHeight,
+        theme::displaySize,   theme::titleSize,     theme::largeSize,           theme::headingSize,
+        theme::bigSize,       theme::mediumSize,    theme::bodySize,            theme::headerSize,
+        theme::labelSize,     theme::valueSize,     theme::smallSize,           theme::tinySize,
+    };
+    return id >= 0 && id < BALLS_THEME_VALUE_COUNT ? values[id] : 0.0f;
 }
 
 void balls_compute_layout(float frameWidth, float frameHeight, int32_t boardColumns, int32_t boardRows,

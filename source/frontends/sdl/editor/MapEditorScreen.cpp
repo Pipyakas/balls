@@ -474,11 +474,11 @@ void MapEditorScreen::drawPanelTabs(Rect area) {
 }
 
 void MapEditorScreen::drawBrickGrid(Rect area) {
-    ui::drawPanel(area, palette::backgroundDeep, 0.02f);
+    ui::drawPanel(area, palette::boardBackdrop, 0.02f);
     const BrickLayout& bricks = editor.level().bricks;
     const Rect grid = brickGridRect(area);
     const float cell = brickCellSize(area);
-    gfx::fillRect(grid, palette::shade(palette::backgroundDeep, 0.7f));
+    gfx::fillRect(grid, palette::shade(palette::boardBackdrop, 0.7f));
     gfx::fillRect({grid.x, grid.y, grid.width, cell * static_cast<float>(bricks.height)}, palette::panel);
     const GridCell hovered = brickCellAt(area, input::mousePosition());
     for (int row = 0; row < bricks.height; ++row) {
@@ -513,7 +513,7 @@ void MapEditorScreen::drawBrickGrid(Rect area) {
                     ui::drawTextInRect(std::to_string(type->hits), rect, cell * 0.55f, palette::textStrong);
                 }
             } else {
-                gfx::strokeRect(rect, 1.0f, palette::frame);
+                gfx::strokeRect(rect, 1.0f, palette::border);
             }
             if (hovered.column == column && hovered.row == row) {
                 gfx::strokeRect(rect, 2.0f, palette::accent);
@@ -543,7 +543,7 @@ void MapEditorScreen::drawLauncherGrid(Rect area) {
                 gfx::fillRect(rect, palette::ballColor(slot->color));
                 ui::drawTextInRect(std::to_string(slot->ballCount), rect, std::max(10.0f, cell * 0.36f), palette::textStrong);
             } else {
-                gfx::strokeRect(rect, 1.0f, exists ? palette::textDim : palette::frame);
+                gfx::strokeRect(rect, 1.0f, exists ? palette::textDim : palette::border);
             }
             if (row == launchers.visibleRows - 1) {
                 gfx::drawLine({grid.x, rect.y + rect.height + 4.0f}, {grid.x + grid.width, rect.y + rect.height + 4.0f}, 2.0f,
