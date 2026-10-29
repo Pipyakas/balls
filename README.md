@@ -37,6 +37,12 @@ compiler pieces) and internet access on first configure (SDL 3.2.30, Dear ImGui 
 picks the renderer (default: `nvrhi` on desktop, `webgpu` on Android). With NVRHI, every platform runs Vulkan by default;
 `--api d3d12` switches Windows to Direct3D 12.
 
+`-DBALLS_PROFILE=scoring` builds for the target PC only (i9-14900K, GTX 1650): AVX2 code throughout, sm_75
+CUDA kernels, and the CUDA+AVX2 pair as the one physics backend, with no backend menu or machine benchmark. The pair
+allocates its whole memory budget once per process (free VRAM less 512 MB, available RAM less the usual margin), so
+balls never grow, copy or page-fault during play. The default, `all`, is the extended build with every backend; set
+`BALLS_PREALLOCATE=1` there to try the same up-front allocation on the pair.
+
 `build.bat` (Windows) and `build.sh` (Linux) at the project root are the one entry point for every front end and
 platform:
 
