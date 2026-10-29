@@ -1,5 +1,6 @@
 #include "app/LaunchOptions.h"
 
+#include "common/Environment.h"
 #include "sim/BackendSelection.h"
 #include "sim/BackendWorker.h"
 
@@ -27,17 +28,17 @@ int parseInteger(std::string_view text, int fallback) {
 
 LaunchOptions parseLaunchOptions(int argumentCount, char** arguments) {
     LaunchOptions options;
-    if (const char* rendererEnvironment = std::getenv("BALLS_RENDERER")) {
-        options.renderer = lowercase(rendererEnvironment);
+    if (const auto rendererEnvironment = environmentVariable("BALLS_RENDERER")) {
+        options.renderer = lowercase(*rendererEnvironment);
     }
-    if (const char* apiEnvironment = std::getenv("BALLS_API")) {
-        options.graphicsApi = lowercase(apiEnvironment);
+    if (const auto apiEnvironment = environmentVariable("BALLS_API")) {
+        options.graphicsApi = lowercase(*apiEnvironment);
     }
-    if (const char* gpuEnvironment = std::getenv("BALLS_GPU")) {
-        options.gpu = gpuEnvironment;
+    if (const auto gpuEnvironment = environmentVariable("BALLS_GPU")) {
+        options.gpu = *gpuEnvironment;
     }
-    if (const char* computeGpuEnvironment = std::getenv("BALLS_COMPUTE_GPU")) {
-        options.computeGpu = computeGpuEnvironment;
+    if (const auto computeGpuEnvironment = environmentVariable("BALLS_COMPUTE_GPU")) {
+        options.computeGpu = *computeGpuEnvironment;
     }
     for (int i = 1; i < argumentCount; ++i) {
         const std::string_view argument = arguments[i];
