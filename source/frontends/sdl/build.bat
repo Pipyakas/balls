@@ -54,7 +54,10 @@ if not exist ".deps\cuda\sdk\include\nvrtc.h" (
     if errorlevel 1 echo CUDA SDK fetch failed - building with CPU backends only.
 )
 
-rem Configuring every time keeps the Visual Studio solution in step with renamed projects and targets.
+rem Configuring every time keeps the Visual Studio solution in step with renamed projects and targets. The setup check
+rem names the MSVC version to build with, since the one MSBuild defaults to can be installed without its libraries;
+rem MSBuild reads it from VCToolsVersion, for CMake's compiler check as for the build.
+if defined BALLS_MSVC_TOOLSET set "VCToolsVersion=%BALLS_MSVC_TOOLSET%"
 if exist "%BUILD_DIR%\CMakeCache.txt" (
     cmake -S . -B "%BUILD_DIR%" -DBALLS_FRONTEND=sdl -DBALLS_RENDERER=%RENDERER% -DBALLS_PROFILE=%PROFILE% >nul
 ) else (

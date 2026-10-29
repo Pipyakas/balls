@@ -1,6 +1,15 @@
 cmake_minimum_required(VERSION 3.22)
 project(balls VERSION 0.1.0 LANGUAGES CXX C)
 
+# A PC can have MSBuild's default MSVC version installed without its libraries (the target PC does). build.bat names
+# a complete one in VCToolsVersion for the first configure; the projects keep it, so later builds use it without it.
+if(CMAKE_GENERATOR MATCHES "Visual Studio")
+    set(BALLS_VCTOOLS_VERSION "$ENV{VCToolsVersion}" CACHE STRING "MSVC version the Visual Studio projects build with (empty: MSBuild's default)")
+    if(BALLS_VCTOOLS_VERSION)
+        list(APPEND CMAKE_VS_GLOBALS "VCToolsVersion=${BALLS_VCTOOLS_VERSION}")
+    endif()
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
