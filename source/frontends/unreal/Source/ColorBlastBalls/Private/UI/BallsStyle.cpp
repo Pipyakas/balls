@@ -5,6 +5,7 @@
 #include "Misc/Paths.h"
 #include "Brushes/SlateColorBrush.h"
 #include "Brushes/SlateRoundedBoxBrush.h"
+#include "Fonts/CompositeFont.h"
 #include "Fonts/FontMeasure.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Styling/CoreStyle.h"
@@ -21,6 +22,18 @@ FString FontFile(const TCHAR* Name) {
         Path = FPaths::ConvertRelativePathToFull(FPaths::ProjectDir() / TEXT("assets/fonts") / Name);
     }
     return Path;
+}
+
+// Slate builds fonts from composite fonts; one per font file, made on first use.
+TSharedPtr<const FCompositeFont> CompositeFont(const FString& File) {
+    static TMap<FString, TSharedPtr<const FCompositeFont>> Composites;
+    if (const TSharedPtr<const FCompositeFont>* Found = Composites.Find(File)) {
+        return *Found;
+    }
+    TSharedPtr<const FCompositeFont> Composite =
+        MakeShared<FStandaloneCompositeFont>(NAME_None, File, EFontHinting::Default, EFontLoadingPolicy::LazyLoad);
+    Composites.Add(File, Composite);
+    return Composite;
 }
 
 }
@@ -40,7 +53,7 @@ FSlateFontInfo Font(float Size, bool bBold) {
     // Slate font sizes are points at 96 DPI; the SDL sizes are pixels. Like SDL, only large text uses SemiBold.
     const FString& File = bStrong ? Strong : Regular;
     const FSlateFontInfo Built = IFileManager::Get().FileExists(*File)
-                                     ? FSlateFontInfo(File, Points)
+                                     ? FSlateFontInfo(CompositeFont(File), Points)
                                      : FCoreStyle::GetDefaultFontStyle(bBold ? "Bold" : "Regular", Points);
     Cache.Add(Key, Built);
     return Built;
