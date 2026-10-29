@@ -46,6 +46,8 @@ LaunchOptions parseLaunchOptions(int argumentCount, char** arguments) {
             options.playMode = parseGameMode(arguments[i + 1]);
             options.playLevel = arguments[i + 2];
             i += 2;
+        } else if (argument == "--editor") {
+            options.editor = true;
         } else if (argument == "--backend" && hasValue) {
             options.backend = parseBackendKind(arguments[++i]);
         } else if (argument == "--control-port" && hasValue) {

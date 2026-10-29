@@ -95,8 +95,8 @@ void drawBoardBackground(const BrickBoard& board, const BoardTransform& transfor
     const float width = static_cast<float>(board.columns()) * transform.cellPixels;
     const float height = static_cast<float>(board.rows()) * transform.cellPixels;
     const Rect area{transform.origin.x, transform.origin.y, width, height};
-    gfx::sceneRect(ui::shrink(area, -boardFrameWidth), palette::frame);
-    gfx::sceneRect(area, palette::backgroundDeep);
+    gfx::sceneRect(ui::shrink(area, -boardFrameWidth), palette::border);
+    gfx::sceneRect(area, palette::boardBackdrop);
 }
 
 void drawBricks(const BrickBoard& board, const BoardTransform& transform) {
@@ -105,7 +105,7 @@ void drawBricks(const BrickBoard& board, const BoardTransform& transform) {
         const Brick& brick = bricks[static_cast<size_t>(index)];
         Color color = palette::brickColor(brick.color);
         if (brick.hitFlash > 0.0f) {
-            color = palette::shade(color, 1.4f);
+            color = palette::shade(color, theme::brickHitFlash);
         }
         if (transform.cellPixels < minimumBevelPixels) {
             for (const BrickCell& cell : brick.cells) {

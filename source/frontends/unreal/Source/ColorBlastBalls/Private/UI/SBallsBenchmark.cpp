@@ -53,7 +53,7 @@ TSharedRef<SWidget> ProgressBar(float Progress) {
             + SOverlay::Slot()
             [
                 SNew(SBorder).BorderImage(BallsStyle::White()).BorderBackgroundColor(
-                    BallsPalette::Linear(BallsPalette::PanelLight))
+                    BallsPalette::Linear(BallsPalette::Control))
             ]
             + SOverlay::Slot().HAlign(HAlign_Left)
             [
@@ -98,13 +98,13 @@ void SBallsBenchmark::Construct(const FArguments& InArgs) {
             [
                 BallsWidgets::Button(
                     TAttribute<FText>::CreateLambda([this] {
-                        return FText::FromString(App && App->IsBenchmarkSettled() ? TEXT("Continue") : TEXT("Skip"));
+                        return FText::FromString(App && App->GetScreenFlow().benchmarkSettled() ? TEXT("Continue") : TEXT("Skip"));
                     }),
                     [this] {
-                        if (App->IsBenchmarkSettled()) {
-                            App->LeaveBenchmark();
+                        if (App && App->GetScreenFlow().benchmarkSettled()) {
+                            App->ActivateFlow(FlowAction::ContinueFromBenchmark);
                         } else {
-                            App->SkipBenchmark();
+                            App->ActivateFlow(FlowAction::SkipBenchmark);
                         }
                     },
                     20.0f)
@@ -126,7 +126,7 @@ FString SBallsBenchmark::Signature() const {
         Result += FString::Printf(TEXT("%d:%.0f:%.0f:%.0f:%.2f;"), static_cast<int32>(Entry.status),
                                   Entry.ballStepsPerSecond, Entry.estimatedBalls, Entry.ballCapacity, Entry.progress);
     }
-    Result += App->IsBenchmarkSettled() ? TEXT("settled") : TEXT("measuring");
+    Result += App->GetScreenFlow().benchmarkSettled() ? TEXT("settled") : TEXT("measuring");
     return Result;
 }
 
@@ -137,7 +137,7 @@ void SBallsBenchmark::Refresh() {
     Rows->ClearChildren();
     const std::vector<CandidateResult> Results = App->GetBenchmark().Results();
     const std::optional<size_t> Best = bestCandidate(Results);
-    const bool bSettled = App->IsBenchmarkSettled();
+    const bool bSettled = App->GetScreenFlow().benchmarkSettled();
     for (size_t Index = 0; Index < Results.size(); ++Index) {
         const CandidateResult& Entry = Results[Index];
         const bool bWinner = bSettled && Best && *Best == Index;
@@ -147,7 +147,7 @@ void SBallsBenchmark::Refresh() {
             [
                 SNew(SBorder)
                 .BorderImage(BallsStyle::White())
-                .BorderBackgroundColor(bWinner ? BallsPalette::Linear(BallsPalette::PanelLight)
+                .BorderBackgroundColor(bWinner ? BallsPalette::Linear(BallsPalette::Control)
                                                : BallsPalette::Linear(BallsPalette::Panel))
                 .Padding(FMargin(RowPadding, 0.0f))
                 .VAlign(VAlign_Center)

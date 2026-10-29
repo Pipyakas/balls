@@ -52,8 +52,10 @@ void SessionHost::tick(const PhysicsFrameInput& input, float deltaSeconds) {
                           outcome->kind, outcome->forBallCollisions});
     }
     if (!input.paused) {
+        const PhysicsRate::Clock::time_point workStart = PhysicsRate::Clock::now();
         session->reportFrameSeconds(input.uiFrameSeconds, input.uiWorkSeconds);
         session->update(deltaSeconds);
+        rate.frame(workStart, PhysicsRate::Clock::now());
     }
     refreshView();
 }
@@ -63,5 +65,7 @@ std::vector<SessionEvent> SessionHost::takeEvents() { return std::exchange(event
 void SessionHost::refreshView() {
     auto view = std::make_shared<SessionView>();
     describeSession(*session, *view, latest.get());
+    view->physicsFrameMs = rate.lastFrameMs();
+    view->physicsFramesPerSecond = rate.framesPerSecond();
     latest = std::move(view);
 }

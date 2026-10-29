@@ -1,7 +1,6 @@
 #include "screens/SettingsScreen.h"
 
 #include "app/App.h"
-#include "app/Input.h"
 #include "render/Palette.h"
 #include "screens/SettingsPanel.h"
 #include "ui/Painter.h"
@@ -9,11 +8,7 @@
 
 #include <algorithm>
 
-void SettingsScreen::update(float) {
-    if (input::keyPressed(SDL_SCANCODE_ESCAPE)) {
-        app.showMainMenu();
-    }
-}
+void SettingsScreen::update(float) {}
 
 void SettingsScreen::draw() {
     const float width = static_cast<float>(gfx::screenWidth());
@@ -23,14 +18,15 @@ void SettingsScreen::draw() {
     const Rect panel{(width - panelWidth) * 0.5f, (height - panelHeight) * 0.5f, panelWidth, panelHeight};
     ui::drawPanel(panel, palette::panel, 0.08f);
     const SettingsPanelEdit edit = drawSettingsPanel(panel, app.settings(), app.preferredBackend(),
-                                                     app.benchmarkScores(), app.isWebGpuSupported(), scroll);
+                                                     app.benchmarkScores(), app.isWebGpuSupported(), scroll,
+                                                     app.flow().canRunMachineBenchmark());
     if (edit.changed) {
         app.applySettings(edit.settings, edit.backend);
     }
     if (edit.runBenchmark) {
-        app.showMachineBenchmark();
+        app.flow().activate(FlowAction::RunMachineBenchmark);
     }
     if (edit.backPressed) {
-        app.showMainMenu();
+        app.flow().activate(FlowAction::Back);
     }
 }

@@ -203,17 +203,17 @@ public:
         if (!Editor) {
             return LayerId;
         }
-        const BrickLayout& Bricks = Editor->Editable().level().bricks;
+        const BrickLayout& Bricks = Editor->Level().bricks;
         const FVector2D Size = AllottedGeometry.GetLocalSize();
         DrawBox(OutDrawElements, LayerId, AllottedGeometry, FSlateRect(FVector2D::ZeroVector, Size),
-                BallsStyle::RoundedBox(0.0f), BallsPalette::Linear(BallsPalette::BackgroundDeep));
+                BallsStyle::RoundedBox(0.0f), BallsPalette::Linear(BallsPalette::BoardBackdrop));
 
         float Cell = 0.0f;
         const FSlateRect Grid = GridRect(AllottedGeometry, Cell);
         const FSlateRect BrickRows(Grid.Left, Grid.Top, Grid.Right, Grid.Top + Cell * static_cast<float>(Bricks.height));
         DrawBox(OutDrawElements, LayerId + 1, AllottedGeometry,
                 FSlateRect(Grid.Left, Grid.Top, Grid.Right, Grid.Bottom),
-                BallsStyle::White(), BallsPalette::Linear(BallsPalette::Shade(BallsPalette::BackgroundDeep, 0.7f)));
+                BallsStyle::White(), BallsPalette::Linear(BallsPalette::Shade(BallsPalette::BoardBackdrop, 0.7f)));
         DrawBox(OutDrawElements, LayerId + 1, AllottedGeometry, BrickRows, BallsStyle::White(),
                 BallsPalette::Linear(BallsPalette::Panel));
 
@@ -257,7 +257,7 @@ public:
                     }
                 } else {
                     DrawBox(OutDrawElements, LayerId + 2, AllottedGeometry, Rect, BallsStyle::White(),
-                            BallsPalette::Linear(BallsPalette::Frame));
+                            BallsPalette::Linear(BallsPalette::Border));
                 }
                 if (Hovered.X == Column && Hovered.Y == Row) {
                     DrawBox(OutDrawElements, LayerId + 5, AllottedGeometry, Rect, BallsStyle::White(),
@@ -267,7 +267,7 @@ public:
         }
 
         DrawTextAt(OutDrawElements, LayerId + 6, AllottedGeometry,
-                   FString::Printf(TEXT("%d x %d  |  L-drag: tool  R-drag: erase  Ctrl+Z/Y"), Bricks.width, Bricks.height),
+                   BallsText::FromUtf8(Editor->FooterText()),
                    FVector2D(10.0f, Size.Y - 26.0f), BallsStyle::Font(17.0f),
                    BallsPalette::Linear(BallsPalette::TextMuted));
         return LayerId + 6;
@@ -275,7 +275,7 @@ public:
 
 private:
     FSlateRect GridRect(const FGeometry& Geometry, float& OutCell) const {
-        const BrickLayout& Bricks = Editor->Editable().level().bricks;
+        const BrickLayout& Bricks = Editor->Level().bricks;
         const FVector2D Size = Geometry.GetLocalSize();
         const float InnerWidth = FMath::Max(1.0f, static_cast<float>(Size.X) - 28.0f);
         const float InnerHeight = FMath::Max(1.0f, static_cast<float>(Size.Y) - 28.0f);
@@ -289,7 +289,7 @@ private:
     }
 
     FIntPoint CellAt(const FGeometry& Geometry, const FVector2D& Point) const {
-        const BrickLayout& Bricks = Editor->Editable().level().bricks;
+        const BrickLayout& Bricks = Editor->Level().bricks;
         float Cell = 0.0f;
         const FSlateRect Grid = GridRect(Geometry, Cell);
         if (!Grid.ContainsPoint(Point)) {
@@ -359,7 +359,7 @@ public:
         if (!Editor) {
             return LayerId;
         }
-        const LauncherLayout& Launchers = Editor->Editable().level().launchers;
+        const LauncherLayout& Launchers = Editor->Level().launchers;
         const FVector2D Size = AllottedGeometry.GetLocalSize();
         DrawBox(OutDrawElements, LayerId, AllottedGeometry, FSlateRect(FVector2D::ZeroVector, Size),
                 BallsStyle::RoundedBox(0.0f), BallsPalette::Linear(BallsPalette::Panel));
@@ -381,7 +381,7 @@ public:
                                    BallsPalette::Linear(BallsPalette::Text));
                 } else {
                     DrawBox(OutDrawElements, LayerId + 1, AllottedGeometry, Rect, BallsStyle::White(),
-                            BallsPalette::Linear(BallsPalette::Frame));
+                            BallsPalette::Linear(BallsPalette::Border));
                 }
                 if (Row == Launchers.visibleRows - 1) {
                     DrawBox(OutDrawElements, LayerId + 2, AllottedGeometry,
@@ -404,10 +404,11 @@ public:
             }
             DrawBox(OutDrawElements, LayerId + 4, AllottedGeometry, FSlateRect(X, Y + 4.0f, X + 13.0f, Y + 17.0f),
                     BallsStyle::RoundedBox(0.0f), BallsPalette::Linear(BallsPalette::Ball(ballColorFromIndex(Color))));
-            const FString Text = FString::Printf(TEXT("%d/%d"), Validation.balls[Color], Validation.brickHits[Color]);
-            const FLinearColor TextColor = Validation.balls[Color] >= Validation.brickHits[Color]
-                                               ? BallsPalette::Linear(BallsPalette::Text)
-                                               : BallsPalette::Linear(BallsPalette::Danger);
+            const BallColor TallyColor = ballColorFromIndex(Color);
+            const FString Text = BallsText::FromUtf8(Editor->ColorTallyText(TallyColor));
+            const FLinearColor TextColor = Editor->ColorTallyMatches(TallyColor)
+                                               ? BallsPalette::Linear(BallsPalette::Success)
+                                               : BallsPalette::Linear(BallsPalette::Text);
             DrawTextAt(OutDrawElements, LayerId + 4, AllottedGeometry, Text, FVector2D(X + 18.0f, Y),
                        BallsStyle::Font(17.0f), TextColor);
             X += 30.0f + static_cast<float>(BallsStyle::Measure(Text, BallsStyle::Font(17.0f)).X);
@@ -417,7 +418,7 @@ public:
 
 private:
     FSlateRect GridRect(const FGeometry& Geometry, float& OutCell) const {
-        const LauncherLayout& Launchers = Editor->Editable().level().launchers;
+        const LauncherLayout& Launchers = Editor->Level().launchers;
         const FVector2D Size = Geometry.GetLocalSize();
         const float Rows = static_cast<float>(Launchers.rowCount() + 1);
         const float Columns = static_cast<float>(FMath::Max(Launchers.columns, 1));
@@ -430,7 +431,7 @@ private:
     }
 
     FIntPoint CellAt(const FGeometry& Geometry, const FVector2D& Point) const {
-        const LauncherLayout& Launchers = Editor->Editable().level().launchers;
+        const LauncherLayout& Launchers = Editor->Level().launchers;
         float Cell = 0.0f;
         const FSlateRect Grid = GridRect(Geometry, Cell);
         if (!Grid.ContainsPoint(Point)) {
@@ -493,26 +494,14 @@ TSharedRef<SWidget> SBallsMapEditor::MakeToolPanel() {
     [
         Title(TEXT("Tool"))
     ];
-    Box->AddSlot().AutoHeight().Padding(0.0f, 3.0f)
-    [
-        BallsWidgets::Button(FText::FromString(TEXT("Paint (P)")), [E] { E->SetTool(FEditorTool::Paint); }, 20.0f, true,
-                             SelectedTool(FEditorTool::Paint))
-    ];
-    Box->AddSlot().AutoHeight().Padding(0.0f, 3.0f)
-    [
-        BallsWidgets::Button(FText::FromString(TEXT("Extend (E)")), [E] { E->SetTool(FEditorTool::Extend); }, 20.0f,
-                             true, SelectedTool(FEditorTool::Extend))
-    ];
-    Box->AddSlot().AutoHeight().Padding(0.0f, 3.0f)
-    [
-        BallsWidgets::Button(FText::FromString(TEXT("Erase (X)")), [E] { E->SetTool(FEditorTool::Erase); }, 20.0f, true,
-                             SelectedTool(FEditorTool::Erase))
-    ];
-    Box->AddSlot().AutoHeight().Padding(0.0f, 3.0f)
-    [
-        BallsWidgets::Button(FText::FromString(TEXT("Pick (K)")), [E] { E->SetTool(FEditorTool::Pick); }, 20.0f, true,
-                             SelectedTool(FEditorTool::Pick))
-    ];
+    for (const EditorToolButton& Button : EditorSession::toolButtons()) {
+        const EditorTool Tool = Button.tool;
+        Box->AddSlot().AutoHeight().Padding(0.0f, 3.0f)
+        [
+            BallsWidgets::Button(FText::FromString(BallsText::FromUtf8(Button.label)), [E, Tool] { E->SetTool(Tool); },
+                                 20.0f, true, SelectedTool(Tool))
+        ];
+    }
 
     Box->AddSlot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 6.0f)
     [
@@ -559,15 +548,13 @@ TSharedRef<SWidget> SBallsMapEditor::MakeToolPanel() {
     ];
     Box->AddSlot().AutoHeight().Padding(0.0f, 2.0f)
     [
-        Stepper(TEXT("Hits"), 1, 999, [E] { return E->BrushHits(); }, [E](int32 Value) { E->SetBrushHits(Value); })
+        Stepper(TEXT("Hits"), 1, editorMaximumHits, [E] { return E->BrushHits(); }, [E](int32 Value) { E->SetBrushHits(Value); })
     ];
     Box->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
     [
         SNew(STextBlock)
         .Text_Lambda([E] {
-            return FText::FromString(E->SelectedBrick() >= 0
-                                         ? FString::Printf(TEXT("Selected id %d"), E->SelectedBrick())
-                                         : FString(TEXT("No brick selected")));
+            return FText::FromString(BallsText::FromUtf8(E->SelectionText()));
         })
         .Font(BallsStyle::Font(17.0f))
         .ColorAndOpacity(FSlateColor(BallsPalette::Linear(BallsPalette::TextMuted)))
@@ -579,7 +566,7 @@ TSharedRef<SWidget> SBallsMapEditor::MakeToolPanel() {
     ];
     Box->AddSlot().AutoHeight().Padding(0.0f, 2.0f)
     [
-        Stepper(TEXT("Balls"), 1, 100000, [E] { return E->LauncherBalls(); },
+        Stepper(TEXT("Balls"), 1, editorMaximumLauncherBalls, [E] { return E->LauncherBalls(); },
                 [E](int32 Value) { E->SetLauncherBalls(Value); })
     ];
     Box->AddSlot().AutoHeight().Padding(0.0f, 2.0f)
@@ -606,7 +593,7 @@ TSharedRef<SWidget> SBallsMapEditor::MakePropertyPanel() {
         SAssignNew(NameBox, SEditableTextBox)
         .Font(BallsStyle::Font(20.0f))
         .ForegroundColor(FSlateColor(BallsPalette::Linear(BallsPalette::Text)))
-        .BackgroundColor(FSlateColor(BallsPalette::Linear(BallsPalette::PanelLight)))
+        .BackgroundColor(FSlateColor(BallsPalette::Linear(BallsPalette::Control)))
         .Padding(FMargin(8.0f, 4.0f))
         .Text(FText::FromString(BallsText::FromUtf8(E->LevelName())))
         .OnTextChanged_Lambda([E](const FText& Text) {
@@ -636,17 +623,17 @@ TSharedRef<SWidget> SBallsMapEditor::MakePropertyPanel() {
     ];
     Box->AddSlot().AutoHeight().Padding(0.0f, 2.0f)
     [
-        Stepper(TEXT("Width"), 1, 200, [E] { return E->Editable().level().bricks.width; },
+        Stepper(TEXT("Width"), 1, editorMaximumBoardSize, [E] { return E->Level().bricks.width; },
                 [E](int32 Value) { E->SetBoardWidth(Value); })
     ];
     Box->AddSlot().AutoHeight().Padding(0.0f, 2.0f)
     [
-        Stepper(TEXT("Brick rows"), 1, 200, [E] { return E->Editable().level().bricks.height; },
+        Stepper(TEXT("Brick rows"), 1, editorMaximumBoardSize, [E] { return E->Level().bricks.height; },
                 [E](int32 Value) { E->SetBrickRows(Value); })
     ];
     Box->AddSlot().AutoHeight().Padding(0.0f, 2.0f)
     [
-        Stepper(TEXT("Total rows"), 1, 400, [E] { return E->Editable().level().bricks.playableHeight; },
+        Stepper(TEXT("Total rows"), 1, editorMaximumTotalRows, [E] { return E->Level().bricks.playableHeight; },
                 [E](int32 Value) { E->SetPlayableRows(Value); })
     ];
 
@@ -656,12 +643,12 @@ TSharedRef<SWidget> SBallsMapEditor::MakePropertyPanel() {
     ];
     Box->AddSlot().AutoHeight().Padding(0.0f, 2.0f)
     [
-        Stepper(TEXT("Columns"), 1, 8, [E] { return E->Editable().level().launchers.columns; },
+        Stepper(TEXT("Columns"), 1, editorMaximumLauncherColumns, [E] { return E->Level().launchers.columns; },
                 [E](int32 Value) { E->SetLauncherColumns(Value); })
     ];
     Box->AddSlot().AutoHeight().Padding(0.0f, 2.0f)
     [
-        Stepper(TEXT("Visible rows"), 1, 8, [E] { return E->Editable().level().launchers.visibleRows; },
+        Stepper(TEXT("Visible rows"), 1, editorMaximumVisibleRows, [E] { return E->Level().launchers.visibleRows; },
                 [E](int32 Value) { E->SetVisibleRows(Value); })
     ];
     Box->AddSlot().AutoHeight().Padding(0.0f, 6.0f)
@@ -704,19 +691,18 @@ TSharedRef<SWidget> SBallsMapEditor::MakePropertyPanel() {
         + SHorizontalBox::Slot().FillWidth(1.0f).Padding(0.0f, 0.0f, 4.0f, 0.0f)
         [
             BallsWidgets::Button(FText::FromString(TEXT("Undo")), [E] { E->Undo(); }, 18.0f,
-                                 TAttribute<bool>::CreateLambda([E] { return E->Editable().canUndo(); }))
+                                 TAttribute<bool>::CreateLambda([E] { return E->CanUndo(); }))
         ]
         + SHorizontalBox::Slot().FillWidth(1.0f).Padding(4.0f, 0.0f, 0.0f, 0.0f)
         [
             BallsWidgets::Button(FText::FromString(TEXT("Redo")), [E] { E->Redo(); }, 18.0f,
-                                 TAttribute<bool>::CreateLambda([E] { return E->Editable().canRedo(); }))
+                                 TAttribute<bool>::CreateLambda([E] { return E->CanRedo(); }))
         ]
     ];
     Box->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
     [
         BallsWidgets::Button(TAttribute<FText>::CreateLambda([E] {
-                                 return FText::FromString(E->IsDirty() ? TEXT("Save *  (Ctrl+S)")
-                                                                       : TEXT("Save  (Ctrl+S)"));
+                                 return FText::FromString(BallsText::FromUtf8(E->SaveLabel()));
                              }),
                              [E] { E->Save(); }, 18.0f)
     ];
@@ -728,7 +714,7 @@ TSharedRef<SWidget> SBallsMapEditor::MakePropertyPanel() {
     Box->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
     [
         BallsWidgets::Button(TAttribute<FText>::CreateLambda([E] {
-                                 return FText::FromString(E->ConfirmLeave() ? TEXT("Discard changes?") : TEXT("Back"));
+                                 return FText::FromString(BallsText::FromUtf8(E->BackLabel()));
                              }),
                              [E] { E->Back(); }, 18.0f)
     ];

@@ -22,5 +22,9 @@ THIRD_PARTY_INCLUDES_START
 #include "sim/BackendWorker.h"
 #include "sim/DeviceInventory.h"
 #include "sim/Simulation.h"
+#include "editor/EditorSession.h"
 #include "ui/GameplayLayout.h"
+#include "ui/MenuModel.h"
+#include "ui/ScreenFlow.h"
+#include "ui/Theme.h"
 THIRD_PARTY_INCLUDES_END

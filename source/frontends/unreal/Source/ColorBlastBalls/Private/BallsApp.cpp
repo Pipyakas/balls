@@ -230,6 +230,7 @@ FBallsApp::FBallsApp(UWorld* InWorld)
 #endif
     }
     ApplyOrientation();
+    Flow = std::make_unique<ScreenFlow>(LevelDirectory(GameMode::Normal), LevelDirectory(GameMode::Performance));
     ShowMainMenu();
 
     // -BallsPlay=normal:DA_FirstLevel opens a level directly, like the raylib build's --play.
@@ -241,7 +242,9 @@ FBallsApp::FBallsApp(UWorld* InWorld)
                                                                                              : GameMode::Normal;
         for (const LevelFiles& Files : findLevels(LevelDirectory(Mode))) {
             if (LevelName.Equals(BallsText::FromUtf8(Files.name), ESearchCase::IgnoreCase)) {
-                StartGame(Mode, Files);
+                Flow->startGame(Mode, Files);
+                ProcessFlowRequests();
+                ApplyFlowScreen();
                 break;
             }
         }
@@ -250,21 +253,35 @@ FBallsApp::FBallsApp(UWorld* InWorld)
         Gameplay->ChooseLauncher(0, 0);
     }
     if (FParse::Param(FCommandLine::Get(), TEXT("BallsEditor"))) {
-        ShowMapEditor(GameMode::Normal, std::nullopt);
+        Flow->openEditor(GameMode::Normal, std::nullopt);
+        ProcessFlowRequests();
+        ApplyFlowScreen();
     }
     // -BallsScreen=<settings|levels-normal|levels-performance|pause|pause-settings> opens a screen directly, for
     // screenshots and conformance checks (the pause ones need -BallsPlay too).
     FString Screen;
     if (FParse::Value(FCommandLine::Get(), TEXT("BallsScreen="), Screen)) {
         if (Screen == TEXT("settings")) {
-            ShowSettings();
+            Flow->showSettings();
+            ProcessFlowRequests();
+            ApplyFlowScreen();
         } else if (Screen == TEXT("levels-normal")) {
-            ShowLevelSelect(GameMode::Normal);
+            Flow->showLevelSelect(GameMode::Normal);
+            ProcessFlowRequests();
+            ApplyFlowScreen();
         } else if (Screen == TEXT("levels-performance")) {
-            ShowLevelSelect(GameMode::Performance);
+            Flow->showLevelSelect(GameMode::Performance);
+            ProcessFlowRequests();
+            ApplyFlowScreen();
         } else if (Gameplay && (Screen == TEXT("pause") || Screen == TEXT("pause-settings"))) {
-            Gameplay->SetPaused(true);
-            Gameplay->SetSettingsOpen(Screen == TEXT("pause-settings"));
+            if (!Flow->isPaused()) {
+                Flow->activate(FlowAction::TogglePause);
+            }
+            if (Screen == TEXT("pause-settings")) {
+                Flow->activate(FlowAction::PauseSettings);
+            }
+            ProcessFlowRequests();
+            ApplyFlowScreen();
         }
     }
     // "Default backend and machine benchmark": the game opens straight on the Main menu and never measures by
@@ -338,35 +355,151 @@ void FBallsApp::SetScreen(EScreen Screen, TSharedRef<SWidget> Content) {
     Root->SetScreen(Content);
 }
 
+void FBallsApp::ProcessFlowRequests() {
+    std::optional<FlowRequest> Request;
+    while ((Request = Flow->takeRequest()).has_value()) {
+        const FlowRequest& Req = *Request;
+        switch (Req.kind) {
+        case FlowRequestKind::StartGame:
+        case FlowRequestKind::ReloadGame: {
+            TSharedPtr<FBallsGameplay> Next = MakeShared<FBallsGameplay>(*this, Req.mode, *Req.files);
+            Gameplay = Next;
+            // Next level and reloads stay on the gameplay screen, so its widgets must be rebuilt for the new game.
+            bFlowScreenApplied = false;
+            if (Next->GetLoadError().IsEmpty()) {
+                Flow->levelLoaded();
+            } else {
+                Flow->levelFailed(TCHAR_TO_UTF8(*Next->GetLoadError()));
+            }
+            break;
+        }
+        case FlowRequestKind::RestartGame: {
+            if (Gameplay) {
+                Gameplay->Restart();
+            }
+            break;
+        }
+        case FlowRequestKind::EndGame: {
+            Gameplay.Reset();
+            if (BoardView) {
+                BoardView->Hide();
+            }
+            break;
+        }
+        case FlowRequestKind::OpenEditor: {
+            MapEditorState = MakeShared<FBallsMapEditor>(*this, Req.mode, Req.files);
+            bFlowScreenApplied = false;
+            break;
+        }
+        case FlowRequestKind::StartBenchmark: {
+            FString Error;
+            for (const BackendKind Kind : allBackendKinds) {
+                isBackendAvailable(Kind);
+            }
+            if (!Benchmark.Start(LevelDirectory(GameMode::Performance), Error)) {
+                ShowToast(FString::Printf(TEXT("Benchmark: %s"), *Error), true);
+                Flow->showMainMenu();
+            }
+            break;
+        }
+        case FlowRequestKind::SkipBenchmark: {
+            Benchmark.Skip();
+            FinishBenchmark(false);
+            break;
+        }
+        case FlowRequestKind::PickLevelFiles: {
+            OpenLevelImportDialog();
+            break;
+        }
+        case FlowRequestKind::OpenFolder: {
+            OpenLevelFolder(Req.mode);
+            break;
+        }
+        case FlowRequestKind::Quit: {
+            Quit();
+            break;
+        }
+        }
+    }
+}
+
+void FBallsApp::ApplyFlowScreen() {
+    const FlowScreen Screen = Flow->screen();
+    const GameMode Mode = Flow->mode();
+    if (bFlowScreenApplied && Screen == LastAppliedFlowScreen && Mode == LastAppliedFlowMode) {
+        return;
+    }
+    LastAppliedFlowScreen = Screen;
+    LastAppliedFlowMode = Mode;
+    bFlowScreenApplied = true;
+
+    switch (Screen) {
+    case FlowScreen::MainMenu:
+        CurrentScreen = EScreen::MainMenu;
+        SetScreen(EScreen::MainMenu, SNew(SBallsMainMenu).App(this));
+        break;
+    case FlowScreen::LevelSelect:
+        LevelSelectMode = Mode;
+        {
+            TSharedRef<SBallsLevelSelect> S = SNew(SBallsLevelSelect).App(this).Mode(Mode);
+            LevelSelect = S;
+            SetScreen(EScreen::LevelSelect, S);
+        }
+        break;
+    case FlowScreen::Gameplay:
+    case FlowScreen::LoadError:
+        if (!Gameplay) {
+            // Nothing to show yet; leave the previous screen.
+            break;
+        }
+        SetScreen(EScreen::Gameplay, SNew(SBallsGameplayHud).App(this).Gameplay(Gameplay));
+        break;
+    case FlowScreen::MapEditor:
+        if (!MapEditorState) {
+            MapEditorState = MakeShared<FBallsMapEditor>(*this, Mode, Flow->level());
+        }
+        SetScreen(EScreen::MapEditor, SNew(SBallsMapEditor).App(this).Editor(MapEditorState));
+        break;
+    case FlowScreen::Settings:
+        SetScreen(EScreen::Settings, SNew(SBallsSettingsPage).App(this));
+        break;
+    case FlowScreen::MachineBenchmark:
+        SetScreen(EScreen::Benchmark, SNew(SBallsBenchmark).App(this));
+        break;
+    }
+}
+
+bool FBallsApp::ActivateFlow(FlowAction Action, int32 Row) {
+    const bool Result = Flow->activate(Action, Row);
+    ProcessFlowRequests();
+    ApplyFlowScreen();
+    return Result;
+}
+
 void FBallsApp::ShowMainMenu() {
-    SetScreen(EScreen::MainMenu, SNew(SBallsMainMenu).App(this));
+    Flow->showMainMenu();
+    ProcessFlowRequests();
+    ApplyFlowScreen();
 }
 
 void FBallsApp::ShowLevelSelect(GameMode Mode) {
-    LevelSelectMode = Mode;
-    TSharedRef<SBallsLevelSelect> Screen = SNew(SBallsLevelSelect).App(this).Mode(Mode);
-    LevelSelect = Screen;
-    SetScreen(EScreen::LevelSelect, Screen);
+    Flow->showLevelSelect(Mode);
+    ProcessFlowRequests();
+    ApplyFlowScreen();
 }
 
-void FBallsApp::ShowToast(FString Text, bool bIsError) { Toast = {MoveTemp(Text), 3.0f, bIsError}; }
+void FBallsApp::ShowToast(FString Text, bool bIsError) {
+    Flow->showToast(TCHAR_TO_UTF8(*Text), bIsError);
+}
 
 void FBallsApp::ImportLevels(const TArray<FString>& Paths) {
-    const TSharedPtr<SBallsLevelSelect> Screen = LevelSelect.Pin();
-    if (CurrentScreen != EScreen::LevelSelect || !Screen) {
-        ShowToast(TEXT("Open Level select to import levels"), false);
-        return;
-    }
     std::vector<std::filesystem::path> Picked;
     for (const FString& Path : Paths) {
         Picked.emplace_back(TCHAR_TO_UTF8(*Path));
     }
-    const LevelImportReport Report = importLevels(Picked, LevelDirectory(LevelSelectMode), LevelSelectMode);
-    ShowToast(BallsText::FromUtf8(Report.summary()), Report.anyFailed() && Report.importedCount() == 0);
-    Screen->Refresh();
-    if (const std::optional<std::string> Highlight = Report.levelToHighlight()) {
-        Screen->Highlight(BallsText::FromUtf8(*Highlight));
-    }
+    Flow->importLevels(Picked);
+    ProcessFlowRequests();
+    ApplyFlowScreen();
 }
 
 void FBallsApp::OpenLevelImportDialog() {
@@ -378,7 +511,7 @@ void FBallsApp::OpenLevelImportDialog() {
     }
     TArray<FString> Picked;
     const void* ParentWindow = FSlateApplication::Get().FindBestParentWindowHandleForDialogs(nullptr);
-    const FString Directory = FString(UTF8_TO_TCHAR(LevelDirectory(LevelSelectMode).string().c_str()));
+    const FString Directory = FString(UTF8_TO_TCHAR(Flow->levelFolder().string().c_str()));
     if (Platform->OpenFileDialog(ParentWindow, TEXT("Import levels"), Directory, FString(), TEXT("Level files (*.txt)|*.txt"),
                                  EFileDialogFlags::Multiple, Picked) &&
         Picked.Num() > 0) {
@@ -397,31 +530,15 @@ void FBallsApp::OpenLevelFolder(GameMode Mode) {
 }
 
 void FBallsApp::ShowSettings() {
-    SetScreen(EScreen::Settings, SNew(SBallsSettingsPage).App(this));
+    Flow->showSettings();
+    ProcessFlowRequests();
+    ApplyFlowScreen();
 }
 
 void FBallsApp::ShowBenchmark() {
-    FString Error;
-    // Load every physics plugin on the game thread first: loading a DLL from the benchmark's worker thread while the
-    // engine is running has crashed the process.
-    for (const BackendKind Kind : allBackendKinds) {
-        isBackendAvailable(Kind);
-    }
-    if (!Benchmark.Start(LevelDirectory(GameMode::Performance), Error)) {
-        // Without a level to measure on the run is pointless; say why and go on to the menu.
-        ShowToast(FString::Printf(TEXT("Benchmark: %s"), *Error), true);
-        ShowMainMenu();
-        return;
-    }
-    bBenchmarkSettled = false;
-    SetScreen(EScreen::Benchmark, SNew(SBallsBenchmark).App(this));
-}
-
-void FBallsApp::SkipBenchmark() {
-    // Keep the best result so far, but leave the record incomplete so the next launch measures again.
-    Benchmark.Skip();
-    FinishBenchmark(false);
-    LeaveBenchmark();
+    Flow->runMachineBenchmark();
+    ProcessFlowRequests();
+    ApplyFlowScreen();
 }
 
 void FBallsApp::FinishBenchmark(bool bComplete) {
@@ -429,18 +546,6 @@ void FBallsApp::FinishBenchmark(bool bComplete) {
     Benchmark.Save(bComplete, Winner);
     if (Winner && isBackendAvailable(Winner->kind)) {
         SetPreferredBackend(Winner->kind);
-    }
-    bBenchmarkSettled = true;
-    BenchmarkSettledAt = FPlatformTime::Seconds();
-}
-
-void FBallsApp::LeaveBenchmark() {
-    const bool bToSettings = bBenchmarkReturnToSettings;
-    bBenchmarkReturnToSettings = false;
-    if (bToSettings) {
-        ShowSettings();
-    } else {
-        ShowMainMenu();
     }
 }
 
@@ -513,16 +618,15 @@ void FBallsApp::SetGraphicsQuality(EBallsGraphics Quality) {
 }
 
 void FBallsApp::ShowMapEditor(GameMode Mode, std::optional<LevelFiles> Files) {
-    TSharedPtr<FBallsMapEditor> Next = MakeShared<FBallsMapEditor>(*this, Mode, std::move(Files));
-    MapEditorState = Next;
-    SetScreen(EScreen::MapEditor, SNew(SBallsMapEditor).App(this).Editor(Next));
+    Flow->openEditor(Mode, std::move(Files));
+    ProcessFlowRequests();
+    ApplyFlowScreen();
 }
 
 void FBallsApp::StartGame(GameMode Mode, const LevelFiles& Files) {
-    // Build the new game before swapping so the old one stays alive while its widgets are replaced.
-    TSharedPtr<FBallsGameplay> Next = MakeShared<FBallsGameplay>(*this, Mode, Files);
-    SetScreen(EScreen::Gameplay, SNew(SBallsGameplayHud).App(this).Gameplay(Next));
-    Gameplay = MoveTemp(Next);
+    Flow->startGame(Mode, Files);
+    ProcessFlowRequests();
+    ApplyFlowScreen();
 }
 
 void FBallsApp::Quit() {
@@ -530,21 +634,20 @@ void FBallsApp::Quit() {
 }
 
 bool FBallsApp::HandleKey(const FKey& Key) {
-    switch (CurrentScreen) {
-    case EScreen::Gameplay:
-        return Gameplay && Gameplay->HandleKey(Key);
-    case EScreen::MapEditor:
+    if (CurrentScreen == EScreen::MapEditor) {
         return MapEditorState && MapEditorState->HandleKey(Key);
-    case EScreen::LevelSelect:
-    case EScreen::Settings:
-        if (Key == EKeys::Escape) {
-            ShowMainMenu();
-            return true;
+    }
+    if (Key != EKeys::Escape) {
+        if (CurrentScreen == EScreen::Gameplay) {
+            return Gameplay && Gameplay->HandleKey(Key);
         }
         return false;
-    default:
-        return false;
     }
+    // Esc on every other screen goes through the core's flow.
+    const bool Result = Flow->escape();
+    ProcessFlowRequests();
+    ApplyFlowScreen();
+    return Result;
 }
 
 void FBallsApp::RecordFrame(float DeltaSeconds) {
@@ -564,23 +667,26 @@ void FBallsApp::RecordFrame(float DeltaSeconds) {
 
 void FBallsApp::Tick(float DeltaSeconds) {
     RecordFrame(DeltaSeconds);
-    // The first-launch benchmark owns the screen until it settles, then hands over after a beat so the winner can
-    // be read ("after 1.5 s, or on Continue, the Main menu opens").
-    if (CurrentScreen == EScreen::Benchmark) {
-        if (!bBenchmarkSettled && Benchmark.IsFinished()) {
+    // The core owns the benchmark's advance: it returns to the Main menu 1.5 s after the result.
+    if (Flow->screen() == FlowScreen::MachineBenchmark) {
+        if (!Flow->benchmarkSettled() && Benchmark.IsFinished()) {
             FinishBenchmark(true);
+            Flow->benchmarkFinished();
         }
-        if (bBenchmarkSettled && FPlatformTime::Seconds() - BenchmarkSettledAt >= BenchmarkAdvanceSeconds) {
-            LeaveBenchmark();
-        }
+        Flow->update(DeltaSeconds);
+        ProcessFlowRequests();
+        ApplyFlowScreen();
         return;
     }
-    Toast.SecondsLeft = FMath::Max(0.0f, Toast.SecondsLeft - DeltaSeconds);
     // The viewport window may not exist yet in the constructor, so a saved forced orientation resizes it here.
     if (!bOrientationApplied && World && World->GetGameViewport() && World->GetGameViewport()->GetWindow()) {
         bOrientationApplied = true;
         ApplyOrientation();
     }
+    Flow->update(DeltaSeconds);
+    ProcessFlowRequests();
+    ApplyFlowScreen();
+
     if (CurrentScreen == EScreen::MapEditor) {
         if (MapEditorState) {
             MapEditorState->Tick(DeltaSeconds);
@@ -590,8 +696,18 @@ void FBallsApp::Tick(float DeltaSeconds) {
     if (!Gameplay) {
         return;
     }
+    // Report the session state to the flow each tick, so the Win overlay appears in Normal mode.
+    if (Gameplay->GetView()) {
+        Flow->sessionStateChanged(Gameplay->GetView()->state);
+    }
+    ProcessFlowRequests();
+    ApplyFlowScreen();
+
     // Hold a reference: the tick can open the next level, which replaces Gameplay.
     const TSharedPtr<FBallsGameplay> Current = Gameplay;
+    if (!Current) {
+        return;
+    }
     // Probe windows use the limiting CPU/GPU work rate, not cadence imposed by VSync or the compositor.
     // After a hitch the spawn budget and brick animation must not jump by the whole stall: clamp like the SDL front end.
     Current->Tick(FMath::Min(DeltaSeconds, MaximumFrameSeconds), Frames.latest().workMs / 1000.0,
@@ -620,21 +736,13 @@ void FBallsApp::Tick(float DeltaSeconds) {
     }
 }
 
-std::string_view FBallsApp::GetScreenName() const {
-    switch (CurrentScreen) {
-    case EScreen::LevelSelect:
-        return "level-select";
-    case EScreen::Gameplay:
-        return "gameplay";
-    case EScreen::MapEditor:
-        return "editor";
-    case EScreen::Settings:
-        return "settings";
-    case EScreen::Benchmark:
-        return "benchmark";
-    default:
-        return "main-menu";
-    }
+const FBallsToast& FBallsApp::GetToast() const {
+    static FBallsToast Cached;
+    const FlowToast& T = Flow->toast();
+    Cached.Text = BallsText::FromUtf8(T.text);
+    Cached.SecondsLeft = T.secondsLeft;
+    Cached.bIsError = T.isError;
+    return Cached;
 }
 
 struct FBallsApp::FControlBridge final : ControlHost {
@@ -647,13 +755,14 @@ struct FBallsApp::FControlBridge final : ControlHost {
         ControlFrontEndState State;
         State.frontEnd = "unreal";
         State.renderer = TCHAR_TO_UTF8(*GRHIAdapterName);
-        State.screen = App.GetScreenName();
+        State.screen = flowScreenName(App.GetScreenFlow().screen());
         State.windowWidth = static_cast<int>(WindowSize.X);
         State.windowHeight = static_cast<int>(WindowSize.Y);
         State.frames = &App.Frames;
         State.preferredBackend = App.PreferredBackend;
         State.vsync = App.bVSync;
-        State.toast = App.Toast.SecondsLeft > 0.0f ? std::string(TCHAR_TO_UTF8(*App.Toast.Text)) : std::string();
+        const FlowToast& Toast = App.GetScreenFlow().toast();
+        State.toast = Toast.secondsLeft > 0.0f ? Toast.text : std::string();
         return State;
     }
     ControlGame* game() override {
@@ -665,14 +774,26 @@ struct FBallsApp::FControlBridge final : ControlHost {
         FScreenshotRequest::RequestScreenshot(UTF8_TO_TCHAR(Path.c_str()), true, false);
         return ControlResponse::ok(std::format("{{\"ok\":true,\"path\":\"{}\"}}", jsonEscape(Path)));
     }
-    void play(GameMode Mode, const LevelFiles& Level) override { App.StartGame(Mode, Level); }
-    void showMainMenu() override { App.ShowMainMenu(); }
+    void play(GameMode Mode, const LevelFiles& Level) override {
+        App.GetScreenFlow().startGame(Mode, Level);
+        App.ProcessFlowRequests();
+        App.ApplyFlowScreen();
+    }
+    void showMainMenu() override {
+        App.GetScreenFlow().showMainMenu();
+        App.ProcessFlowRequests();
+        App.ApplyFlowScreen();
+    }
     bool showLevelSelect(GameMode Mode) override {
-        App.ShowLevelSelect(Mode);
+        App.GetScreenFlow().showLevelSelect(Mode);
+        App.ProcessFlowRequests();
+        App.ApplyFlowScreen();
         return true;
     }
     bool openEditor(GameMode Mode, const std::optional<LevelFiles>& Level) override {
-        App.ShowMapEditor(Mode, Level);
+        App.GetScreenFlow().openEditor(Mode, Level);
+        App.ProcessFlowRequests();
+        App.ApplyFlowScreen();
         return true;
     }
     void quit() override { App.Quit(); }
@@ -690,12 +811,16 @@ struct FBallsApp::FControlBridge final : ControlHost {
         }
     }
     void openSettings() override {
-        if (FBallsGameplay* Game = App.CurrentScreen == EScreen::Gameplay ? App.Gameplay.Get() : nullptr) {
-            Game->SetPaused(true);
-            Game->SetSettingsOpen(true);
+        if (App.CurrentScreen == EScreen::Gameplay && App.Gameplay) {
+            if (!App.GetScreenFlow().isPaused()) {
+                App.GetScreenFlow().activate(FlowAction::TogglePause);
+            }
+            App.GetScreenFlow().activate(FlowAction::PauseSettings);
         } else if (App.CurrentScreen != EScreen::Settings) {
-            App.ShowSettings();
+            App.GetScreenFlow().showSettings();
         }
+        App.ProcessFlowRequests();
+        App.ApplyFlowScreen();
     }
     void setVsync(bool bEnabled) override { App.SetVSyncEnabled(bEnabled); }
 
@@ -703,7 +828,7 @@ struct FBallsApp::FControlBridge final : ControlHost {
         ControlBenchmarkState State;
         const std::optional<BenchmarkRecord>& Record = App.Benchmark.GetRecord();
         State.state = App.Benchmark.IsRunning() ? "running"
-                      : App.bBenchmarkSettled || (Record && Record->complete) ? "done"
+                      : App.GetScreenFlow().benchmarkSettled() || (Record && Record->complete) ? "done"
                       : Record                                             ? "skipped"
                                                                            : "none";
         State.results = App.Benchmark.Results();
@@ -712,22 +837,27 @@ struct FBallsApp::FControlBridge final : ControlHost {
     }
     void runBenchmark() override {
         if (!App.Benchmark.IsRunning()) {
-            App.bBenchmarkReturnToSettings = false;
-            App.ShowBenchmark();
+            App.GetScreenFlow().runMachineBenchmark();
+            App.ProcessFlowRequests();
+            App.ApplyFlowScreen();
         }
     }
     bool skipBenchmark() override {
-        if (App.CurrentScreen != EScreen::Benchmark || App.bBenchmarkSettled) {
+        if (App.CurrentScreen != EScreen::Benchmark || App.GetScreenFlow().benchmarkSettled()) {
             return false;
         }
-        App.SkipBenchmark();
+        App.GetScreenFlow().activate(FlowAction::SkipBenchmark);
+        App.ProcessFlowRequests();
+        App.ApplyFlowScreen();
         return true;
     }
     bool continueFromBenchmark() override {
-        if (App.CurrentScreen != EScreen::Benchmark || !App.bBenchmarkSettled) {
+        if (App.CurrentScreen != EScreen::Benchmark || !App.GetScreenFlow().benchmarkSettled()) {
             return false;
         }
-        App.LeaveBenchmark();
+        App.GetScreenFlow().activate(FlowAction::ContinueFromBenchmark);
+        App.ProcessFlowRequests();
+        App.ApplyFlowScreen();
         return true;
     }
 

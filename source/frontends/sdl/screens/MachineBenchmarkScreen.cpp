@@ -24,7 +24,6 @@ constexpr float progressWidth = 240.0f;
 constexpr float progressHeight = 10.0f;
 constexpr float buttonWidth = 200.0f;
 constexpr float buttonHeight = 56.0f;
-constexpr float secondsBeforeMainMenu = 1.5f;
 // Without vsync (hidden or automated runs) the UI loop would spin and take a core from the CPU candidates.
 constexpr auto idleWhileMeasuring = std::chrono::milliseconds(12);
 
@@ -43,7 +42,7 @@ std::optional<BrickLayout> benchmarkLevel(std::string& error) {
     return std::move(level->bricks);
 }
 
-}
+} // namespace
 
 MachineBenchmarkScreen::MachineBenchmarkScreen(App& app, HardwareFingerprint machine)
     : app(app), fingerprint(std::move(machine)) {
@@ -64,18 +63,23 @@ void MachineBenchmarkScreen::finish(bool complete) {
     app.adoptBenchmarkWinner(*winner);
 }
 
-void MachineBenchmarkScreen::update(float deltaTime) {
+void MachineBenchmarkScreen::skip() {
+    if (benchmark && !winner) {
+        benchmark->cancel();
+        finish(false);
+        app.flow().benchmarkFinished();
+    }
+}
+
+void MachineBenchmarkScreen::update(float) {
     if (!winner) {
         if (!benchmark || benchmark->finished()) {
             finish(benchmark != nullptr);
+            app.flow().benchmarkFinished();
         } else {
             std::this_thread::sleep_for(idleWhileMeasuring);
         }
         return;
-    }
-    secondsSinceDone += deltaTime;
-    if (secondsSinceDone >= secondsBeforeMainMenu) {
-        app.showMainMenu();
     }
 }
 
@@ -83,7 +87,7 @@ void MachineBenchmarkScreen::drawRow(const CandidateResult& result, float top, b
     const float left = (static_cast<float>(gfx::screenWidth()) - listWidth) * 0.5f;
     const Rect row{left, top, listWidth, rowHeight};
     ui::drawPanel(row, isWinner ? gfx::fade(palette::accent, 0.18f) : palette::panel);
-    ui::drawBorder(row, 0.08f, isWinner ? palette::accent : palette::frame);
+    ui::drawBorder(row, 0.08f, isWinner ? palette::accent : palette::border);
     const float textY = top + (rowHeight - rowTextSize) * 0.5f;
     constexpr float padding = 20.0f;
     ui::drawText(result.candidate.label, {left + padding, textY}, rowTextSize,
@@ -92,7 +96,7 @@ void MachineBenchmarkScreen::drawRow(const CandidateResult& result, float top, b
     const float right = left + listWidth - padding;
     if (result.status == CandidateStatus::Running) {
         const Rect track{right - progressWidth, top + (rowHeight - progressHeight) * 0.5f, progressWidth, progressHeight};
-        gfx::fillRounded(track, 0.5f, palette::panelLight);
+        gfx::fillRounded(track, 0.5f, palette::control);
         Rect filled = track;
         filled.width = track.width * static_cast<float>(std::clamp(result.progress, 0.0, 1.0));
         gfx::fillRounded(filled, 0.5f, palette::accent);
@@ -107,8 +111,8 @@ void MachineBenchmarkScreen::drawRow(const CandidateResult& result, float top, b
 void MachineBenchmarkScreen::draw() {
     const float centerX = static_cast<float>(gfx::screenWidth()) * 0.5f;
     const float top = static_cast<float>(gfx::screenHeight()) * 0.14f;
-    ui::drawText("Setting up for this machine", {centerX, top}, titleSize, palette::accent, ui::Align::Center);
-    ui::drawText("Measuring each physics backend on this machine.",
+    ui::drawText(app.flow().title(), {centerX, top}, titleSize, palette::accent, ui::Align::Center);
+    ui::drawText(app.flow().footnote(),
                  {centerX, top + titleSize + 12.0f}, subtitleSize, palette::textMuted, ui::Align::Center);
 
     float rowTop = top + titleSize + subtitleSize + 48.0f;
@@ -128,35 +132,16 @@ void MachineBenchmarkScreen::draw() {
         ui::drawText("Default backend: " + winner->label, {centerX, rowTop + 12.0f}, rowTextSize, palette::accent,
                      ui::Align::Center);
     }
-    const Rect actionRect{centerX - buttonWidth * 0.5f, rowTop + 64.0f, buttonWidth, buttonHeight};
-    if (winner) {
-        if (ui::button(actionRect, "Continue")) {
-            app.showMainMenu();
+    const auto buttons = app.flow().buttons();
+    for (const FlowButton& button : buttons) {
+        const Rect actionRect{centerX - buttonWidth * 0.5f, rowTop + 64.0f, buttonWidth, buttonHeight};
+        if (ui::button(actionRect, button.label, button.enabled)) {
+            app.flow().activate(button.action);
         }
-    } else if (ui::button(actionRect, "Skip")) {
-        benchmark->cancel();
-        finish(false);
-        app.showMainMenu();
     }
 }
 
 ControlBenchmarkState MachineBenchmarkScreen::controlState() const {
     return {winner ? "done" : "running",
             winner ? finalResults : benchmark ? benchmark->results() : std::vector<CandidateResult>{}, winner};
-}
-
-std::optional<ControlResponse> MachineBenchmarkScreen::handleControl(const ControlRequest& request) {
-    if (request.path == "/benchmark/skip" && !winner) {
-        if (benchmark) {
-            benchmark->cancel();
-        }
-        finish(false);
-        app.showMainMenu();
-        return ControlResponse::ok("{\"ok\":true}");
-    }
-    if (request.path == "/benchmark/continue" && winner) {
-        app.showMainMenu();
-        return ControlResponse::ok("{\"ok\":true}");
-    }
-    return std::nullopt;
 }

@@ -13,7 +13,27 @@ namespace Balls.Native
     {
         public const string Library = "balls_unity";
 
-        public const int AbiVersion = 2;
+        public const int AbiVersion = 6;
+
+        // Theme ids, as BALLS_THEME_* in BallsUnityApi.h.
+        public const int ThemeBackground = 0;
+        public const int ThemeBoardBackdrop = 1;
+        public const int ThemePanel = 2;
+        public const int ThemeControl = 3;
+        public const int ThemeControlHover = 4;
+        public const int ThemeControlPressed = 5;
+        public const int ThemeBorder = 6;
+        public const int ThemeText = 7;
+        public const int ThemeTextStrong = 8;
+        public const int ThemeTextMuted = 9;
+        public const int ThemeTextDim = 10;
+        public const int ThemeAccent = 11;
+        public const int ThemeDanger = 12;
+        public const int ThemeSuccess = 13;
+        public const int ThemeBrickShade = 0;
+        public const int ThemeToastSeconds = 3;
+        public const int ThemeToastTextSize = 4;
+        public const int ThemeSizeDisplay = 8;
 
         public const int ModeNormal = 0;
         public const int ModePerformance = 1;
@@ -39,6 +59,98 @@ namespace Balls.Native
         public const int RenderCoordinateBits = 14;
         public const int RenderColorShift = 28;
 
+        public const int ScreenMainMenu = 0;
+        public const int ScreenLevelSelect = 1;
+        public const int ScreenGameplay = 2;
+        public const int ScreenLoadError = 3;
+        public const int ScreenMapEditor = 4;
+        public const int ScreenSettings = 5;
+        public const int ScreenMachineBenchmark = 6;
+
+        public const int OverlayNone = 0;
+        public const int OverlayPause = 1;
+        public const int OverlayWin = 2;
+        public const int OverlaySettings = 3;
+
+        public const int FlowNormalMode = 0;
+        public const int FlowPerformanceMode = 1;
+        public const int FlowMapEditor = 2;
+        public const int FlowSettings = 3;
+        public const int FlowQuit = 4;
+        public const int FlowPlayLevel = 5;
+        public const int FlowEditLevel = 6;
+        public const int FlowNewLevel = 7;
+        public const int FlowImport = 8;
+        public const int FlowOpenFolder = 9;
+        public const int FlowTogglePause = 10;
+        public const int FlowResume = 11;
+        public const int FlowRestart = 12;
+        public const int FlowPauseSettings = 13;
+        public const int FlowMainMenu = 14;
+        public const int FlowNextLevel = 15;
+        public const int FlowRunMachineBenchmark = 16;
+        public const int FlowSkipBenchmark = 17;
+        public const int FlowContinueFromBenchmark = 18;
+        public const int FlowBack = 19;
+
+        public const int RequestStartGame = 0;
+        public const int RequestReloadGame = 1;
+        public const int RequestRestartGame = 2;
+        public const int RequestEndGame = 3;
+        public const int RequestOpenEditor = 4;
+        public const int RequestStartBenchmark = 5;
+        public const int RequestSkipBenchmark = 6;
+        public const int RequestPickLevelFiles = 7;
+        public const int RequestOpenFolder = 8;
+        public const int RequestQuit = 9;
+
+        public const int FlowTextTitle = 0;
+        public const int FlowTextFootnote = 1;
+        public const int FlowTextGameTitle = 2;
+        public const int FlowTextDiskNotice = 3;
+        public const int FlowTextLoadError = 4;
+        public const int FlowTextToast = 5;
+        public const int FlowTextScreenName = 6;
+        public const int FlowTextLevelFolder = 7;
+
+        public const int MenuOrientation = 0;
+        public const int MenuOffOn = 1;
+        public const int MenuSpawnRate = 2;
+        public const int MenuBallMultiplier = 3;
+        public const int MenuBallLimit = 4;
+        public const int MenuGameplayBackends = 5;
+        public const int MenuRelease = 6;
+        public const int MenuBallCollisions = 7;
+
+        public const int MenuTextBackendFailed = 0;
+        public const int MenuTextProbeResult = 1;
+        public const int MenuTextComputeGpu = 2;
+
+        public const int ToolPaint = 0;
+        public const int ToolExtend = 1;
+        public const int ToolErase = 2;
+        public const int ToolPick = 3;
+
+        public const int ShortcutUndo = 0;
+        public const int ShortcutRedo = 1;
+        public const int ShortcutSave = 2;
+        public const int ShortcutPaint = 3;
+        public const int ShortcutExtend = 4;
+        public const int ShortcutErase = 5;
+        public const int ShortcutPick = 6;
+        public const int ShortcutColor1 = 7;
+
+        public const int LauncherSet = 0;
+        public const int LauncherClear = 1;
+        public const int LauncherDeleteRow = 2;
+
+        public const int EditorTextName = 0;
+        public const int EditorTextSelection = 1;
+        public const int EditorTextSaveLabel = 2;
+        public const int EditorTextBackLabel = 3;
+        public const int EditorTextFooter = 4;
+        public const int EditorTextMessage = 5;
+
         [DllImport(Library)] public static extern int balls_abi_version();
 
         [DllImport(Library)] public static extern void balls_set_plugin_directory([MarshalAs(UnmanagedType.LPUTF8Str)] string directory);
@@ -46,6 +158,14 @@ namespace Balls.Native
         [DllImport(Library)] public static extern int balls_last_error(byte[] buffer, int size);
 
         [DllImport(Library)] public static extern float balls_render_pack_scale(float fieldExtent);
+
+        [DllImport(Library)] public static extern uint balls_theme_color(int id);
+
+        [DllImport(Library)] public static extern uint balls_theme_ball_color(int colorIndex);
+
+        [DllImport(Library)] public static extern uint balls_theme_brick_color(int colorIndex);
+
+        [DllImport(Library)] public static extern float balls_theme_value(int id);
 
         [DllImport(Library)] public static extern void balls_compute_layout(float frameWidth, float frameHeight, int boardColumns, int boardRows, int orientation, int launcherRows, out NativeLayout layout);
 
@@ -421,11 +541,7 @@ namespace Balls.Native
 
         [DllImport(Library)] public static extern int balls_compute_gpu_preference(byte[] buffer, int size);
 
-        [DllImport(Library)] public static extern int balls_editor_brick_at(IntPtr editor, int column, int row);
 
-        [DllImport(Library)] public static extern int balls_editor_brick_color(IntPtr editor, int column, int row);
-
-        [DllImport(Library)] public static extern int balls_editor_brick_hits(IntPtr editor, int column, int row);
 
         [DllImport(Library)] public static extern int balls_session_set_ball_collisions(IntPtr session, int enabled);
 
@@ -525,51 +641,117 @@ namespace Balls.Native
 
         [DllImport(Library)] public static extern void balls_profile_remember_benchmark(IntPtr profile, IntPtr benchmark, int complete, [MarshalAs(UnmanagedType.LPUTF8Str)] string gameVersion);
 
-        [DllImport(Library)] public static extern IntPtr balls_editor_create();
+        // Core map editor session
+        [DllImport(Library)] public static extern IntPtr balls_editor_session_create(int mode, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelName, [MarshalAs(UnmanagedType.LPUTF8Str)] string normalLevels, [MarshalAs(UnmanagedType.LPUTF8Str)] string performanceLevels);
+        [DllImport(Library)] public static extern void balls_editor_session_destroy(IntPtr session);
+        [DllImport(Library)] public static extern void balls_editor_session_update(IntPtr session, float deltaSeconds);
+        [DllImport(Library)] public static extern void balls_editor_session_state(IntPtr session, out NativeEditorState state);
+        [DllImport(Library)] public static extern int balls_editor_session_text(IntPtr session, int which, byte[] buffer, int size);
+        [DllImport(Library)] public static extern int balls_editor_session_problem(IntPtr session, int index, byte[] buffer, int size);
+        [DllImport(Library)] public static extern int balls_editor_session_tally(IntPtr session, int color, byte[] buffer, int size);
+        [DllImport(Library)] public static extern int balls_editor_session_tool_label(int tool, byte[] buffer, int size);
 
-        [DllImport(Library)] public static extern void balls_editor_destroy(IntPtr editor);
+        [DllImport(Library)] public static extern int balls_editor_session_brick(IntPtr session, int column, int row, out int color, out int hits);
+        [DllImport(Library)] public static extern int balls_editor_session_launcher(IntPtr session, int column, int row, out int color, out int balls);
 
-        [DllImport(Library)] public static extern void balls_editor_new_level(IntPtr editor, [MarshalAs(UnmanagedType.LPUTF8Str)] string name, int width, int height, int playableHeight, int launcherColumns, int visibleRows);
+        [DllImport(Library)] public static extern void balls_editor_session_set_tool(IntPtr session, int tool);
+        [DllImport(Library)] public static extern void balls_editor_session_select_color(IntPtr session, int color);
+        [DllImport(Library)] public static extern void balls_editor_session_set_brush_hits(IntPtr session, int hits);
+        [DllImport(Library)] public static extern void balls_editor_session_set_launcher_balls(IntPtr session, int balls);
+        [DllImport(Library)] public static extern void balls_editor_session_begin_stroke(IntPtr session, int erase);
+        [DllImport(Library)] public static extern void balls_editor_session_stroke_cell(IntPtr session, int column, int row);
+        [DllImport(Library)] public static extern void balls_editor_session_end_stroke(IntPtr session);
+        [DllImport(Library)] public static extern void balls_editor_session_click_launcher(IntPtr session, int column, int row, int click);
+        [DllImport(Library)] public static extern void balls_editor_session_set_name(IntPtr session, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+        [DllImport(Library)] public static extern void balls_editor_session_set_mode(IntPtr session, int mode);
+        [DllImport(Library)] public static extern void balls_editor_session_set_board_size(IntPtr session, int width, int brickRows, int totalRows);
+        [DllImport(Library)] public static extern void balls_editor_session_set_launcher_columns(IntPtr session, int columns);
+        [DllImport(Library)] public static extern void balls_editor_session_set_visible_rows(IntPtr session, int rows);
+        [DllImport(Library)] public static extern void balls_editor_session_auto_fill(IntPtr session);
+        [DllImport(Library)] public static extern void balls_editor_session_undo(IntPtr session);
+        [DllImport(Library)] public static extern void balls_editor_session_redo(IntPtr session);
+        [DllImport(Library)] public static extern int balls_editor_session_save(IntPtr session);
+        [DllImport(Library)] public static extern int balls_editor_session_save_and_play(IntPtr session, out NativeLevelInfo level);
+        [DllImport(Library)] public static extern int balls_editor_session_back(IntPtr session);
+        [DllImport(Library)] public static extern int balls_editor_session_shortcut(IntPtr session, int shortcut);
 
-        [DllImport(Library)] public static extern int balls_editor_load_level(IntPtr editor, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelDirectory, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelName);
+        // Core menu model
+        [DllImport(Library)] public static extern int balls_menu_options(int list, int value, IntPtr session, [Out] NativeUiOption[] options, int capacity);
+        [DllImport(Library)] public static extern int balls_menu_default_backends(int preferredKind, IntPtr profile, [Out] NativeUiOption[] options, int capacity);
+        [DllImport(Library)] public static extern int balls_menu_auto_ball_limit(IntPtr session);
+        [DllImport(Library)] public static extern int balls_menu_probe_status(IntPtr session, byte[] buffer, int size);
+        [DllImport(Library)] private static extern int balls_menu_device_rows(PickRecord[] picks, int pickCount, [Out] NativeDevicePickRow[] rows, int capacity);
+        [DllImport(Library)] private static extern int balls_menu_pick_device(PickRecord[] picks, int pickCount, int row, int option, [Out] PickRecord[] result, int capacity);
+        [DllImport(Library)] public static extern int balls_menu_debug_rows(IntPtr session, IntPtr timings, int showBackend, [MarshalAs(UnmanagedType.LPUTF8Str)] string renderer, [Out] NativeDebugRow[] rows, int capacity);
+        [DllImport(Library)] public static extern int balls_menu_message(int which, int kind, ulong balls, double fps, [MarshalAs(UnmanagedType.LPUTF8Str)] string text, byte[] buffer, int size);
+        [DllImport(Library)] private static extern int balls_menu_physics_on(PickRecord[] picks, int pickCount, byte[] buffer, int size);
 
-        [DllImport(Library)] public static extern int balls_editor_save_level(IntPtr editor, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelDirectory);
+        // Core screen flow
+        [DllImport(Library)] public static extern IntPtr balls_flow_create([MarshalAs(UnmanagedType.LPUTF8Str)] string normalLevels, [MarshalAs(UnmanagedType.LPUTF8Str)] string performanceLevels);
+        [DllImport(Library)] public static extern void balls_flow_destroy(IntPtr flow);
+        [DllImport(Library)] public static extern void balls_flow_update(IntPtr flow, float deltaSeconds);
+        [DllImport(Library)] public static extern int balls_flow_activate(IntPtr flow, int action, int row);
+        [DllImport(Library)] public static extern int balls_flow_escape(IntPtr flow);
 
-        [DllImport(Library)] public static extern void balls_editor_info(IntPtr editor, out NativeEditorInfo info);
+        [DllImport(Library)] public static extern void balls_flow_show_main_menu(IntPtr flow);
+        [DllImport(Library)] public static extern void balls_flow_show_level_select(IntPtr flow, int mode);
+        [DllImport(Library)] public static extern int balls_flow_start_game(IntPtr flow, int mode, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelName);
+        [DllImport(Library)] public static extern void balls_flow_open_editor(IntPtr flow, int mode, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelName);
+        [DllImport(Library)] public static extern void balls_flow_show_settings(IntPtr flow);
+        [DllImport(Library)] public static extern void balls_flow_run_machine_benchmark(IntPtr flow);
 
-        [DllImport(Library)] public static extern void balls_editor_resize_board(IntPtr editor, int width, int height, int playableHeight);
+        [DllImport(Library)] public static extern void balls_flow_level_loaded(IntPtr flow);
+        [DllImport(Library)] public static extern void balls_flow_level_failed(IntPtr flow, [MarshalAs(UnmanagedType.LPUTF8Str)] string error);
+        [DllImport(Library)] public static extern void balls_flow_session_state(IntPtr flow, int state);
+        [DllImport(Library)] public static extern void balls_flow_benchmark_finished(IntPtr flow);
+        [DllImport(Library)] public static extern void balls_flow_play_from_editor(IntPtr flow, int mode, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelName);
+        [DllImport(Library)] private static extern void balls_flow_import(IntPtr flow, IntPtr[] picked, int pickedCount);
+        [DllImport(Library)] public static extern void balls_flow_show_toast(IntPtr flow, [MarshalAs(UnmanagedType.LPUTF8Str)] string text, int isError);
 
-        [DllImport(Library)] public static extern void balls_editor_paint_cell(IntPtr editor, int column, int row, int color, int hits);
+        [DllImport(Library)] public static extern int balls_flow_take_request(IntPtr flow, out NativeFlowRequest request);
+        [DllImport(Library)] public static extern int balls_flow_take_scroll_to_row(IntPtr flow);
+        [DllImport(Library)] public static extern void balls_flow_state(IntPtr flow, out NativeFlowState state);
+        [DllImport(Library)] public static extern int balls_flow_text(IntPtr flow, int which, byte[] buffer, int size);
+        [DllImport(Library)] public static extern int balls_flow_button(IntPtr flow, int index, out NativeFlowButton button);
+        [DllImport(Library)] public static extern int balls_flow_level_row(IntPtr flow, int index, out NativeFlowLevelRow row);
 
-        [DllImport(Library)] public static extern int balls_editor_extend_brick(IntPtr editor, int column, int row);
+        public static void FlowImportFiles(IntPtr flow, IReadOnlyList<string> picked)
+        {
+            if (flow == IntPtr.Zero || picked == null || picked.Count == 0)
+            {
+                return;
+            }
+            var pointers = new IntPtr[picked.Count];
+            try
+            {
+                for (int index = 0; index < picked.Count; ++index)
+                {
+                    pointers[index] = Marshal.StringToCoTaskMemUTF8(picked[index]);
+                }
+                balls_flow_import(flow, pointers, picked.Count);
+            }
+            finally
+            {
+                foreach (IntPtr pointer in pointers)
+                {
+                    if (pointer != IntPtr.Zero)
+                    {
+                        Marshal.FreeCoTaskMem(pointer);
+                    }
+                }
+            }
+        }
 
-        [DllImport(Library)] public static extern void balls_editor_erase_cell(IntPtr editor, int column, int row);
-
-        [DllImport(Library)] public static extern void balls_editor_set_brick_hits(IntPtr editor, int column, int row, int hits);
-
-        [DllImport(Library)] public static extern void balls_editor_set_brick_color(IntPtr editor, int column, int row, int color);
-
-        [DllImport(Library)] public static extern void balls_editor_set_launcher_columns(IntPtr editor, int columns);
-
-        [DllImport(Library)] public static extern void balls_editor_set_visible_rows(IntPtr editor, int rows);
-
-        [DllImport(Library)] public static extern void balls_editor_set_launcher(IntPtr editor, int column, int row, int present, int color, int ballCount);
-
-        [DllImport(Library)] public static extern void balls_editor_remove_launcher_row(IntPtr editor, int row);
-
-        [DllImport(Library)] public static extern void balls_editor_auto_fill_launchers(IntPtr editor, int ballsPerLauncher);
-
-        [DllImport(Library)] public static extern void balls_editor_begin_edit(IntPtr editor);
-
-        [DllImport(Library)] public static extern int balls_editor_undo(IntPtr editor);
-
-        [DllImport(Library)] public static extern int balls_editor_redo(IntPtr editor);
-
-        [DllImport(Library)] public static extern void balls_editor_mark_saved(IntPtr editor);
-
-        [DllImport(Library)] public static extern void balls_editor_validate(IntPtr editor, int mode, out NativeValidation validation);
-
-        [DllImport(Library)] public static extern int balls_editor_problem(IntPtr editor, int index, byte[] buffer, int size);
+        public static string FlowText(IntPtr flow, int which)
+        {
+            if (flow == IntPtr.Zero)
+            {
+                return string.Empty;
+            }
+            var buffer = new byte[1024];
+            int length = balls_flow_text(flow, which, buffer, buffer.Length);
+            return length > 0 ? System.Text.Encoding.UTF8.GetString(buffer, 0, length) : string.Empty;
+        }
 
         /// <summary>Decodes a packed ball into field coordinates.</summary>
         public static void UnpackBall(uint packed, float scaleX, float scaleY, out float x, out float y, out int color)
@@ -695,6 +877,128 @@ namespace Balls.Native
                 BackendTexts[kind * 2] = BackendText(kind, false);
                 BackendTexts[kind * 2 + 1] = BackendText(kind, true);
             }
+        }
+            public static string EditorText(IntPtr session, int which)
+        {
+            if (session == IntPtr.Zero) return string.Empty;
+            var buffer = new byte[512];
+            int length = balls_editor_session_text(session, which, buffer, buffer.Length);
+            return length > 0 ? System.Text.Encoding.UTF8.GetString(buffer, 0, length) : string.Empty;
+        }
+
+        public static string EditorProblem(IntPtr session, int index)
+        {
+            if (session == IntPtr.Zero) return string.Empty;
+            var buffer = new byte[512];
+            int length = balls_editor_session_problem(session, index, buffer, buffer.Length);
+            return length > 0 ? System.Text.Encoding.UTF8.GetString(buffer, 0, length) : string.Empty;
+        }
+
+        public static string EditorTally(IntPtr session, int color, out bool matches)
+        {
+            if (session == IntPtr.Zero) { matches = false; return string.Empty; }
+            var buffer = new byte[64];
+            int match = balls_editor_session_tally(session, color, buffer, buffer.Length);
+            matches = match != 0;
+            int length = Array.IndexOf(buffer, (byte)0);
+            return System.Text.Encoding.UTF8.GetString(buffer, 0, length < 0 ? buffer.Length : length);
+        }
+
+        public static string EditorToolLabel(int tool)
+        {
+            var buffer = new byte[64];
+            int length = balls_editor_session_tool_label(tool, buffer, buffer.Length);
+            return length > 0 ? System.Text.Encoding.UTF8.GetString(buffer, 0, length) : string.Empty;
+        }
+
+        public static List<NativeUiOption> MenuOptions(int list, int value, IntPtr session)
+        {
+            var options = new NativeUiOption[16];
+            int count = balls_menu_options(list, value, session, options, options.Length);
+            var result = new List<NativeUiOption>(Math.Max(0, count));
+            for (int i = 0; i < Math.Min(count, options.Length); ++i)
+            {
+                result.Add(options[i]);
+            }
+            return result;
+        }
+
+        public static List<NativeUiOption> MenuDefaultBackends(int preferredKind, IntPtr profile)
+        {
+            var options = new NativeUiOption[16];
+            int count = balls_menu_default_backends(preferredKind, profile, options, options.Length);
+            var result = new List<NativeUiOption>(Math.Max(0, count));
+            for (int i = 0; i < Math.Min(count, options.Length); ++i)
+            {
+                result.Add(options[i]);
+            }
+            return result;
+        }
+
+        public static List<NativeDevicePickRow> MenuDeviceRows(IReadOnlyList<Pick> picks)
+        {
+            var rows = new NativeDevicePickRow[16];
+            PickRecord[] records = Records(picks);
+            int count = balls_menu_device_rows(records, records.Length, rows, rows.Length);
+            var result = new List<NativeDevicePickRow>(Math.Max(0, count));
+            for (int i = 0; i < Math.Min(count, rows.Length); ++i)
+            {
+                result.Add(rows[i]);
+            }
+            return result;
+        }
+
+        public static List<Pick> MenuPickDevice(IReadOnlyList<Pick> picks, int row, int option, out bool changed)
+        {
+            PickRecord[] inRecords = Records(picks);
+            var outRecords = new PickRecord[16];
+            int count = balls_menu_pick_device(inRecords, inRecords.Length, row, option, outRecords, outRecords.Length);
+            if (count < 0)
+            {
+                changed = false;
+                return new List<Pick>(picks);
+            }
+            changed = true;
+            var result = new List<Pick>(count);
+            for (int i = 0; i < Math.Min(count, outRecords.Length); ++i)
+            {
+                result.Add(new Pick(outRecords[i]));
+            }
+            return result;
+        }
+
+        public static List<NativeDebugRow> MenuDebugRows(IntPtr session, IntPtr timings, int showBackend, string renderer)
+        {
+            var rows = new NativeDebugRow[32];
+            int count = balls_menu_debug_rows(session, timings, showBackend, renderer, rows, rows.Length);
+            var result = new List<NativeDebugRow>(Math.Max(0, count));
+            for (int i = 0; i < Math.Min(count, rows.Length); ++i)
+            {
+                result.Add(rows[i]);
+            }
+            return result;
+        }
+
+        public static string MenuProbeStatus(IntPtr session)
+        {
+            var buffer = new byte[256];
+            int length = balls_menu_probe_status(session, buffer, buffer.Length);
+            return length > 0 ? System.Text.Encoding.UTF8.GetString(buffer, 0, length) : string.Empty;
+        }
+
+        public static string MenuPhysicsOn(IReadOnlyList<Pick> picks)
+        {
+            var buffer = new byte[256];
+            PickRecord[] records = Records(picks);
+            int length = balls_menu_physics_on(records, records.Length, buffer, buffer.Length);
+            return length > 0 ? System.Text.Encoding.UTF8.GetString(buffer, 0, length) : string.Empty;
+        }
+
+        public static string MenuMessage(int which, int kind, ulong balls, double fps, string text)
+        {
+            var buffer = new byte[256];
+            int length = balls_menu_message(which, kind, balls, fps, text, buffer, buffer.Length);
+            return length > 0 ? System.Text.Encoding.UTF8.GetString(buffer, 0, length) : string.Empty;
         }
     }
 }

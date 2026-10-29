@@ -31,7 +31,7 @@ void drawTextInRect(std::string_view text, Rect rect, float size, Color color, A
 void drawScrollingText(std::string_view text, Rect rect, float size, Color color);
 
 void drawPanel(Rect rect, Color fill, float roundness = 0.08f);
-void drawBorder(Rect rect, float roundness = 0.0f, Color color = palette::frame);
+void drawBorder(Rect rect, float roundness = 0.0f, Color color = palette::border);
 bool button(Rect rect, std::string_view label, bool enabled = true, bool selected = false);
 bool stepper(Rect rect, std::string_view label, int& value, int minimum, int maximum, int step = 1);
 bool dropdown(Rect rect, std::string_view current, bool& open);

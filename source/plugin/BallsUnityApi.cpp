@@ -1,10 +1,12 @@
 #include "BallsUnityApi.h"
 
 #include "common/BallColor.h"
+#include "editor/EditorSession.h"
 #include "editor/LevelEditor.h"
 #include "control/ControlApi.h"
 #include "game/FrameTimings.h"
 #include "game/GameSession.h"
+#include "game/PhysicsRate.h"
 #include "game/SessionRunner.h"
 #include "game/MachineProfile.h"
 #include "game/Settings.h"
@@ -19,6 +21,9 @@
 #include "sim/DeviceInventory.h"
 #include "sim/Simulation.h"
 #include "ui/GameplayLayout.h"
+#include "ui/MenuModel.h"
+#include "ui/ScreenFlow.h"
+#include "ui/Theme.h"
 
 #include <algorithm>
 #include <cctype>
@@ -135,6 +140,8 @@ struct BallsSession {
     std::unique_ptr<SessionRunner> runner;
     std::shared_ptr<const SessionView> view;
     PhysicsFrameInput frameInput;
+    // Physics ms and FPS when game runs on the caller's thread; the runner measures its own.
+    PhysicsRate rate;
     int visibilityWidth = 0;
     std::vector<int32_t> collisionChanges;
     std::vector<SessionEvent> switchEvents;
@@ -144,6 +151,17 @@ struct BallsSession {
     std::string levelName;
 
     bool threaded() const { return runner != nullptr; }
+    // The newest view: the runner's latest frame, or one described now from the game on the caller's thread.
+    std::shared_ptr<const SessionView> latestView() const {
+        if (runner) {
+            return view;
+        }
+        auto described = std::make_shared<SessionView>();
+        describeSession(*game, *described);
+        described->physicsFrameMs = rate.lastFrameMs();
+        described->physicsFramesPerSecond = rate.framesPerSecond();
+        return described;
+    }
     // Runs a command on the session: at once, or at the start of the next physics frame.
     void apply(SessionRunner::Command command) {
         if (runner) {
@@ -207,19 +225,32 @@ int32_t fromDiskState(LevelDiskState state) {
     return BALLS_DISK_UNCHANGED;
 }
 
+struct BallsFlow {
+    ScreenFlow flow;
+};
+
+GameMode toGameMode(int32_t mode) { return mode == BALLS_MODE_PERFORMANCE ? GameMode::Performance : GameMode::Normal; }
+
+int32_t fromGameMode(GameMode mode) { return mode == GameMode::Performance ? BALLS_MODE_PERFORMANCE : BALLS_MODE_NORMAL; }
+
+void fillLevelInfo(const LevelFiles& files, BallsLevelInfo& info) {
+    copyName(files.name, info.name, sizeof info.name);
+    copyPath(files.bricksPath, info.bricksPath, sizeof info.bricksPath);
+    copyPath(files.launchersPath, info.launchersPath, sizeof info.launchersPath);
+}
+
+bool hasText(const char* text) { return text != nullptr && text[0] != 0; }
+
+struct BallsEditorSession {
+    EditorSession session;
+};
+
 struct BallsFrameTimings {
     FrameTimings timings;
 };
 
 struct BallsProfile {
     MachineProfile profile;
-};
-
-struct BallsEditor {
-    LevelEditor editor;
-    std::string levelDirectory;
-    std::string levelName = "Untitled";
-    mutable EditorValidation validation;
 };
 
 namespace {
@@ -278,15 +309,7 @@ struct BallsControl final : ControlHost {
         }
         std::shared_ptr<const SessionView> sessionView() override {
             BallsSession* session = context().session;
-            if (session == nullptr) {
-                return nullptr;
-            }
-            if (session->threaded()) {
-                return session->view;
-            }
-            auto view = std::make_shared<SessionView>();
-            describeSession(*session->game, *view);
-            return view;
+            return session != nullptr ? session->latestView() : nullptr;
         }
         void post(std::function<void(GameSession&)> command) override {
             if (context().session != nullptr) {
@@ -414,6 +437,38 @@ int32_t balls_last_error(char* buffer, int32_t size) {
 
 float balls_render_pack_scale(float fieldExtent) {
     return renderPackScale(fieldExtent);
+}
+
+namespace {
+
+uint32_t packThemeColor(ThemeColor color) {
+    return (uint32_t{color.r} << 24) | (uint32_t{color.g} << 16) | (uint32_t{color.b} << 8) | uint32_t{color.a};
+}
+
+} // namespace
+
+uint32_t balls_theme_color(int32_t id) {
+    static constexpr ThemeColor colors[BALLS_THEME_COLOR_COUNT] = {
+        theme::background, theme::boardBackdrop, theme::panel,     theme::control,   theme::controlHover,
+        theme::controlPressed, theme::border,    theme::text,      theme::textStrong, theme::textMuted,
+        theme::textDim,    theme::accent,        theme::danger,    theme::success,
+    };
+    return id >= 0 && id < BALLS_THEME_COLOR_COUNT ? packThemeColor(colors[id]) : 0;
+}
+
+uint32_t balls_theme_ball_color(int32_t colorIndex) { return packThemeColor(theme::ballColor(colorIndex)); }
+
+uint32_t balls_theme_brick_color(int32_t colorIndex) { return packThemeColor(theme::brickColor(colorIndex)); }
+
+float balls_theme_value(int32_t id) {
+    static constexpr float values[BALLS_THEME_VALUE_COUNT] = {
+        theme::brickShade,    theme::brickHitFlash, theme::brickHitFlashSeconds, theme::toastSeconds,
+        theme::toastTextSize, theme::optionRowHeight, theme::optionRowGap,      theme::advancedHeaderHeight,
+        theme::displaySize,   theme::titleSize,     theme::largeSize,           theme::headingSize,
+        theme::bigSize,       theme::mediumSize,    theme::bodySize,            theme::headerSize,
+        theme::labelSize,     theme::valueSize,     theme::smallSize,           theme::tinySize,
+    };
+    return id >= 0 && id < BALLS_THEME_VALUE_COUNT ? values[id] : 0.0f;
 }
 
 void balls_compute_layout(float frameWidth, float frameHeight, int32_t boardColumns, int32_t boardRows,
@@ -784,7 +839,9 @@ void balls_session_update(BallsSession* session, float deltaSeconds) {
     if (!session->threaded()) {
         // A backend built off the frame is adopted here, before the tick that would run on it (SessionRunner's order).
         session->game->pollBackgroundWork();
+        const PhysicsRate::Clock::time_point workStart = PhysicsRate::Clock::now();
         session->game->update(deltaSeconds);
+        session->rate.frame(workStart, PhysicsRate::Clock::now());
         return;
     }
     // The physics thread keeps its own pace; the host's frame only hands over its timings and takes the newest view.
@@ -1478,232 +1535,687 @@ void balls_profile_remember_benchmark(BallsProfile* profile, BallsBenchmark* ben
     profile->profile.rememberBenchmark(std::move(record));
 }
 
-BallsEditor* balls_editor_create(void) {
-    return new BallsEditor();
+BallsFlow* balls_flow_create(const char* normalLevels, const char* performanceLevels) {
+    if (normalLevels == nullptr || performanceLevels == nullptr) {
+        setError("both level folders are required");
+        return nullptr;
+    }
+    return new BallsFlow{ScreenFlow(std::filesystem::path(normalLevels), std::filesystem::path(performanceLevels))};
 }
 
-void balls_editor_destroy(BallsEditor* editor) {
-    delete editor;
+void balls_flow_destroy(BallsFlow* flow) { delete flow; }
+
+void balls_flow_update(BallsFlow* flow, float deltaSeconds) {
+    if (flow != nullptr) {
+        flow->flow.update(deltaSeconds);
+    }
 }
 
-void balls_editor_new_level(BallsEditor* editor, const char* name, int32_t width, int32_t height,
-                            int32_t playableHeight, int32_t launcherColumns, int32_t visibleRows) {
-    if (editor == nullptr) {
+int32_t balls_flow_activate(BallsFlow* flow, int32_t action, int32_t row) {
+    if (flow == nullptr || action < BALLS_FLOW_NORMAL_MODE || action > BALLS_FLOW_BACK) {
+        return 0;
+    }
+    return flow->flow.activate(static_cast<FlowAction>(action), row) ? 1 : 0;
+}
+
+int32_t balls_flow_escape(BallsFlow* flow) { return flow != nullptr && flow->flow.escape() ? 1 : 0; }
+
+void balls_flow_show_main_menu(BallsFlow* flow) {
+    if (flow != nullptr) {
+        flow->flow.showMainMenu();
+    }
+}
+
+void balls_flow_show_level_select(BallsFlow* flow, int32_t mode) {
+    if (flow != nullptr) {
+        flow->flow.showLevelSelect(toGameMode(mode));
+    }
+}
+
+int32_t balls_flow_start_game(BallsFlow* flow, int32_t mode, const char* levelName) {
+    if (flow == nullptr || !hasText(levelName)) {
+        return 0;
+    }
+    const GameMode gameMode = toGameMode(mode);
+    const LevelFiles files = levelFilesFor(flow->flow.levelFolderFor(gameMode), levelName);
+    if (!std::filesystem::exists(files.bricksPath) || !std::filesystem::exists(files.launchersPath)) {
+        setError("no level named " + std::string(levelName));
+        return 0;
+    }
+    flow->flow.startGame(gameMode, files);
+    return 1;
+}
+
+void balls_flow_open_editor(BallsFlow* flow, int32_t mode, const char* levelName) {
+    if (flow == nullptr) {
         return;
     }
-    editor->levelName = name != nullptr ? name : "Untitled";
-    editor->editor.newLevel(editor->levelName, width, height, playableHeight, launcherColumns, visibleRows);
+    const GameMode gameMode = toGameMode(mode);
+    std::optional<LevelFiles> files;
+    if (hasText(levelName)) {
+        files = levelFilesFor(flow->flow.levelFolderFor(gameMode), levelName);
+    }
+    flow->flow.openEditor(gameMode, std::move(files));
 }
 
-int32_t balls_editor_load_level(BallsEditor* editor, const char* levelDirectory, const char* levelName) {
-    if (editor == nullptr) {
-        return -1;
+void balls_flow_show_settings(BallsFlow* flow) {
+    if (flow != nullptr) {
+        flow->flow.showSettings();
     }
-    const auto level = loadLevelOrReport(levelDirectory, levelName);
-    if (!level) {
-        return -1;
-    }
-    editor->levelDirectory = levelDirectory;
-    editor->levelName = levelName;
-    editor->editor.load(*level);
-    editor->editor.markSaved();
-    return 0;
 }
 
-int32_t balls_editor_save_level(BallsEditor* editor, const char* levelDirectory) {
-    if (editor == nullptr) {
-        return -1;
+void balls_flow_run_machine_benchmark(BallsFlow* flow) {
+    if (flow != nullptr) {
+        flow->flow.runMachineBenchmark();
     }
-    const std::filesystem::path directory =
-        levelDirectory != nullptr ? std::filesystem::path(levelDirectory) : std::filesystem::path(editor->levelDirectory);
-    const LevelFiles files = levelFilesFor(directory, editor->levelName);
-    const Result<void> saved = saveLevel(editor->editor.level(), files);
-    if (!saved) {
-        setError(saved.error());
-        return -1;
-    }
-    editor->levelDirectory = directory.string();
-    editor->editor.markSaved();
-    return 0;
 }
 
-void balls_editor_info(const BallsEditor* editor, BallsEditorInfo* info) {
-    if (editor == nullptr || info == nullptr) {
+void balls_flow_level_loaded(BallsFlow* flow) {
+    if (flow != nullptr) {
+        flow->flow.levelLoaded();
+    }
+}
+
+void balls_flow_level_failed(BallsFlow* flow, const char* error) {
+    if (flow != nullptr) {
+        flow->flow.levelFailed(error != nullptr ? error : "");
+    }
+}
+
+void balls_flow_session_state(BallsFlow* flow, int32_t state) {
+    if (flow == nullptr) {
         return;
     }
-    const LevelData& level = editor->editor.level();
-    info->width = level.bricks.width;
-    info->height = level.bricks.height;
-    info->playableHeight = level.bricks.playableHeight;
-    info->launcherColumns = level.launchers.columns;
-    info->launcherVisibleRows = level.launchers.visibleRows;
-    info->dirty = editor->editor.isDirty() ? 1 : 0;
-    info->canUndo = editor->editor.canUndo() ? 1 : 0;
-    info->canRedo = editor->editor.canRedo() ? 1 : 0;
-    info->brickCount = static_cast<int32_t>(level.bricks.types.size());
+    flow->flow.sessionStateChanged(state == BALLS_STATE_WON       ? SessionState::Won
+                                   : state == BALLS_STATE_RUNNING ? SessionState::Running
+                                                                  : SessionState::Ready);
 }
 
-int32_t balls_editor_brick_at(const BallsEditor* editor, int32_t column, int32_t row) {
-    return editor == nullptr ? -1 : editor->editor.brickIdAt(column, row);
+void balls_flow_benchmark_finished(BallsFlow* flow) {
+    if (flow != nullptr) {
+        flow->flow.benchmarkFinished();
+    }
 }
 
-int32_t balls_editor_brick_color(const BallsEditor* editor, int32_t column, int32_t row) {
-    if (editor == nullptr) {
-        return -1;
+void balls_flow_play_from_editor(BallsFlow* flow, int32_t mode, const char* levelName) {
+    if (flow == nullptr || !hasText(levelName)) {
+        return;
     }
-    const int brick = editor->editor.brickIdAt(column, row);
-    if (brick < 0) {
-        return -1;
+    const GameMode gameMode = toGameMode(mode);
+    flow->flow.playFromEditor(gameMode, levelFilesFor(flow->flow.levelFolderFor(gameMode), levelName));
+}
+
+void balls_flow_import(BallsFlow* flow, const char* const* picked, int32_t pickedCount) {
+    if (flow == nullptr || picked == nullptr || pickedCount <= 0) {
+        return;
     }
-    for (const BrickType& type : editor->editor.level().bricks.types) {
-        if (type.id == brick) {
-            return toIndex(type.color);
+    std::vector<std::filesystem::path> paths;
+    for (int32_t index = 0; index < pickedCount; ++index) {
+        if (picked[index] != nullptr) {
+            paths.emplace_back(picked[index]);
         }
     }
-    return -1;
+    flow->flow.importLevels(paths);
 }
 
-int32_t balls_editor_brick_hits(const BallsEditor* editor, int32_t column, int32_t row) {
-    if (editor == nullptr) {
+void balls_flow_show_toast(BallsFlow* flow, const char* text, int32_t isError) {
+    if (flow != nullptr && text != nullptr) {
+        flow->flow.showToast(text, isError != 0);
+    }
+}
+
+int32_t balls_flow_take_request(BallsFlow* flow, BallsFlowRequest* request) {
+    if (flow == nullptr || request == nullptr) {
         return 0;
     }
-    const int brick = editor->editor.brickIdAt(column, row);
-    if (brick < 0) {
+    const std::optional<FlowRequest> next = flow->flow.takeRequest();
+    if (!next) {
         return 0;
     }
-    for (const BrickType& type : editor->editor.level().bricks.types) {
-        if (type.id == brick) {
-            return type.hits;
+    std::memset(request, 0, sizeof *request);
+    request->kind = static_cast<int32_t>(next->kind);
+    request->mode = fromGameMode(next->mode);
+    if (next->files) {
+        request->hasLevel = 1;
+        fillLevelInfo(*next->files, request->level);
+    }
+    copyPath(next->folder, request->folder, sizeof request->folder);
+    return 1;
+}
+
+int32_t balls_flow_take_scroll_to_row(BallsFlow* flow) {
+    if (flow == nullptr) {
+        return -1;
+    }
+    const std::optional<int> row = flow->flow.takeScrollToRow();
+    return row ? *row : -1;
+}
+
+void balls_flow_state(const BallsFlow* flow, BallsFlowState* state) {
+    if (flow == nullptr || state == nullptr) {
+        return;
+    }
+    const ScreenFlow& source = flow->flow;
+    std::memset(state, 0, sizeof *state);
+    state->screen = static_cast<int32_t>(source.screen());
+    state->overlay = static_cast<int32_t>(source.overlay());
+    state->mode = fromGameMode(source.mode());
+    state->paused = source.isPaused() ? 1 : 0;
+    state->diskState = fromDiskState(source.diskState());
+    state->canRunMachineBenchmark = source.canRunMachineBenchmark() ? 1 : 0;
+    state->benchmarkSettled = source.benchmarkSettled() ? 1 : 0;
+    state->buttonCount = static_cast<int32_t>(source.buttons().size());
+    state->levelCount = static_cast<int32_t>(source.levelRows().size());
+    state->hasLevel = source.level() ? 1 : 0;
+    state->toastSecondsLeft = source.toast().secondsLeft;
+    state->toastIsError = source.toast().isError ? 1 : 0;
+}
+
+int32_t balls_flow_text(const BallsFlow* flow, int32_t which, char* buffer, int32_t size) {
+    if (flow == nullptr) {
+        return writeText(std::string_view{}, buffer, size);
+    }
+    const ScreenFlow& source = flow->flow;
+    switch (which) {
+    case BALLS_FLOW_TEXT_TITLE:
+        return writeText(source.title(), buffer, size);
+    case BALLS_FLOW_TEXT_FOOTNOTE:
+        return writeText(source.footnote(), buffer, size);
+    case BALLS_FLOW_TEXT_GAME_TITLE:
+        return writeText(source.gameTitle(), buffer, size);
+    case BALLS_FLOW_TEXT_DISK_NOTICE:
+        return writeText(source.diskNotice(), buffer, size);
+    case BALLS_FLOW_TEXT_LOAD_ERROR:
+        return writeText(source.loadError(), buffer, size);
+    case BALLS_FLOW_TEXT_TOAST:
+        return writeText(source.toast().text, buffer, size);
+    case BALLS_FLOW_TEXT_SCREEN_NAME:
+        return writeText(flowScreenName(source.screen()), buffer, size);
+    case BALLS_FLOW_TEXT_LEVEL_FOLDER:
+        return writeText(source.levelFolder().string(), buffer, size);
+    default:
+        return writeText(std::string_view{}, buffer, size);
+    }
+}
+
+int32_t balls_flow_button(const BallsFlow* flow, int32_t index, BallsFlowButton* button) {
+    if (flow == nullptr || button == nullptr) {
+        return 0;
+    }
+    const std::vector<FlowButton> buttons = flow->flow.buttons();
+    if (index < 0 || index >= static_cast<int32_t>(buttons.size())) {
+        return 0;
+    }
+    const FlowButton& source = buttons[static_cast<size_t>(index)];
+    std::memset(button, 0, sizeof *button);
+    button->action = static_cast<int32_t>(source.action);
+    button->enabled = source.enabled ? 1 : 0;
+    copyName(source.label, button->label, sizeof button->label);
+    return 1;
+}
+
+int32_t balls_flow_level_row(const BallsFlow* flow, int32_t index, BallsFlowLevelRow* row) {
+    if (flow == nullptr || row == nullptr) {
+        return 0;
+    }
+    const std::span<const FlowLevelRow> rows = flow->flow.levelRows();
+    if (index < 0 || index >= static_cast<int32_t>(rows.size())) {
+        return 0;
+    }
+    std::memset(row, 0, sizeof *row);
+    copyName(rows[static_cast<size_t>(index)].name, row->name, sizeof row->name);
+    row->highlighted = rows[static_cast<size_t>(index)].highlighted ? 1 : 0;
+    return 1;
+}
+
+
+namespace {
+
+std::shared_ptr<const SessionView> latestView(BallsSession* session) {
+    return session != nullptr ? session->latestView() : nullptr;
+}
+
+void writeOption(const UiOption& source, int32_t kind, BallsUiOption& out) {
+    std::memset(&out, 0, sizeof out);
+    copyName(source.label, out.label, sizeof out.label);
+    out.enabled = source.enabled ? 1 : 0;
+    out.selected = source.selected ? 1 : 0;
+    copyName(source.detail, out.detail, sizeof out.detail);
+    out.kind = kind;
+}
+
+int32_t writeOptions(const std::vector<UiOption>& source, BallsUiOption* options, int32_t capacity) {
+    if (options != nullptr) {
+        const int32_t written = std::min(static_cast<int32_t>(source.size()), std::max(capacity, 0));
+        for (int32_t index = 0; index < written; ++index) {
+            writeOption(source[static_cast<size_t>(index)], -1, options[index]);
         }
     }
-    return 0;
+    return static_cast<int32_t>(source.size());
 }
 
-void balls_editor_resize_board(BallsEditor* editor, int32_t width, int32_t height, int32_t playableHeight) {
-    if (editor != nullptr) {
-        editor->editor.resizeBoard(width, height, playableHeight);
+int32_t writeBackendRows(const std::vector<BackendRow>& rows, BallsUiOption* options, int32_t capacity) {
+    if (options != nullptr) {
+        const int32_t written = std::min(static_cast<int32_t>(rows.size()), std::max(capacity, 0));
+        for (int32_t index = 0; index < written; ++index) {
+            const BackendRow& row = rows[static_cast<size_t>(index)];
+            writeOption(row.option, fromBackendKind(row.kind), options[index]);
+        }
     }
+    return static_cast<int32_t>(rows.size());
 }
 
-void balls_editor_paint_cell(BallsEditor* editor, int32_t column, int32_t row, int32_t color, int32_t hits) {
-    if (editor == nullptr || color < 0 || color >= BALLS_COLOR_COUNT) {
-        return;
+} // namespace
+
+int32_t balls_menu_options(int32_t list, int32_t value, BallsSession* session, BallsUiOption* options,
+                           int32_t capacity) {
+    switch (list) {
+    case BALLS_MENU_ORIENTATION:
+        return writeOptions(orientationOptions(static_cast<LayoutOrientation>(value)), options, capacity);
+    case BALLS_MENU_OFF_ON:
+        return writeOptions(offOnOptions(value != 0), options, capacity);
+    case BALLS_MENU_BALL_COLLISIONS: {
+        const BallCollisionsChoice choice = ballCollisionsChoice(value != 0);
+        std::vector<UiOption> withHint = choice.options;
+        withHint.front().detail = choice.hint;
+        return writeOptions(withHint, options, capacity);
     }
-    editor->editor.paintCell(column, row, ballColorFromIndex(color), hits);
-}
-
-int32_t balls_editor_extend_brick(BallsEditor* editor, int32_t column, int32_t row) {
-    if (editor == nullptr) {
+    default:
+        break;
+    }
+    const std::shared_ptr<const SessionView> view = latestView(session);
+    if (!view) {
         return 0;
     }
-    const int brick = editor->editor.brickIdAt(column, row);
-    return brick >= 0 && editor->editor.extendBrick(brick, column, row) ? 1 : 0;
-}
-
-void balls_editor_erase_cell(BallsEditor* editor, int32_t column, int32_t row) {
-    if (editor != nullptr) {
-        editor->editor.eraseCell(column, row);
-    }
-}
-
-void balls_editor_set_brick_hits(BallsEditor* editor, int32_t column, int32_t row, int32_t hits) {
-    if (editor == nullptr) {
-        return;
-    }
-    const int brick = editor->editor.brickIdAt(column, row);
-    if (brick >= 0) {
-        editor->editor.setBrickHits(brick, hits);
-    }
-}
-
-void balls_editor_set_brick_color(BallsEditor* editor, int32_t column, int32_t row, int32_t color) {
-    if (editor == nullptr || color < 0 || color >= BALLS_COLOR_COUNT) {
-        return;
-    }
-    const int brick = editor->editor.brickIdAt(column, row);
-    if (brick >= 0) {
-        editor->editor.setBrickColor(brick, ballColorFromIndex(color));
-    }
-}
-
-void balls_editor_set_launcher_columns(BallsEditor* editor, int32_t columns) {
-    if (editor != nullptr) {
-        editor->editor.setLauncherColumns(columns);
-    }
-}
-
-void balls_editor_set_visible_rows(BallsEditor* editor, int32_t rows) {
-    if (editor != nullptr) {
-        editor->editor.setVisibleRows(rows);
-    }
-}
-
-void balls_editor_set_launcher(BallsEditor* editor, int32_t column, int32_t row, int32_t present, int32_t color,
-                               int32_t ballCount) {
-    if (editor == nullptr) {
-        return;
-    }
-    if (present == 0) {
-        editor->editor.setLauncher(column, row, std::nullopt);
-        return;
-    }
-    if (color < 0 || color >= BALLS_COLOR_COUNT) {
-        return;
-    }
-    editor->editor.setLauncher(column, row, Launcher{ballColorFromIndex(color), ballCount});
-}
-
-void balls_editor_remove_launcher_row(BallsEditor* editor, int32_t row) {
-    if (editor != nullptr) {
-        editor->editor.removeLauncherRow(row);
-    }
-}
-
-void balls_editor_auto_fill_launchers(BallsEditor* editor, int32_t ballsPerLauncher) {
-    if (editor != nullptr) {
-        editor->editor.autoFillLaunchers(ballsPerLauncher);
-    }
-}
-
-void balls_editor_begin_edit(BallsEditor* editor) {
-    if (editor != nullptr) {
-        editor->editor.beginEdit();
-    }
-}
-
-int32_t balls_editor_undo(BallsEditor* editor) {
-    return editor != nullptr && editor->editor.undo() ? 1 : 0;
-}
-
-int32_t balls_editor_redo(BallsEditor* editor) {
-    return editor != nullptr && editor->editor.redo() ? 1 : 0;
-}
-
-void balls_editor_mark_saved(BallsEditor* editor) {
-    if (editor != nullptr) {
-        editor->editor.markSaved();
-    }
-}
-
-void balls_editor_validate(const BallsEditor* editor, int32_t mode, BallsValidation* validation) {
-    if (editor == nullptr || validation == nullptr) {
-        return;
-    }
-    editor->validation = editor->editor.validate(mode == BALLS_MODE_PERFORMANCE ? GameMode::Performance
-                                                                                : GameMode::Normal);
-    for (int color = 0; color < BALLS_COLOR_COUNT; ++color) {
-        validation->brickHits[color] = static_cast<uint64_t>(editor->validation.brickHits[static_cast<size_t>(color)]);
-        validation->balls[color] = static_cast<uint64_t>(editor->validation.balls[static_cast<size_t>(color)]);
-    }
-    validation->problemCount = static_cast<int32_t>(editor->validation.problems.size());
-    validation->playable = editor->validation.isPlayable() ? 1 : 0;
-}
-
-int32_t balls_editor_problem(const BallsEditor* editor, int32_t index, char* buffer, int32_t size) {
-    if (editor == nullptr || index < 0 || static_cast<size_t>(index) >= editor->validation.problems.size()) {
+    switch (list) {
+    case BALLS_MENU_SPAWN_RATE:
+        return writeOptions(spawnRateChoices(view->spawnRateIndex), options, capacity);
+    case BALLS_MENU_BALL_MULTIPLIER:
+        return writeOptions(ballMultiplierChoices(view->ballMultiplierIndex), options, capacity);
+    case BALLS_MENU_BALL_LIMIT:
+        return writeOptions(ballLimitChoices(*view), options, capacity);
+    case BALLS_MENU_GAMEPLAY_BACKENDS:
+        return writeBackendRows(gameplayBackendRows(*view), options, capacity);
+    case BALLS_MENU_RELEASE:
+        return writeOptions({releaseButton(*view)}, options, capacity);
+    default:
         return 0;
     }
-    return writeText(editor->validation.problems[static_cast<size_t>(index)], buffer, size);
+}
+
+int32_t balls_menu_default_backends(int32_t preferredKind, const BallsProfile* profile, BallsUiOption* options,
+                                    int32_t capacity) {
+    std::span<const CandidateResult> scores;
+    if (profile != nullptr && profile->profile.benchmark()) {
+        scores = profile->profile.benchmark()->results;
+    }
+    return writeBackendRows(defaultBackendRows(toBackendKind(preferredKind), scores), options, capacity);
+}
+
+int32_t balls_menu_auto_ball_limit(BallsSession* session) {
+    const std::shared_ptr<const SessionView> view = latestView(session);
+    return view && isAutoBallLimit(*view) ? 1 : 0;
+}
+
+int32_t balls_menu_probe_status(BallsSession* session, char* buffer, int32_t size) {
+    const std::shared_ptr<const SessionView> view = latestView(session);
+    return writeText(view ? probeStatusText(*view) : std::string{}, buffer, size);
+}
+
+int32_t balls_menu_device_rows(const BallsPick* picks, int32_t pickCount, BallsDevicePickRow* rows, int32_t capacity) {
+    const std::vector<DevicePickRow> source = devicePickRows(toPicks(picks, pickCount));
+    if (rows != nullptr) {
+        const int32_t written = std::min(static_cast<int32_t>(source.size()), std::max(capacity, 0));
+        for (int32_t index = 0; index < written; ++index) {
+            const DevicePickRow& row = source[static_cast<size_t>(index)];
+            BallsDevicePickRow& out = rows[index];
+            std::memset(&out, 0, sizeof out);
+            copyName(row.device, out.device, sizeof out.device);
+            copyName(row.label, out.label, sizeof out.label);
+            const size_t optionCount = std::min(row.options.size(), std::size(out.options));
+            out.optionCount = static_cast<int32_t>(optionCount);
+            for (size_t option = 0; option < optionCount; ++option) {
+                const std::optional<BackendKind>& kind = row.kinds[option];
+                writeOption(row.options[option], kind ? fromBackendKind(*kind) : -1, out.options[option]);
+            }
+        }
+    }
+    return static_cast<int32_t>(source.size());
+}
+
+int32_t balls_menu_pick_device(const BallsPick* picks, int32_t pickCount, int32_t row, int32_t option,
+                               BallsPick* result, int32_t capacity) {
+    const std::vector<BackendPick> current = toPicks(picks, pickCount);
+    const std::vector<DevicePickRow> rows = devicePickRows(current);
+    if (row < 0 || option < 0) {
+        return -1;
+    }
+    const std::optional<std::vector<BackendPick>> next =
+        pickDeviceOption(current, rows, static_cast<size_t>(row), static_cast<size_t>(option));
+    if (!next) {
+        return -1;
+    }
+    return writePicks(*next, result, capacity);
+}
+
+int32_t balls_menu_debug_rows(BallsSession* session, const BallsFrameTimings* timings, int32_t showBackend,
+                              const char* renderer, BallsDebugRow* rows, int32_t capacity) {
+    const std::shared_ptr<const SessionView> view = latestView(session);
+    if (!view || timings == nullptr) {
+        return 0;
+    }
+    DebugGadgetOptions gadget;
+    gadget.showBackend = showBackend != 0;
+    gadget.renderer = renderer != nullptr ? renderer : "";
+    const std::vector<DebugRow> source = debugGadgetRows(*view, timings->timings, gadget);
+    if (rows != nullptr) {
+        const int32_t written = std::min(static_cast<int32_t>(source.size()), std::max(capacity, 0));
+        for (int32_t index = 0; index < written; ++index) {
+            const DebugRow& row = source[static_cast<size_t>(index)];
+            BallsDebugRow& out = rows[index];
+            std::memset(&out, 0, sizeof out);
+            out.kind = static_cast<int32_t>(row.kind);
+            out.tone = static_cast<int32_t>(row.tone);
+            out.colorIndex = row.colorIndex;
+            copyName(row.label, out.label, sizeof out.label);
+            copyName(row.value, out.value, sizeof out.value);
+        }
+    }
+    return static_cast<int32_t>(source.size());
+}
+
+int32_t balls_menu_message(int32_t which, int32_t kind, uint64_t balls, double fps, const char* text, char* buffer,
+                           int32_t size) {
+    switch (which) {
+    case BALLS_MENU_TEXT_BACKEND_FAILED:
+        return writeText(backendFailedMessage(toBackendKind(kind)), buffer, size);
+    case BALLS_MENU_TEXT_PROBE_RESULT:
+        return writeText(probeResultMessage(toBackendKind(kind), static_cast<BallCount>(balls), fps), buffer, size);
+    case BALLS_MENU_TEXT_COMPUTE_GPU:
+        return writeText(computeGpuMessage(text != nullptr ? text : ""), buffer, size);
+    default:
+        return writeText(std::string_view{}, buffer, size);
+    }
+}
+
+int32_t balls_menu_physics_on(const BallsPick* picks, int32_t pickCount, char* buffer, int32_t size) {
+    return writeText(physicsOnMessage(toPicks(picks, pickCount)), buffer, size);
+}
+
+
+BallsEditorSession* balls_editor_session_create(int32_t mode, const char* levelName, const char* normalLevels,
+                                                const char* performanceLevels) {
+    if (normalLevels == nullptr || performanceLevels == nullptr) {
+        setError("both level folders are required");
+        return nullptr;
+    }
+    const GameMode gameMode = toGameMode(mode);
+    const std::filesystem::path folder(gameMode == GameMode::Normal ? normalLevels : performanceLevels);
+    std::optional<LevelFiles> files;
+    if (hasText(levelName)) {
+        files = levelFilesFor(folder, levelName);
+    }
+    return new BallsEditorSession{EditorSession(gameMode, std::move(files), std::filesystem::path(normalLevels),
+                                                std::filesystem::path(performanceLevels))};
+}
+
+void balls_editor_session_destroy(BallsEditorSession* session) { delete session; }
+
+void balls_editor_session_update(BallsEditorSession* session, float deltaSeconds) {
+    if (session != nullptr) {
+        session->session.update(deltaSeconds);
+    }
+}
+
+void balls_editor_session_state(const BallsEditorSession* session, BallsEditorState* state) {
+    if (session == nullptr || state == nullptr) {
+        return;
+    }
+    const EditorSession& source = session->session;
+    const LevelData& level = source.level();
+    std::memset(state, 0, sizeof *state);
+    state->width = level.bricks.width;
+    state->height = level.bricks.height;
+    state->playableHeight = level.bricks.playableHeight;
+    state->launcherColumns = level.launchers.columns;
+    state->launcherVisibleRows = level.launchers.visibleRows;
+    state->launcherRows = level.launchers.rowCount();
+    state->dirty = source.isDirty() ? 1 : 0;
+    state->canUndo = source.canUndo() ? 1 : 0;
+    state->canRedo = source.canRedo() ? 1 : 0;
+    state->tool = static_cast<int32_t>(source.tool());
+    state->brushColor = toIndex(source.brushColor());
+    state->brushHits = source.brushHits();
+    state->launcherBalls = source.launcherBalls();
+    state->selectedBrick = source.selectedBrick();
+    state->mode = fromGameMode(source.mode());
+    state->playable = source.validation().isPlayable() ? 1 : 0;
+    state->problemCount = static_cast<int32_t>(source.validation().problems.size());
+    state->messageSecondsLeft = source.message().secondsLeft;
+    state->messageIsError = source.message().isError ? 1 : 0;
+}
+
+int32_t balls_editor_session_text(const BallsEditorSession* session, int32_t which, char* buffer, int32_t size) {
+    if (session == nullptr) {
+        return writeText(std::string_view{}, buffer, size);
+    }
+    const EditorSession& source = session->session;
+    switch (which) {
+    case BALLS_EDITOR_TEXT_NAME:
+        return writeText(source.name(), buffer, size);
+    case BALLS_EDITOR_TEXT_SELECTION:
+        return writeText(source.selectionText(), buffer, size);
+    case BALLS_EDITOR_TEXT_SAVE_LABEL:
+        return writeText(source.saveLabel(), buffer, size);
+    case BALLS_EDITOR_TEXT_BACK_LABEL:
+        return writeText(source.backLabel(), buffer, size);
+    case BALLS_EDITOR_TEXT_FOOTER:
+        return writeText(source.footerText(), buffer, size);
+    case BALLS_EDITOR_TEXT_MESSAGE:
+        return writeText(source.message().text, buffer, size);
+    default:
+        return writeText(std::string_view{}, buffer, size);
+    }
+}
+
+int32_t balls_editor_session_problem(const BallsEditorSession* session, int32_t index, char* buffer, int32_t size) {
+    if (session == nullptr || index < 0 ||
+        index >= static_cast<int32_t>(session->session.validation().problems.size())) {
+        return writeText(std::string_view{}, buffer, size);
+    }
+    return writeText(session->session.validation().problems[static_cast<size_t>(index)], buffer, size);
+}
+
+int32_t balls_editor_session_tally(const BallsEditorSession* session, int32_t color, char* buffer, int32_t size) {
+    if (session == nullptr || color < 0 || color >= ballColorCount) {
+        writeText(std::string_view{}, buffer, size);
+        return 0;
+    }
+    const BallColor ballColor = ballColorFromIndex(color);
+    writeText(session->session.colorTallyText(ballColor), buffer, size);
+    return session->session.colorTallyMatches(ballColor) ? 1 : 0;
+}
+
+int32_t balls_editor_session_tool_label(int32_t tool, char* buffer, int32_t size) {
+    for (const EditorToolButton& button : EditorSession::toolButtons()) {
+        if (static_cast<int32_t>(button.tool) == tool) {
+            return writeText(button.label, buffer, size);
+        }
+    }
+    return writeText(std::string_view{}, buffer, size);
+}
+
+int32_t balls_editor_session_brick(const BallsEditorSession* session, int32_t column, int32_t row, int32_t* color,
+                                   int32_t* hits) {
+    int32_t id = emptyBrickId;
+    int32_t brickColor = -1;
+    int32_t brickHits = 0;
+    if (session != nullptr) {
+        const BrickLayout& bricks = session->session.level().bricks;
+        if (column >= 0 && row >= 0 && column < bricks.width && row < bricks.height) {
+            id = bricks.cellId(column, row);
+            if (const BrickType* type = bricks.findType(id)) {
+                brickColor = toIndex(type->color);
+                brickHits = type->hits;
+            }
+        }
+    }
+    if (color != nullptr) {
+        *color = brickColor;
+    }
+    if (hits != nullptr) {
+        *hits = brickHits;
+    }
+    return id;
+}
+
+int32_t balls_editor_session_launcher(const BallsEditorSession* session, int32_t column, int32_t row, int32_t* color,
+                                      int32_t* balls) {
+    if (session == nullptr) {
+        return 0;
+    }
+    const LauncherLayout& launchers = session->session.level().launchers;
+    if (column < 0 || row < 0 || column >= launchers.columns || row >= launchers.rowCount()) {
+        return 0;
+    }
+    const std::optional<Launcher>& slot = launchers.slot(column, row);
+    if (!slot) {
+        return 0;
+    }
+    if (color != nullptr) {
+        *color = toIndex(slot->color);
+    }
+    if (balls != nullptr) {
+        *balls = slot->ballCount;
+    }
+    return 1;
+}
+
+void balls_editor_session_set_tool(BallsEditorSession* session, int32_t tool) {
+    if (session != nullptr && tool >= BALLS_TOOL_PAINT && tool <= BALLS_TOOL_PICK) {
+        session->session.setTool(static_cast<EditorTool>(tool));
+    }
+}
+
+void balls_editor_session_select_color(BallsEditorSession* session, int32_t color) {
+    if (session != nullptr && color >= 0 && color < ballColorCount) {
+        session->session.selectColor(ballColorFromIndex(color));
+    }
+}
+
+void balls_editor_session_set_brush_hits(BallsEditorSession* session, int32_t hits) {
+    if (session != nullptr) {
+        session->session.setBrushHits(hits);
+    }
+}
+
+void balls_editor_session_set_launcher_balls(BallsEditorSession* session, int32_t balls) {
+    if (session != nullptr) {
+        session->session.setLauncherBalls(balls);
+    }
+}
+
+void balls_editor_session_begin_stroke(BallsEditorSession* session, int32_t erase) {
+    if (session != nullptr) {
+        session->session.beginStroke(erase != 0);
+    }
+}
+
+void balls_editor_session_stroke_cell(BallsEditorSession* session, int32_t column, int32_t row) {
+    if (session != nullptr) {
+        session->session.strokeCell(column, row);
+    }
+}
+
+void balls_editor_session_end_stroke(BallsEditorSession* session) {
+    if (session != nullptr) {
+        session->session.endStroke();
+    }
+}
+
+void balls_editor_session_click_launcher(BallsEditorSession* session, int32_t column, int32_t row, int32_t click) {
+    if (session != nullptr && click >= BALLS_LAUNCHER_SET && click <= BALLS_LAUNCHER_DELETE_ROW) {
+        session->session.clickLauncher(column, row, static_cast<LauncherClick>(click));
+    }
+}
+
+void balls_editor_session_set_name(BallsEditorSession* session, const char* name) {
+    if (session != nullptr) {
+        session->session.setName(name != nullptr ? name : "");
+    }
+}
+
+void balls_editor_session_set_mode(BallsEditorSession* session, int32_t mode) {
+    if (session != nullptr) {
+        session->session.setMode(toGameMode(mode));
+    }
+}
+
+void balls_editor_session_set_board_size(BallsEditorSession* session, int32_t width, int32_t brickRows,
+                                         int32_t totalRows) {
+    if (session != nullptr) {
+        session->session.setBoardSize(width, brickRows, totalRows);
+    }
+}
+
+void balls_editor_session_set_launcher_columns(BallsEditorSession* session, int32_t columns) {
+    if (session != nullptr) {
+        session->session.setLauncherColumns(columns);
+    }
+}
+
+void balls_editor_session_set_visible_rows(BallsEditorSession* session, int32_t rows) {
+    if (session != nullptr) {
+        session->session.setVisibleRows(rows);
+    }
+}
+
+void balls_editor_session_auto_fill(BallsEditorSession* session) {
+    if (session != nullptr) {
+        session->session.autoFillLaunchers();
+    }
+}
+
+void balls_editor_session_undo(BallsEditorSession* session) {
+    if (session != nullptr) {
+        session->session.undo();
+    }
+}
+
+void balls_editor_session_redo(BallsEditorSession* session) {
+    if (session != nullptr) {
+        session->session.redo();
+    }
+}
+
+int32_t balls_editor_session_save(BallsEditorSession* session) {
+    return session != nullptr && session->session.save() ? 1 : 0;
+}
+
+int32_t balls_editor_session_save_and_play(BallsEditorSession* session, BallsLevelInfo* level) {
+    if (session == nullptr) {
+        return 0;
+    }
+    const std::optional<LevelFiles> files = session->session.saveAndPlay();
+    if (!files) {
+        return 0;
+    }
+    if (level != nullptr) {
+        std::memset(level, 0, sizeof *level);
+        fillLevelInfo(*files, *level);
+    }
+    return 1;
+}
+
+int32_t balls_editor_session_back(BallsEditorSession* session) {
+    return session == nullptr || session->session.back() == EditorLeave::Leave ? 1 : 0;
+}
+
+int32_t balls_editor_session_shortcut(BallsEditorSession* session, int32_t shortcut) {
+    if (session == nullptr || shortcut < BALLS_SHORTCUT_UNDO || shortcut > BALLS_SHORTCUT_COLOR_1 + ballColorCount - 1) {
+        return 0;
+    }
+    return session->session.handleShortcut(static_cast<EditorShortcut>(shortcut)) ? 1 : 0;
 }
 
 } // extern "C"

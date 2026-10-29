@@ -54,12 +54,15 @@ namespace Balls.App.Screens
         private float lastLayoutWidth = -1f;
         private float lastLayoutHeight = -1f;
 
-        private readonly LevelWatcher watcher = new();
         private readonly List<CellElement> labelCells = new();
-        private bool paused;
-        private bool settingsOpen;
-        private bool wonShown;
-        public bool Paused => paused || settingsOpen || wonShown;
+        public bool Paused => App.IsPaused;
+        public void SetPaused(bool value)
+        {
+            if (value != App.IsPaused)
+            {
+                App.ActivateFlow(BallsNative.FlowTogglePause);
+            }
+        }
         private int probeTargetFps = 60;
         private int spawnRateIndex;
         private int multiplierIndex;
@@ -77,10 +80,6 @@ namespace Balls.App.Screens
 
         public void BeginSession()
         {
-            watcher.Watch(App.LevelDirectory, App.LevelName);
-            paused = false;
-            settingsOpen = false;
-            wonShown = false;
             hasLayout = false;
             layoutOrientation = -1;
             lastLayoutWidth = -1f;
@@ -109,7 +108,7 @@ namespace Balls.App.Screens
             }
             else if (outcome == 2)
             {
-                App.Toast($"Could not start the {BallsNative.BackendName(kind)} backend");
+                App.Toast(BallsNative.MenuMessage(BallsNative.MenuTextBackendFailed, kind, 0, 0, null));
             }
         }
 
@@ -146,7 +145,7 @@ namespace Balls.App.Screens
             if (App.Profile.TryLimit(backend.BackendKind, out ulong balls, out double fps) && Mathf.RoundToInt((float)fps) == probeTargetFps)
             {
                 backend.UseMachineLimit(balls);
-                App.Toast($"{name} limit {balls:N0} balls @{fps:F0} FPS");
+                App.Toast(BallsNative.MenuMessage(BallsNative.MenuTextProbeResult, backend.BackendKind, balls, fps, null));
             }
             else
             {
@@ -173,9 +172,6 @@ namespace Balls.App.Screens
 
         public void OnRestarted()
         {
-            wonShown = false;
-            paused = false;
-            settingsOpen = false;
         }
 
         public override void Draw()
@@ -220,49 +216,35 @@ namespace Balls.App.Screens
             {
                 DrawDebugGadget(board, session, stats);
             }
-
-            if (session.state == BallsNative.StateWon && App.Mode == BallsApp.NormalMode)
-            {
-                wonShown = true;
-            }
         }
 
         public override void DrawOverlay()
         {
-            if (settingsOpen)
+            int overlay = App.FlowOverlay;
+            if (overlay == BallsNative.OverlaySettings)
             {
-                App.Get<SettingsScreen>().DrawAsOverlay(() => settingsOpen = false);
+                App.Get<SettingsScreen>().DrawAsOverlay(() => App.ActivateFlow(BallsNative.FlowBack));
                 return;
             }
-            if (wonShown)
+            if (overlay == BallsNative.OverlayWin)
             {
                 DrawWinOverlay();
                 return;
             }
-            if (paused)
+            if (overlay == BallsNative.OverlayPause)
             {
                 DrawPauseOverlay();
             }
         }
 
-        /// <summary>Esc pauses gameplay; an open settings overlay returns to Pause.</summary>
+        /// <summary>Esc handling delegates to the core flow; gameplay has no keyboard shortcuts.</summary>
         public override void HandleEscape()
         {
-            if (settingsOpen)
-            {
-                App.Get<SettingsScreen>().HandleEscape();
-            }
-            else if (!paused && !wonShown)
-            {
-                paused = true;
-            }
+            App.EscapeFlow();
         }
 
         /// <summary>The level files' state against what was loaded, for the header notice and Restart.</summary>
-        public LevelWatcher.State WatchState => watcher.Poll();
-
-        /// <summary>The control API drives the same pause the header button does.</summary>
-        public void SetPaused(bool value) => paused = value;
+        public LevelWatcher.State WatchState => (LevelWatcher.State)App.FlowDiskState;
 
         public int ProbeTargetFps => probeTargetFps;
 
@@ -330,10 +312,6 @@ namespace Balls.App.Screens
                       $"main {layout.Main} inter {layout.Interaction} debug {layout.Debug}");
         }
 
-        /// <summary>
-        /// Pins the board's world rectangle to the layout's board frame: the camera's viewport becomes that pixel
-        /// rectangle and its height that many cells, so the two can never drift apart.
-        /// </summary>
         /// <summary>
         /// Maps world cells onto the layout's board frame. The camera keeps the whole window and its projection is
         /// derived from the layout, which avoids the trap of Camera.rect: the viewport shrinks but Unity keeps the
@@ -419,13 +397,21 @@ namespace Balls.App.Screens
                 theme.Fill(header, pressed ? Palette.ControlPressed : Palette.ControlHover);
             }
 
-            string modeName = session.mode == BallsApp.PerformanceMode ? "Performance" : "Normal";
-            string title = $"{modeName} · {App.LevelName}";
-            string notice = LevelWatcher.Notice(watcher.Poll());
+            string title = BallsNative.FlowText(App.FlowHandle, BallsNative.FlowTextGameTitle);
+            if (string.IsNullOrEmpty(title))
+            {
+                string modeName = session.mode == BallsApp.PerformanceMode ? "Performance" : "Normal";
+                title = $"{modeName} · {App.LevelName}";
+            }
+            string notice = BallsNative.FlowText(App.FlowHandle, BallsNative.FlowTextDiskNotice);
+            if (string.IsNullOrEmpty(notice))
+            {
+                notice = null;
+            }
 
             if (hovered)
             {
-                GUI.Label(pixels, paused ? "Resume" : "Pause",
+                GUI.Label(pixels, App.IsPaused ? "Resume" : "Pause",
                     theme.TextStyle(TypeSizes.Header, Palette.Text, false, TextAnchor.MiddleCenter));
             }
             else
@@ -445,7 +431,7 @@ namespace Balls.App.Screens
 
             if (GUI.Button(pixels, GUIContent.none, GUIStyle.none))
             {
-                paused = !paused;
+                App.ActivateFlow(BallsNative.FlowTogglePause);
             }
         }
 
@@ -614,7 +600,7 @@ namespace Balls.App.Screens
             }
             Color color = Palette.Balls[Mathf.Clamp(launcher.color, 0, Palette.Balls.Length - 1)];
             // Hover brightens only while the game runs unpaused; touch has no hover.
-            if (session.state == BallsNative.StateRunning && !paused && current.type == EventType.Repaint &&
+            if (session.state == BallsNative.StateRunning && !Paused && current.type == EventType.Repaint &&
                 pixels.Contains(current.mousePosition) && Input.touchCount == 0)
             {
                 color = Color.Lerp(color, Color.white, LauncherHoverBrighten);
@@ -647,7 +633,7 @@ namespace Balls.App.Screens
             {
                 y = content.y;
                 bool compact = compactLayout;
-                float physicsHeight = 24f + AvailableBackendCount() * 38f;
+                float physicsHeight = 24f + BackendChoiceCount() * 38f;
                 float gpuHeight = GpuChoicesHeight();
                 y += DrawRelease(session, content, y);
                 y += DrawSpawnControls(widgets, backend, content, y);
@@ -721,11 +707,36 @@ namespace Balls.App.Screens
         private void SwitchToPicks(List<BallsNative.Pick> picks)
         {
             App.SwitchBackend(BallsNative.KindForPicks(picks));
-            App.Toast($"Physics on {BallsNative.PicksLabel(picks)}");
+            App.Toast(BallsNative.MenuPhysicsOn(picks));
         }
 
         private float DrawSpawnControls(Widgets widgets, GameBackend backend, Rect content, float y)
         {
+            System.IntPtr session = SessionSystem.Current != null ? SessionSystem.Current.SessionHandle : System.IntPtr.Zero;
+            string[] spawnRateOptions = this.spawnRateOptions;
+            string[] multiplierOptions = this.multiplierOptions;
+            string[] limitOptions = this.limitOptions;
+            if (session != System.IntPtr.Zero)
+            {
+                var spawnOpts = BallsNative.MenuOptions(BallsNative.MenuSpawnRate, spawnRateIndex, session);
+                if (spawnOpts.Count > 0)
+                {
+                    spawnRateOptions = new string[spawnOpts.Count];
+                    for (int i = 0; i < spawnOpts.Count; ++i) spawnRateOptions[i] = spawnOpts[i].Label;
+                }
+                var multOpts = BallsNative.MenuOptions(BallsNative.MenuBallMultiplier, multiplierIndex, session);
+                if (multOpts.Count > 0)
+                {
+                    multiplierOptions = new string[multOpts.Count];
+                    for (int i = 0; i < multOpts.Count; ++i) multiplierOptions[i] = multOpts[i].Label;
+                }
+                var limitOpts = BallsNative.MenuOptions(BallsNative.MenuBallLimit, limitIndex, session);
+                if (limitOpts.Count > 0)
+                {
+                    limitOptions = new string[limitOpts.Count];
+                    for (int i = 0; i < limitOpts.Count; ++i) limitOptions[i] = limitOpts[i].Label;
+                }
+            }
             widgets.Label(new Rect(content.x, y, content.width, 22f), "Spawn", TypeSizes.Small, Palette.Accent,
                 TextAnchor.UpperLeft, true);
             y += 24f;
@@ -754,7 +765,9 @@ namespace Balls.App.Screens
                 {
                     backend?.StartProbe(probeTargetFps);
                 }
-                widgets.Muted(new Rect(content.x, y + 40f, content.width, 22f), ProbeStatus(backend), TypeSizes.Small);
+                string probeStatus = session != System.IntPtr.Zero ? BallsNative.MenuProbeStatus(session) : ProbeStatus(backend);
+                if (string.IsNullOrEmpty(probeStatus)) probeStatus = ProbeStatus(backend);
+                widgets.Muted(new Rect(content.x, y + 40f, content.width, 22f), probeStatus, TypeSizes.Small);
                 height += 70f;
             }
             return height;
@@ -778,7 +791,7 @@ namespace Balls.App.Screens
 
         /// <summary>Draws the toggle at the bottom of the launcher gadget, and the Physics group under it when open.</summary>
         private float AdvancedSectionHeight() => advancedOpen
-            ? 58f + AvailableBackendCount() * 38f + 8f + SharedControls.BallCollisionsHeight()
+            ? 58f + BackendChoiceCount() * 38f + 8f + SharedControls.BallCollisionsHeight()
             : 34f;
 
         private void DrawAdvancedSection(Widgets widgets, SessionInfo session, Rect inner)
@@ -801,22 +814,64 @@ namespace Balls.App.Screens
             widgets.Label(new Rect(area.x, area.y, area.width, 22f), "Physics", TypeSizes.Small,
                 Palette.Accent, TextAnchor.UpperLeft, true);
             float y = area.y + 24f;
-            for (int kind = 0; kind < BallsNative.BackendCount; ++kind)
+            IntPtr sessionHandle = SessionSystem.Current != null ? SessionSystem.Current.SessionHandle : IntPtr.Zero;
+            if (sessionHandle != IntPtr.Zero)
             {
-                if (kind == BallsNative.BackendHybrid && !BallsNative.BackendAvailable(kind))
+                List<NativeUiOption> options = BallsNative.MenuOptions(BallsNative.MenuGameplayBackends, 0, sessionHandle);
+                for (int i = 0; i < options.Count; ++i)
                 {
-                    continue;
+                    NativeUiOption opt = options[i];
+                    int kind = opt.kind;
+                    bool available = opt.enabled != 0;
+                    string label = opt.Label;
+                    string detail = string.IsNullOrEmpty(opt.Detail) ? null : opt.Detail;
+                    bool selected = opt.selected != 0;
+                    if (widgets.OptionRow(new Rect(area.x, y, area.width, 34f), label, selected, available, detail) && available)
+                    {
+                        App.SwitchBackend(kind);
+                    }
+                    y += 38f;
                 }
-                bool available = BallsNative.BackendAvailable(kind);
-                bool starting = session.pendingBackend == kind;
-                string detail = starting ? "starting..." : BallsNative.BackendTextCached(kind, available);
-                if (widgets.OptionRow(new Rect(area.x, y, area.width, 34f), BallsNative.BackendName(kind),
-                        session.backend == kind || starting, available, detail) && available)
-                {
-                    App.SwitchBackend(kind);
-                }
-                y += 38f;
             }
+            else
+            {
+                for (int kind = 0; kind < BallsNative.BackendCount; ++kind)
+                {
+                    if (kind == BallsNative.BackendHybrid && !BallsNative.BackendAvailable(kind))
+                    {
+                        continue;
+                    }
+                    bool available = BallsNative.BackendAvailable(kind);
+                    bool starting = session.pendingBackend == kind;
+                    string detail = starting ? "starting..." : BallsNative.BackendTextCached(kind, available);
+                    if (widgets.OptionRow(new Rect(area.x, y, area.width, 34f), BallsNative.BackendName(kind),
+                            session.backend == kind || starting, available, detail) && available)
+                    {
+                        App.SwitchBackend(kind);
+                    }
+                    y += 38f;
+                }
+            }
+            // Unity's showcase backend, kept after the core rows.
+            bool burstAvailable = true;
+            bool burstStarting = session.pendingBackend == Balls.Physics.Burst.BurstGameBackend.BackendBurst;
+            string burstDetail = burstStarting ? "starting..." : null;
+            if (widgets.OptionRow(new Rect(area.x, y, area.width, 34f), "Burst",
+                    session.backend == Balls.Physics.Burst.BurstGameBackend.BackendBurst || burstStarting, burstAvailable, burstDetail) && burstAvailable)
+            {
+                App.SwitchBackend(Balls.Physics.Burst.BurstGameBackend.BackendBurst);
+            }
+            y += 38f;
+        }
+
+        private int BackendChoiceCount()
+        {
+            IntPtr sessionHandle = SessionSystem.Current != null ? SessionSystem.Current.SessionHandle : IntPtr.Zero;
+            if (sessionHandle != IntPtr.Zero)
+            {
+                return BallsNative.MenuOptions(BallsNative.MenuGameplayBackends, 0, sessionHandle).Count + 1;
+            }
+            return AvailableBackendCount();
         }
 
         /// <summary>
@@ -861,7 +916,7 @@ namespace Balls.App.Screens
         {
             if (BallsNative.SetComputeGpu(preference))
             {
-                App.Toast($"Compute GPU: {label}");
+                App.Toast(BallsNative.MenuMessage(BallsNative.MenuTextComputeGpu, 0, 0, 0, label));
             }
             else
             {
@@ -935,6 +990,70 @@ namespace Balls.App.Screens
         }
 
         private void DrawDebugGadget(BoardInfoData board, SessionInfo session, SessionStatsData stats)
+        {
+            IntPtr sessionHandle = SessionSystem.Current != null ? SessionSystem.Current.SessionHandle : IntPtr.Zero;
+            if (sessionHandle == IntPtr.Zero)
+            {
+                // Burst backend has no native session; keep its existing readout.
+                DrawDebugGadgetBurst(board, session, stats);
+                return;
+            }
+            Widgets widgets = App.Widgets;
+            Rect gadget = layout.Debug;
+            Rect inner = widgets.Gadget(gadget, null);
+            IntPtr timingsHandle = SessionSystem.Current != null ? SessionSystem.Current.FrameTimingsHandle : IntPtr.Zero;
+            bool showBackend = advancedOpen;
+            List<NativeDebugRow> rows = BallsNative.MenuDebugRows(sessionHandle, timingsHandle, showBackend ? 1 : 0, BallsApp.RendererText);
+
+            float contentHeight = 12f;
+            foreach (NativeDebugRow r in rows)
+            {
+                if (r.kind == 0) contentHeight += 6f + 26f + 4f;
+                else if (r.kind == 2) contentHeight += 24f;
+                else contentHeight += 22f + 26f + 18f;
+            }
+            contentHeight += 12f;
+
+            widgets.ScrollColumn(inner, contentHeight, ref debugScroll, content =>
+            {
+                float y = content.y + 12f;
+                Color ToneColor(int tone) => tone switch
+                {
+                    1 => Palette.TextMuted,
+                    2 => Palette.Accent,
+                    3 => Palette.Success,
+                    4 => Palette.Danger,
+                    _ => Palette.Text,
+                };
+                foreach (NativeDebugRow r in rows)
+                {
+                    if (r.kind == 0)
+                    {
+                        y += 6f;
+                        widgets.Label(new Rect(content.x, y, content.width, 22f), r.Label, TypeSizes.Small,
+                            Palette.Accent, TextAnchor.UpperLeft, true);
+                        y += 26f + 4f;
+                    }
+                    else if (r.kind == 2)
+                    {
+                        int colorIndex = Mathf.Clamp(r.colorIndex, 0, Palette.Balls.Length - 1);
+                        App.Theme.FillDisc(new Rect(content.x, y + 6f, 14f, 14f), Palette.Balls[colorIndex]);
+                        widgets.Label(new Rect(content.x + 22f, y, content.width - 22f, 22f), r.Label, TypeSizes.Small,
+                            Palette.TextMuted);
+                        widgets.Label(new Rect(content.x, y, content.width, 22f), r.Value, TypeSizes.Small,
+                            Palette.Text, TextAnchor.UpperRight);
+                        y += 24f;
+                    }
+                    else
+                    {
+                        widgets.Readout(new Rect(content.x, y, content.width, 40f), r.Label, r.Value, ToneColor(r.tone));
+                        y += 46f;
+                    }
+                }
+            });
+        }
+
+        private void DrawDebugGadgetBurst(BoardInfoData board, SessionInfo session, SessionStatsData stats)
         {
             Widgets widgets = App.Widgets;
             Rect gadget = layout.Debug;
@@ -1098,36 +1217,33 @@ namespace Balls.App.Screens
         {
             Widgets widgets = App.Widgets;
             UiTheme theme = App.Theme;
-            theme.Fill(new Rect(0f, 0f, theme.UnitsWidth, theme.UnitsHeight), new Color(0f, 0f, 0f, 0.70f));
+            theme.Fill(new Rect(0f, 0f, theme.UnitsWidth, theme.UnitsHeight), new Color(Palette.BoardBackdrop.r, Palette.BoardBackdrop.g, Palette.BoardBackdrop.b, 0.70f));
             float width = 420f;
             float x = (theme.UnitsWidth - width) * 0.5f;
             float y = theme.UnitsHeight * 0.32f;
-            Rect panel = new Rect(x, y, width, 60f + 4 * (60f + 14f) + 24f);
+            int buttonCount = App.FlowButtonCount;
+            Rect panel = new Rect(x, y, width, 60f + buttonCount * (60f + 14f) + 24f);
             theme.Frame(panel, Palette.Panel, Palette.Border);
-            widgets.Label(new Rect(panel.x, panel.y + 16f, panel.width, 44f), "Paused", TypeSizes.Large,
+
+            string title = BallsNative.FlowText(App.FlowHandle, BallsNative.FlowTextTitle);
+            if (string.IsNullOrEmpty(title))
+            {
+                title = "Paused";
+            }
+            widgets.Label(new Rect(panel.x, panel.y + 16f, panel.width, 44f), title, TypeSizes.Large,
                 Palette.Text, TextAnchor.MiddleCenter, true);
 
             float buttonY = panel.y + 70f;
-            if (widgets.Button(new Rect(panel.x + 24f, buttonY, panel.width - 48f, 60f), "Resume"))
+            for (int index = 0; index < buttonCount; ++index)
             {
-                paused = false;
-            }
-            buttonY += 74f;
-            if (widgets.Button(new Rect(panel.x + 24f, buttonY, panel.width - 48f, 60f), "Restart"))
-            {
-                paused = false;
-                App.RestartGameplay();
-            }
-            buttonY += 74f;
-            if (widgets.Button(new Rect(panel.x + 24f, buttonY, panel.width - 48f, 60f), "Settings"))
-            {
-                settingsOpen = true;
-            }
-            buttonY += 74f;
-            if (widgets.Button(new Rect(panel.x + 24f, buttonY, panel.width - 48f, 60f), "Main Menu"))
-            {
-                paused = false;
-                App.Go<MainMenuScreen>();
+                if (BallsNative.balls_flow_button(App.FlowHandle, index, out NativeFlowButton button) != 0)
+                {
+                    if (widgets.Button(new Rect(panel.x + 24f, buttonY, panel.width - 48f, 60f), button.Label, TypeSizes.Header, button.enabled != 0))
+                    {
+                        App.ActivateFlow(button.action);
+                    }
+                    buttonY += 74f;
+                }
             }
         }
 
@@ -1135,32 +1251,33 @@ namespace Balls.App.Screens
         {
             Widgets widgets = App.Widgets;
             UiTheme theme = App.Theme;
-            theme.Fill(new Rect(0f, 0f, theme.UnitsWidth, theme.UnitsHeight), new Color(0f, 0f, 0f, 0.70f));
+            theme.Fill(new Rect(0f, 0f, theme.UnitsWidth, theme.UnitsHeight), new Color(Palette.BoardBackdrop.r, Palette.BoardBackdrop.g, Palette.BoardBackdrop.b, 0.70f));
             float width = 420f;
             float x = (theme.UnitsWidth - width) * 0.5f;
             float y = theme.UnitsHeight * 0.32f;
-            Rect panel = new Rect(x, y, width, 60f + 3 * (60f + 14f) + 24f);
+            int buttonCount = App.FlowButtonCount;
+            Rect panel = new Rect(x, y, width, 60f + buttonCount * (60f + 14f) + 24f);
             theme.Frame(panel, Palette.Panel, Palette.Border);
-            widgets.Label(new Rect(panel.x, panel.y + 16f, panel.width, 44f), "Level Complete!", TypeSizes.Large,
+
+            string title = BallsNative.FlowText(App.FlowHandle, BallsNative.FlowTextTitle);
+            if (string.IsNullOrEmpty(title))
+            {
+                title = "Level Complete!";
+            }
+            widgets.Label(new Rect(panel.x, panel.y + 16f, panel.width, 44f), title, TypeSizes.Large,
                 Palette.Accent, TextAnchor.MiddleCenter, true);
 
             float buttonY = panel.y + 70f;
-            if (widgets.Button(new Rect(panel.x + 24f, buttonY, panel.width - 48f, 60f), "Next Level"))
+            for (int index = 0; index < buttonCount; ++index)
             {
-                wonShown = false;
-                App.StartNextLevel();
-            }
-            buttonY += 74f;
-            if (widgets.Button(new Rect(panel.x + 24f, buttonY, panel.width - 48f, 60f), "Restart"))
-            {
-                wonShown = false;
-                App.RestartGameplay();
-            }
-            buttonY += 74f;
-            if (widgets.Button(new Rect(panel.x + 24f, buttonY, panel.width - 48f, 60f), "Main Menu"))
-            {
-                wonShown = false;
-                App.Go<MainMenuScreen>();
+                if (BallsNative.balls_flow_button(App.FlowHandle, index, out NativeFlowButton button) != 0)
+                {
+                    if (widgets.Button(new Rect(panel.x + 24f, buttonY, panel.width - 48f, 60f), button.Label, TypeSizes.Header, button.enabled != 0))
+                    {
+                        App.ActivateFlow(button.action);
+                    }
+                    buttonY += 74f;
+                }
             }
         }
     }

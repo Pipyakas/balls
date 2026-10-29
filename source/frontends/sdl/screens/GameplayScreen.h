@@ -5,7 +5,6 @@
 #include "game/SessionRunner.h"
 #include "gpu/GpuAdapters.h"
 #include "level/LevelData.h"
-#include "level/LevelWatcher.h"
 #include "render/ScreenLayout.h"
 #include "screens/DebugPanel.h"
 
@@ -27,33 +26,24 @@ public:
     std::optional<ControlResponse> handleControl(const ControlRequest& request) override;
     ControlGame* controlGame() override { return this; }
     void refreshSettings();
-    void openSettingsOverlay();
+    void restartSession();
 
     // ControlGame
     GameMode gameMode() const override { return mode; }
     std::string levelName() const override { return files.name; }
     std::string levelLoadError() const override { return loadError; }
-    LevelDiskState diskState() const override { return watcher.diskState(); }
+    LevelDiskState diskState() const override;
     std::shared_ptr<const SessionView> sessionView() override { return runner ? runner->view() : nullptr; }
     void post(std::function<void(GameSession&)> command) override;
-    bool isPaused() const override { return paused; }
-    void setPaused(bool pause) override { paused = pause; }
-    void restart() override { restartLevel(); }
+    bool isPaused() const override;
+    void setPaused(bool pause) override;
+    void restart() override;
     int capacityProbeTargetFps() const override { return probeTargetFps; }
     void startCapacityProbe(int targetFps) override;
 
 private:
-    struct Toast {
-        std::string text;
-        float secondsLeft = 0.0f;
-        bool isError = false;
-    };
-
     void loadSession();
-    void restartLevel();
     void handleLauncherClick(const GameplayLayout& layout);
-    void showToast(std::string text, bool isError);
-    void openNextLevel();
     void applyDefaultBallLimit();
     void rememberFinishedProbe();
     void useAutoBallLimit();
@@ -79,7 +69,6 @@ private:
     int drawOptionDropdown(Rect area, std::string_view current, std::span<const std::string> options,
                            int selected, bool& open);
     void drawOverlay();
-    void drawToast();
 
     App& app;
     GameMode mode;
@@ -89,12 +78,6 @@ private:
     std::unique_ptr<SessionRunner> runner;
     std::shared_ptr<const SessionView> view;
     std::string loadError;
-    // The level in play is never swapped mid-game: the watcher's disk state puts a notice in the header and Restart
-    // picks the new files up.
-    LevelWatcher watcher;
-    Toast toast;
-    bool paused = false;
-    bool settingsOpen = false;
     bool probeResultSaved = true;
     int probeTargetFps = 60;
     float controlsScroll = 0.0f;

@@ -107,7 +107,6 @@ set(BALLS_SDL_SOURCES
     control/ControlServer.cpp
     render/RendererFactory.cpp
     render/BallView.cpp
-    render/Palette.cpp
     render/BoardRenderer.cpp
     render/LauncherRenderer.cpp
     render/ScreenLayout.cpp

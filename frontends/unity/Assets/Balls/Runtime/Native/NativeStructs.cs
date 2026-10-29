@@ -131,16 +131,6 @@ namespace Balls.Native
         }
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct NativeValidation
-    {
-        public ulong brickHits0, brickHits1, brickHits2, brickHits3, brickHits4, brickHits5, brickHits6;
-        public ulong balls0, balls1, balls2, balls3, balls4, balls5, balls6;
-        public int problemCount;
-        public int playable;
-    }
-
-
     /// <summary>The game's gameplay layout in layout units; see balls_compute_layout.</summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct NativeLayout
@@ -185,18 +175,100 @@ namespace Balls.Native
         }
     }
 
+    /// <summary>Mirrors BallsEditorState in BallsUnityApi.h.</summary>
     [StructLayout(LayoutKind.Sequential)]
-    public struct NativeEditorInfo
+    public struct NativeEditorState
     {
         public int width;
         public int height;
         public int playableHeight;
         public int launcherColumns;
         public int launcherVisibleRows;
+        public int launcherRows;
         public int dirty;
         public int canUndo;
         public int canRedo;
-        public int brickCount;
+        public int tool;
+        public int brushColor;
+        public int brushHits;
+        public int launcherBalls;
+        public int selectedBrick;
+        public int mode;
+        public int playable;
+        public int problemCount;
+        public float messageSecondsLeft;
+        public int messageIsError;
+    }
+
+    /// <summary>Mirrors BallsUiOption in BallsUnityApi.h.</summary>
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public struct NativeUiOption
+    {
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 128)] public byte[] label;
+        public int enabled;
+        public int selected;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 256)] public byte[] detail;
+        public int kind;
+
+        public string Label => Read(label);
+        public string Detail => Read(detail);
+
+        private static string Read(byte[] bytes)
+        {
+            if (bytes == null)
+            {
+                return string.Empty;
+            }
+            int length = Array.IndexOf(bytes, (byte)0);
+            return System.Text.Encoding.UTF8.GetString(bytes, 0, length < 0 ? bytes.Length : length);
+        }
+    }
+
+    /// <summary>Mirrors BallsDevicePickRow in BallsUnityApi.h.</summary>
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public struct NativeDevicePickRow
+    {
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)] public byte[] device;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 256)] public byte[] label;
+        public int optionCount;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 12)] public NativeUiOption[] options;
+
+        public string Device => Read(device);
+        public string Label => Read(label);
+
+        private static string Read(byte[] bytes)
+        {
+            if (bytes == null)
+            {
+                return string.Empty;
+            }
+            int length = Array.IndexOf(bytes, (byte)0);
+            return System.Text.Encoding.UTF8.GetString(bytes, 0, length < 0 ? bytes.Length : length);
+        }
+    }
+
+    /// <summary>Mirrors BallsDebugRow in BallsUnityApi.h.</summary>
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public struct NativeDebugRow
+    {
+        public int kind;
+        public int tone;
+        public int colorIndex;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 64)] public byte[] label;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 192)] public byte[] value;
+
+        public string Label => Read(label);
+        public string Value => Read(value);
+
+        private static string Read(byte[] bytes)
+        {
+            if (bytes == null)
+            {
+                return string.Empty;
+            }
+            int length = Array.IndexOf(bytes, (byte)0);
+            return System.Text.Encoding.UTF8.GetString(bytes, 0, length < 0 ? bytes.Length : length);
+        }
     }
 
     [StructLayout(LayoutKind.Sequential)]
@@ -257,6 +329,91 @@ namespace Balls.Native
                 }
                 int length = Array.IndexOf(text, (byte)0);
                 return System.Text.Encoding.UTF8.GetString(text, 0, length < 0 ? text.Length : length);
+            }
+        }
+    }
+
+    /// <summary>Mirrors BallsFlowState: live state of the core's screen flow.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct NativeFlowState
+    {
+        public int screen;
+        public int overlay;
+        public int mode;
+        public int paused;
+        public int diskState;
+        public int canRunMachineBenchmark;
+        public int benchmarkSettled;
+        public int buttonCount;
+        public int levelCount;
+        public int hasLevel;
+        public float toastSecondsLeft;
+        public int toastIsError;
+    }
+
+    /// <summary>Mirrors BallsFlowButton: one button the screen or overlay offers.</summary>
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public struct NativeFlowButton
+    {
+        public int action;
+        public int enabled;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 64)] public byte[] label;
+
+        public string Label
+        {
+            get
+            {
+                if (label == null)
+                {
+                    return string.Empty;
+                }
+                int length = Array.IndexOf(label, (byte)0);
+                return System.Text.Encoding.UTF8.GetString(label, 0, length < 0 ? label.Length : length);
+            }
+        }
+    }
+
+    /// <summary>Mirrors BallsFlowLevelRow: one level entry in Level select.</summary>
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public struct NativeFlowLevelRow
+    {
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 128)] public byte[] name;
+        public int highlighted;
+
+        public string Name
+        {
+            get
+            {
+                if (name == null)
+                {
+                    return string.Empty;
+                }
+                int length = Array.IndexOf(name, (byte)0);
+                return System.Text.Encoding.UTF8.GetString(name, 0, length < 0 ? name.Length : length);
+            }
+        }
+    }
+
+    /// <summary>Mirrors BallsFlowRequest: work the screen flow asks the front end to do.</summary>
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public struct NativeFlowRequest
+    {
+        public int kind;
+        public int mode;
+        public int hasLevel;
+        public NativeLevelInfo level;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 512)] public byte[] folder;
+
+        public string Folder
+        {
+            get
+            {
+                if (folder == null)
+                {
+                    return string.Empty;
+                }
+                int length = Array.IndexOf(folder, (byte)0);
+                return System.Text.Encoding.UTF8.GetString(folder, 0, length < 0 ? folder.Length : length);
             }
         }
     }

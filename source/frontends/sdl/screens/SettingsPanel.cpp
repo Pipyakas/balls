@@ -1,6 +1,7 @@
 #include "screens/SettingsPanel.h"
 
 #include "render/Palette.h"
+#include "ui/MenuModel.h"
 #include "screens/DevicePicker.h"
 #include "sim/BackendFactory.h"
 #include "sim/BackendWorker.h"
@@ -94,7 +95,7 @@ float settingsContentHeight() {
 
 SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind selectedBackend,
                                     std::span<const CandidateResult> benchmarkScores, bool webGpuSupported,
-                                    float& scroll) {
+                                    float& scroll, bool canRunBenchmark) {
     SettingsPanelEdit edit{current, false, false, std::nullopt};
     const Rect inner{area.x, area.y, area.width, area.height};
     float visibleHeight = 0.0f;
@@ -107,7 +108,7 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
     ui::drawTextInRect("Settings", {innerX, cursor, innerWidth, titleHeight}, titleSize, palette::text);
     cursor += titleHeight + blockGap;
 
-    ui::drawText("Layout", {innerX, cursor}, sectionSize, palette::textMuted);
+    ui::drawText(std::string(menuText::layoutHeading), {innerX, cursor}, sectionSize, palette::textMuted);
     cursor += sectionHeight;
     const Rect layoutButtons{innerX, cursor, innerWidth, optionHeight};
     for (size_t i = 0; i < layoutOptions.size(); ++i) {
@@ -121,12 +122,12 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
         }
     }
     cursor += optionHeight + hintGap;
-    ui::drawText("Auto follows the window shape.", {innerX, cursor}, hintSize, palette::textMuted);
+    ui::drawText(std::string(menuText::layoutHint), {innerX, cursor}, hintSize, palette::textMuted);
     cursor += hintHeight + blockGap;
 
-    ui::drawText("Display", {innerX, cursor}, sectionSize, palette::textMuted);
+    ui::drawText(std::string(menuText::displayHeading), {innerX, cursor}, sectionSize, palette::textMuted);
     cursor += sectionHeight;
-    ui::drawText("VSync", {innerX, cursor}, sectionSize, palette::text);
+    ui::drawText(std::string(menuText::vsyncLabel), {innerX, cursor}, sectionSize, palette::text);
     cursor += sectionHeight;
     const Rect vsyncOptions{innerX, cursor, innerWidth, optionHeight};
     if (ui::button(ui::columnSlice(vsyncOptions, 0, 2, optionGap), "Off", true, !current.vsync) &&
@@ -182,37 +183,38 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
                  palette::textMuted);
     cursor += hintHeight + blockGap;
 
-    ui::drawText("Physics", {innerX, cursor}, sectionSize, palette::textMuted);
+    ui::drawText(std::string(menuText::physicsHeading), {innerX, cursor}, sectionSize, palette::textMuted);
     cursor += sectionHeight;
-    ui::drawText("Default backend", {innerX, cursor}, sectionSize, palette::text);
-    const Rect runBenchmark{innerX + innerWidth - runBenchmarkWidth, cursor - optionGap, runBenchmarkWidth,
-                            sectionHeight + optionGap * 0.5f};
-    if (ui::button(runBenchmark, "Run machine benchmark")) {
-        edit.runBenchmark = true;
+    ui::drawText(std::string(menuText::defaultBackendLabel), {innerX, cursor}, sectionSize, palette::text);
+    if (canRunBenchmark) {
+        const Rect runBenchmark{innerX + innerWidth - runBenchmarkWidth, cursor - optionGap, runBenchmarkWidth,
+                                sectionHeight + optionGap * 0.5f};
+        if (ui::button(runBenchmark, std::string(menuText::runBenchmarkLabel))) {
+            edit.runBenchmark = true;
+        }
     }
     cursor += sectionHeight;
-    for (const BackendKind kind : selectableBackends()) {
-        const BackendStatus status = backendStatus(kind);
-        const bool available = status.available;
-        std::string label(backendKindName(kind));
-        if (!available) {
-            label += std::string(" - ") + status.unavailableReason;
+    for (const BackendRow& rowInfo : defaultBackendRows(selectedBackend, benchmarkScores)) {
+        const BackendKind kind = rowInfo.kind;
+        std::string label = rowInfo.option.label;
+        if (!rowInfo.option.enabled && !rowInfo.option.detail.empty()) {
+            label += std::string(" - ") + rowInfo.option.detail;
         }
         const Rect row{innerX, cursor, innerWidth, optionHeight};
-        if (ui::button(row, label, available, selectedBackend == kind) && available) {
+        if (ui::button(row, label, rowInfo.option.enabled, rowInfo.option.selected) && rowInfo.option.enabled) {
             edit.backend = kind;
             edit.changed = true;
         }
-        if (const std::string score = benchmarkScore(benchmarkScores, kind); !score.empty()) {
+        if (rowInfo.option.enabled && !rowInfo.option.detail.empty()) {
             const bool selected = selectedBackend == kind;
-            ui::drawTextInRect(score, {row.x, row.y, row.width - scoreInset, row.height}, hintSize,
+            ui::drawTextInRect(rowInfo.option.detail, {row.x, row.y, row.width - scoreInset, row.height}, hintSize,
                                selected ? palette::panel : palette::textMuted, ui::Align::Right);
         }
         cursor += optionHeight + optionGap;
     }
     cursor += blockGap - optionGap;
 
-    ui::drawText("Devices", {innerX, cursor}, sectionSize, palette::text);
+    ui::drawText(std::string(menuText::devicesLabel), {innerX, cursor}, sectionSize, palette::text);
     cursor += sectionHeight;
     const std::vector<BackendPick> picks = displayedPicks(selectedBackend);
     if (const auto changed = drawDevicePicker({innerX, cursor, innerWidth, devicePickerHeight(devicePickerStyle)},

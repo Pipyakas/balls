@@ -1,14 +1,11 @@
 #include "screens/LevelSelectScreen.h"
 
 #include "app/App.h"
-#include "app/Paths.h"
-#include "level/LevelImporter.h"
-#include "level/LevelRepository.h"
-#include "render/Palette.h"
-#include "ui/Widgets.h"
-
 #include "app/Input.h"
+#include "app/Paths.h"
+#include "render/Palette.h"
 #include "ui/Painter.h"
+#include "ui/Widgets.h"
 
 #include <algorithm>
 #include <format>
@@ -26,14 +23,6 @@ constexpr float footerGap = 14.0f;
 constexpr float folderTextSize = 16.0f;
 constexpr float folderLineHeight = 30.0f;
 constexpr float importAreaHeight = folderLineHeight + footerButtonHeight + footerGap;
-constexpr float highlightSeconds = 2.0f;
-constexpr auto refreshInterval = std::chrono::milliseconds(500);
-
-std::filesystem::path absoluteFolder(const std::filesystem::path& folder) {
-    std::error_code error;
-    const std::filesystem::path absolute = std::filesystem::weakly_canonical(folder, error);
-    return error ? std::filesystem::absolute(folder) : absolute;
-}
 
 // Long install paths are cut from the left: the end of the path is the part that tells levels folders apart.
 std::string fitFolderText(const std::string& text, float maximumWidth) {
@@ -49,42 +38,12 @@ std::string fitFolderText(const std::string& text, float maximumWidth) {
     return text;
 }
 
-}
+} // namespace
 
-LevelSelectScreen::LevelSelectScreen(App& app, GameMode mode)
-    : app(app), mode(mode), levels(findLevels(levelDirectory(mode))), folder(absoluteFolder(levelDirectory(mode))) {}
+LevelSelectScreen::LevelSelectScreen(App& app, GameMode mode) : app(app), mode(mode) {}
 
 float LevelSelectScreen::listBottom() const {
     return static_cast<float>(gfx::screenHeight()) - 110.0f - importAreaHeight;
-}
-
-void LevelSelectScreen::refreshLevels() {
-    levels = findLevels(folder);
-    nextRefresh = std::chrono::steady_clock::now() + refreshInterval;
-}
-
-void LevelSelectScreen::scrollTo(const std::string& levelName) {
-    const auto found = std::ranges::find(levels, levelName, &LevelFiles::name);
-    if (found == levels.end()) {
-        return;
-    }
-    const float rowTop = static_cast<float>(found - levels.begin()) * (rowHeight + rowGap);
-    const float visibleHeight = static_cast<float>(gfx::screenHeight()) - 240.0f - importAreaHeight;
-    if (rowTop < scroll || rowTop + rowHeight > scroll + visibleHeight) {
-        scroll = std::max(0.0f, rowTop - visibleHeight * 0.5f);
-    }
-}
-
-bool LevelSelectScreen::importLevels(std::span<const std::filesystem::path> paths) {
-    const LevelImportReport report = ::importLevels(paths, folder, mode);
-    refreshLevels();
-    if (const auto imported = report.levelToHighlight()) {
-        highlightedLevel = *imported;
-        highlightSecondsLeft = highlightSeconds;
-        scrollTo(*imported);
-    }
-    app.showToast(report.summary(), report.anyFailed());
-    return true;
 }
 
 // The title sits where the design puts toasts, so imports report just above the folder line, next to the
@@ -96,77 +55,84 @@ float LevelSelectScreen::toastTop() const {
 
 std::string LevelSelectScreen::stateJson() const {
     std::string names;
-    for (const LevelFiles& level : levels) {
-        names += std::format("{}\"{}\"", names.empty() ? "" : ",", jsonEscape(level.name));
+    for (const FlowLevelRow& row : app.flow().levelRows()) {
+        names += std::format("{}\"{}\"", names.empty() ? "" : ",", jsonEscape(row.name));
+    }
+    std::string highlighted;
+    for (const FlowLevelRow& row : app.flow().levelRows()) {
+        if (row.highlighted) {
+            highlighted = row.name;
+            break;
+        }
     }
     return std::format("{{\"mode\":\"{}\",\"folder\":\"{}\",\"levels\":[{}],\"highlighted\":\"{}\"}}",
-                       mode == GameMode::Normal ? "normal" : "performance", jsonEscape(utf8Of(folder)), names,
-                       highlightSecondsLeft > 0.0f ? jsonEscape(highlightedLevel) : std::string{});
+                       app.flow().mode() == GameMode::Normal ? "normal" : "performance",
+                       jsonEscape(utf8Of(app.flow().levelFolder())), names,
+                       jsonEscape(highlighted));
 }
 
 void LevelSelectScreen::drawImportControls(float centerX, float top) {
     const float screenWidth = static_cast<float>(gfx::screenWidth());
-    const std::string folderText = fitFolderText("Levels folder: " + utf8Of(folder), screenWidth - 40.0f);
+    const std::string folderText = fitFolderText(app.flow().footnote(), screenWidth - 40.0f);
     ui::drawText(folderText, {centerX, top + 6.0f}, folderTextSize, palette::textMuted, ui::Align::Center);
     const float buttonsTop = top + folderLineHeight;
     const Rect importRect{centerX - listWidth * 0.5f, buttonsTop, footerButtonWidth, footerButtonHeight};
     if (ui::button(importRect, "Import")) {
-        app.openLevelImportDialog(folder);
+        app.flow().activate(FlowAction::Import);
     }
     const Rect openRect{centerX + listWidth * 0.5f - footerButtonWidth, buttonsTop, footerButtonWidth,
                         footerButtonHeight};
     if (ui::button(openRect, "Open Folder")) {
-        app.openFolder(folder);
+        app.flow().activate(FlowAction::OpenFolder);
     }
 }
 
-void LevelSelectScreen::update(float deltaTime) {
-    highlightSecondsLeft = std::max(0.0f, highlightSecondsLeft - deltaTime);
-    if (std::chrono::steady_clock::now() >= nextRefresh) {
-        refreshLevels();
+void LevelSelectScreen::update(float) {
+    if (const auto row = app.flow().takeScrollToRow()) {
+        const float rowTop = static_cast<float>(*row) * (rowHeight + rowGap);
+        const float visibleHeight = static_cast<float>(gfx::screenHeight()) - 240.0f - importAreaHeight;
+        if (rowTop < scroll || rowTop + rowHeight > scroll + visibleHeight) {
+            scroll = std::max(0.0f, rowTop - visibleHeight * 0.5f);
+        }
     }
     scroll = std::max(0.0f, scroll - input::wheelMove() * scrollSpeed);
-    if (input::keyPressed(SDL_SCANCODE_ESCAPE)) {
-        app.showMainMenu();
-    }
 }
 
 void LevelSelectScreen::draw() {
     const float centerX = static_cast<float>(gfx::screenWidth()) * 0.5f;
-    const char* title = mode == GameMode::Normal ? "Normal Mode" : "Performance Mode";
-    ui::drawText(title, {centerX, 40.0f}, 52.0f, palette::accent, ui::Align::Center);
+    ui::drawText(app.flow().title(), {centerX, 40.0f}, 52.0f, palette::accent, ui::Align::Center);
 
     const float top = 130.0f;
     const float bottom = listBottom();
-    const float listHeight = levels.empty() ? 0.0f : static_cast<float>(levels.size()) * (rowHeight + rowGap) - rowGap;
+    const auto rows = app.flow().levelRows();
+    const float listHeight = rows.empty() ? 0.0f : static_cast<float>(rows.size()) * (rowHeight + rowGap) - rowGap;
     scroll = std::clamp(scroll, 0.0f, std::max(0.0f, listHeight - (bottom - top)));
     gfx::beginClip({0.0f, top, static_cast<float>(gfx::screenWidth()), bottom - top});
-    for (size_t i = 0; i < levels.size(); ++i) {
+    for (size_t i = 0; i < rows.size(); ++i) {
         const float y = top + static_cast<float>(i) * (rowHeight + rowGap) - scroll;
         const Rect playRect{centerX - listWidth * 0.5f, y, listWidth - editButtonWidth - rowGap, rowHeight};
         const Rect editRect{playRect.x + playRect.width + rowGap, y, editButtonWidth, rowHeight};
         const bool visible = y + rowHeight > top && y < bottom;
-        const bool highlighted = highlightSecondsLeft > 0.0f && levels[i].name == highlightedLevel;
-        if (ui::button(playRect, levels[i].name, visible, highlighted)) {
-            app.startGame(mode, levels[i]);
+        if (ui::button(playRect, rows[i].name, visible, rows[i].highlighted)) {
+            app.flow().activate(FlowAction::PlayLevel, static_cast<int>(i));
         }
         if (ui::button(editRect, "Edit", visible)) {
-            app.openEditor(mode, levels[i]);
+            app.flow().activate(FlowAction::EditLevel, static_cast<int>(i));
         }
     }
     ui::scrollHints({centerX - listWidth * 0.5f, top, listWidth, bottom - top}, scroll, listHeight, palette::background);
     gfx::endClip();
-    if (levels.empty()) {
+    if (rows.empty()) {
         ui::drawText("No levels found", {centerX, top + 40.0f}, 28.0f, palette::textMuted, ui::Align::Center);
     }
     drawImportControls(centerX, bottom + 8.0f);
     const float footerTop = bottom + importAreaHeight + 24.0f;
     const Rect backRect{centerX - listWidth * 0.5f, footerTop, 200.0f, 56.0f};
     if (ui::button(backRect, "Back")) {
-        app.showMainMenu();
+        app.flow().activate(FlowAction::Back);
     }
     const Rect newRect{centerX + listWidth * 0.5f - 200.0f, footerTop, 200.0f, 56.0f};
     if (ui::button(newRect, "New Level")) {
-        app.openEditor(mode, std::nullopt);
+        app.flow().activate(FlowAction::NewLevel);
     }
 }

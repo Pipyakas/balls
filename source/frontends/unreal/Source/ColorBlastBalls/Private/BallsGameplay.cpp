@@ -24,7 +24,6 @@ SessionThreading ThreadingFromCommandLine() {
 FBallsGameplay::FBallsGameplay(FBallsApp& InApp, GameMode InMode, LevelFiles InFiles)
     : App(InApp), Mode(InMode), Files(MoveTemp(InFiles)) {
     LoadSession();
-    Watcher.watch(Files);
 }
 
 void FBallsGameplay::LoadSession() {
@@ -91,22 +90,11 @@ FString FBallsGameplay::GetProbeStatus() const {
     if (!View) {
         return FString();
     }
-    const CapacityProbe& Probe = View->probe;
-    if (Probe.isActive()) {
-        return FString::Printf(TEXT("Probing... %s balls, %.0f fps"), *BallsText::Grouped(View->liveBalls), Probe.lastFps());
-    }
-    if (Probe.phase() == ProbePhase::Done) {
-        return FString::Printf(TEXT("Max @%.0f FPS: %s"), Probe.targetFps(), *BallsText::Grouped(Probe.bestPassingCount()));
-    }
-    if (View->machineLimit) {
-        return FString::Printf(TEXT("Max: %s"), *BallsText::Grouped(*View->machineLimit));
-    }
-    return FString();
+    return BallsText::FromUtf8(probeStatusText(*View));
 }
 
 // Loads the files as they are now: a parse failure drops to the load-error screen instead of keeping the old game.
 void FBallsGameplay::ReloadFromDisk() {
-    Watcher.markLoaded();
     Result<LevelData> Level = loadLevel(Files);
     if (!Level) {
         Host.reset();
@@ -123,7 +111,6 @@ void FBallsGameplay::ReloadFromDisk() {
         ApplySettings();
         ApplyDefaultBallLimit();
     }
-    bPaused = false;
 }
 
 void FBallsGameplay::ShowToast(FString Text, bool bIsError) { App.ShowToast(MoveTemp(Text), bIsError); }
@@ -133,28 +120,23 @@ const FBallsToast& FBallsGameplay::GetToast() const { return App.GetToast(); }
 bool FBallsGameplay::IsWon() const { return View && Mode == GameMode::Normal && View->state == SessionState::Won; }
 
 void FBallsGameplay::Tick(float DeltaSeconds, double FrameSeconds, double WorkSeconds) {
-    // With a game running the change only shows as the watcher's disk state; the load-error screen retries at once.
-    if (Watcher.pollChanged(std::chrono::steady_clock::now()) && !Host) {
-        ReloadFromDisk();
-    }
     if (!Host) {
+        // Load-error retry is owned by the flow; nothing to do here.
         return;
     }
     // On the game thread this steps the session; on the physics thread it only hands over the frame's timings and
     // takes the newest view. A backend switch builds in the background either way.
-    Host->tick({bPaused, FrameSeconds, WorkSeconds, VisibilitySlotCells}, DeltaSeconds);
+    Host->tick({App.GetScreenFlow().isPaused(), FrameSeconds, WorkSeconds, VisibilitySlotCells}, DeltaSeconds);
     View = Host->view();
     for (const SessionEvent& Event : Host->takeEvents()) {
         if (Event.kind == SessionEventKind::BallCollisionsChanged) {
             ShowToast(BallsText::FromUtf8(ballCollisionsMessage(Event.collisionsChange)), false);
         } else if (Event.kind == SessionEventKind::BackendSwitched) {
             // A switch inside a game lasts for that game only; the Settings page owns the remembered default.
-            ShowToast(TEXT("Backend: ") + BallsText::FromUtf8(backendKindName(Event.backend)), false);
+            ShowToast(BallsText::FromUtf8(physicsOnMessage(displayedPicks(Event.backend))), false);
             ApplyDefaultBallLimit();
         } else {
-            ShowToast(FString::Printf(TEXT("%s failed: %s"), *BallsText::FromUtf8(backendKindName(Event.backend)),
-                                      View ? *BallsText::FromUtf8(View->backendFault) : TEXT("")),
-                      true);
+            ShowToast(BallsText::FromUtf8(backendFailedMessage(Event.backend)), true);
         }
     }
     if (!View) {
@@ -166,9 +148,7 @@ void FBallsGameplay::Tick(float DeltaSeconds, double FrameSeconds, double WorkSe
         bProbeResultShown = false;
     } else if (!bProbeResultShown && Probe.phase() == ProbePhase::Done) {
         App.GetMachineProfile().rememberBallLimit(View->backend, Probe.targetFps(), Probe.bestPassingCount());
-        ShowToast(FString::Printf(TEXT("%s limit on this machine: %s balls @%.0f FPS"),
-                                  *BallsText::FromUtf8(backendKindName(View->backend)),
-                                  *BallsText::Grouped(Probe.bestPassingCount()), Probe.targetFps()),
+        ShowToast(BallsText::FromUtf8(probeResultMessage(View->backend, Probe.bestPassingCount(), Probe.targetFps())),
                   false);
         bProbeResultShown = true;
     }
@@ -177,10 +157,6 @@ void FBallsGameplay::Tick(float DeltaSeconds, double FrameSeconds, double WorkSe
 // The design gives gameplay no keyboard shortcuts: every action is a visible control. Only the load-error screen keeps
 // Esc as Back, like the menus.
 bool FBallsGameplay::HandleKey(const FKey& Key) {
-    if (!Host && Key == EKeys::Escape) {
-        App.ShowLevelSelect(Mode);
-        return true;
-    }
     return false;
 }
 
@@ -192,7 +168,7 @@ void FBallsGameplay::ApplySettings() {
 }
 
 void FBallsGameplay::ChooseLauncher(int32 Column, int32 Row) {
-    if (Host && !bPaused) {
+    if (Host && !App.GetScreenFlow().isPaused()) {
         Host->post([Column, Row](GameSession& Session) { Session.chooseLauncher(Column, Row); });
     }
 }
@@ -252,26 +228,7 @@ void FBallsGameplay::startCapacityProbe(int TargetFps) {
 }
 
 void FBallsGameplay::Restart() {
-    if (Watcher.diskState() == LevelDiskState::Removed) {
-        App.ShowLevelSelect(Mode);
-        return;
-    }
-    if (Watcher.diskState() == LevelDiskState::Changed) {
-        ReloadFromDisk();
-        return;
-    }
     if (Host) {
         Host->post([](GameSession& Session) { Session.restart(); });
-        bPaused = false;
-    }
-}
-
-void FBallsGameplay::OpenNextLevel() {
-    const std::vector<LevelFiles> Levels = findLevels(App.LevelDirectory(Mode));
-    const auto Current = std::ranges::find(Levels, Files.name, &LevelFiles::name);
-    if (Current != Levels.end() && std::next(Current) != Levels.end()) {
-        App.StartGame(Mode, *std::next(Current));
-    } else {
-        App.ShowLevelSelect(Mode);
     }
 }

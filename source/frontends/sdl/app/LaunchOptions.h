@@ -20,6 +20,7 @@ struct LaunchOptions {
     bool background = false;
     bool hidden = false;
     bool vsync = false;
+    bool editor = false;
     int windowWidth = 1440;
     int windowHeight = 900;
 };

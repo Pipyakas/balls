@@ -35,7 +35,7 @@ namespace Balls.App
         public string LoadFailure { get; set; }
 
         /// <summary>The core's frame statistics, for the control API's /state.</summary>
-        public System.IntPtr FrameTimingsHandle => frameTimings;
+        public System.IntPtr FrameTimingsHandle => frameTimings; public System.IntPtr SessionHandle => sessionHandle;
 
         /// <summary>A toast the session has for the player (the core's ball collisions notice), taken by BallsApp.</summary>
         public string Notice { get; set; }
@@ -76,43 +76,37 @@ namespace Balls.App
                 double frameMs = frameSeconds * 1000.0;
                 BallsNative.balls_frame_timings_record(frameTimings, frameMs, frameMs, 0.0);
             }
-            // A start request replaces a running session too: Next Level, Restart after the map changed on disk and
-            // the control API's /play all start a game from inside another one.
-            if (BallsInput.TryTakeStartRequest(out var request))
-            {
-                StartSession(request);
-                return;
-            }
             if (backend == null)
             {
                 return;
             }
 
-            if (BallsInput.TryTakeRestart())
+            bool paused = BallsApp.Current != null && BallsApp.Current.IsPaused;
+
+            if (!paused)
             {
-                backend.Restart();
-                RefreshBoard();
-            }
-            if (BallsInput.TryTakeLauncher(out int column, out int row))
-            {
-                backend.ChooseLauncher(column, row);
-            }
-            if (BallsInput.TryTakeBackendSwitch(out int backendKind))
-            {
-                backend.SwitchBackend(backendKind);
-            }
-            if (BallsInput.TryTakeCollisions(out bool collisions))
-            {
-                ApplyBallCollisions(collisions);
-            }
-            if (BallsInput.TryTakeAutoRelease())
-            {
-                backend.StartAutoRelease();
+                if (BallsInput.TryTakeLauncher(out int column, out int row))
+                {
+                    backend.ChooseLauncher(column, row);
+                }
+                if (BallsInput.TryTakeBackendSwitch(out int backendKind))
+                {
+                    backend.SwitchBackend(backendKind);
+                }
+                if (BallsInput.TryTakeCollisions(out bool collisions))
+                {
+                    ApplyBallCollisions(collisions);
+                }
+                if (BallsInput.TryTakeAutoRelease())
+                {
+                    backend.StartAutoRelease();
+                }
+
+                float deltaSeconds = SystemAPI.Time.DeltaTime;
+                backend.Update(deltaSeconds);
+                backend.ReportFrame(deltaSeconds, backend.Stats.physicsMs / 1000.0);
             }
 
-            float deltaSeconds = SystemAPI.Time.DeltaTime;
-            backend.Update(deltaSeconds);
-            backend.ReportFrame(deltaSeconds, backend.Stats.physicsMs / 1000.0);
             if (backend.TakeCollisionsChange() is int change && change != 0)
             {
                 Notice = BallsNative.BallCollisionsMessage(change);
@@ -123,14 +117,15 @@ namespace Balls.App
                 RefreshBoard();
             }
             ReadLaunchers();
-            Publish(deltaSeconds);
+            Publish(paused ? 0f : SystemAPI.Time.DeltaTime);
         }
 
-        private void StartSession(in BallsInput.StartRequest request)
+        public bool StartSession(in BallsInput.StartRequest request, out string error)
         {
             backend?.Dispose();
             backend = null;
             sessionHandle = System.IntPtr.Zero;
+            error = null;
             try
             {
                 if (request.backend == Balls.Physics.Burst.BurstGameBackend.BackendBurst)
@@ -144,20 +139,44 @@ namespace Balls.App
                     sessionHandle = created.SessionHandle;
                 }
             }
-            catch (System.Exception error)
+            catch (System.Exception ex)
             {
-                LoadFailure = error.Message;
+                LoadFailure = ex.Message;
+                error = ex.Message;
                 EntityManager.SetComponentData(boardEntity, new BoardInfoData());
-                return;
+                return false;
             }
-            // The GPU backends sample one grid cell per ball-sized block of the render target; a 1920-wide frame at
-            // the 0.4-cell ball diameter is the default the other front ends use.
+            LoadFailure = null;
             backend.SetVisibilityGrid(160, 90);
             ApplyBallCollisions(request.collisions);
             frame = backend.Frame;
             RefreshBoard();
             ReadLaunchers();
             Publish(0f);
+            return true;
+        }
+
+        public void RestartSession()
+        {
+            if (backend != null)
+            {
+                backend.Restart();
+                RefreshBoard();
+            }
+        }
+
+        public void EndSession()
+        {
+            backend?.Dispose();
+            backend = null;
+            sessionHandle = System.IntPtr.Zero;
+            LoadFailure = null;
+            EntityManager.SetComponentData(boardEntity, new BoardInfoData());
+            EntityManager.SetComponentData(boardEntity, new BallBatch());
+            EntityManager.SetComponentData(boardEntity, new SessionInfo());
+            EntityManager.SetComponentData(boardEntity, new SessionStatsData());
+            EntityManager.GetBuffer<CellElement>(boardEntity).Clear();
+            EntityManager.GetBuffer<LauncherElement>(boardEntity).Clear();
         }
 
         private void ApplyBallCollisions(bool enabled)

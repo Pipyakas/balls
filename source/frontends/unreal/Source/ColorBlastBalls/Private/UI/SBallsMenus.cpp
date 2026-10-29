@@ -172,23 +172,23 @@ void SBallsMainMenu::Construct(const FArguments& InArgs) {
             ]
             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, MenuButtonGap * 0.5f)
             [
-                MenuButton(TEXT("Normal Mode"), [Owner] { Owner->ShowLevelSelect(GameMode::Normal); })
+                MenuButton(TEXT("Normal Mode"), [Owner] { Owner->ActivateFlow(FlowAction::NormalMode); })
             ]
             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, MenuButtonGap * 0.5f)
             [
-                MenuButton(TEXT("Performance Mode"), [Owner] { Owner->ShowLevelSelect(GameMode::Performance); })
+                MenuButton(TEXT("Performance Mode"), [Owner] { Owner->ActivateFlow(FlowAction::PerformanceMode); })
             ]
             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, MenuButtonGap * 0.5f)
             [
-                MenuButton(TEXT("Map Editor"), [Owner] { Owner->ShowMapEditor(GameMode::Normal, std::nullopt); })
+                MenuButton(TEXT("Map Editor"), [Owner] { Owner->ActivateFlow(FlowAction::MapEditor); })
             ]
             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, MenuButtonGap * 0.5f)
             [
-                MenuButton(TEXT("Settings"), [Owner] { Owner->ShowSettings(); })
+                MenuButton(TEXT("Settings"), [Owner] { Owner->ActivateFlow(FlowAction::Settings); })
             ]
             + SVerticalBox::Slot().AutoHeight().Padding(0.0f, MenuButtonGap * 0.5f)
             [
-                MenuButton(TEXT("Quit"), [Owner] { Owner->Quit(); })
+                MenuButton(TEXT("Quit"), [Owner] { Owner->ActivateFlow(FlowAction::Quit); })
             ]
         ]
     ];
@@ -222,7 +222,7 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
     static constexpr float OptionGap = 8.0f;
     TSharedRef<SVerticalBox> Column = SNew(SVerticalBox);
 
-    auto AddHeading = [&Column](const TCHAR* Text) {
+    auto AddHeading = [&Column](const FString& Text) {
         Column->AddSlot().AutoHeight().Padding(0.0f, 22.0f, 0.0f, 8.0f)
         [
             SNew(STextBlock)
@@ -231,7 +231,7 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
             .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Accent))
         ];
     };
-    auto AddLabel = [&Column](const TCHAR* Text) {
+    auto AddLabel = [&Column](const FString& Text) {
         Column->AddSlot().AutoHeight().Padding(0.0f, 4.0f, 0.0f, 6.0f)
         [
             SNew(STextBlock)
@@ -240,7 +240,7 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
             .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Text))
         ];
     };
-    auto AddHint = [&Column](const TCHAR* Text) {
+    auto AddHint = [&Column](const FString& Text) {
         Column->AddSlot().AutoHeight().Padding(0.0f, 2.0f, 0.0f, 8.0f)
         [
             SNew(STextBlock)
@@ -250,9 +250,8 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
             .AutoWrapText(true)
         ];
     };
-    // A choice among a few values: a vertical list of full-width rows, the current one in accent.
     auto AddOption = [&Column](const FString& Text, TAttribute<bool> bSelected, TFunction<void()> OnClicked,
-                               bool bEnabled = true, const FString& Reason = FString()) {
+                                TAttribute<bool> bEnabled = true, const FString& Reason = FString()) {
         Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, OptionGap)
         [
             SNew(SBox).HeightOverride(OptionHeight)
@@ -272,32 +271,35 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
         }
     };
 
-    AddHeading(TEXT("Gameplay"));
-    AddLabel(TEXT("Ball collisions"));
-    AddOption(TEXT("Off"), TAttribute<bool>::CreateLambda([Owner] { return !Owner->GetSettings().ballCollisions; }),
+    // Ball collisions: Off / On, driven by the core's choice (On is disabled where Scalar is not offered).
+    AddHeading(FString(TEXT("Gameplay")));
+    AddLabel(BallsText::FromUtf8(menuText::ballCollisionsLabel));
+    auto CollisionsChoice = [Owner]() { return ballCollisionsChoice(Owner->GetSettings().ballCollisions); };
+    AddOption(TEXT("Off"),
+              TAttribute<bool>::CreateLambda([CollisionsChoice] { return CollisionsChoice().options[0].selected; }),
               [Owner] {
                   Settings Next = Owner->GetSettings();
                   Next.ballCollisions = false;
                   Owner->UpdateSettings(Next);
-              });
-    AddOption(TEXT("On"), TAttribute<bool>::CreateLambda([Owner] { return Owner->GetSettings().ballCollisions; }),
+              },
+              TAttribute<bool>::CreateLambda([CollisionsChoice] { return CollisionsChoice().options[0].enabled; }));
+    AddOption(TEXT("On"),
+              TAttribute<bool>::CreateLambda([CollisionsChoice] { return CollisionsChoice().options[1].selected; }),
               [Owner] {
                   Settings Next = Owner->GetSettings();
                   Next.ballCollisions = true;
                   Owner->UpdateSettings(Next);
-              });
-    AddHint(TEXT("Testing only - the game rules have balls pass through each other. Balls bounce off each other "
-                 "elastically and keep their constant speed; collisions with balls are not bounces for the 3-reflection "
-                 "homing rule. Only the Scalar backend supports them. Turning them on with another backend switches to "
-                 "Scalar."));
+              },
+              TAttribute<bool>::CreateLambda([CollisionsChoice] { return CollisionsChoice().options[1].enabled; }));
+    AddHint(BallsText::FromUtf8(CollisionsChoice().hint));
 
-    AddHeading(TEXT("Layout"));
+    // Layout: the core's orientation options.
+    AddHeading(BallsText::FromUtf8(menuText::layoutHeading));
     AddLabel(TEXT("Orientation"));
-    for (const LayoutOrientation Orientation :
-         {LayoutOrientation::Auto, LayoutOrientation::Landscape, LayoutOrientation::Portrait}) {
-        FString Name = BallsText::FromUtf8(orientationName(Orientation));
-        Name[0] = FChar::ToUpper(Name[0]);
-        AddOption(Name,
+    const LayoutOrientation LayoutValues[3] = {LayoutOrientation::Auto, LayoutOrientation::Landscape, LayoutOrientation::Portrait};
+    for (int32 Index = 0; Index < 3; ++Index) {
+        const LayoutOrientation Orientation = LayoutValues[Index];
+        AddOption(BallsText::FromUtf8(orientationOptions(Owner->GetSettings().layout)[Index].label),
                   TAttribute<bool>::CreateLambda([Owner, Orientation] { return Owner->GetSettings().layout == Orientation; }),
                   [Owner, Orientation] {
                       Settings Next = Owner->GetSettings();
@@ -305,17 +307,17 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
                       Owner->UpdateSettings(Next);
                   });
     }
-    AddHint(TEXT("Auto follows the window shape. On desktop a forced orientation resizes the window (portrait: 90% of "
-                 "the display height at 9:16; landscape: 1440 x 900). The map editor always uses a landscape frame."));
+    AddHint(BallsText::FromUtf8(menuText::layoutHint));
 
-    AddHeading(TEXT("Display"));
-    AddLabel(TEXT("VSync"));
+    // Display: VSync via the core's off/on options.
+    AddHeading(BallsText::FromUtf8(menuText::displayHeading));
+    AddLabel(BallsText::FromUtf8(menuText::vsyncLabel));
     AddOption(TEXT("Off"), TAttribute<bool>::CreateLambda([Owner] { return !Owner->IsVSyncEnabled(); }),
               [Owner] { Owner->SetVSyncEnabled(false); });
     AddOption(TEXT("On"), TAttribute<bool>::CreateLambda([Owner] { return Owner->IsVSyncEnabled(); }),
               [Owner] { Owner->SetVSyncEnabled(true); });
 
-    // The Unreal port's own setting: the post chain costs more than the scene, so it starts at Minimum.
+    // Unreal's own Graphics quality rows.
     AddHeading(TEXT("Graphics"));
     AddLabel(TEXT("Quality"));
     for (const EBallsGraphics Level : BallsGraphics::All()) {
@@ -327,99 +329,100 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
                  "resolution; Balanced adds FXAA and bloom at 85%; High is the engine default look at 100%. The same "
                  "list is in the Performance gadget's control column."));
 
-    AddHeading(TEXT("Physics"));
-    AddLabel(TEXT("Default backend"));
-    // Each backend shows its last machine benchmark score, muted ("First launch: machine benchmark").
+    // Physics: default backend list from the core, with its score or unavailable reason as the muted detail.
+    AddHeading(BallsText::FromUtf8(menuText::physicsHeading));
+    AddLabel(BallsText::FromUtf8(menuText::defaultBackendLabel));
     const std::optional<BenchmarkRecord>& Record = Owner->GetBenchmark().GetRecord();
-    // Scalar is listed only where nothing faster loads (design Settings, Physics).
-    for (const BackendKind Kind : selectableBackends()) {
-        const bool bAvailable = isBackendAvailable(Kind);
-        AddOption(BallsText::FromUtf8(backendKindName(Kind)),
-                  TAttribute<bool>::CreateLambda([Owner, Kind] { return Owner->GetPreferredBackend() == Kind; }),
-                  [Owner, Kind] { Owner->SetPreferredBackend(Kind); }, bAvailable,
-                  bAvailable ? FString() : BallsText::FromUtf8(backendUnavailableReason(Kind)));
-        if (!Record) {
-            continue;
-        }
-        for (const CandidateResult& Result : Record->results) {
-            if (Result.candidate.kind != Kind) {
-                continue;
-            }
-            FString Score = TEXT("not measured");
-            if (Result.status == CandidateStatus::Done) {
-                Score = Result.estimatedBalls > 0.0
-                            ? FString::Printf(TEXT("%s balls"), *BallsText::FromUtf8(shortBallCount(Result.estimatedBalls)))
-                            : FString::Printf(TEXT("%.0f M ball-steps/s"), Result.ballStepsPerSecond / 1'000'000.0);
-            } else if (Result.status == CandidateStatus::Failed) {
-                Score = FString::Printf(TEXT("failed: %s"), *BallsText::FromUtf8(Result.failure));
-            } else if (Result.status == CandidateStatus::Unavailable) {
-                Score = TEXT("not available");
-            }
-            AddHint(*Score);
-        }
+    std::vector<CandidateResult> Scores;
+    if (Record) {
+        Scores = Record->results;
     }
-    // design Settings, Physics, Devices: one row per physical device with Off and one button per backend it runs. Each
-    // device runs at most one backend; two or more make Hybrid, one runs that backend alone, and the last device on
-    // cannot be turned off.
-    AddLabel(TEXT("Devices"));
-    const auto ShownPicks = [Owner] { return displayedPicks(Owner->GetPreferredBackend()); };
-    const auto PickedKind = [ShownPicks](const std::string& Device) -> std::optional<BackendKind> {
-        const std::vector<BackendPick> Picks = ShownPicks();
-        const auto Found = std::ranges::find(Picks, Device, &BackendPick::device);
-        return Found == Picks.end() ? std::nullopt : std::optional<BackendKind>(Found->kind);
-    };
-    const auto Pick = [Owner, ShownPicks](const std::string& Device, std::optional<BackendKind> Kind) {
-        const std::vector<BackendPick> Next = withDevicePick(ShownPicks(), Device, Kind);
-        if (Next.empty()) {
-            return;
-        }
-        setBackendPicks(Next);
-        refreshBackendStatuses();
-        Owner->SetPreferredBackend(kindForPicks(Next));
-    };
-    for (const PhysicalDevice& Device : physicalDevices()) {
-        const std::string Id = Device.id;
+    const BackendKind Preferred = Owner->GetPreferredBackend();
+    for (const BackendRow& RowInfo : defaultBackendRows(Preferred, Scores)) {
+        const BackendKind Kind = RowInfo.kind;
+        AddOption(BallsText::FromUtf8(RowInfo.option.label),
+                  TAttribute<bool>::CreateLambda([Owner, Kind] { return Owner->GetPreferredBackend() == Kind; }),
+                  [Owner, Kind] { Owner->SetPreferredBackend(Kind); }, RowInfo.option.enabled,
+                  BallsText::FromUtf8(RowInfo.option.detail));
+    }
+
+    // Devices: one row per physical device, via the core's device pick rows.
+    AddLabel(BallsText::FromUtf8(menuText::devicesLabel));
+    auto DeviceRowsNow = [Owner]() { return devicePickRows(displayedPicks(Owner->GetPreferredBackend())); };
+    const std::vector<DevicePickRow> InitialDeviceRows = DeviceRowsNow();
+    for (size_t DeviceIndex = 0; DeviceIndex < InitialDeviceRows.size(); ++DeviceIndex) {
         TSharedRef<SHorizontalBox> Row = SNew(SHorizontalBox);
         Row->AddSlot().FillWidth(0.34f).VAlign(VAlign_Center).Padding(0.0f, 0.0f, OptionGap, 0.0f)
         [
             SNew(STextBlock)
-            .Text(FText::FromString(BallsText::FromUtf8(physicalDeviceLabel(Device))))
+            .Text_Lambda([DeviceRowsNow, DeviceIndex] {
+                const std::vector<DevicePickRow> Rows = DeviceRowsNow();
+                if (DeviceIndex >= Rows.size()) {
+                    return FText::GetEmpty();
+                }
+                return FText::FromString(BallsText::FromUtf8(Rows[DeviceIndex].label));
+            })
             .Font(BallsStyle::Font(17.0f))
             .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Text))
         ];
-        const float ButtonShare = 0.66f / static_cast<float>(pickableKinds(Device).size() + 1);
-        Row->AddSlot().FillWidth(ButtonShare).Padding(0.0f, 0.0f, OptionGap, 0.0f)
-        [
-            BallsWidgets::Button(FText::FromString(TEXT("Off")), [Pick, Id] { Pick(Id, std::nullopt); }, 17.0f,
-                                 TAttribute<bool>::CreateLambda([PickedKind, ShownPicks, Id] {
-                                     return !(PickedKind(Id) && ShownPicks().size() == 1);
-                                 }),
-                                 TAttribute<bool>::CreateLambda([PickedKind, Id] { return !PickedKind(Id); }))
-        ];
-        for (const BackendKind Kind : pickableKinds(Device)) {
-            const DeviceBackendOption* Option = Device.option(Kind);
-            const bool bAvailable = Option && deviceBackendStatus(Kind, Option->pluginDevice).available;
+        const size_t OptionCount = InitialDeviceRows[DeviceIndex].options.size();
+        const float ButtonShare = 0.66f / static_cast<float>(OptionCount);
+        for (size_t OptionIndex = 0; OptionIndex < OptionCount; ++OptionIndex) {
             Row->AddSlot().FillWidth(ButtonShare).Padding(0.0f, 0.0f, OptionGap, 0.0f)
             [
-                BallsWidgets::Button(FText::FromString(BallsText::FromUtf8(backendKindName(Kind))),
-                                     [Pick, Id, Kind] { Pick(Id, Kind); }, 17.0f, bAvailable,
-                                     TAttribute<bool>::CreateLambda([PickedKind, Id, Kind] { return PickedKind(Id) == Kind; }))
+                BallsWidgets::Button(
+                    TAttribute<FText>::CreateLambda([DeviceRowsNow, DeviceIndex, OptionIndex] {
+                        const std::vector<DevicePickRow> Rows = DeviceRowsNow();
+                        if (DeviceIndex >= Rows.size() || OptionIndex >= Rows[DeviceIndex].options.size()) {
+                            return FText::GetEmpty();
+                        }
+                        return FText::FromString(BallsText::FromUtf8(Rows[DeviceIndex].options[OptionIndex].label));
+                    }),
+                    [Owner, DeviceRowsNow, DeviceIndex, OptionIndex] {
+                        const std::vector<DevicePickRow> Rows = DeviceRowsNow();
+                        if (DeviceIndex >= Rows.size() || OptionIndex >= Rows[DeviceIndex].options.size()) {
+                            return;
+                        }
+                        const std::optional<std::vector<BackendPick>> Next =
+                            pickDeviceOption(displayedPicks(Owner->GetPreferredBackend()), Rows, DeviceIndex, OptionIndex);
+                        if (!Next) {
+                            return;
+                        }
+                        setBackendPicks(*Next);
+                        refreshBackendStatuses();
+                        Owner->SetPreferredBackend(kindForPicks(*Next));
+                    },
+                    17.0f,
+                    TAttribute<bool>::CreateLambda([DeviceRowsNow, DeviceIndex, OptionIndex] {
+                        const std::vector<DevicePickRow> Rows = DeviceRowsNow();
+                        if (DeviceIndex >= Rows.size() || OptionIndex >= Rows[DeviceIndex].options.size()) {
+                            return false;
+                        }
+                        return Rows[DeviceIndex].options[OptionIndex].enabled;
+                    }),
+                    TAttribute<bool>::CreateLambda([DeviceRowsNow, DeviceIndex, OptionIndex] {
+                        const std::vector<DevicePickRow> Rows = DeviceRowsNow();
+                        if (DeviceIndex >= Rows.size() || OptionIndex >= Rows[DeviceIndex].options.size()) {
+                            return false;
+                        }
+                        return Rows[DeviceIndex].options[OptionIndex].selected;
+                    }))
             ];
         }
-        Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, OptionGap)[SNew(SBox).HeightOverride(OptionHeight)[Row]];
+        Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, OptionGap)
+        [
+            SNew(SBox).HeightOverride(OptionHeight)[Row]
+        ];
     }
-    AddHint(TEXT("One backend per device. Two or more devices run as Hybrid, splitting the balls between them; one runs "
-                 "that backend alone."));
+    AddHint(BallsText::FromUtf8(menuText::devicesHint));
 
-    if (InArgs._bAllowBenchmark) {
+    if (InArgs._bAllowBenchmark && Owner->GetScreenFlow().canRunMachineBenchmark()) {
         Column->AddSlot().AutoHeight().Padding(0.0f, OptionGap, 0.0f, OptionGap)
         [
             SNew(SBox).HeightOverride(OptionHeight)
             [
-                BallsWidgets::Button(FText::FromString(TEXT("Run machine benchmark")), [Owner] {
-                    Owner->SetBenchmarkReturnToSettings(true);
-                    Owner->ShowBenchmark();
-                }, 20.0f)
+                BallsWidgets::Button(FText::FromString(BallsText::FromUtf8(menuText::runBenchmarkLabel)),
+                                     [Owner] { Owner->ActivateFlow(FlowAction::RunMachineBenchmark); }, 20.0f)
             ]
         ];
         AddHint(TEXT("Measures every backend on this machine and makes the one that holds the most balls at 60 FPS the "
@@ -462,7 +465,7 @@ void SBallsSettingsPage::Construct(const FArguments& InArgs) {
                     + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Left).Padding(0.0f, 24.0f, 0.0f, 0.0f)
                     [
                         SizedButton(200.0f, 56.0f, BallsWidgets::Button(FText::FromString(TEXT("Back")),
-                                                                         [Owner] { Owner->ShowMainMenu(); }, 24.0f))
+                                                                         [Owner] { Owner->ActivateFlow(FlowAction::Back); }, 24.0f))
                     ]
                 ]
             ]
@@ -470,26 +473,14 @@ void SBallsSettingsPage::Construct(const FArguments& InArgs) {
     ];
 }
 
-FString SBallsLevelSelect::Signature() const {
-    FString Result;
-    for (const LevelFiles& Files : Levels) {
-        std::error_code Error;
-        const auto Bricks = std::filesystem::last_write_time(Files.bricksPath, Error);
-        const auto Launchers = std::filesystem::last_write_time(Files.launchersPath, Error);
-        Result += FString::Printf(TEXT("%s:%lld:%lld;"), *BallsText::FromUtf8(Files.name),
-                                  static_cast<long long>(Bricks.time_since_epoch().count()),
-                                  static_cast<long long>(Launchers.time_since_epoch().count()));
-    }
-    return Result;
-}
-
 void SBallsLevelSelect::RebuildList() {
     const float Offset = List->GetScrollOffset();
     List->ClearChildren();
     FBallsApp* Owner = App;
-    const GameMode LevelMode = Mode;
-    for (const LevelFiles& Files : Levels) {
-        const FString Name = BallsText::FromUtf8(Files.name);
+    const auto& Rows = Owner->GetScreenFlow().levelRows();
+    for (int32 Index = 0; Index < static_cast<int32>(Rows.size()); ++Index) {
+        const FlowLevelRow& Row = Rows[static_cast<size_t>(Index)];
+        const FString Name = BallsText::FromUtf8(Row.name);
         List->AddSlot().Padding(0.0f, RowGap * 0.5f)
         [
             SNew(SBox).HeightOverride(RowHeight)
@@ -497,22 +488,26 @@ void SBallsLevelSelect::RebuildList() {
                 SNew(SHorizontalBox)
                 + SHorizontalBox::Slot().FillWidth(1.0f)
                 [
-                    BallsWidgets::Button(FText::FromString(Name), [Owner, LevelMode, Files] { Owner->StartGame(LevelMode, Files); },
+                    BallsWidgets::Button(FText::FromString(Name), [Owner, Index] { Owner->ActivateFlow(FlowAction::PlayLevel, Index); },
                                          24.0f, true,
-                                         TAttribute<bool>::CreateLambda([this, Name] {
-                                             return Name == HighlightName && FPlatformTime::Seconds() < HighlightUntil;
+                                         TAttribute<bool>::CreateLambda([Owner, Index] {
+                                             const auto& R = Owner->GetScreenFlow().levelRows();
+                                             if (Index < 0 || Index >= static_cast<int32>(R.size())) {
+                                                 return false;
+                                             }
+                                             return R[static_cast<size_t>(Index)].highlighted;
                                          }))
                 ]
                 + SHorizontalBox::Slot().AutoWidth().Padding(8.0f, 0.0f, 0.0f, 0.0f)
                 [
                     SizedButton(110.0f, RowHeight,
                                 BallsWidgets::Button(FText::FromString(TEXT("Edit")),
-                                                     [Owner, LevelMode, Files] { Owner->ShowMapEditor(LevelMode, Files); }, 20.0f))
+                                                     [Owner, Index] { Owner->ActivateFlow(FlowAction::EditLevel, Index); }, 20.0f))
                 ]
             ]
         ];
     }
-    if (Levels.empty()) {
+    if (Rows.empty()) {
         List->AddSlot()
         [
             SNew(STextBlock)
@@ -522,38 +517,23 @@ void SBallsLevelSelect::RebuildList() {
             .Justification(ETextJustify::Center)
         ];
     }
-    List->SetScrollOffset(Offset);
+    if (const std::optional<int> ScrollRow = Owner->GetScreenFlow().takeScrollToRow()) {
+        List->SetScrollOffset(FMath::Max(0.0f, static_cast<float>(*ScrollRow) * (RowHeight + RowGap) - RowHeight));
+    } else {
+        List->SetScrollOffset(Offset);
+    }
 }
 
 void SBallsLevelSelect::Refresh() {
-    Levels = findLevels(App->LevelDirectory(Mode));
-    ShownSignature = Signature();
     RebuildList();
 }
 
 void SBallsLevelSelect::Highlight(const FString& LevelName) {
-    HighlightName = LevelName;
-    HighlightUntil = FPlatformTime::Seconds() + 2.0;
-    for (int32 Index = 0; Index < static_cast<int32>(Levels.size()); ++Index) {
-        if (BallsText::FromUtf8(Levels[Index].name) == LevelName) {
-            // Rows are RowHeight + RowGap apart; show the new one a little below the top.
-            List->SetScrollOffset(FMath::Max(0.0f, static_cast<float>(Index) * (RowHeight + RowGap) - RowHeight));
-            break;
-        }
-    }
+    (void)LevelName;
 }
 
-// The list follows the folder: a level added, changed or removed while this screen is open shows up within a poll.
 EActiveTimerReturnType SBallsLevelSelect::Poll(double, float) {
-    std::vector<LevelFiles> Current = findLevels(App->LevelDirectory(Mode));
-    std::swap(Levels, Current);
-    const FString NewSignature = Signature();
-    if (NewSignature != ShownSignature) {
-        ShownSignature = NewSignature;
-        RebuildList();
-    } else {
-        Levels = std::move(Current);
-    }
+    RebuildList();
     return EActiveTimerReturnType::Continue;
 }
 
@@ -561,12 +541,10 @@ void SBallsLevelSelect::Construct(const FArguments& InArgs) {
     App = InArgs._App;
     Mode = InArgs._Mode;
     FBallsApp* Owner = App;
-    const GameMode LevelMode = Mode;
     List = SNew(SScrollBox);
-    Refresh();
+    RebuildList();
     RegisterActiveTimer(0.5f, FWidgetActiveTimerDelegate::CreateSP(this, &SBallsLevelSelect::Poll));
 
-    const FString FolderPath = FString(UTF8_TO_TCHAR(App->LevelDirectory(Mode).string().c_str()));
     auto Action = [](const TCHAR* Label, TFunction<void()> OnClicked) {
         return SNew(SBox).WidthOverride(200.0f).HeightOverride(56.0f)
             [BallsWidgets::Button(FText::FromString(Label), MoveTemp(OnClicked), 22.0f)];
@@ -593,7 +571,7 @@ void SBallsLevelSelect::Construct(const FArguments& InArgs) {
                     + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.0f, 0.0f, 0.0f, 30.0f)
                     [
                         SNew(STextBlock)
-                        .Text(FText::FromString(Mode == GameMode::Normal ? TEXT("Normal Mode") : TEXT("Performance Mode")))
+                        .Text_Lambda([Owner] { return FText::FromString(BallsText::FromUtf8(Owner->GetScreenFlow().title())); })
                         .Font(BallsStyle::Font(52.0f, true))
                         .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Accent))
                     ]
@@ -605,7 +583,7 @@ void SBallsLevelSelect::Construct(const FArguments& InArgs) {
                     [
                         // So a tester knows where to drop files.
                         SNew(STextBlock)
-                        .Text(FText::FromString(TEXT("Levels folder: ") + FolderPath))
+                        .Text_Lambda([Owner] { return FText::FromString(BallsText::FromUtf8(Owner->GetScreenFlow().footnote())); })
                         .Font(BallsStyle::Font(16.0f))
                         .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
                         .AutoWrapText(true)
@@ -615,11 +593,11 @@ void SBallsLevelSelect::Construct(const FArguments& InArgs) {
                         SNew(SHorizontalBox)
                         + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
                         [
-                            Action(TEXT("Back"), [Owner] { Owner->ShowMainMenu(); })
+                            Action(TEXT("Back"), [Owner] { Owner->ActivateFlow(FlowAction::Back); })
                         ]
                         + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
                         [
-                            Action(TEXT("New Level"), [Owner, LevelMode] { Owner->ShowMapEditor(LevelMode, std::nullopt); })
+                            Action(TEXT("New Level"), [Owner] { Owner->ActivateFlow(FlowAction::NewLevel); })
                         ]
                     ]
                     + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 8.0f, 0.0f, 0.0f)
@@ -631,7 +609,7 @@ void SBallsLevelSelect::Construct(const FArguments& InArgs) {
                         ]
                         + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
                         [
-                            Action(TEXT("Open Folder"), [Owner, LevelMode] { Owner->OpenLevelFolder(LevelMode); })
+                            Action(TEXT("Open Folder"), [Owner] { Owner->OpenLevelFolder(Owner->GetScreenFlow().mode()); })
                         ]
                     ]
                 ]
@@ -643,7 +621,7 @@ void SBallsLevelSelect::Construct(const FArguments& InArgs) {
             .BorderImage(BallsStyle::White())
             .BorderBackgroundColor_Lambda([Owner] {
                 const FBallsToast& Toast = Owner->GetToast();
-                return BallsPalette::Linear(Toast.bIsError ? BallsPalette::Danger : BallsPalette::PanelLight,
+                return BallsPalette::Linear(Toast.bIsError ? BallsPalette::Danger : BallsPalette::Control,
                                             FMath::Min(1.0f, Toast.SecondsLeft));
             })
             .Padding(20.0f, 10.0f)

@@ -213,10 +213,18 @@ namespace Balls.Ui
             GUI.color = previous;
         }
 
+        /// <summary>A one-unit border around a fill; the border is four strips, so a clear fill leaves what is under it
+        /// visible (selection and hover outlines).</summary>
         public void Frame(Rect units, Color fill, Color border)
         {
-            Fill(units, border);
-            Fill(new Rect(units.x + 1f, units.y + 1f, units.width - 2f, units.height - 2f), fill);
+            if (fill.a > 0f)
+            {
+                Fill(new Rect(units.x + 1f, units.y + 1f, units.width - 2f, units.height - 2f), fill);
+            }
+            Fill(new Rect(units.x, units.y, units.width, 1f), border);
+            Fill(new Rect(units.x, units.yMax - 1f, units.width, 1f), border);
+            Fill(new Rect(units.x, units.y + 1f, 1f, units.height - 2f), border);
+            Fill(new Rect(units.xMax - 1f, units.y + 1f, 1f, units.height - 2f), border);
         }
 
         public static Color Dim(Color color, float alpha)

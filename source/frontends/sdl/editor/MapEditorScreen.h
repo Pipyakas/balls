@@ -1,7 +1,7 @@
 #pragma once
 
 #include "app/Screen.h"
-#include "editor/LevelEditor.h"
+#include "editor/EditorSession.h"
 #include "game/GameMode.h"
 #include "level/LevelData.h"
 
@@ -12,8 +12,6 @@
 #include <string>
 
 class App;
-
-enum class EditorTool { Paint, Extend, Erase, Pick };
 
 class MapEditorScreen final : public Screen {
 public:
@@ -52,11 +50,9 @@ private:
     void handleShortcuts();
     void handleBrickInput(Rect area);
     void handleLauncherInput(Rect area);
-    void applyBrickTool(GridCell cell, bool erasing);
     void selectColor(BallColor color);
     void changeSelectedHits(int hits);
     bool save();
-    void showMessage(std::string text, bool isError);
 
     void drawToolPanel(Rect area);
     void drawPropertyPanel(Rect area);
@@ -66,22 +62,9 @@ private:
     void drawMessage();
 
     App& app;
-    GameMode targetMode;
-    LevelEditor editor;
-    std::string levelName;
+    EditorSession session;
     bool nameFocused = false;
-    EditorTool tool = EditorTool::Paint;
-    BallColor brushColor = BallColor::Red;
-    int brushHits = 1;
-    int launcherBallCount = 10;
-    int selectedBrick = -1;
-    GridCell lastPaintedCell;
-    bool draggingBricks = false;
-    bool strokeActive = false;
-    bool confirmLeave = false;
-    std::string message;
-    float messageSeconds = 0.0f;
-    bool messageIsError = false;
+    bool strokeInProgress = false;
     PortraitPanel portraitPanel = PortraitPanel::Tools;
     float toolsScroll = 0.0f;
     float propertiesScroll = 0.0f;

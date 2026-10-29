@@ -7,25 +7,14 @@ namespace Balls.App.Screens
 {
     /// <summary>
     /// The game's settings panel: a page from the main menu and an overlay from the pause menu. Values are saved as
-    /// soon as they change and apply immediately.
+    /// soon as they change and apply immediately. Driven by the core's MenuModel.
     /// </summary>
     public sealed class SettingsScreen : Screen
     {
-        private static readonly string[] BackendNames = BuildBackendNames();
         private bool overlay;
         private System.Action overlayClosed;
         private Vector2 scroll;
         private float measuredHeight = 730f;
-
-        private static string[] BuildBackendNames()
-        {
-            var names = new string[BallsNative.BackendCount];
-            for (int kind = 0; kind < BallsNative.BackendCount; ++kind)
-            {
-                names[kind] = BallsNative.BackendName(kind);
-            }
-            return names;
-        }
 
         public void DrawAsOverlay(System.Action closed)
         {
@@ -39,7 +28,7 @@ namespace Balls.App.Screens
 
         public override void HandleEscape()
         {
-            Close();
+            App.EscapeFlow();
         }
 
         public override void Draw()
@@ -49,10 +38,16 @@ namespace Balls.App.Screens
             float width = theme.UnitsWidth;
             float height = theme.UnitsHeight;
 
+            string title = BallsNative.FlowText(App.FlowHandle, BallsNative.FlowTextTitle);
+            if (string.IsNullOrEmpty(title))
+            {
+                title = "Settings";
+            }
+
             if (!overlay)
             {
                 theme.Fill(new Rect(0f, 0f, width, height), Palette.Background);
-                widgets.Label(new Rect(0f, 40f, width, 56f), "Settings", TypeSizes.Title, Palette.Accent,
+                widgets.Label(new Rect(0f, 40f, width, 56f), title, TypeSizes.Title, Palette.Accent,
                     TextAnchor.MiddleCenter, true);
             }
             else
@@ -68,7 +63,7 @@ namespace Balls.App.Screens
             theme.Frame(panel, Palette.Panel, Palette.Border);
             if (overlay)
             {
-                widgets.Label(new Rect(panel.x, panel.y + 12f, panel.width, 44f), "Settings", TypeSizes.Large,
+                widgets.Label(new Rect(panel.x, panel.y + 12f, panel.width, 44f), title, TypeSizes.Large,
                     Palette.Text, TextAnchor.MiddleCenter, true);
             }
 
@@ -91,11 +86,12 @@ namespace Balls.App.Screens
                 widgets.Label(new Rect(content.x, y, content.width, 22f), "Layout orientation", TypeSizes.Small,
                     Palette.Accent, TextAnchor.UpperLeft, true);
                 y += 26f;
-                string[] orientations = { "Auto", "Landscape", "Portrait" };
-                for (int option = 0; option < orientations.Length; ++option)
+                List<NativeUiOption> orientationOptions = BallsNative.MenuOptions(BallsNative.MenuOrientation, settings.Orientation, System.IntPtr.Zero);
+                for (int option = 0; option < orientationOptions.Count; ++option)
                 {
-                    if (widgets.OptionRow(new Rect(content.x, y, content.width, 34f), orientations[option],
-                            settings.Orientation == option))
+                    NativeUiOption opt = orientationOptions[option];
+                    if (widgets.OptionRow(new Rect(content.x, y, content.width, 34f), opt.Label,
+                            opt.selected != 0, opt.enabled != 0, opt.Detail))
                     {
                         settings.Orientation = option;
                         App.ApplyOrientation();
@@ -114,37 +110,34 @@ namespace Balls.App.Screens
                 widgets.Label(new Rect(content.x, y, content.width, 22f), "VSync", TypeSizes.Small,
                     Palette.Text, TextAnchor.UpperLeft, false);
                 y += 26f;
-                if (widgets.OptionRow(new Rect(content.x, y, content.width, 34f), "Off", !settings.Vsync))
+                List<NativeUiOption> vsyncOptions = BallsNative.MenuOptions(BallsNative.MenuOffOn, settings.Vsync ? 1 : 0, System.IntPtr.Zero);
+                for (int option = 0; option < vsyncOptions.Count; ++option)
                 {
-                    settings.Vsync = false;
-                    QualitySettings.vSyncCount = 0;
-                    Apply(settings);
+                    NativeUiOption opt = vsyncOptions[option];
+                    bool isOptionOn = option == 1;
+                    if (widgets.OptionRow(new Rect(content.x, y, content.width, 34f), opt.Label, opt.selected != 0, opt.enabled != 0, opt.Detail))
+                    {
+                        settings.Vsync = isOptionOn;
+                        QualitySettings.vSyncCount = isOptionOn ? 1 : 0;
+                        Apply(settings);
+                    }
+                    y += 38f;
                 }
-                y += 38f;
-                if (widgets.OptionRow(new Rect(content.x, y, content.width, 34f), "On", settings.Vsync))
-                {
-                    settings.Vsync = true;
-                    QualitySettings.vSyncCount = 1;
-                    Apply(settings);
-                }
-                y += 44f;
+                y += 6f;
 
                 // Physics
                 widgets.Label(new Rect(content.x, y, content.width, 22f), "Physics", TypeSizes.Small,
                     Palette.Accent, TextAnchor.UpperLeft, true);
                 y += 26f;
-                for (int kind = 0; kind < BallsNative.BackendCount; ++kind)
+                List<NativeUiOption> backendOptions = BallsNative.MenuDefaultBackends(App.DefaultBackendKind, App.Profile.Handle);
+                for (int index = 0; index < backendOptions.Count; ++index)
                 {
-                    if (kind == BallsNative.BackendHybrid && !BallsNative.BackendAvailable(kind))
-                    {
-                        continue;
-                    }
-                    bool available = BallsNative.BackendAvailable(kind);
-                    bool selected = App.DefaultBackendKind == kind;
-                    string detail = !available ? BallsNative.BackendTextCached(kind, false)
-                        : App.Profile.TryScore(kind, out double score) ? $"{score / 1e6:N0} M ball-steps/s"
-                        : BallsNative.BackendTextCached(kind, true);
-                    if (widgets.OptionRow(new Rect(content.x, y, content.width, 34f), BackendNames[kind], selected,
+                    NativeUiOption opt = backendOptions[index];
+                    int kind = opt.kind;
+                    bool available = opt.enabled != 0;
+                    bool selected = opt.selected != 0;
+                    string detail = opt.Detail;
+                    if (widgets.OptionRow(new Rect(content.x, y, content.width, 34f), opt.Label, selected,
                             available, detail) && available)
                     {
                         settings.DefaultBackend = BallsNative.StoredBackendName(kind);
@@ -152,12 +145,16 @@ namespace Balls.App.Screens
                     }
                     y += 38f;
                 }
-                y += 8f;
-                if (widgets.Button(new Rect(content.x, y, content.width, 44f), "Run machine benchmark", TypeSizes.Label))
+
+                if (App.FlowState.canRunMachineBenchmark != 0)
                 {
-                    App.Go<BenchmarkScreen>();
+                    y += 8f;
+                    if (widgets.Button(new Rect(content.x, y, content.width, 44f), "Run machine benchmark", TypeSizes.Label))
+                    {
+                        App.ActivateFlow(BallsNative.FlowRunMachineBenchmark);
+                    }
+                    y += 56f;
                 }
-                y += 56f;
 
                 y = SharedControls.DrawDevicePicks(App, widgets, content, y, App.DefaultBackendKind, picks =>
                 {
@@ -171,27 +168,28 @@ namespace Balls.App.Screens
             });
 
             Rect back = new Rect(panel.x + (panel.width - 200f) * 0.5f, panel.yMax - 68f, 200f, 56f);
-            if (widgets.Button(back, "Back"))
+            int buttonCount = App.FlowButtonCount;
+            string backLabel = "Back";
+            int backAction = BallsNative.FlowBack;
+            if (buttonCount > 0 && BallsNative.balls_flow_button(App.FlowHandle, 0, out NativeFlowButton button) != 0)
             {
-                Close();
+                backLabel = button.Label;
+                backAction = button.action;
+            }
+            if (widgets.Button(back, backLabel))
+            {
+                if (overlay)
+                {
+                    overlay = false;
+                    overlayClosed?.Invoke();
+                }
+                App.ActivateFlow(backAction);
             }
         }
 
         private void Apply(SettingsData settings)
         {
             App.SaveSettings();
-            App.Toast("Settings saved");
-        }
-
-        private void Close()
-        {
-            if (overlay)
-            {
-                overlay = false;
-                overlayClosed?.Invoke();
-                return;
-            }
-            App.Go<MainMenuScreen>();
         }
     }
 }

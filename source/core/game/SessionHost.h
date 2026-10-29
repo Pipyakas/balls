@@ -1,5 +1,6 @@
 #pragma once
 
+#include "game/PhysicsRate.h"
 #include "game/SessionRunner.h"
 #include "game/SessionView.h"
 
@@ -42,4 +43,6 @@ private:
     std::unique_ptr<SessionRunner> runner;
     std::shared_ptr<const SessionView> latest;
     std::vector<SessionEvent> events;
+    // On the game thread a physics frame is a tick that stepped the session.
+    PhysicsRate rate;
 };
