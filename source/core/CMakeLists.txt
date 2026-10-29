@@ -33,6 +33,7 @@ add_library(balls_core STATIC
     control/ControlApi.cpp
     game/FrameTimings.cpp
     ui/GameplayLayout.cpp
+    ui/ScreenFlow.cpp
     ui/Theme.cpp
     editor/LevelEditor.cpp
 )
