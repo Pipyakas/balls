@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using Balls.App;
 using Balls.Rendering;
@@ -69,8 +70,7 @@ namespace Balls.Editor
         [MenuItem("Balls/Copy Native Plugin")]
         public static void CopyNativePlugins()
         {
-            string repositoryRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", ".."));
-            string built = Path.Combine(repositoryRoot, "build", "bin", "Release");
+            string built = NativeBuildDirectory();
             string destination = Path.Combine(Application.dataPath, "Plugins", "x86_64");
             Directory.CreateDirectory(destination);
             if (!Directory.Exists(built))
@@ -97,6 +97,34 @@ namespace Balls.Editor
             }
             AssetDatabase.Refresh();
             Debug.Log($"copied native plugins from {built}");
+        }
+
+        /// <summary>
+        /// source/frontends/unity/build.bat builds the DLLs into build\win32-unity and names that folder in
+        /// BALLS_UNITY_NATIVE_DIR. Without it (the editor menu), the newest of that folder and the older
+        /// build\bin\Release tree from a by-hand CMake build is used.
+        /// </summary>
+        private static string NativeBuildDirectory()
+        {
+            string fromScript = Environment.GetEnvironmentVariable("BALLS_UNITY_NATIVE_DIR");
+            if (!string.IsNullOrEmpty(fromScript))
+            {
+                return fromScript;
+            }
+            string repositoryRoot = Path.GetFullPath(Path.Combine(Application.dataPath, "..", "..", ".."));
+            string scripted = Path.Combine(repositoryRoot, "build", "win32-unity", "bin", "Release");
+            string byHand = Path.Combine(repositoryRoot, "build", "bin", "Release");
+            string scriptedPlugin = Path.Combine(scripted, "balls_unity.dll");
+            string byHandPlugin = Path.Combine(byHand, "balls_unity.dll");
+            if (!File.Exists(byHandPlugin))
+            {
+                return scripted;
+            }
+            if (!File.Exists(scriptedPlugin))
+            {
+                return byHand;
+            }
+            return File.GetLastWriteTimeUtc(scriptedPlugin) >= File.GetLastWriteTimeUtc(byHandPlugin) ? scripted : byHand;
         }
 
         /// <summary>
