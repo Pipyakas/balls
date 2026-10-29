@@ -1,5 +1,6 @@
 #include "TestFramework.h"
 
+#include "common/BallCount.h"
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
 #include "level/LevelWriter.h"
@@ -33,6 +34,17 @@ TEST_CASE("sample levels parse with matching ball and hit totals") {
             }
         }
     }
+}
+
+TEST_CASE("the Unlimited level holds more balls than any machine's capacity, even at x1") {
+    constexpr BallCount largestCapacity = BallCount{10'000'000'000};
+    auto level = loadLevel(levelFilesFor(performanceLevels, "Unlimited"));
+    EXPECT(level.hasValue());
+    BallCount total = 0;
+    for (const int balls : countBallsByColor(level->launchers)) {
+        total += static_cast<BallCount>(balls);
+    }
+    EXPECT(total > largestCapacity);
 }
 
 TEST_CASE("multi-cell bricks share one id") {
