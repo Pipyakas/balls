@@ -346,7 +346,16 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
                   BallsText::FromUtf8(RowInfo.option.detail));
     }
 
-    // Devices: one row per physical device, via the core's device pick rows.
+    // Devices: one row per physical device, via the core's device pick rows. They belong to Hybrid, so they go in a
+    // box of their own that collapses unless Hybrid is the default (showsDevicePicks); the Add* helpers fill it while
+    // Column points at it.
+    TSharedRef<SVerticalBox> DevicesBox = SNew(SVerticalBox);
+    DevicesBox->SetVisibility(TAttribute<EVisibility>::CreateLambda([Owner] {
+        return showsDevicePicks(Owner->GetPreferredBackend()) ? EVisibility::Visible : EVisibility::Collapsed;
+    }));
+    Column->AddSlot().AutoHeight()[DevicesBox];
+    const TSharedRef<SVerticalBox> SettingsColumn = Column;
+    Column = DevicesBox;
     AddLabel(BallsText::FromUtf8(menuText::devicesLabel));
     auto DeviceRowsNow = [Owner]() { return devicePickRows(displayedPicks(Owner->GetPreferredBackend())); };
     const std::vector<DevicePickRow> InitialDeviceRows = DeviceRowsNow();
@@ -415,6 +424,7 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
         ];
     }
     AddHint(BallsText::FromUtf8(menuText::devicesHint));
+    Column = SettingsColumn;
 
     if (InArgs._bAllowBenchmark && Owner->GetScreenFlow().canRunMachineBenchmark()) {
         Column->AddSlot().AutoHeight().Padding(0.0f, OptionGap, 0.0f, OptionGap)
