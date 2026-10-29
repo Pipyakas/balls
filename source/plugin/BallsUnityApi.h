@@ -8,7 +8,7 @@
 
 #include <stdint.h>
 
-#define BALLS_UNITY_ABI_VERSION 4
+#define BALLS_UNITY_ABI_VERSION 5
 
 #if defined(_WIN32)
 #define BALLS_API __declspec(dllexport)

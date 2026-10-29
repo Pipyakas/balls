@@ -13,7 +13,7 @@ namespace Balls.Native
     {
         public const string Library = "balls_unity";
 
-        public const int AbiVersion = 4;
+        public const int AbiVersion = 5;
 
         // Theme ids, as BALLS_THEME_* in BallsUnityApi.h.
         public const int ThemeBackground = 0;
