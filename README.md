@@ -55,7 +55,7 @@ platform:
 
 | Command | Builds |
 |---|---|
-| `build.bat`, or double-click it | the submission version, SDL + NVRHI, into `dist\win32-sdl\balls.exe` |
+| `build.bat`, or double-click it | the submission version, SDL + NVRHI with the scoring profile, into `dist\win32-sdl\balls.exe` |
 | `build.bat --menu` | a numbered list of every front end and platform to pick from |
 | `build.bat sdl <variant>` | one variant directly, e.g. `build.bat sdl android` |
 | `build.bat --setup [--menu \| sdl <variant>]` | only the setup check below, without building |
@@ -67,7 +67,8 @@ new front end adds its scripts to its own folder and appears in the menu. The SD
 
 | Variant | Output |
 |---|---|
-| `win32-nvrhi` (default on Windows) | `dist\win32-sdl\balls.exe` |
+| `win32-scoring` (default on Windows): the scoring profile, CUDA+AVX2 on the target PC and AVX2 on any other | `dist\win32-sdl\balls.exe` |
+| `win32-nvrhi`: the extended build, every physics backend | `dist\win32-sdl-all\balls.exe` |
 | `win32-webgpu`, `win32-sdlgpu` | `dist\win32-sdl-webgpu\`, `dist\win32-sdl-sdlgpu\` |
 | `linux-nvrhi` (default on Linux), `linux-webgpu`, `linux-sdlgpu` | `dist/linux-sdl/`, `dist/linux-sdl-webgpu/`, `dist/linux-sdl-sdlgpu/` |
 | `android` | `dist\android-sdl\balls.apk` (needs JDK 17, and `ANDROID_HOME` pointing at an SDK with NDK 27.2) |

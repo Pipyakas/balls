@@ -72,7 +72,7 @@ goto :finish
 
 :usage
 echo Usage: build.bat [--setup] [--menu ^| ^<frontend^> [variant]]
-echo   no arguments   build the submission version: SDL + NVRHI for Windows, into dist\win32-sdl
+echo   no arguments   build the submission version: SDL + NVRHI, scoring profile, into dist\win32-sdl
 echo   --menu, -m     choose a front end and platform from a list
 echo   sdl android    build one variant directly; build.bat --menu lists them
 echo   --setup        only check this PC has what that build needs, offering to install anything missing

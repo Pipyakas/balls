@@ -309,6 +309,7 @@ function Check-Android {
 
 Write-Host "Checking this PC can build $Variant..."
 switch -Regex ($Variant) {
+    '^win32-scoring$' { Check-Desktop 'build\win32-scoring' }
     '^win32-nvrhi$' { Check-Desktop 'build\win32' }
     '^win32-(webgpu|sdlgpu)$' { Check-Desktop "build\$Variant" }
     '^android$' { Check-Android }

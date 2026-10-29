@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
 rem Builds one variant of the SDL front end and stages a runnable copy under dist\.
-rem   build.bat               the submission build (win32-nvrhi)
+rem   build.bat               the submission build (win32-scoring)
 rem   build.bat <variant>     one of the variants below
 rem   build.bat --variants    lists them as id;description, which the root build.bat menu reads
 rem   build.bat --setup [variant]   only checks this PC can build it, offering to install what is missing
@@ -10,7 +10,8 @@ for %%I in ("%~dp0..\..\..") do set "ROOT=%%~fI"
 cd /d "%ROOT%"
 
 if /i "%~1"=="--variants" (
-    echo win32-nvrhi;Windows - SDL + NVRHI ^(Direct3D 12 / Vulkan^), the submission build
+    echo win32-scoring;Windows - SDL + NVRHI, scoring profile ^(CUDA+AVX2 for the target PC, AVX2 elsewhere^), the submission build
+    echo win32-nvrhi;Windows - SDL + NVRHI ^(Direct3D 12 / Vulkan^), every physics backend
     echo win32-webgpu;Windows - SDL + WebGPU ^(wgpu-native^)
     echo win32-sdlgpu;Windows - SDL + SDL_GPU
     echo android;Android APK - SDL + WebGPU ^(needs JDK 17 and the Android SDK with NDK 27.2^)
@@ -25,10 +26,12 @@ if not defined BALLS_NO_PAUSE echo %CMDCMDLINE% | find /i "%~f0" >nul && set "WA
 set "SETUP_ONLY="
 if /i "%~1"=="--setup" (set "SETUP_ONLY=1" & shift /1)
 set "RENDERER="
+set "PROFILE=all"
 set "VARIANT=%~1"
-if not defined VARIANT set "VARIANT=win32-nvrhi"
-rem The submission build keeps the short build\win32 and dist\win32-sdl folders that the docs and scripts use.
-if /i "%VARIANT%"=="win32-nvrhi" (set "RENDERER=nvrhi" & set "BUILD_DIR=build\win32" & set "DIST_DIR=%ROOT%\dist\win32-sdl")
+if not defined VARIANT set "VARIANT=win32-scoring"
+rem The submission build keeps the short dist\win32-sdl folder that the docs and scripts use.
+if /i "%VARIANT%"=="win32-scoring" (set "RENDERER=nvrhi" & set "PROFILE=scoring" & set "BUILD_DIR=build\win32-scoring" & set "DIST_DIR=%ROOT%\dist\win32-sdl")
+if /i "%VARIANT%"=="win32-nvrhi" (set "RENDERER=nvrhi" & set "BUILD_DIR=build\win32" & set "DIST_DIR=%ROOT%\dist\win32-sdl-all")
 if /i "%VARIANT%"=="win32-webgpu" (set "RENDERER=webgpu" & set "BUILD_DIR=build\win32-webgpu" & set "DIST_DIR=%ROOT%\dist\win32-sdl-webgpu")
 if /i "%VARIANT%"=="win32-sdlgpu" (set "RENDERER=sdlgpu" & set "BUILD_DIR=build\win32-sdlgpu" & set "DIST_DIR=%ROOT%\dist\win32-sdl-sdlgpu")
 if /i "%VARIANT%"=="android" set "RENDERER=gradle"
@@ -53,9 +56,9 @@ if not exist ".deps\cuda\sdk\include\nvrtc.h" (
 
 rem Configuring every time keeps the Visual Studio solution in step with renamed projects and targets.
 if exist "%BUILD_DIR%\CMakeCache.txt" (
-    cmake -S . -B "%BUILD_DIR%" -DBALLS_FRONTEND=sdl -DBALLS_RENDERER=%RENDERER% >nul
+    cmake -S . -B "%BUILD_DIR%" -DBALLS_FRONTEND=sdl -DBALLS_RENDERER=%RENDERER% -DBALLS_PROFILE=%PROFILE% >nul
 ) else (
-    cmake -S . -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A x64 -DBALLS_FRONTEND=sdl -DBALLS_RENDERER=%RENDERER%
+    cmake -S . -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A x64 -DBALLS_FRONTEND=sdl -DBALLS_RENDERER=%RENDERER% -DBALLS_PROFILE=%PROFILE%
 )
 if errorlevel 1 goto :failed
 
