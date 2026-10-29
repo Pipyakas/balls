@@ -15,6 +15,9 @@ if [ -z "$ENGINE" ]; then
     echo "BuildCoreLinux: pass the engine directory, or set UNREAL_ENGINE_ROOT." >&2
     exit 1
 fi
+# UnrealBuildTool expands $(EngineDir) to <root>/Engine; take either that or the root.
+ENGINE="${ENGINE%/}"
+ENGINE="${ENGINE%/Engine}"
 
 # The toolchain Setup.sh installs in-tree; the version directory carries the compiler version, so glob for it.
 TOOLCHAIN="$(echo "$ENGINE"/Engine/Extras/ThirdPartyNotUE/SDKs/HostLinux/Linux_x64/*/x86_64-unknown-linux-gnu)"
