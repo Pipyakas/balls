@@ -195,9 +195,10 @@ namespace Balls.App
                         Error(request, 400, "missing path");
                         return true;
                     }
-                    var levels = app.Get<Screens.LevelSelectScreen>();
-                    bool imported = levels.Import(picked);
-                    Ok(request, $"{{\"ok\":{(imported ? "true" : "false")},\"toast\":{Json(app.ToastText)}}}");
+                    app.FlowImport(picked);
+                    string toast = BallsNative.FlowText(app.FlowHandle, BallsNative.FlowTextToast);
+                    bool ok = app.FlowToastIsError == 0;
+                    Ok(request, $"{{\"ok\":{(ok ? "true" : "false")},\"toast\":{Json(toast)}}}");
                     return true;
                 }
                 case "/compute-gpu":
@@ -255,11 +256,17 @@ namespace Balls.App
                 }
                 case "/pause":
                 case "/resume":
-                    gameplay.SetPaused(path == "/pause");
+                {
+                    bool wantPause = path == "/pause";
+                    if (wantPause != app.IsPaused)
+                    {
+                        BallsNative.balls_flow_activate(app.FlowHandle, BallsNative.FlowTogglePause, -1);
+                    }
                     Ok(request, "{\"ok\":true}");
                     return true;
+                }
                 case "/restart":
-                    app.RestartGameplay();
+                    BallsNative.balls_flow_activate(app.FlowHandle, BallsNative.FlowRestart, -1);
                     Ok(request, "{\"ok\":true}");
                     return true;
                 case "/backend":
@@ -285,26 +292,36 @@ namespace Balls.App
             SessionSystem system = SessionSystem.Current;
             IntPtr session = gameplay != null && system?.Backend is Game.NativeGameBackend native ? native.SessionHandle : IntPtr.Zero;
             IntPtr benchmark = app.ScreenName == "benchmark" ? app.Get<Screens.BenchmarkScreen>().Handle : IntPtr.Zero;
+            string screenName = BallsNative.FlowText(app.FlowHandle, BallsNative.FlowTextScreenName);
+            if (string.IsNullOrEmpty(screenName))
+            {
+                screenName = "menu";
+            }
+            string toastText = BallsNative.FlowText(app.FlowHandle, BallsNative.FlowTextToast);
+            string loadError = BallsNative.FlowText(app.FlowHandle, BallsNative.FlowTextLoadError);
+
+            string fullScreenStr = UnityEngine.Screen.fullScreen ? "true" : "false";
+            string orientationJson = Json(app.Settings?.OrientationName.ToLowerInvariant() ?? "auto");
+
             return new NativeControlContext
             {
                 renderer = BallsApp.RendererText,
-                screen = app.ScreenName,
+                screen = screenName,
                 windowWidth = UnityEngine.Screen.width,
                 windowHeight = UnityEngine.Screen.height,
                 preferredBackend = app.DefaultBackendKind,
                 vsync = QualitySettings.vSyncCount > 0 ? 1 : 0,
-                toast = app.ToastText,
-                extraFields = $"\"fullScreen\":{(UnityEngine.Screen.fullScreen ? "true" : "false")}," +
-                              $"\"orientation\":{Json(app.Settings?.OrientationName.ToLowerInvariant() ?? "auto")}",
+                toast = toastText,
+                extraFields = "\"fullScreen\":" + fullScreenStr + ",\"orientation\":" + orientationJson,
                 screenDetails = string.Empty,
                 frames = system?.FrameTimingsHandle ?? IntPtr.Zero,
                 settings = app.Settings?.ToNative() ?? new NativeSettings { defaultBackend = new byte[64] },
                 session = session,
-                mode = app.Mode,
+                mode = app.FlowMode,
                 levelName = app.LevelName ?? string.Empty,
-                loadError = system?.LoadFailure ?? string.Empty,
-                diskState = gameplay != null ? (int)gameplay.WatchState : 0,
-                paused = gameplay != null && gameplay.Paused ? 1 : 0,
+                loadError = loadError,
+                diskState = app.FlowDiskState,
+                paused = app.IsPaused ? 1 : 0,
                 probeTargetFps = gameplay?.ProbeTargetFps ?? 60,
                 benchmark = benchmark,
                 profile = app.Profile.Handle,
@@ -326,36 +343,38 @@ namespace Balls.App
                         request.Answered = false;
                         break;
                     case BallsNative.ControlPlay:
-                        app.StartGameplay(action.mode, action.Text, app.DefaultBackendKind);
+                        BallsNative.balls_flow_start_game(app.FlowHandle, action.mode, action.Text);
                         break;
                     case BallsNative.ControlMainMenu:
-                        app.Go<Screens.MainMenuScreen>();
+                        BallsNative.balls_flow_show_main_menu(app.FlowHandle);
                         break;
                     case BallsNative.ControlLevelSelect:
-                        app.SetMode(action.mode);
-                        app.Go<Screens.LevelSelectScreen>();
+                        BallsNative.balls_flow_show_level_select(app.FlowHandle, action.mode);
                         break;
                     case BallsNative.ControlEditor:
-                        app.SetMode(action.mode);
-                        if (action.Text.Length > 0)
-                        {
-                            app.Get<Screens.EditorScreen>().StartEditing(action.mode, action.Text);
-                        }
-                        else
-                        {
-                            app.Get<Screens.EditorScreen>().StartNewLevel(action.mode);
-                        }
-                        app.Go<Screens.EditorScreen>();
+                        BallsNative.balls_flow_open_editor(app.FlowHandle, action.mode, string.IsNullOrEmpty(action.Text) ? null : action.Text);
                         break;
                     case BallsNative.ControlQuit:
                         // Answered first: quitting inside the handler would take the frame down before the reply is sent.
                         quitRequested = true;
+                        BallsNative.balls_flow_activate(app.FlowHandle, BallsNative.FlowQuit, -1);
                         break;
                     case BallsNative.ControlApplySettings:
                         ApplySettings(action, request.Query);
                         break;
                     case BallsNative.ControlOpenSettings:
-                        app.Go<Screens.SettingsScreen>();
+                        if (app.FlowScreen == BallsNative.ScreenGameplay)
+                        {
+                            if (!app.IsPaused)
+                            {
+                                BallsNative.balls_flow_activate(app.FlowHandle, BallsNative.FlowTogglePause, -1);
+                            }
+                            BallsNative.balls_flow_activate(app.FlowHandle, BallsNative.FlowPauseSettings, -1);
+                        }
+                        else
+                        {
+                            BallsNative.balls_flow_show_settings(app.FlowHandle);
+                        }
                         break;
                     case BallsNative.ControlSetVsync:
                         if (app.Settings != null)
@@ -366,20 +385,22 @@ namespace Balls.App
                         QualitySettings.vSyncCount = action.value != 0 ? 1 : 0;
                         break;
                     case BallsNative.ControlRunBenchmark:
-                        app.Go<Screens.BenchmarkScreen>();
+                        BallsNative.balls_flow_run_machine_benchmark(app.FlowHandle);
                         break;
                     case BallsNative.ControlSkipBenchmark:
+                        BallsNative.balls_flow_activate(app.FlowHandle, BallsNative.FlowSkipBenchmark, -1);
+                        break;
                     case BallsNative.ControlContinueBenchmark:
-                        if (app.ScreenName == "benchmark")
-                        {
-                            app.Get<Screens.BenchmarkScreen>().ControlContinue();
-                        }
+                        BallsNative.balls_flow_activate(app.FlowHandle, BallsNative.FlowContinueFromBenchmark, -1);
                         break;
                     case BallsNative.ControlSetPaused:
-                        Gameplay()?.SetPaused(action.value != 0);
+                        if ((action.value != 0) != app.IsPaused)
+                        {
+                            BallsNative.balls_flow_activate(app.FlowHandle, BallsNative.FlowTogglePause, -1);
+                        }
                         break;
                     case BallsNative.ControlRestart:
-                        app.RestartGameplay();
+                        BallsNative.balls_flow_activate(app.FlowHandle, BallsNative.FlowRestart, -1);
                         break;
                     case BallsNative.ControlStartProbe:
                         Gameplay()?.ControlProbe(action.value);
@@ -398,89 +419,113 @@ namespace Balls.App
             }
             NativeSettings next = action.settings;
             bool collisionsChanged = settings.BallCollisions != (next.ballCollisions != 0);
-            bool layoutChanged = settings.Orientation != next.orientation;
             settings.BallCollisions = next.ballCollisions != 0;
             settings.Orientation = next.orientation;
             settings.Vsync = next.vsync != 0;
-            QualitySettings.vSyncCount = settings.Vsync ? 1 : 0;
-            if (settings.AdvancedSettings != (next.advancedSettings != 0))
-            {
-                settings.AdvancedSettings = next.advancedSettings != 0;
-                app.Get<Screens.GameplayScreen>().SetAdvancedOpen(settings.AdvancedSettings);
-            }
             if (action.value >= 0)
             {
                 settings.DefaultBackend = BallsNative.StoredBackendName(action.value);
-                app.SetBackend(action.value);
             }
-            if (layoutChanged)
-            {
-                app.ApplyOrientation();
-                app.Get<Screens.GameplayScreen>().RefreshLayout();
-            }
+            app.SaveSettings();
+            app.ApplyOrientation();
+            QualitySettings.vSyncCount = settings.Vsync ? 1 : 0;
             if (collisionsChanged)
             {
                 app.ApplyBallCollisions(settings.BallCollisions);
             }
-            app.SaveSettings();
-            // Unity's own addition for screenshots of the long lists.
-            if (Get(query, "scroll") is string scroll && scroll.Equals("end", StringComparison.OrdinalIgnoreCase))
+        }
+
+        private Screens.GameplayScreen Gameplay() => app.Get<Screens.GameplayScreen>();
+
+        private void AcceptLoop()
+        {
+            while (running)
             {
-                app.Get<Screens.SettingsScreen>().ScrollToEnd();
-                app.Get<Screens.GameplayScreen>().ScrollControlsToEnd();
-            }
-        }
-
-        private Screens.GameplayScreen Gameplay() => app.Running ? app.Get<Screens.GameplayScreen>() : null;
-
-        private static string Get(Dictionary<string, string> query, string name) =>
-            query.TryGetValue(name, out string value) ? value : null;
-
-        private static int Integer(Dictionary<string, string> query, string name, int fallback) =>
-            query.TryGetValue(name, out string text) && int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture,
-                out int value) ? value : fallback;
-
-        private static void Ok(Request request, string body)
-        {
-            request.Status = 200;
-            request.Body = body;
-            request.Answered = true;
-        }
-
-        private static void Error(Request request, int status, string message)
-        {
-            request.Status = status;
-            request.Body = $"{{\"ok\":false,\"error\":{Json(message)}}}";
-            request.Answered = true;
-        }
-
-        private static string Json(string text)
-        {
-            var escaped = new StringBuilder(text.Length + 2);
-            escaped.Append('"');
-            foreach (char letter in text)
-            {
-                switch (letter)
+                try
                 {
-                    case '"': escaped.Append("\\\""); break;
-                    case '\\': escaped.Append("\\\\"); break;
-                    case '\n': escaped.Append("\\n"); break;
-                    case '\r': escaped.Append("\\r"); break;
-                    case '\t': escaped.Append("\\t"); break;
-                    default:
-                        if (letter < ' ')
-                        {
-                            escaped.Append("\\u").Append(((int)letter).ToString("x4"));
-                        }
-                        else
-                        {
-                            escaped.Append(letter);
-                        }
-                        break;
+                    Socket socket = listener.AcceptSocket();
+                    ThreadPool.QueueUserWorkItem(_ => ReadRequest(socket));
+                }
+                catch (SocketException)
+                {
+                    // Listener stopped on Dispose.
+                    return;
+                }
+                catch (ObjectDisposedException)
+                {
+                    return;
                 }
             }
-            escaped.Append('"');
-            return escaped.ToString();
+        }
+
+        private void ReadRequest(Socket socket)
+        {
+            try
+            {
+                var buffer = new byte[8192];
+                int read = socket.Receive(buffer);
+                if (read <= 0)
+                {
+                    socket.Close();
+                    return;
+                }
+                string text = Encoding.UTF8.GetString(buffer, 0, read);
+                int endOfLine = text.IndexOf("\r\n", StringComparison.Ordinal);
+                if (endOfLine < 0)
+                {
+                    socket.Close();
+                    return;
+                }
+                string requestLine = text.Substring(0, endOfLine);
+                string[] parts = requestLine.Split(' ');
+                if (parts.Length < 2)
+                {
+                    socket.Close();
+                    return;
+                }
+                string target = parts[1];
+                string path = target;
+                var query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                int queryIndex = target.IndexOf('?');
+                if (queryIndex >= 0)
+                {
+                    path = target.Substring(0, queryIndex);
+                    string rawQuery = target.Substring(queryIndex + 1);
+                    foreach (string pair in rawQuery.Split('&'))
+                    {
+                        if (pair.Length == 0)
+                        {
+                            continue;
+                        }
+                        int eq = pair.IndexOf('=');
+                        string key = eq >= 0 ? pair.Substring(0, eq) : pair;
+                        string value = eq >= 0 ? pair.Substring(eq + 1) : string.Empty;
+                        query[Uri.UnescapeDataString(key)] = Uri.UnescapeDataString(value);
+                    }
+                }
+                var request = new Request
+                {
+                    Path = path,
+                    Target = target,
+                    Query = query,
+                };
+                lock (queue)
+                {
+                    queue.Enqueue((socket, request));
+                }
+            }
+            catch (Exception error)
+            {
+                Debug.LogWarning($"balls: error reading control request: {error.Message}");
+                try
+                {
+                    socket.Close();
+                }
+                catch
+                {
+                    // Ignored.
+                }
+            }
         }
 
         private bool TryDequeue(out Socket socket, out Request request)
@@ -498,120 +543,91 @@ namespace Balls.App
             return false;
         }
 
-        private void AcceptLoop()
-        {
-            Debug.Log("balls: control accept loop started");
-            while (running)
-            {
-                Socket socket;
-                try
-                {
-                    socket = listener.AcceptSocket();
-                }
-                catch (SocketException)
-                {
-                    return;
-                }
-                catch (ObjectDisposedException)
-                {
-                    return;
-                }
-                ThreadPool.QueueUserWorkItem(_ => Serve(socket));
-            }
-        }
-
-        private void Serve(Socket socket)
+        private static void Respond(Socket socket, Request request)
         {
             try
             {
-                socket.ReceiveTimeout = 5000;
-                var buffer = new byte[8192];
-                int length = 0;
-                while (length < buffer.Length)
+                byte[] bytes = Encoding.UTF8.GetBytes(request.Body);
+                string reason = request.Status switch
                 {
-                    int read = socket.Receive(buffer, length, buffer.Length - length, SocketFlags.None);
-                    if (read <= 0)
-                    {
-                        break;
-                    }
-                    length += read;
-                    if (Encoding.ASCII.GetString(buffer, 0, length).Contains("\r\n\r\n"))
-                    {
-                        break;
-                    }
-                }
-                string head = Encoding.ASCII.GetString(buffer, 0, length);
-                string firstLine = head.Split('\n')[0].Trim();
-                string[] parts = firstLine.Split(' ');
-                if (parts.Length < 2)
-                {
-                    socket.Close();
-                    return;
-                }
-                string target = parts[1];
-                int queryStart = target.IndexOf('?');
-                var request = new Request
-                {
-                    Path = queryStart >= 0 ? target.Substring(0, queryStart) : target,
-                    Target = target,
-                    Query = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+                    200 => "OK",
+                    400 => "Bad Request",
+                    404 => "Not Found",
+                    409 => "Conflict",
+                    500 => "Internal Server Error",
+                    _ => "Response",
                 };
-                if (queryStart >= 0)
-                {
-                    foreach (string pair in target.Substring(queryStart + 1).Split('&', StringSplitOptions.RemoveEmptyEntries))
-                    {
-                        int equals = pair.IndexOf('=');
-                        string name = equals >= 0 ? pair.Substring(0, equals) : pair;
-                        string value = equals >= 0 ? pair.Substring(equals + 1) : string.Empty;
-                        request.Query[Uri.UnescapeDataString(name)] = Uri.UnescapeDataString(value.Replace('+', ' '));
-                    }
-                }
-                lock (queue)
-                {
-                    queue.Enqueue((socket, request));
-                }
-                if (!request.Done.Wait(TimeSpan.FromSeconds(15)))
-                {
-                    socket.Close();
-                }
+                string header = $"HTTP/1.1 {request.Status} {reason}\r\n" +
+                                $"Content-Type: application/json; charset=utf-8\r\n" +
+                                $"Content-Length: {bytes.Length}\r\n" +
+                                "Connection: close\r\n\r\n";
+                byte[] headerBytes = Encoding.UTF8.GetBytes(header);
+                socket.Send(headerBytes);
+                socket.Send(bytes);
+                socket.Shutdown(SocketShutdown.Both);
+                socket.Close();
             }
             catch (Exception error)
             {
-                Debug.LogWarning($"balls: control request failed: {error.Message}");
-                try
-                {
-                    socket.Close();
-                }
-                catch (Exception)
-                {
-                    // The socket is already gone; nothing to report.
-                }
+                Debug.LogWarning($"balls: cannot send control reply: {error.Message}");
             }
         }
 
-        private void Respond(Socket socket, Request request)
+        private static void Ok(Request request, string body)
         {
-            try
+            request.Status = 200;
+            request.Body = body;
+            request.Answered = true;
+        }
+
+        private static void Error(Request request, int status, string message)
+        {
+            request.Status = status;
+            request.Body = $"{{\"ok\":false,\"error\":{Json(message)}}}";
+            request.Answered = true;
+        }
+
+        private static string Get(Dictionary<string, string> query, string key) =>
+            query.TryGetValue(key, out string value) ? value : null;
+
+        private static int Integer(Dictionary<string, string> query, string key, int fallback) =>
+            query.TryGetValue(key, out string value) && int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int parsed)
+                ? parsed
+                : fallback;
+
+        private static string Json(string text)
+        {
+            if (text == null)
             {
-                byte[] body = Encoding.UTF8.GetBytes(request.Body);
-                var head = new StringBuilder(128);
-                head.Append("HTTP/1.1 ").Append(request.Status).Append(' ')
-                    .Append(request.Status == 200 ? "OK" : "Error").Append("\r\n");
-                head.Append("Content-Type: application/json\r\n");
-                head.Append("Content-Length: ").Append(body.Length).Append("\r\n");
-                head.Append("Connection: close\r\n\r\n");
-                socket.Send(Encoding.ASCII.GetBytes(head.ToString()));
-                socket.Send(body);
+                return "null";
             }
-            catch (SocketException)
+            var builder = new StringBuilder(text.Length + 4);
+            builder.Append('"');
+            foreach (char ch in text)
             {
-                // The client hung up; the request has already been applied.
+                switch (ch)
+                {
+                    case '"': builder.Append("\\\""); break;
+                    case '\\': builder.Append("\\\\"); break;
+                    case '\b': builder.Append("\\b"); break;
+                    case '\f': builder.Append("\\f"); break;
+                    case '\n': builder.Append("\\n"); break;
+                    case '\r': builder.Append("\\r"); break;
+                    case '\t': builder.Append("\\t"); break;
+                    default:
+                        if (ch < ' ')
+                        {
+                            builder.AppendFormat("\\u{0:x4}", (int)ch);
+                        }
+                        else
+                        {
+                            builder.Append(ch);
+                        }
+                        break;
+                }
             }
-            finally
-            {
-                socket.Close();
-                request.Done.Set();
-            }
+            builder.Append('"');
+            return builder.ToString();
         }
     }
 }

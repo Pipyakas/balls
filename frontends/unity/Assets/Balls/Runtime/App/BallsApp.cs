@@ -13,28 +13,23 @@ namespace Balls.App
     /// <summary>
     /// The screen stack and the state every screen shares: the mode, the level being played, the settings, the toast
     /// and the camera. One of these exists per run; <see cref="BallsBootstrap"/> forwards Unity's Update and OnGUI.
+    /// The screen flow is driven entirely by the core's ScreenFlow via <c>balls_flow_*</c>.
     /// </summary>
     public sealed class BallsApp
     {
         public const int NormalMode = BallsNative.ModeNormal;
         public const int PerformanceMode = BallsNative.ModePerformance;
 
-        private struct ToastMessage
-        {
-            public string text;
-            public bool error;
-            public float until;
-        }
+        public static BallsApp Current { get; private set; }
 
         private readonly Dictionary<Type, Screen> screens = new();
         private Screen current;
-        private Screen pending;
-        private ToastMessage toast;
-        private readonly List<LevelInfo> levels = new();
-        private readonly string[] levelNames = Array.Empty<string>();
+        private IntPtr flow = IntPtr.Zero;
+        private NativeFlowState flowState;
 
         public BallsApp()
         {
+            Current = this;
             Theme = new UiTheme();
             Widgets = new Widgets(Theme);
         }
@@ -56,6 +51,28 @@ namespace Balls.App
         public SettingsData Settings { get; private set; }
 
         public MachineProfile Profile { get; private set; } = new();
+
+        public IntPtr FlowHandle => flow;
+
+        public NativeFlowState FlowState => flowState;
+
+        public int FlowScreen => flowState.screen;
+
+        public int FlowOverlay => flowState.overlay;
+
+        public int FlowMode => flowState.mode;
+
+        public int FlowDiskState => flowState.diskState;
+
+        public bool IsPaused => flowState.paused != 0;
+
+        public int FlowButtonCount => flowState.buttonCount;
+
+        public int FlowLevelRowCount => flowState.levelCount;
+
+        public float FlowToastSeconds => flowState.toastSecondsLeft;
+
+        public int FlowToastIsError => flowState.toastIsError;
 
         /// <summary>
         /// Which backend a new game starts on: the Settings default, else the target PC winner, else the fastest CPU
@@ -90,20 +107,15 @@ namespace Balls.App
         /// <summary>The HTTP control API, or null when this run did not ask for one.</summary>
         public ControlApi Control { get; private set; }
 
-        /// <summary>The screen on show, as the control API names it.</summary>
-        public string ScreenName => current switch
-        {
-            Screens.GameplayScreen => "gameplay",
-            Screens.LevelSelectScreen => "level-select",
-            Screens.SettingsScreen => "settings",
-            Screens.EditorScreen => "editor",
-            Screens.BenchmarkScreen => "benchmark",
-            Screens.LoadErrorScreen => "load-error",
-            _ => "main-menu",
-        };
+        /// <summary>The screen on show, as the control API names it (menu, levels, gameplay, editor, settings, benchmark).</summary>
+        public string ScreenName => flow != IntPtr.Zero
+            ? BallsNative.FlowText(flow, BallsNative.FlowTextScreenName)
+            : (current != null ? current.GetType().Name : "menu");
 
         /// <summary>The toast still on screen, or empty; benchmarks read it to tell what a step said.</summary>
-        public string ToastText => toast.until > Time.realtimeSinceStartup ? toast.text : string.Empty;
+        public string ToastText => flow != IntPtr.Zero && flowState.toastSecondsLeft > 0f
+            ? BallsNative.FlowText(flow, BallsNative.FlowTextToast)
+            : string.Empty;
 
         /// <summary>
         /// The game's Renderer value, renderer / API / adapter in one string ("Unity URP / Vulkan / AMD Radeon ..."); the
@@ -113,6 +125,63 @@ namespace Balls.App
             rendererText ??= $"Unity URP / {SystemInfo.graphicsDeviceType} / {SystemInfo.graphicsDeviceName}";
 
         private static string rendererText;
+
+        public void InitializeFlow()
+        {
+            if (flow != IntPtr.Zero)
+            {
+                BallsNative.balls_flow_destroy(flow);
+                flow = IntPtr.Zero;
+            }
+            string normal = LevelDirectoryFor(NormalMode);
+            string perf = LevelDirectoryFor(PerformanceMode);
+            flow = BallsNative.balls_flow_create(normal, perf);
+            BallsNative.balls_flow_state(flow, out flowState);
+            SyncScreenToFlow();
+        }
+
+        public void DestroyFlow()
+        {
+            if (flow != IntPtr.Zero)
+            {
+                BallsNative.balls_flow_destroy(flow);
+                flow = IntPtr.Zero;
+            }
+            Control?.Dispose();
+            Control = null;
+        }
+
+        public void ActivateFlow(int action, int row = -1)
+        {
+            if (flow != IntPtr.Zero)
+            {
+                BallsNative.balls_flow_activate(flow, action, row);
+            }
+        }
+
+        public void EscapeFlow()
+        {
+            if (flow != IntPtr.Zero)
+            {
+                BallsNative.balls_flow_escape(flow);
+            }
+        }
+
+        public void PlayFromEditor(int mode, string levelName)
+        {
+            if (flow != IntPtr.Zero)
+            {
+                BallsNative.balls_flow_play_from_editor(flow, mode, levelName);
+            }
+        }
+
+        public void FlowImport(IReadOnlyList<string> picked)
+        {
+            if (flow != IntPtr.Zero && picked != null)
+            {
+                BallsNative.FlowImportFiles(flow, picked);
+            }
+        }
 
         /// <summary>Starts the control API on a loopback port; 0 leaves it off.</summary>
         public void StartControlApi(int port)
@@ -147,48 +216,167 @@ namespace Balls.App
 
         public T Get<T>() where T : Screen => (T)screens[typeof(T)];
 
-        public void Go<T>() where T : Screen
-        {
-            if (!screens.TryGetValue(typeof(T), out Screen screen))
-            {
-                Debug.LogError($"no screen registered for {typeof(T).Name}");
-                return;
-            }
-            pending = screen;
-        }
-
-        public void Go(Screen screen) => pending = screen;
-
         public void Toast(string text, bool error = false)
         {
-            toast = new ToastMessage { text = text, error = error, until = Time.realtimeSinceStartup + Palette.ToastSeconds };
+            if (flow != IntPtr.Zero)
+            {
+                BallsNative.balls_flow_show_toast(flow, text, error ? 1 : 0);
+            }
         }
 
         public void Update()
         {
             SampleGpuTime();
             Control?.Pump();
-            if (pending != null)
+
+            if (flow != IntPtr.Zero)
             {
-                current?.Leave();
-                current = pending;
-                pending = null;
-                current.Enter();
+                BallsNative.balls_flow_update(flow, Time.unscaledDeltaTime);
+                if (Running && TryReadSession(out _, out SessionInfo sessionInfo, out _))
+                {
+                    BallsNative.balls_flow_session_state(flow, sessionInfo.state);
+                }
+                ProcessFlowRequests();
+                BallsNative.balls_flow_state(flow, out flowState);
+                SyncScreenToFlow();
             }
-            if (current != null && Input.GetKeyDown(KeyCode.Escape))
+
+            if (Input.GetKeyDown(KeyCode.Escape))
             {
-                current.HandleEscape();
+                if (current is Screens.EditorScreen editor)
+                {
+                    editor.HandleEscape();
+                }
+                else if (flow != IntPtr.Zero)
+                {
+                    BallsNative.balls_flow_escape(flow);
+                }
             }
+
             if (SessionSystem.Current?.Notice is string notice)
             {
                 SessionSystem.Current.Notice = null;
                 Toast(notice);
             }
-            string loadFailure = SessionSystem.Current?.LoadFailure;
-            if (current is Screens.GameplayScreen && loadFailure != null)
+        }
+
+        private void ProcessFlowRequests()
+        {
+            while (flow != IntPtr.Zero && BallsNative.balls_flow_take_request(flow, out NativeFlowRequest request) != 0)
             {
-                Get<Screens.LoadErrorScreen>().Show(loadFailure);
-                Go<Screens.LoadErrorScreen>();
+                switch (request.kind)
+                {
+                    case BallsNative.RequestStartGame:
+                    case BallsNative.RequestReloadGame:
+                    {
+                        string levelName = request.level.Name;
+                        int mode = request.mode;
+                        int backendKind = BackendKind;
+                        bool collisions = Settings != null && Settings.BallCollisions;
+                        Mode = mode;
+                        LevelName = levelName;
+                        LevelDirectory = LevelDirectoryFor(mode);
+                        var startReq = new BallsInput.StartRequest
+                        {
+                            mode = mode,
+                            levelDirectory = LevelDirectory,
+                            levelName = levelName,
+                            backend = backendKind,
+                            collisions = collisions,
+                        };
+                        if (SessionSystem.Current != null)
+                        {
+                            if (SessionSystem.Current.StartSession(in startReq, out string error))
+                            {
+                                BallsNative.balls_flow_level_loaded(flow);
+                                Get<Screens.GameplayScreen>().BeginSession();
+                            }
+                            else
+                            {
+                                BallsNative.balls_flow_level_failed(flow, error ?? "Failed to load level");
+                            }
+                        }
+                        break;
+                    }
+                    case BallsNative.RequestRestartGame:
+                    {
+                        SessionSystem.Current?.RestartSession();
+                        Get<Screens.GameplayScreen>().OnRestarted();
+                        break;
+                    }
+                    case BallsNative.RequestEndGame:
+                    {
+                        SessionSystem.Current?.EndSession();
+                        break;
+                    }
+                    case BallsNative.RequestOpenEditor:
+                    {
+                        var editor = Get<Screens.EditorScreen>();
+                        if (request.hasLevel != 0 && !string.IsNullOrEmpty(request.level.Name))
+                        {
+                            editor.StartEditing(request.mode, request.level.Name);
+                        }
+                        else
+                        {
+                            editor.StartNewLevel(request.mode);
+                        }
+                        break;
+                    }
+                    case BallsNative.RequestStartBenchmark:
+                    {
+                        Get<Screens.BenchmarkScreen>().StartBenchmark();
+                        break;
+                    }
+                    case BallsNative.RequestSkipBenchmark:
+                    {
+                        Get<Screens.BenchmarkScreen>().CancelBenchmark();
+                        break;
+                    }
+                    case BallsNative.RequestPickLevelFiles:
+                    {
+                        List<string> picked = BallsPlatform.PickLevelFiles(request.Folder);
+                        if (picked != null && picked.Count > 0)
+                        {
+                            BallsNative.FlowImportFiles(flow, picked);
+                        }
+                        break;
+                    }
+                    case BallsNative.RequestOpenFolder:
+                    {
+                        BallsPlatform.OpenFolder(request.Folder);
+                        break;
+                    }
+                    case BallsNative.RequestQuit:
+                    {
+                        Application.Quit();
+                        break;
+                    }
+                }
+            }
+        }
+
+        private void SyncScreenToFlow()
+        {
+            Type targetType = flowState.screen switch
+            {
+                BallsNative.ScreenMainMenu => typeof(Screens.MainMenuScreen),
+                BallsNative.ScreenLevelSelect => typeof(Screens.LevelSelectScreen),
+                BallsNative.ScreenGameplay => typeof(Screens.GameplayScreen),
+                BallsNative.ScreenLoadError => typeof(Screens.LoadErrorScreen),
+                BallsNative.ScreenMapEditor => typeof(Screens.EditorScreen),
+                BallsNative.ScreenSettings => typeof(Screens.SettingsScreen),
+                BallsNative.ScreenMachineBenchmark => typeof(Screens.BenchmarkScreen),
+                _ => typeof(Screens.MainMenuScreen),
+            };
+
+            if (current == null || current.GetType() != targetType)
+            {
+                if (screens.TryGetValue(targetType, out Screen screen))
+                {
+                    current?.Leave();
+                    current = screen;
+                    current.Enter();
+                }
             }
         }
 
@@ -201,9 +389,13 @@ namespace Balls.App
             }
             current.Draw();
             current.DrawOverlay();
-            if (toast.until > Time.realtimeSinceStartup)
+            if (flowState.toastSecondsLeft > 0f)
             {
-                Widgets.Toast(new Rect(0f, 24f, Theme.UnitsWidth, 44f), toast.text, toast.error);
+                string toastText = BallsNative.FlowText(flow, BallsNative.FlowTextToast);
+                if (!string.IsNullOrEmpty(toastText))
+                {
+                    Widgets.Toast(new Rect(0f, 24f, Theme.UnitsWidth, 44f), toastText, flowState.toastIsError != 0);
+                }
             }
         }
 
@@ -216,56 +408,28 @@ namespace Balls.App
             return Path.Combine(root, mode == PerformanceMode ? "performance" : "normal");
         }
 
-        public IReadOnlyList<string> LevelNames()
+        public void SetMode(int mode)
         {
-            levels.Clear();
-            string directory = LevelDirectoryFor(Mode);
-            int count = BallsNative.balls_levels_find(directory, null, 0);
-            if (count > 0)
+            Mode = mode;
+            if (flow != IntPtr.Zero)
             {
-                var buffer = new NativeLevelInfo[count];
-                BallsNative.balls_levels_find(directory, buffer, count);
-                foreach (var info in buffer)
-                {
-                    levels.Add(new LevelInfo(info.Name, info.BricksPath, info.LaunchersPath));
-                }
+                BallsNative.balls_flow_show_level_select(flow, mode);
             }
-            levelNamesCache = new string[levels.Count];
-            for (int index = 0; index < levels.Count; ++index)
-            {
-                levelNamesCache[index] = levels[index].Name;
-            }
-            return levelNamesCache;
         }
 
-        private string[] levelNamesCache = Array.Empty<string>();
-
-        public void SetMode(int mode) => Mode = mode;
-
-        public void StartGameplay(int mode, string levelName, int backendKind)
+        public void StartGameplay(int mode, string levelName, int backendKind = -1)
         {
-            bool collisions = Settings != null && Settings.BallCollisions;
-            if (SessionSystem.Current != null)
+            if (backendKind >= 0)
             {
-                SessionSystem.Current.LoadFailure = null;
+                BackendKind = backendKind;
             }
             Mode = mode;
             LevelName = levelName;
-            BackendKind = backendKind;
             LevelDirectory = LevelDirectoryFor(mode);
-            BallsInput.RequestStart(new BallsInput.StartRequest
+            if (flow != IntPtr.Zero)
             {
-                mode = mode,
-                levelDirectory = LevelDirectory,
-                levelName = levelName,
-                backend = backendKind,
-                collisions = collisions,
-            });
-            Go<Screens.GameplayScreen>();
-            var gameplay = Get<Screens.GameplayScreen>();
-            gameplay.BeginSession();
-            // The core's ball collisions notice, if the session has one, replaces this once the session starts.
-            Toast($"{BallsNative.BackendName(backendKind)} physics");
+                BallsNative.balls_flow_start_game(flow, mode, levelName);
+            }
         }
 
         /// <summary>
@@ -278,45 +442,6 @@ namespace Balls.App
             {
                 BallsInput.RequestCollisions(enabled);
             }
-        }
-
-        /// <summary>The level after the current one in the mode's list, or Level select after the last.</summary>
-        public void StartNextLevel()
-        {
-            IReadOnlyList<string> names = LevelNames();
-            int index = -1;
-            for (int i = 0; i < names.Count; ++i)
-            {
-                if (names[i] == LevelName)
-                {
-                    index = i;
-                    break;
-                }
-            }
-            if (index >= 0 && index + 1 < names.Count)
-            {
-                StartGameplay(Mode, names[index + 1], BackendKind);
-            }
-            else
-            {
-                Go<Screens.LevelSelectScreen>();
-            }
-        }
-
-        /// <summary>Restart loads the files as they are now; with the files gone it returns to Level select.</summary>
-        public void RestartGameplay()
-        {
-            switch (Get<Screens.GameplayScreen>().WatchState)
-            {
-                case LevelWatcher.State.Removed:
-                    Go<Screens.LevelSelectScreen>();
-                    return;
-                case LevelWatcher.State.Changed:
-                    StartGameplay(Mode, LevelName, BackendKind);
-                    return;
-            }
-            BallsInput.RequestRestart();
-            Get<Screens.GameplayScreen>().OnRestarted();
         }
 
         /// <summary>Sets the backend the next game starts on, without touching a running one.</summary>
@@ -495,38 +620,34 @@ namespace Balls.App
                     if (parts.Length >= 2)
                     {
                         int mode = parts[0].Equals("performance", StringComparison.OrdinalIgnoreCase) ? PerformanceMode : NormalMode;
-                        StartGameplay(mode, parts[1], BackendKind);
+                        if (flow != IntPtr.Zero)
+                        {
+                            BallsNative.balls_flow_start_game(flow, mode, parts[1]);
+                        }
                     }
                 }
                 else if (arg.Equals("-BallsBenchmark", StringComparison.OrdinalIgnoreCase))
                 {
-                    Go<Screens.BenchmarkScreen>();
+                    if (flow != IntPtr.Zero)
+                    {
+                        BallsNative.balls_flow_run_machine_benchmark(flow);
+                    }
                 }
                 else if (arg.Equals("-BallsEditor", StringComparison.OrdinalIgnoreCase))
                 {
-                    Go<Screens.EditorScreen>();
+                    if (flow != IntPtr.Zero)
+                    {
+                        BallsNative.balls_flow_open_editor(flow, NormalMode, null);
+                    }
                 }
                 else if (arg.Equals("-BallsSettings", StringComparison.OrdinalIgnoreCase))
                 {
-                    Go<Screens.SettingsScreen>();
+                    if (flow != IntPtr.Zero)
+                    {
+                        BallsNative.balls_flow_show_settings(flow);
+                    }
                 }
             }
         }
-    }
-
-    public readonly struct LevelInfo
-    {
-        public LevelInfo(string name, string bricksPath, string launchersPath)
-        {
-            Name = name;
-            BricksPath = bricksPath;
-            LaunchersPath = launchersPath;
-        }
-
-        public string Name { get; }
-
-        public string BricksPath { get; }
-
-        public string LaunchersPath { get; }
     }
 }

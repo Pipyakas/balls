@@ -150,7 +150,7 @@ namespace Balls.App.Screens
                 }
             }
             confirmLeave = false;
-            App.Go<MainMenuScreen>();
+            App.ActivateFlow(BallsNative.FlowBack);
         }
 
         public void StartNewLevel(int forMode)
@@ -1183,7 +1183,7 @@ namespace Balls.App.Screens
                 {
                     if (Save())
                     {
-                        App.StartGameplay(targetMode, levelName, App.BackendKind);
+                        App.PlayFromEditor(targetMode, levelName);
                     }
                 }
 
@@ -1196,7 +1196,7 @@ namespace Balls.App.Screens
                     else
                     {
                         confirmLeave = false;
-                        App.Go<MainMenuScreen>();
+                        App.ActivateFlow(BallsNative.FlowBack);
                     }
                 }
 

@@ -1,10 +1,11 @@
+using Balls.Native;
 using Balls.Ui;
 using UnityEngine;
 
 namespace Balls.App.Screens
 {
     /// <summary>
-    /// The game's main menu: the title, 28 drifting decorative balls and the five buttons, in a centred 380-wide
+    /// The game's main menu: the title, 28 drifting decorative balls and the buttons from the flow, in a centred 380-wide
     /// column with 64-high buttons 18 apart.
     /// </summary>
     public sealed class MainMenuScreen : Screen
@@ -41,7 +42,7 @@ namespace Balls.App.Screens
 
         public override void HandleEscape()
         {
-            Application.Quit();
+            App.EscapeFlow();
         }
 
         public override void Draw()
@@ -54,43 +55,37 @@ namespace Balls.App.Screens
 
             DrawDrifters(theme, width, height);
 
-            // The game's title is BALLS alone, 72 in the accent colour and centred, as SDL draws it.
-            widgets.Label(new Rect(0f, height * 0.16f, width, 90f), "BALLS", TypeSizes.Title,
+            string title = BallsNative.FlowText(App.FlowHandle, BallsNative.FlowTextTitle);
+            if (string.IsNullOrEmpty(title))
+            {
+                title = "BALLS";
+            }
+            widgets.Label(new Rect(0f, height * 0.16f, width, 90f), title, TypeSizes.Title,
                 Palette.Accent, TextAnchor.MiddleCenter, true);
 
             float columnWidth = Mathf.Min(ButtonWidth, width - 48f);
             float x = (width - columnWidth) * 0.5f;
             float y = height * 0.16f + 130f;
 
-            if (widgets.Button(new Rect(x, y, columnWidth, ButtonHeight), "Normal Mode"))
+            int buttonCount = App.FlowButtonCount;
+            for (int index = 0; index < buttonCount; ++index)
             {
-                App.SetMode(BallsApp.NormalMode);
-                App.Go<LevelSelectScreen>();
-            }
-            y += ButtonHeight + ButtonGap;
-            if (widgets.Button(new Rect(x, y, columnWidth, ButtonHeight), "Performance Mode"))
-            {
-                App.SetMode(BallsApp.PerformanceMode);
-                App.Go<LevelSelectScreen>();
-            }
-            y += ButtonHeight + ButtonGap;
-            if (widgets.Button(new Rect(x, y, columnWidth, ButtonHeight), "Map Editor"))
-            {
-                App.Go<EditorScreen>();
-            }
-            y += ButtonHeight + ButtonGap;
-            if (widgets.Button(new Rect(x, y, columnWidth, ButtonHeight), "Settings"))
-            {
-                App.Go<SettingsScreen>();
-            }
-            y += ButtonHeight + ButtonGap;
-            if (widgets.Button(new Rect(x, y, columnWidth, ButtonHeight), "Quit"))
-            {
-                Application.Quit();
+                if (BallsNative.balls_flow_button(App.FlowHandle, index, out NativeFlowButton button) != 0)
+                {
+                    if (widgets.Button(new Rect(x, y, columnWidth, ButtonHeight), button.Label, TypeSizes.Header, button.enabled != 0))
+                    {
+                        App.ActivateFlow(button.action);
+                    }
+                    y += ButtonHeight + ButtonGap;
+                }
             }
 
-            widgets.Muted(new Rect(0f, height - 40f, width, 24f),
-                $"Unity ECS front end · {Application.version} · {SystemInfo.graphicsDeviceName}",
+            string footnote = BallsNative.FlowText(App.FlowHandle, BallsNative.FlowTextFootnote);
+            if (string.IsNullOrEmpty(footnote))
+            {
+                footnote = $"Unity ECS front end · {Application.version} · {SystemInfo.graphicsDeviceName}";
+            }
+            widgets.Muted(new Rect(0f, height - 40f, width, 24f), footnote,
                 TypeSizes.Small, TextAnchor.MiddleCenter);
         }
 

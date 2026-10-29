@@ -59,6 +59,60 @@ namespace Balls.Native
         public const int RenderCoordinateBits = 14;
         public const int RenderColorShift = 28;
 
+        public const int ScreenMainMenu = 0;
+        public const int ScreenLevelSelect = 1;
+        public const int ScreenGameplay = 2;
+        public const int ScreenLoadError = 3;
+        public const int ScreenMapEditor = 4;
+        public const int ScreenSettings = 5;
+        public const int ScreenMachineBenchmark = 6;
+
+        public const int OverlayNone = 0;
+        public const int OverlayPause = 1;
+        public const int OverlayWin = 2;
+        public const int OverlaySettings = 3;
+
+        public const int FlowNormalMode = 0;
+        public const int FlowPerformanceMode = 1;
+        public const int FlowMapEditor = 2;
+        public const int FlowSettings = 3;
+        public const int FlowQuit = 4;
+        public const int FlowPlayLevel = 5;
+        public const int FlowEditLevel = 6;
+        public const int FlowNewLevel = 7;
+        public const int FlowImport = 8;
+        public const int FlowOpenFolder = 9;
+        public const int FlowTogglePause = 10;
+        public const int FlowResume = 11;
+        public const int FlowRestart = 12;
+        public const int FlowPauseSettings = 13;
+        public const int FlowMainMenu = 14;
+        public const int FlowNextLevel = 15;
+        public const int FlowRunMachineBenchmark = 16;
+        public const int FlowSkipBenchmark = 17;
+        public const int FlowContinueFromBenchmark = 18;
+        public const int FlowBack = 19;
+
+        public const int RequestStartGame = 0;
+        public const int RequestReloadGame = 1;
+        public const int RequestRestartGame = 2;
+        public const int RequestEndGame = 3;
+        public const int RequestOpenEditor = 4;
+        public const int RequestStartBenchmark = 5;
+        public const int RequestSkipBenchmark = 6;
+        public const int RequestPickLevelFiles = 7;
+        public const int RequestOpenFolder = 8;
+        public const int RequestQuit = 9;
+
+        public const int FlowTextTitle = 0;
+        public const int FlowTextFootnote = 1;
+        public const int FlowTextGameTitle = 2;
+        public const int FlowTextDiskNotice = 3;
+        public const int FlowTextLoadError = 4;
+        public const int FlowTextToast = 5;
+        public const int FlowTextScreenName = 6;
+        public const int FlowTextLevelFolder = 7;
+
         [DllImport(Library)] public static extern int balls_abi_version();
 
         [DllImport(Library)] public static extern void balls_set_plugin_directory([MarshalAs(UnmanagedType.LPUTF8Str)] string directory);
@@ -598,6 +652,73 @@ namespace Balls.Native
         [DllImport(Library)] public static extern void balls_editor_validate(IntPtr editor, int mode, out NativeValidation validation);
 
         [DllImport(Library)] public static extern int balls_editor_problem(IntPtr editor, int index, byte[] buffer, int size);
+
+        // Core screen flow
+        [DllImport(Library)] public static extern IntPtr balls_flow_create([MarshalAs(UnmanagedType.LPUTF8Str)] string normalLevels, [MarshalAs(UnmanagedType.LPUTF8Str)] string performanceLevels);
+        [DllImport(Library)] public static extern void balls_flow_destroy(IntPtr flow);
+        [DllImport(Library)] public static extern void balls_flow_update(IntPtr flow, float deltaSeconds);
+        [DllImport(Library)] public static extern int balls_flow_activate(IntPtr flow, int action, int row);
+        [DllImport(Library)] public static extern int balls_flow_escape(IntPtr flow);
+
+        [DllImport(Library)] public static extern void balls_flow_show_main_menu(IntPtr flow);
+        [DllImport(Library)] public static extern void balls_flow_show_level_select(IntPtr flow, int mode);
+        [DllImport(Library)] public static extern int balls_flow_start_game(IntPtr flow, int mode, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelName);
+        [DllImport(Library)] public static extern void balls_flow_open_editor(IntPtr flow, int mode, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelName);
+        [DllImport(Library)] public static extern void balls_flow_show_settings(IntPtr flow);
+        [DllImport(Library)] public static extern void balls_flow_run_machine_benchmark(IntPtr flow);
+
+        [DllImport(Library)] public static extern void balls_flow_level_loaded(IntPtr flow);
+        [DllImport(Library)] public static extern void balls_flow_level_failed(IntPtr flow, [MarshalAs(UnmanagedType.LPUTF8Str)] string error);
+        [DllImport(Library)] public static extern void balls_flow_session_state(IntPtr flow, int state);
+        [DllImport(Library)] public static extern void balls_flow_benchmark_finished(IntPtr flow);
+        [DllImport(Library)] public static extern void balls_flow_play_from_editor(IntPtr flow, int mode, [MarshalAs(UnmanagedType.LPUTF8Str)] string levelName);
+        [DllImport(Library)] private static extern void balls_flow_import(IntPtr flow, IntPtr[] picked, int pickedCount);
+        [DllImport(Library)] public static extern void balls_flow_show_toast(IntPtr flow, [MarshalAs(UnmanagedType.LPUTF8Str)] string text, int isError);
+
+        [DllImport(Library)] public static extern int balls_flow_take_request(IntPtr flow, out NativeFlowRequest request);
+        [DllImport(Library)] public static extern int balls_flow_take_scroll_to_row(IntPtr flow);
+        [DllImport(Library)] public static extern void balls_flow_state(IntPtr flow, out NativeFlowState state);
+        [DllImport(Library)] public static extern int balls_flow_text(IntPtr flow, int which, byte[] buffer, int size);
+        [DllImport(Library)] public static extern int balls_flow_button(IntPtr flow, int index, out NativeFlowButton button);
+        [DllImport(Library)] public static extern int balls_flow_level_row(IntPtr flow, int index, out NativeFlowLevelRow row);
+
+        public static void FlowImportFiles(IntPtr flow, IReadOnlyList<string> picked)
+        {
+            if (flow == IntPtr.Zero || picked == null || picked.Count == 0)
+            {
+                return;
+            }
+            var pointers = new IntPtr[picked.Count];
+            try
+            {
+                for (int index = 0; index < picked.Count; ++index)
+                {
+                    pointers[index] = Marshal.StringToCoTaskMemUTF8(picked[index]);
+                }
+                balls_flow_import(flow, pointers, picked.Count);
+            }
+            finally
+            {
+                foreach (IntPtr pointer in pointers)
+                {
+                    if (pointer != IntPtr.Zero)
+                    {
+                        Marshal.FreeCoTaskMem(pointer);
+                    }
+                }
+            }
+        }
+
+        public static string FlowText(IntPtr flow, int which)
+        {
+            if (flow == IntPtr.Zero)
+            {
+                return string.Empty;
+            }
+            var buffer = new byte[1024];
+            int length = balls_flow_text(flow, which, buffer, buffer.Length);
+            return length > 0 ? System.Text.Encoding.UTF8.GetString(buffer, 0, length) : string.Empty;
+        }
 
         /// <summary>Decodes a packed ball into field coordinates.</summary>
         public static void UnpackBall(uint packed, float scaleX, float scaleY, out float x, out float y, out int color)

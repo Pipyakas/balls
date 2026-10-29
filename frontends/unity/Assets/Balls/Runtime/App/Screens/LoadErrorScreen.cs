@@ -1,26 +1,17 @@
+using Balls.Native;
 using Balls.Ui;
 using UnityEngine;
 
 namespace Balls.App.Screens
 {
     /// <summary>
-    /// The game's load error: shown instead of Gameplay when a level cannot be parsed, and retried whenever the level's
-    /// files change on disk.
+    /// The game's load error: shown instead of Gameplay when a level cannot be parsed, and retried automatically by the flow.
     /// </summary>
     public sealed class LoadErrorScreen : Screen
     {
-        private readonly LevelWatcher watcher = new();
-        private string message = "";
-
-        public void Show(string error)
-        {
-            message = error;
-            watcher.Watch(App.LevelDirectory, App.LevelName);
-        }
-
         public override void HandleEscape()
         {
-            App.Go<LevelSelectScreen>();
+            App.EscapeFlow();
         }
 
         public override void Draw()
@@ -31,28 +22,43 @@ namespace Balls.App.Screens
             float height = theme.UnitsHeight;
             theme.Fill(new Rect(0f, 0f, width, height), Palette.Background);
 
+            string title = BallsNative.FlowText(App.FlowHandle, BallsNative.FlowTextTitle);
+            if (string.IsNullOrEmpty(title))
+            {
+                title = "Level failed to load";
+            }
+            string message = BallsNative.FlowText(App.FlowHandle, BallsNative.FlowTextLoadError);
+            string footnote = BallsNative.FlowText(App.FlowHandle, BallsNative.FlowTextFootnote);
+            if (string.IsNullOrEmpty(footnote))
+            {
+                footnote = "Fix the file and save - it reloads automatically";
+            }
+
             float margin = 32f;
             float y = height * 0.28f;
-            widgets.Label(new Rect(margin, y, width - 2f * margin, 56f), "Level failed to load", TypeSizes.Heading,
+            widgets.Label(new Rect(margin, y, width - 2f * margin, 56f), title, TypeSizes.Heading,
                 Palette.Danger, TextAnchor.MiddleCenter, true);
             y += 72f;
             widgets.Label(new Rect(margin, y, width - 2f * margin, 120f), message, TypeSizes.Header,
                 Palette.Text, TextAnchor.UpperCenter);
             y += 132f;
-            widgets.Muted(new Rect(margin, y, width - 2f * margin, 30f), "Fix the file and save - it reloads automatically",
+            widgets.Muted(new Rect(margin, y, width - 2f * margin, 30f), footnote,
                 TypeSizes.Header, TextAnchor.MiddleCenter);
             y += 64f;
-            if (widgets.Button(new Rect((width - 240f) * 0.5f, y, 240f, 56f), "Back"))
-            {
-                App.Go<LevelSelectScreen>();
-                return;
-            }
 
-            // Only a change retries: a missing file reads as Removed on every poll, which would restart the level
-            // each frame. The file appearing later reads as Changed.
-            if (watcher.Poll() == LevelWatcher.State.Changed)
+            int buttonCount = App.FlowButtonCount;
+            float buttonWidth = 240f;
+            for (int index = 0; index < buttonCount; ++index)
             {
-                App.StartGameplay(App.Mode, App.LevelName, App.BackendKind);
+                if (BallsNative.balls_flow_button(App.FlowHandle, index, out NativeFlowButton button) != 0)
+                {
+                    if (widgets.Button(new Rect((width - buttonWidth) * 0.5f, y, buttonWidth, 56f), button.Label, TypeSizes.Header, button.enabled != 0))
+                    {
+                        App.ActivateFlow(button.action);
+                        return;
+                    }
+                    y += 64f;
+                }
             }
         }
     }

@@ -6,12 +6,11 @@ namespace Balls.App.Screens
 {
     /// <summary>
     /// The game's machine benchmark: measure every loadable backend on the bundled performance level, one row each
-    /// with its progress or result, then keep the winner as the default backend.
+    /// with its progress or result, then keep the winner as the default backend. The screen flow owns advance and navigation.
     /// </summary>
     public sealed class BenchmarkScreen : Screen
     {
         private const string BenchmarkLevel = "DA_1000Bricks";
-        private const float SkipDelay = 1.5f;
         private const float ProgressWidth = 220f;
         private const float ProgressHeight = 8f;
         private const int RowPending = 0;
@@ -21,12 +20,16 @@ namespace Balls.App.Screens
         private NativeBenchmarkRow[] rows = System.Array.Empty<NativeBenchmarkRow>();
         private int winner = -1;
         private bool started;
-        private float finishedAt = -1f;
         private bool loggedRows;
         private bool recorded;
+        private bool adopted;
 
-        public override void Enter()
+        public void StartBenchmark()
         {
+            if (started)
+            {
+                return;
+            }
             rows = new NativeBenchmarkRow[8];
             benchmark = BallsNative.balls_benchmark_create(App.LevelDirectoryFor(BallsApp.PerformanceMode), BenchmarkLevel);
             if (benchmark == System.IntPtr.Zero)
@@ -38,8 +41,21 @@ namespace Balls.App.Screens
             BallsNative.balls_benchmark_start(benchmark);
             started = true;
             recorded = false;
-            finishedAt = -1f;
+            adopted = false;
             winner = -1;
+        }
+
+        public void CancelBenchmark()
+        {
+            if (benchmark != System.IntPtr.Zero)
+            {
+                BallsNative.balls_benchmark_cancel(benchmark);
+            }
+        }
+
+        public override void Enter()
+        {
+            StartBenchmark();
         }
 
         public override void Leave()
@@ -50,11 +66,12 @@ namespace Balls.App.Screens
                 BallsNative.balls_benchmark_destroy(benchmark);
                 benchmark = System.IntPtr.Zero;
             }
+            started = false;
         }
 
         public override void HandleEscape()
         {
-            Continue();
+            App.EscapeFlow();
         }
 
         public override void Draw()
@@ -63,10 +80,21 @@ namespace Balls.App.Screens
             Widgets widgets = App.Widgets;
             theme.Fill(new Rect(0f, 0f, theme.UnitsWidth, theme.UnitsHeight), Palette.Background);
 
-            widgets.Label(new Rect(0f, 48f, theme.UnitsWidth, 56f), "Setting up for this machine", TypeSizes.Large,
+            string title = BallsNative.FlowText(App.FlowHandle, BallsNative.FlowTextTitle);
+            if (string.IsNullOrEmpty(title))
+            {
+                title = "Setting up for this machine";
+            }
+            string footnote = BallsNative.FlowText(App.FlowHandle, BallsNative.FlowTextFootnote);
+            if (string.IsNullOrEmpty(footnote))
+            {
+                footnote = "Measuring each physics backend on this machine.";
+            }
+
+            widgets.Label(new Rect(0f, 48f, theme.UnitsWidth, 56f), title, TypeSizes.Large,
                 Palette.Text, TextAnchor.MiddleCenter, true);
             widgets.Muted(new Rect(0f, 108f, theme.UnitsWidth, 24f),
-                "Measuring each physics backend on this machine.", TypeSizes.Small, TextAnchor.MiddleCenter);
+                footnote, TypeSizes.Small, TextAnchor.MiddleCenter);
 
             int count = RefreshRows();
             float width = Mathf.Min(760f, theme.UnitsWidth - 80f);
@@ -110,20 +138,16 @@ namespace Balls.App.Screens
                 widgets.Label(new Rect(x, y + 12f, width, 28f),
                     $"Default backend: {BallsNative.BackendName(winner)}", TypeSizes.Header, Palette.Accent,
                     TextAnchor.MiddleLeft, true);
-                if (finishedAt < 0f)
-                {
-                    finishedAt = Time.realtimeSinceStartup;
-                }
-                if (!BallsApp.HoldingForCapture && Time.realtimeSinceStartup - finishedAt > SkipDelay)
-                {
-                    Continue();
-                }
             }
 
-            if (widgets.Button(new Rect((theme.UnitsWidth - 200f) * 0.5f, theme.UnitsHeight - 120f, 200f, 56f),
-                    winner >= 0 ? "Continue" : "Skip"))
+            int buttonCount = App.FlowButtonCount;
+            if (buttonCount > 0 && BallsNative.balls_flow_button(App.FlowHandle, 0, out NativeFlowButton button) != 0)
             {
-                Continue();
+                if (widgets.Button(new Rect((theme.UnitsWidth - 200f) * 0.5f, theme.UnitsHeight - 120f, 200f, 56f),
+                        button.Label))
+                {
+                    App.ActivateFlow(button.action);
+                }
             }
         }
 
@@ -143,34 +167,45 @@ namespace Balls.App.Screens
             {
                 recorded = true;
                 App.Profile.RememberBenchmark(benchmark, true);
+                BallsNative.balls_flow_benchmark_finished(App.FlowHandle);
             }
             int currentWinner = BallsNative.balls_benchmark_winner(benchmark);
             if (currentWinner >= 0)
             {
                 winner = currentWinner;
+                if (!adopted)
+                {
+                    adopted = true;
+                    AdoptWinner(winner);
+                }
             }
             return Mathf.Min(count, rows.Length);
+        }
+
+        private void AdoptWinner(int win)
+        {
+            if (win >= 0)
+            {
+                if (App.Settings != null)
+                {
+                    App.Settings.DefaultBackend = BallsNative.StoredBackendName(win);
+                    App.SaveSettings();
+                }
+                App.SetBackend(win);
+                App.Toast($"Default backend: {BallsNative.BackendName(win)}");
+            }
         }
 
         /// <summary>The running benchmark, for the control API; zero when none.</summary>
         public System.IntPtr Handle => benchmark;
 
         /// <summary>The control API's skip and continue: the same as the button.</summary>
-        public void ControlContinue() => Continue();
-
-        private void Continue()
+        public void ControlContinue()
         {
-            if (winner >= 0)
+            if (App.FlowButtonCount > 0 && BallsNative.balls_flow_button(App.FlowHandle, 0, out NativeFlowButton button) != 0)
             {
-                if (App.Settings != null)
-                {
-                    App.Settings.DefaultBackend = BallsNative.StoredBackendName(winner);
-                    App.SaveSettings();
-                }
-                App.SetBackend(winner);
-                App.Toast($"Default backend: {BallsNative.BackendName(winner)}");
+                App.ActivateFlow(button.action);
             }
-            App.Go<MainMenuScreen>();
         }
     }
 }

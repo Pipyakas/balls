@@ -39,7 +39,7 @@ namespace Balls.App.Screens
 
         public override void HandleEscape()
         {
-            Close();
+            App.EscapeFlow();
         }
 
         public override void Draw()
@@ -49,10 +49,16 @@ namespace Balls.App.Screens
             float width = theme.UnitsWidth;
             float height = theme.UnitsHeight;
 
+            string title = BallsNative.FlowText(App.FlowHandle, BallsNative.FlowTextTitle);
+            if (string.IsNullOrEmpty(title))
+            {
+                title = "Settings";
+            }
+
             if (!overlay)
             {
                 theme.Fill(new Rect(0f, 0f, width, height), Palette.Background);
-                widgets.Label(new Rect(0f, 40f, width, 56f), "Settings", TypeSizes.Title, Palette.Accent,
+                widgets.Label(new Rect(0f, 40f, width, 56f), title, TypeSizes.Title, Palette.Accent,
                     TextAnchor.MiddleCenter, true);
             }
             else
@@ -68,7 +74,7 @@ namespace Balls.App.Screens
             theme.Frame(panel, Palette.Panel, Palette.Border);
             if (overlay)
             {
-                widgets.Label(new Rect(panel.x, panel.y + 12f, panel.width, 44f), "Settings", TypeSizes.Large,
+                widgets.Label(new Rect(panel.x, panel.y + 12f, panel.width, 44f), title, TypeSizes.Large,
                     Palette.Text, TextAnchor.MiddleCenter, true);
             }
 
@@ -152,12 +158,16 @@ namespace Balls.App.Screens
                     }
                     y += 38f;
                 }
-                y += 8f;
-                if (widgets.Button(new Rect(content.x, y, content.width, 44f), "Run machine benchmark", TypeSizes.Label))
+
+                if (App.FlowState.canRunMachineBenchmark != 0)
                 {
-                    App.Go<BenchmarkScreen>();
+                    y += 8f;
+                    if (widgets.Button(new Rect(content.x, y, content.width, 44f), "Run machine benchmark", TypeSizes.Label))
+                    {
+                        App.ActivateFlow(BallsNative.FlowRunMachineBenchmark);
+                    }
+                    y += 56f;
                 }
-                y += 56f;
 
                 y = SharedControls.DrawDevicePicks(App, widgets, content, y, App.DefaultBackendKind, picks =>
                 {
@@ -171,27 +181,28 @@ namespace Balls.App.Screens
             });
 
             Rect back = new Rect(panel.x + (panel.width - 200f) * 0.5f, panel.yMax - 68f, 200f, 56f);
-            if (widgets.Button(back, "Back"))
+            int buttonCount = App.FlowButtonCount;
+            string backLabel = "Back";
+            int backAction = BallsNative.FlowBack;
+            if (buttonCount > 0 && BallsNative.balls_flow_button(App.FlowHandle, 0, out NativeFlowButton button) != 0)
             {
-                Close();
+                backLabel = button.Label;
+                backAction = button.action;
+            }
+            if (widgets.Button(back, backLabel))
+            {
+                if (overlay)
+                {
+                    overlay = false;
+                    overlayClosed?.Invoke();
+                }
+                App.ActivateFlow(backAction);
             }
         }
 
         private void Apply(SettingsData settings)
         {
             App.SaveSettings();
-            App.Toast("Settings saved");
-        }
-
-        private void Close()
-        {
-            if (overlay)
-            {
-                overlay = false;
-                overlayClosed?.Invoke();
-                return;
-            }
-            App.Go<MainMenuScreen>();
         }
     }
 }

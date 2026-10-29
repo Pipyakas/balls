@@ -260,4 +260,89 @@ namespace Balls.Native
             }
         }
     }
+
+    /// <summary>Mirrors BallsFlowState: live state of the core's screen flow.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct NativeFlowState
+    {
+        public int screen;
+        public int overlay;
+        public int mode;
+        public int paused;
+        public int diskState;
+        public int canRunMachineBenchmark;
+        public int benchmarkSettled;
+        public int buttonCount;
+        public int levelCount;
+        public int hasLevel;
+        public float toastSecondsLeft;
+        public int toastIsError;
+    }
+
+    /// <summary>Mirrors BallsFlowButton: one button the screen or overlay offers.</summary>
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public struct NativeFlowButton
+    {
+        public int action;
+        public int enabled;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 64)] public byte[] label;
+
+        public string Label
+        {
+            get
+            {
+                if (label == null)
+                {
+                    return string.Empty;
+                }
+                int length = Array.IndexOf(label, (byte)0);
+                return System.Text.Encoding.UTF8.GetString(label, 0, length < 0 ? label.Length : length);
+            }
+        }
+    }
+
+    /// <summary>Mirrors BallsFlowLevelRow: one level entry in Level select.</summary>
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public struct NativeFlowLevelRow
+    {
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 128)] public byte[] name;
+        public int highlighted;
+
+        public string Name
+        {
+            get
+            {
+                if (name == null)
+                {
+                    return string.Empty;
+                }
+                int length = Array.IndexOf(name, (byte)0);
+                return System.Text.Encoding.UTF8.GetString(name, 0, length < 0 ? name.Length : length);
+            }
+        }
+    }
+
+    /// <summary>Mirrors BallsFlowRequest: work the screen flow asks the front end to do.</summary>
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public struct NativeFlowRequest
+    {
+        public int kind;
+        public int mode;
+        public int hasLevel;
+        public NativeLevelInfo level;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 512)] public byte[] folder;
+
+        public string Folder
+        {
+            get
+            {
+                if (folder == null)
+                {
+                    return string.Empty;
+                }
+                int length = Array.IndexOf(folder, (byte)0);
+                return System.Text.Encoding.UTF8.GetString(folder, 0, length < 0 ? folder.Length : length);
+            }
+        }
+    }
 }

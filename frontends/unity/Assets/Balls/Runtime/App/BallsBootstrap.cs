@@ -61,7 +61,6 @@ namespace Balls.App
             app.AddScreen(new EditorScreen());
             app.AddScreen(new BenchmarkScreen());
             app.AddScreen(new LoadErrorScreen());
-            app.Go<MainMenuScreen>();
             app.StartControlApi(controlPort);
 
             try
@@ -72,6 +71,7 @@ namespace Balls.App
                     app.StartupError = $"balls_unity.dll speaks ABI {version}, the front end expects {BallsNative.AbiVersion}";
                     return;
                 }
+                app.InitializeFlow();
                 Balls.Ui.Palette.LoadFromCore();
                 RenderPrimitives.SetPalette(RenderAssets.BallMaterial());
                 BallsNative.balls_set_plugin_directory(PluginDirectory());
@@ -90,6 +90,11 @@ namespace Balls.App
             startedAt = Time.realtimeSinceStartup;
             viewCamera = RenderPrimitives.CreateCamera(7, 14, 3);
             app.Camera = viewCamera;
+        }
+
+        private void OnDestroy()
+        {
+            app?.DestroyFlow();
         }
 
         private void Update()
@@ -200,7 +205,7 @@ namespace Balls.App
                 if (!app.Running)
                 {
                     int mode = performanceMode ? BallsApp.PerformanceMode : BallsApp.NormalMode;
-                    app.StartGameplay(mode, levelName, backendKind);
+                    BallsNative.balls_flow_start_game(app.FlowHandle, mode, levelName);
                 }
                 if (app.Mode == BallsApp.PerformanceMode)
                 {
