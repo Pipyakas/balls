@@ -26,6 +26,7 @@ public:
     void removeBalls(std::span<const uint32_t> descendingIndices) override;
     size_t ballCount() const override { return count; }
     size_t ballCapacityLimit() const override;
+    size_t preallocateBalls() override;
     BallSnapshot snapshot() override;
     std::vector<BallSpawn> exportBalls() override;
     std::vector<BallSpawn> takeTail(size_t count) override;
@@ -116,6 +117,7 @@ private:
     size_t capacity = 0;
     size_t packedCapacity = 0;
     size_t count = 0;
+    bool fixedCapacity = false;
     DeviceArray paddedCells;
     DeviceArray brickColors;
     DeviceArray targetCells;

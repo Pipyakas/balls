@@ -254,6 +254,9 @@ size_t CudaBackend::ballCapacityLimit() const {
     if (isFaulted()) {
         return count;
     }
+    if (fixedCapacity) {
+        return capacity;
+    }
     driver.makeCurrent();
     size_t freeBytes = 0;
     size_t totalBytes = 0;
@@ -264,6 +267,85 @@ size_t CudaBackend::ballCapacityLimit() const {
     return capacity + spare / heldBytesPerBall;
 }
 
+size_t CudaBackend::preallocateBalls() {
+    if (isFaulted()) {
+        return 0;
+    }
+    driver.makeCurrent();
+    if (fixedCapacity) {
+        return capacity;
+    }
+    // Release existing sort buffers and initial ball arrays so all free VRAM is contiguous
+    releaseSortBuffers();
+    const auto& api = driver.api();
+    if (balls.position) {
+        api.memFree(balls.position);
+        balls.position = 0;
+    }
+    if (balls.state) {
+        api.memFree(balls.state);
+        balls.state = 0;
+    }
+    capacity = 0;
+
+    size_t freeBytes = 0;
+    size_t totalBytes = 0;
+    if (api.memGetInfo(&freeBytes, &totalBytes) != CUDA_SUCCESS) {
+        return 0;
+    }
+
+    // 512 MB reserve for renderer (OpenGL interop, framebuffers, textures) and display driver.
+    // On the game machine (GTX 1650 4 GB sm_75), the GPU is shared between physics compute
+    // and rendering. Leaving 512 MB headroom prevents OpenGL/display driver OOM while dedicating
+    // ~3 GB+ to balls.
+    constexpr size_t preallocateGpuReserveBytes = size_t{512} << 20;
+    const size_t usableBytes = freeBytes > preallocateGpuReserveBytes ? freeBytes - preallocateGpuReserveBytes : 0;
+
+    // 16 bytes per ball: position (4B) + state (4B) + 2 sort buffers (4B each)
+    constexpr size_t bytesPerBallWithSort = 16;
+    const size_t ballsBudget = usableBytes / bytesPerBallWithSort;
+    const size_t targetCapacity = (ballsBudget / capacityGranule) * capacityGranule;
+
+    if (targetCapacity == 0) {
+        ensureBallCapacity(initialBallCapacity);
+        return 0;
+    }
+
+    CUdeviceptr newPosition = 0;
+    CUdeviceptr newState = 0;
+    CUdeviceptr newSortedPosition = 0;
+    CUdeviceptr newSortedState = 0;
+
+    if (api.memAlloc(&newPosition, targetCapacity * sizeof(uint32_t)) != CUDA_SUCCESS ||
+        api.memAlloc(&newState, targetCapacity * sizeof(uint32_t)) != CUDA_SUCCESS ||
+        api.memAlloc(&newSortedPosition, targetCapacity * sizeof(uint32_t)) != CUDA_SUCCESS ||
+        api.memAlloc(&newSortedState, targetCapacity * sizeof(uint32_t)) != CUDA_SUCCESS) {
+        if (newPosition) api.memFree(newPosition);
+        if (newState) api.memFree(newState);
+        if (newSortedPosition) api.memFree(newSortedPosition);
+        if (newSortedState) api.memFree(newSortedState);
+        ensureBallCapacity(initialBallCapacity);
+        return 0;
+    }
+
+    balls.position = newPosition;
+    balls.state = newState;
+    sortedPosition = newSortedPosition;
+    sortedState = newSortedState;
+    capacity = targetCapacity;
+    sortedCapacity = targetCapacity;
+    fixedCapacity = true;
+
+    // The sort cursors are bounded by maxSortCells. Render words are only kept while there are fewer balls than
+    // visibility-grid cells, so sizing them for a 4K grid covers any window; a bigger grid still grows them once,
+    // from the renderer reserve above.
+    constexpr size_t packedBallsUpFront = size_t{8} << 20;
+    ensureArray(cellCursors, static_cast<size_t>(maxSortCells) * sizeof(int32_t));
+    ensurePackedCapacity(std::min(targetCapacity, packedBallsUpFront));
+
+    return capacity;
+}
+
 // Running out of device memory is the expected ceiling once balls fly freely, so it leaves the backend usable
 // with the capacity it already has instead of faulting.
 bool CudaBackend::ensureBallCapacity(size_t required) {
@@ -272,6 +354,9 @@ bool CudaBackend::ensureBallCapacity(size_t required) {
     }
     if (required <= capacity) {
         return true;
+    }
+    if (fixedCapacity) {
+        return false;
     }
     releaseSortBuffers();
     const auto& api = driver.api();
@@ -307,6 +392,9 @@ bool CudaBackend::ensureBallCapacity(size_t required) {
 // Near the top of device memory the old and new arrays do not fit side by side, so the balls wait in host memory
 // while the device arrays are replaced. Only the capacity probe grows this far, so the copy's cost is a one-off.
 bool CudaBackend::growThroughHost(size_t wanted) {
+    if (fixedCapacity) {
+        return false;
+    }
     const auto& api = driver.api();
     std::vector<uint32_t> heldPosition(count);
     std::vector<uint32_t> heldState(count);
@@ -437,6 +525,9 @@ void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {
         return;
     }
     const size_t added = std::min(spawns.size(), capacity - count);
+    if (added == 0) {
+        return;
+    }
     std::vector<uint32_t> position(added), state(added), packed(added);
     ballSpeed = std::max(std::hypot(spawns.front().vx, spawns.front().vy), 1e-6f);
     const float inverseSpeedScale = 1.0f / ballSpeed;
@@ -796,6 +887,9 @@ bool CudaBackend::downloadGrid() {
 }
 
 void CudaBackend::releaseSortBuffers() {
+    if (fixedCapacity) {
+        return;
+    }
     for (CUdeviceptr* buffer : {&sortedPosition, &sortedState}) {
         if (*buffer) {
             driver.api().memFree(*buffer);
@@ -808,6 +902,9 @@ void CudaBackend::releaseSortBuffers() {
 bool CudaBackend::ensureSortBuffers() {
     if (sortedCapacity == capacity && sortedPosition && sortedState) {
         return true;
+    }
+    if (fixedCapacity) {
+        return sortedPosition && sortedState && sortedCapacity >= capacity;
     }
     const auto& api = driver.api();
     releaseSortBuffers();
@@ -925,7 +1022,9 @@ bool CudaBackend::takeCompactTail(size_t tailCount, CompactBalls& taken) {
 bool CudaBackend::addCompact(const CompactBalls& added) {
     driver.makeCurrent();
     materializeFreeFlight();
-    const size_t addedCount = std::min(added.position.size(), added.state.size());
+    const size_t availableRoom = capacity > count ? capacity - count : 0;
+    const size_t addedCount = std::min({added.position.size(), added.state.size(),
+                                        fixedCapacity ? availableRoom : std::numeric_limits<size_t>::max()});
     if (isFaulted()) {
         return false;
     }

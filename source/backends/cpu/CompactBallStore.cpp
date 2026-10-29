@@ -54,6 +54,18 @@ bool CompactBallStore::resize(size_t newCount) {
     return true;
 }
 
+size_t CompactBallStore::preallocate(size_t maxBalls, WorkerPool* pool) {
+    const size_t padded = roundUpToLanes(maxBalls);
+    if (!position.commitAndPrefault(padded, pool) || !state.commitAndPrefault(padded, pool)) {
+        return 0;
+    }
+    const size_t cells = gridCellCount();
+    if (cells > 0) {
+        grid.assign(cells, emptyRenderSlot);
+    }
+    return position.capacity();
+}
+
 size_t CompactBallStore::add(std::span<const BallSpawn> spawns) {
     if (spawns.empty()) {
         return 0;
@@ -62,10 +74,12 @@ size_t CompactBallStore::add(std::span<const BallSpawn> spawns) {
     const float inverseSpeed = 1.0f / speed;
     const size_t first = count;
     const unsigned int ticksSinceEpoch = clockTick - freeFlightEpoch;
-    if (!resize(count + spawns.size())) {
+    // A preallocated store never grows, so it takes what fits.
+    const size_t toAdd = isPreallocated() ? std::min(spawns.size(), roomLeft()) : spawns.size();
+    if (toAdd == 0 || !resize(count + toAdd)) {
         return 0;
     }
-    for (size_t i = 0; i < spawns.size(); ++i) {
+    for (size_t i = 0; i < toAdd; ++i) {
         const BallSpawn& spawn = spawns[i];
         const uint32_t color = static_cast<uint32_t>(spawn.color);
         int directionX = signedComponent(encodeComponent(spawn.vx * inverseSpeed));
@@ -95,7 +109,7 @@ size_t CompactBallStore::add(std::span<const BallSpawn> spawns) {
         packed[first + i] = packBallForRender(spawn.x, spawn.y, spawn.color, renderPackScale(fieldWidth),
                                               renderPackScale(fieldHeight));
     }
-    return spawns.size();
+    return toAdd;
 }
 
 void CompactBallStore::swapRemove(std::span<const uint32_t> descendingIndices) {
@@ -158,8 +172,11 @@ void CompactBallStore::takeCompactTail(size_t tailCount, CompactBalls& balls) {
 
 size_t CompactBallStore::addCompact(const CompactBalls& balls) {
     const size_t first = count;
-    const size_t added = std::min(balls.position.size(), balls.state.size());
-    if (!resize(count + added)) {
+    size_t added = std::min(balls.position.size(), balls.state.size());
+    if (isPreallocated()) {
+        added = std::min(added, roomLeft());
+    }
+    if (added == 0 || !resize(count + added)) {
         return 0;
     }
     std::copy_n(balls.position.begin(), added, position.begin() + static_cast<std::ptrdiff_t>(first));

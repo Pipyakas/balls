@@ -32,6 +32,7 @@ public:
         return store.takeTail(count);
     }
     size_t ballCapacityLimit() const override;
+    size_t preallocateBalls() override;
 
     static bool isSupportedByCpu();
 

@@ -179,6 +179,12 @@ GameSession::~GameSession() {
 
 // A newer request replaces one still building, which also picks up a compute GPU chosen in between.
 void GameSession::requestBackend(BackendKind kind) {
+#if defined(BALLS_FIXED_TARGET)
+    // The scoring build has one backend, built once per process; rebuilding it would only wait for itself.
+    if (kind == backendKind && !pendingBuild) {
+        return;
+    }
+#endif
     if (pendingBuild) {
         pendingBuild->abandon();
     }
