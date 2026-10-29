@@ -87,7 +87,7 @@ std::string validate(const GameplayRules& rules) {
 Result<GameplayRules> parseGameplayRules(std::string_view text) {
     const SectionMap sections = splitSections(text);
     GameplayRules rules;
-    for (const Result<bool> read :
+    for (const Result<bool>& read :
          {readRule(sections, {"Balls", "Radius"}, rules.ballRadius), readRule(sections, {"Balls", "Speed"}, rules.ballSpeed),
           readRule(sections, {"Balls", "RetargetAfterBounces"}, rules.retargetBounces),
           readRule(sections, {"Balls", "LaunchHalfAngleDegrees"}, rules.launchHalfAngleDegrees),

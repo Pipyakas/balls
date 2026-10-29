@@ -59,7 +59,9 @@ if(MSVC)
     set(BALLS_AVX2_FLAGS /arch:AVX2)
     set(BALLS_AVX512_FLAGS /arch:AVX512)
 else()
-    set(BALLS_WARNINGS -Wall -Wextra -Wpedantic)
+    # Aggregates here rely on default member initializers for the members they leave out, which -Wextra reports as
+    # missing initializers.
+    set(BALLS_WARNINGS -Wall -Wextra -Wpedantic -Wno-missing-field-initializers)
     set(BALLS_OPTIMIZE $<$<CONFIG:Release,RelWithDebInfo>:-O3 -ffast-math>)
     if(BALLS_PROFILE STREQUAL "scoring")
         set(BALLS_AVX2_FLAGS -mavx2 -mfma -mtune=raptorlake)
