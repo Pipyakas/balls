@@ -42,6 +42,8 @@ CUDA kernels, and the CUDA+AVX2 pair as the one physics backend, with no backend
 allocates its whole memory budget once per process (free VRAM less 512 MB, available RAM less the usual margin), so
 balls never grow, copy or page-fault during play. Auto is that capacity, with no probe, and ramping up to it keeps every physics frame within 1/60 s. The default, `all`, is the extended build with every backend; set
 `BALLS_PREALLOCATE=1` there to try the same up-front allocation on the pair.
+To try the scoring build on another NVIDIA GPU, set `-DBALLS_SCORING_CUDA_SM` to its architecture (86 for an RTX 30
+series); the default, 75, is the target PC's GTX 1650.
 
 To get the most balls out of the scoring build, close other programs before starting it, GPU-heavy ones especially.
 The budget is measured once, when the game starts: every GB of RAM or VRAM that is free at that moment holds about

@@ -45,8 +45,10 @@ if(BALLS_ENABLE_CUDA AND EXISTS "${BALLS_CUDA_SDK_DIR}/include/nvrtc.h")
     set(BALLS_KERNEL_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/BallKernelImages.h")
     set(BALLS_PTXGEN_FLAGS "")
     if(BALLS_PROFILE STREQUAL "scoring")
-        # The target PC is a GTX 1650 (sm_75 Turing); only generate that binary cubin.
-        set(BALLS_PTXGEN_FLAGS "--only-sm=75")
+        # The target PC is a GTX 1650 (sm_75 Turing); only generate that binary cubin. Another value tries
+        # the scoring build on a different NVIDIA GPU (86 for an RTX 30 series).
+        set(BALLS_SCORING_CUDA_SM "75" CACHE STRING "The one CUDA architecture the scoring profile builds for")
+        set(BALLS_PTXGEN_FLAGS "--only-sm=${BALLS_SCORING_CUDA_SM}")
     endif()
     add_custom_command(
         OUTPUT "${BALLS_KERNEL_HEADER}"
