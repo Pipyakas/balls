@@ -120,8 +120,8 @@ void drawDebugPanel(Rect area, const SessionView& session, const FrameTimings& f
 }
 
 void drawPortraitDebugStrip(Rect area, const SessionView& session, const FrameTimings& frames, bool showBackend) {
-    constexpr float labelSize = 15.0f;
-    constexpr float valueSize = 18.0f;
+    constexpr float stripLabelSize = 15.0f;
+    constexpr float stripValueSize = 18.0f;
     constexpr float horizontalPadding = 12.0f;
     constexpr float itemGap = 16.0f;
     const FrameSample& sample = frames.average();
@@ -143,8 +143,8 @@ void drawPortraitDebugStrip(Rect area, const SessionView& session, const FrameTi
     const int shownItems = showBackend ? itemCount : itemCount - 1;
     float widths[itemCount] = {};
     for (int index = 0; index < itemCount; ++index) {
-        widths[index] = std::max(ui::measureText(labels[index], labelSize).x,
-                                 ui::measureText(values[index], valueSize).x);
+        widths[index] = std::max(ui::measureText(labels[index], stripLabelSize).x,
+                                 ui::measureText(values[index], stripValueSize).x);
     }
     int visibleCount = shownItems;
     while (visibleCount > 0) {
@@ -174,10 +174,10 @@ void drawPortraitDebugStrip(Rect area, const SessionView& session, const FrameTi
     const float centerY = area.y + area.height * 0.5f;
     gfx::beginClip(area);
     for (int index = 0; index < visibleCount; ++index) {
-        ui::drawText(labels[index], {itemX, centerY - labelSize - 2.0f}, labelSize, palette::textMuted);
+        ui::drawText(labels[index], {itemX, centerY - stripLabelSize - 2.0f}, stripLabelSize, palette::textMuted);
         const Color color = index == 0 ? fpsColor(fps) : (index == 1 ? fpsColor(minimumFps) : palette::text);
-        ui::drawText(values[index], {itemX, centerY + 2.0f}, valueSize, color);
-        ui::drawText(values[index], {itemX + 1.0f, centerY + 2.0f}, valueSize, color);
+        ui::drawText(values[index], {itemX, centerY + 2.0f}, stripValueSize, color);
+        ui::drawText(values[index], {itemX + 1.0f, centerY + 2.0f}, stripValueSize, color);
         itemX += widths[index] + gap;
     }
     gfx::endClip();
