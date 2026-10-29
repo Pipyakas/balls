@@ -13,6 +13,15 @@ constexpr int maximumScatterAttempts = 8;
 
 }
 
+SimulationTuning simulationTuning(const GameplayRules& rules) {
+    return {rules.ballRadius,
+            rules.ballSpeed,
+            1.0f / static_cast<float>(rules.ticksPerSecond),
+            rules.maxTicksPerFrame,
+            rules.retargetBounces,
+            rules.launchHalfAngleDegrees};
+}
+
 Simulation::Simulation(BackendHandle backend, SimulationTuning tuning)
     : settings(tuning), physics(std::move(backend)) {}
 

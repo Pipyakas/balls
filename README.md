@@ -248,6 +248,11 @@ Each level is a pair of files in `data/assets/levels/normal` or `data/assets/lev
 
 Colors: Red, Orange, Yellow, Green, Blue, Indigo, Violet.
 
+`data/assets/levels/Gameplay.txt` holds the rules every level plays by, in the same `[Section]` / `Key Value` text:
+ball radius and speed, how many bounces before a ball heads for the nearest brick of its color, the launch angle,
+the physics tick rate and the Normal-mode spawn rate. Values the simulation cannot run (a ball that would cross more
+than its radius in a tick, say) are refused with the level's load error, and a key left out keeps its built-in value.
+
 `performance/Unlimited` has the `DA_1000Bricks` board with one launcher per color at the largest count the format
 takes (2,147,483,647), so even at x1 it holds more balls than any machine's capacity: auto release keeps spawning
 until the ball limit stops it.

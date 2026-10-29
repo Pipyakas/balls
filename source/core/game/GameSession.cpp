@@ -20,7 +20,8 @@ double secondsSince(std::chrono::steady_clock::time_point start) {
 
 GameSession::GameSession(GameMode mode, LevelData level, BackendKind backend)
     : gameMode(mode), levelData(std::move(level)), backendKind(backend),
-      physicsSimulation(createBackend(isBackendAvailable(backend) ? backend : fastestAvailableCpuBackend())),
+      physicsSimulation(createBackend(isBackendAvailable(backend) ? backend : fastestAvailableCpuBackend()),
+                        simulationTuning(levelData.rules)),
       additionGovernor(physicsSimulation.tuning().tickSeconds) {
     if (!isBackendAvailable(backend)) {
         backendKind = fastestAvailableCpuBackend();
@@ -29,13 +30,14 @@ GameSession::GameSession(GameMode mode, LevelData level, BackendKind backend)
 }
 
 void GameSession::restart() {
+    physicsSimulation.setTuning(simulationTuning(levelData.rules));
     physicsSimulation.load(levelData.bricks);
     launcherQueue.load(levelData.launchers);
     spawnController.clear();
     spawnController.setInterleaved(gameMode == GameMode::Performance);
     fillRemaining = 0;
     additionGovernor = AdditionGovernor(physicsSimulation.tuning().tickSeconds);
-    spawnController.setBallsPerSecond(gameMode == GameMode::Normal ? normalModeSpawnRate
+    spawnController.setBallsPerSecond(gameMode == GameMode::Normal ? levelData.rules.normalSpawnRate
                                                                    : static_cast<float>(spawnRateOptions[selectedSpawnRate]));
     sessionState = gameMode == GameMode::Normal ? SessionState::Running : SessionState::Ready;
     autoRelease = false;

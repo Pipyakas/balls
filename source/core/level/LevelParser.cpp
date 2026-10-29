@@ -1,5 +1,8 @@
 #include "level/LevelParser.h"
 
+#include "level/GameplayRules.h"
+#include "level/SectionText.h"
+
 #include <charconv>
 #include <format>
 #include <fstream>
@@ -15,48 +18,7 @@ constexpr std::string_view layoutSection = "Layout";
 constexpr std::string_view brickTypesSection = "BrickTypes";
 constexpr std::string_view emptySlotToken = "Empty";
 
-using SectionMap = std::map<std::string, std::vector<std::vector<std::string>>, std::less<>>;
 using BoardValues = std::map<std::string, int, std::less<>>;
-
-std::vector<std::string> splitWhitespace(std::string_view line) {
-    std::vector<std::string> tokens;
-    std::istringstream stream{std::string(line)};
-    std::string token;
-    while (stream >> token) {
-        tokens.push_back(token);
-    }
-    return tokens;
-}
-
-std::string_view trim(std::string_view text) {
-    const auto first = text.find_first_not_of(" \t\r\n");
-    if (first == std::string_view::npos) {
-        return {};
-    }
-    const auto last = text.find_last_not_of(" \t\r\n");
-    return text.substr(first, last - first + 1);
-}
-
-SectionMap splitSections(std::string_view text) {
-    SectionMap sections;
-    std::string current;
-    size_t lineStart = 0;
-    while (lineStart <= text.size()) {
-        const size_t lineEnd = std::min(text.find('\n', lineStart), text.size());
-        const std::string_view line = trim(text.substr(lineStart, lineEnd - lineStart));
-        lineStart = lineEnd + 1;
-        if (line.empty()) {
-            continue;
-        }
-        if (line.front() == '[' && line.back() == ']') {
-            current = std::string(trim(line.substr(1, line.size() - 2)));
-            sections[current];
-            continue;
-        }
-        sections[current].push_back(splitWhitespace(line));
-    }
-    return sections;
-}
 
 Result<int> parseInt(std::string_view token) {
     int value = 0;
@@ -257,5 +219,20 @@ Result<LevelData> loadLevel(const LevelFiles& files) {
     if (!launchers) {
         return Error{std::format("{}: {}", files.launchersPath.filename().string(), launchers.error())};
     }
-    return LevelData{files.name, std::move(*bricks), std::move(*launchers)};
+    // Gameplay.txt sits in the levels folder, the parent of the normal/ and performance/ folders; a level kept
+    // anywhere else plays by the built-in rules.
+    GameplayRules rules;
+    const std::filesystem::path rulesPath = files.bricksPath.parent_path().parent_path() / gameplayRulesFileName;
+    if (std::filesystem::exists(rulesPath)) {
+        auto rulesText = readTextFile(rulesPath);
+        if (!rulesText) {
+            return Error{rulesText.error()};
+        }
+        auto parsedRules = parseGameplayRules(*rulesText);
+        if (!parsedRules) {
+            return Error{std::format("{}: {}", gameplayRulesFileName, parsedRules.error())};
+        }
+        rules = *parsedRules;
+    }
+    return LevelData{files.name, std::move(*bricks), std::move(*launchers), rules};
 }

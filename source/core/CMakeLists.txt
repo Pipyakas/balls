@@ -6,6 +6,8 @@ add_library(balls_core STATIC
     gpu/GpuAdapters.cpp
     level/LevelData.cpp
     level/LevelParser.cpp
+    level/SectionText.cpp
+    level/GameplayRules.cpp
     level/LevelWriter.cpp
     level/LevelRepository.cpp
     level/LevelWatcher.cpp
