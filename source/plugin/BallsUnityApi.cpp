@@ -1,6 +1,7 @@
 #include "BallsUnityApi.h"
 
 #include "common/BallColor.h"
+#include "editor/EditorSession.h"
 #include "editor/LevelEditor.h"
 #include "control/ControlApi.h"
 #include "game/FrameTimings.h"
@@ -225,6 +226,10 @@ void fillLevelInfo(const LevelFiles& files, BallsLevelInfo& info) {
 }
 
 bool hasText(const char* text) { return text != nullptr && text[0] != 0; }
+
+struct BallsEditorSession {
+    EditorSession session;
+};
 
 struct BallsFrameTimings {
     FrameTimings timings;
@@ -2171,6 +2176,282 @@ int32_t balls_menu_message(int32_t which, int32_t kind, uint64_t balls, double f
 
 int32_t balls_menu_physics_on(const BallsPick* picks, int32_t pickCount, char* buffer, int32_t size) {
     return writeText(physicsOnMessage(toPicks(picks, pickCount)), buffer, size);
+}
+
+
+BallsEditorSession* balls_editor_session_create(int32_t mode, const char* levelName, const char* normalLevels,
+                                                const char* performanceLevels) {
+    if (normalLevels == nullptr || performanceLevels == nullptr) {
+        setError("both level folders are required");
+        return nullptr;
+    }
+    const GameMode gameMode = toGameMode(mode);
+    const std::filesystem::path folder(gameMode == GameMode::Normal ? normalLevels : performanceLevels);
+    std::optional<LevelFiles> files;
+    if (hasText(levelName)) {
+        files = levelFilesFor(folder, levelName);
+    }
+    return new BallsEditorSession{EditorSession(gameMode, std::move(files), std::filesystem::path(normalLevels),
+                                                std::filesystem::path(performanceLevels))};
+}
+
+void balls_editor_session_destroy(BallsEditorSession* session) { delete session; }
+
+void balls_editor_session_update(BallsEditorSession* session, float deltaSeconds) {
+    if (session != nullptr) {
+        session->session.update(deltaSeconds);
+    }
+}
+
+void balls_editor_session_state(const BallsEditorSession* session, BallsEditorState* state) {
+    if (session == nullptr || state == nullptr) {
+        return;
+    }
+    const EditorSession& source = session->session;
+    const LevelData& level = source.level();
+    std::memset(state, 0, sizeof *state);
+    state->width = level.bricks.width;
+    state->height = level.bricks.height;
+    state->playableHeight = level.bricks.playableHeight;
+    state->launcherColumns = level.launchers.columns;
+    state->launcherVisibleRows = level.launchers.visibleRows;
+    state->launcherRows = level.launchers.rowCount();
+    state->dirty = source.isDirty() ? 1 : 0;
+    state->canUndo = source.canUndo() ? 1 : 0;
+    state->canRedo = source.canRedo() ? 1 : 0;
+    state->tool = static_cast<int32_t>(source.tool());
+    state->brushColor = toIndex(source.brushColor());
+    state->brushHits = source.brushHits();
+    state->launcherBalls = source.launcherBalls();
+    state->selectedBrick = source.selectedBrick();
+    state->mode = fromGameMode(source.mode());
+    state->playable = source.validation().isPlayable() ? 1 : 0;
+    state->problemCount = static_cast<int32_t>(source.validation().problems.size());
+    state->messageSecondsLeft = source.message().secondsLeft;
+    state->messageIsError = source.message().isError ? 1 : 0;
+}
+
+int32_t balls_editor_session_text(const BallsEditorSession* session, int32_t which, char* buffer, int32_t size) {
+    if (session == nullptr) {
+        return writeText(std::string_view{}, buffer, size);
+    }
+    const EditorSession& source = session->session;
+    switch (which) {
+    case BALLS_EDITOR_TEXT_NAME:
+        return writeText(source.name(), buffer, size);
+    case BALLS_EDITOR_TEXT_SELECTION:
+        return writeText(source.selectionText(), buffer, size);
+    case BALLS_EDITOR_TEXT_SAVE_LABEL:
+        return writeText(source.saveLabel(), buffer, size);
+    case BALLS_EDITOR_TEXT_BACK_LABEL:
+        return writeText(source.backLabel(), buffer, size);
+    case BALLS_EDITOR_TEXT_FOOTER:
+        return writeText(source.footerText(), buffer, size);
+    case BALLS_EDITOR_TEXT_MESSAGE:
+        return writeText(source.message().text, buffer, size);
+    default:
+        return writeText(std::string_view{}, buffer, size);
+    }
+}
+
+int32_t balls_editor_session_problem(const BallsEditorSession* session, int32_t index, char* buffer, int32_t size) {
+    if (session == nullptr || index < 0 ||
+        index >= static_cast<int32_t>(session->session.validation().problems.size())) {
+        return writeText(std::string_view{}, buffer, size);
+    }
+    return writeText(session->session.validation().problems[static_cast<size_t>(index)], buffer, size);
+}
+
+int32_t balls_editor_session_tally(const BallsEditorSession* session, int32_t color, char* buffer, int32_t size) {
+    if (session == nullptr || color < 0 || color >= ballColorCount) {
+        writeText(std::string_view{}, buffer, size);
+        return 0;
+    }
+    const BallColor ballColor = ballColorFromIndex(color);
+    writeText(session->session.colorTallyText(ballColor), buffer, size);
+    return session->session.colorTallyMatches(ballColor) ? 1 : 0;
+}
+
+int32_t balls_editor_session_tool_label(int32_t tool, char* buffer, int32_t size) {
+    for (const EditorToolButton& button : EditorSession::toolButtons()) {
+        if (static_cast<int32_t>(button.tool) == tool) {
+            return writeText(button.label, buffer, size);
+        }
+    }
+    return writeText(std::string_view{}, buffer, size);
+}
+
+int32_t balls_editor_session_brick(const BallsEditorSession* session, int32_t column, int32_t row, int32_t* color,
+                                   int32_t* hits) {
+    int32_t id = emptyBrickId;
+    int32_t brickColor = -1;
+    int32_t brickHits = 0;
+    if (session != nullptr) {
+        const BrickLayout& bricks = session->session.level().bricks;
+        if (column >= 0 && row >= 0 && column < bricks.width && row < bricks.height) {
+            id = bricks.cellId(column, row);
+            if (const BrickType* type = bricks.findType(id)) {
+                brickColor = toIndex(type->color);
+                brickHits = type->hits;
+            }
+        }
+    }
+    if (color != nullptr) {
+        *color = brickColor;
+    }
+    if (hits != nullptr) {
+        *hits = brickHits;
+    }
+    return id;
+}
+
+int32_t balls_editor_session_launcher(const BallsEditorSession* session, int32_t column, int32_t row, int32_t* color,
+                                      int32_t* balls) {
+    if (session == nullptr) {
+        return 0;
+    }
+    const LauncherLayout& launchers = session->session.level().launchers;
+    if (column < 0 || row < 0 || column >= launchers.columns || row >= launchers.rowCount()) {
+        return 0;
+    }
+    const std::optional<Launcher>& slot = launchers.slot(column, row);
+    if (!slot) {
+        return 0;
+    }
+    if (color != nullptr) {
+        *color = toIndex(slot->color);
+    }
+    if (balls != nullptr) {
+        *balls = slot->ballCount;
+    }
+    return 1;
+}
+
+void balls_editor_session_set_tool(BallsEditorSession* session, int32_t tool) {
+    if (session != nullptr && tool >= BALLS_TOOL_PAINT && tool <= BALLS_TOOL_PICK) {
+        session->session.setTool(static_cast<EditorTool>(tool));
+    }
+}
+
+void balls_editor_session_select_color(BallsEditorSession* session, int32_t color) {
+    if (session != nullptr && color >= 0 && color < ballColorCount) {
+        session->session.selectColor(ballColorFromIndex(color));
+    }
+}
+
+void balls_editor_session_set_brush_hits(BallsEditorSession* session, int32_t hits) {
+    if (session != nullptr) {
+        session->session.setBrushHits(hits);
+    }
+}
+
+void balls_editor_session_set_launcher_balls(BallsEditorSession* session, int32_t balls) {
+    if (session != nullptr) {
+        session->session.setLauncherBalls(balls);
+    }
+}
+
+void balls_editor_session_begin_stroke(BallsEditorSession* session, int32_t erase) {
+    if (session != nullptr) {
+        session->session.beginStroke(erase != 0);
+    }
+}
+
+void balls_editor_session_stroke_cell(BallsEditorSession* session, int32_t column, int32_t row) {
+    if (session != nullptr) {
+        session->session.strokeCell(column, row);
+    }
+}
+
+void balls_editor_session_end_stroke(BallsEditorSession* session) {
+    if (session != nullptr) {
+        session->session.endStroke();
+    }
+}
+
+void balls_editor_session_click_launcher(BallsEditorSession* session, int32_t column, int32_t row, int32_t click) {
+    if (session != nullptr && click >= BALLS_LAUNCHER_SET && click <= BALLS_LAUNCHER_DELETE_ROW) {
+        session->session.clickLauncher(column, row, static_cast<LauncherClick>(click));
+    }
+}
+
+void balls_editor_session_set_name(BallsEditorSession* session, const char* name) {
+    if (session != nullptr) {
+        session->session.setName(name != nullptr ? name : "");
+    }
+}
+
+void balls_editor_session_set_mode(BallsEditorSession* session, int32_t mode) {
+    if (session != nullptr) {
+        session->session.setMode(toGameMode(mode));
+    }
+}
+
+void balls_editor_session_set_board_size(BallsEditorSession* session, int32_t width, int32_t brickRows,
+                                         int32_t totalRows) {
+    if (session != nullptr) {
+        session->session.setBoardSize(width, brickRows, totalRows);
+    }
+}
+
+void balls_editor_session_set_launcher_columns(BallsEditorSession* session, int32_t columns) {
+    if (session != nullptr) {
+        session->session.setLauncherColumns(columns);
+    }
+}
+
+void balls_editor_session_set_visible_rows(BallsEditorSession* session, int32_t rows) {
+    if (session != nullptr) {
+        session->session.setVisibleRows(rows);
+    }
+}
+
+void balls_editor_session_auto_fill(BallsEditorSession* session) {
+    if (session != nullptr) {
+        session->session.autoFillLaunchers();
+    }
+}
+
+void balls_editor_session_undo(BallsEditorSession* session) {
+    if (session != nullptr) {
+        session->session.undo();
+    }
+}
+
+void balls_editor_session_redo(BallsEditorSession* session) {
+    if (session != nullptr) {
+        session->session.redo();
+    }
+}
+
+int32_t balls_editor_session_save(BallsEditorSession* session) {
+    return session != nullptr && session->session.save() ? 1 : 0;
+}
+
+int32_t balls_editor_session_save_and_play(BallsEditorSession* session, BallsLevelInfo* level) {
+    if (session == nullptr) {
+        return 0;
+    }
+    const std::optional<LevelFiles> files = session->session.saveAndPlay();
+    if (!files) {
+        return 0;
+    }
+    if (level != nullptr) {
+        std::memset(level, 0, sizeof *level);
+        fillLevelInfo(*files, *level);
+    }
+    return 1;
+}
+
+int32_t balls_editor_session_back(BallsEditorSession* session) {
+    return session == nullptr || session->session.back() == EditorLeave::Leave ? 1 : 0;
+}
+
+int32_t balls_editor_session_shortcut(BallsEditorSession* session, int32_t shortcut) {
+    if (session == nullptr || shortcut < BALLS_SHORTCUT_UNDO || shortcut > BALLS_SHORTCUT_COLOR_1 + ballColorCount - 1) {
+        return 0;
+    }
+    return session->session.handleShortcut(static_cast<EditorShortcut>(shortcut)) ? 1 : 0;
 }
 
 } // extern "C"
