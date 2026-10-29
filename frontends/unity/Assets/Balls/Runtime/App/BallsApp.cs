@@ -80,8 +80,13 @@ namespace Balls.App
         /// </summary>
         public int DefaultBackendKind => Settings != null ? Settings.BackendKind(FallbackBackend()) : FallbackBackend();
 
+        // The core's chooseStartupBackend after the Settings default: Hybrid, then the target PC's winner, then AVX2.
         private static int FallbackBackend()
         {
+            if (BallsNative.BackendAvailable(BallsNative.BackendHybrid))
+            {
+                return BallsNative.BackendHybrid;
+            }
             string winner = MachineProfile.TargetWinner();
             if (winner != null)
             {

@@ -29,7 +29,7 @@ constexpr float PhysicsRowGap = 6.0f;
 constexpr float PhysicsLabelHeight = 28.0f;
 constexpr float PhysicsGroupPadding = 14.0f;
 float PhysicsGroupHeight() {
-    return PhysicsLabelHeight + static_cast<float>(allBackendKinds.size()) * (PhysicsRowHeight + PhysicsRowGap) +
+    return PhysicsLabelHeight + static_cast<float>(selectableBackends().size()) * (PhysicsRowHeight + PhysicsRowGap) +
            PhysicsGroupPadding;
 }
 constexpr float OverlayWidth = 420.0f;
@@ -944,7 +944,8 @@ TSharedRef<SWidget> SBallsGameplayHud::MakeNormalPhysicsGroup() {
         }
         return std::vector<BackendRow>{};
     };
-    for (const BackendKind Kind : allBackendKinds) {
+    // The rows the core offers: Scalar only when nothing faster loads, and no CUDA+AVX2 (Hybrid covers it).
+    for (const BackendKind Kind : selectableBackends()) {
         Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, PhysicsRowGap)
         [
             SNew(SBox).HeightOverride(PhysicsRowHeight)
@@ -1104,7 +1105,8 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
         }
         return std::vector<BackendRow>{};
     };
-    for (const BackendKind Kind : allBackendKinds) {
+    // The rows the core offers: Scalar only when nothing faster loads, and no CUDA+AVX2 (Hybrid covers it).
+    for (const BackendKind Kind : selectableBackends()) {
         AddRow(BallsWidgets::Button(
             TAttribute<FText>::CreateLambda([BackendRowsNow, Kind] {
                 const std::vector<BackendRow> Rows = BackendRowsNow();

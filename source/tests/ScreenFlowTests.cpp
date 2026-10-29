@@ -226,6 +226,16 @@ TEST_CASE("the load error retries when the files change again") {
     EXPECT(flow.screen() == FlowScreen::Gameplay);
 }
 
+#if defined(BALLS_FIXED_TARGET)
+TEST_CASE("the scoring build never offers the machine benchmark") {
+    FlowFolders folders("balls_flow_benchmark");
+    ScreenFlow flow(folders.normal, folders.performance);
+    flow.activate(FlowAction::Settings);
+    EXPECT(!flow.canRunMachineBenchmark());
+    EXPECT(!flow.activate(FlowAction::RunMachineBenchmark));
+    EXPECT(flow.screen() == FlowScreen::Settings);
+}
+#else
 TEST_CASE("the machine benchmark offers Skip, then Continue, and moves on by itself") {
     FlowFolders folders("balls_flow_benchmark");
     ScreenFlow flow(folders.normal, folders.performance);
@@ -250,6 +260,7 @@ TEST_CASE("the machine benchmark offers Skip, then Continue, and moves on by its
     EXPECT(flow.screen() == FlowScreen::MainMenu);
     EXPECT(drainRequests(flow) == std::vector{FlowRequestKind::SkipBenchmark});
 }
+#endif
 
 TEST_CASE("imports land in the open level select and highlight the new level for two seconds") {
     FlowFolders folders("balls_flow_import");

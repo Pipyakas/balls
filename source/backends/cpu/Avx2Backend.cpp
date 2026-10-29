@@ -300,6 +300,9 @@ void Avx2Backend::materializeFreeFlight() {
 // Paging even part of the balls out would cost more than the frame budget, so the ceiling stops short of it, and
 // once Windows reports memory as low no more balls are taken at all.
 size_t Avx2Backend::ballCapacityLimit() const {
+    if (store.isPreallocated()) {
+        return store.capacity();
+    }
     constexpr size_t bytesPerBall = 8;
     constexpr size_t minimumMarginBytes = size_t{1} << 30;
     constexpr size_t marginDivisor = 32;
@@ -313,6 +316,33 @@ size_t Avx2Backend::ballCapacityLimit() const {
     const size_t margin = std::max(minimumMarginBytes, memory->total / marginDivisor);
     const size_t spare = memory->available > margin ? memory->available - margin : 0;
     return store.count + spare / bytesPerBall;
+}
+
+size_t Avx2Backend::preallocateBalls() {
+    if (store.isPreallocated()) {
+        return store.capacity();
+    }
+    if (isMemoryLow()) {
+        return 0;
+    }
+    const std::optional<PhysicalMemory> memory = physicalMemory();
+    if (!memory) {
+        return 0;
+    }
+    constexpr size_t minimumMarginBytes = size_t{1} << 30;
+    constexpr size_t marginDivisor = 32;
+    const size_t margin = std::max(minimumMarginBytes, memory->total / marginDivisor);
+    const size_t spare = memory->available > margin ? memory->available - margin : 0;
+    if (spare == 0) {
+        return 0;
+    }
+    constexpr size_t commitGranule = size_t{64} << 20;
+    const size_t bytesPerArray = (spare / 2 / commitGranule) * commitGranule;
+    if (bytesPerArray == 0) {
+        return 0;
+    }
+    const size_t targetBalls = bytesPerArray / sizeof(uint32_t);
+    return store.preallocate(targetBalls, pool.get());
 }
 
 void Avx2Backend::step(const StepParams& params, std::vector<BallHit>& hits) {

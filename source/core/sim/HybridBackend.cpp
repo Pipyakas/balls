@@ -17,7 +17,9 @@ constexpr size_t minimumBallsToMeasure = 65536;
 constexpr size_t minimumHybridBalls = 262144;
 constexpr size_t minimumRebalanceBalls = 131072;
 constexpr double rebalanceTolerance = 0.02;
-constexpr size_t maximumBallsMovedPerStep = 1u << 22;
+// A move copies the balls off one device and onto the other within a step; 4M of them took about 30 ms on the
+// target PC, so a frame that moves stays within 60 FPS only at this size.
+constexpr size_t maximumBallsMovedPerStep = 1u << 20;
 constexpr double slotSelectionRange = 4294967296.0;
 
 using Clock = std::chrono::steady_clock;

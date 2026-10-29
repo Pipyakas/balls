@@ -1,4 +1,4 @@
-#include "cpu/WorkerPool.h"
+#include "common/WorkerPool.h"
 
 #include <algorithm>
 
@@ -67,35 +67,44 @@ WorkerPool::~WorkerPool() {
     workers.clear();
 }
 
-void WorkerPool::drainChunks() {
-    const size_t itemCount = currentItemCount;
-    const size_t chunkSize = currentChunkSize;
-    const size_t chunks = (itemCount + chunkSize - 1) / chunkSize;
-    for (size_t chunk = nextChunk.fetch_add(1, std::memory_order_relaxed); chunk < chunks;
-         chunk = nextChunk.fetch_add(1, std::memory_order_relaxed)) {
-        const size_t begin = chunk * chunkSize;
-        (*currentTask)(chunk, begin, std::min(begin + chunkSize, itemCount));
+// Chunks are claimed one at a time from the cursor, and only while it still names this job's generation.
+void WorkerPool::drainChunks(const Job& job) {
+    uint64_t claimed = cursor.load(std::memory_order_acquire);
+    for (;;) {
+        if ((claimed >> 32) != (job.generation & 0xFFFFFFFFu) || (claimed & 0xFFFFFFFFu) >= job.chunks) {
+            return;
+        }
+        if (!cursor.compare_exchange_weak(claimed, claimed + 1, std::memory_order_acq_rel)) {
+            continue;
+        }
+        const size_t chunk = static_cast<size_t>(claimed & 0xFFFFFFFFu);
+        const size_t begin = chunk * job.chunkSize;
+        (*job.task)(chunk, begin, std::min(begin + job.chunkSize, job.itemCount));
+        if (chunksDone.fetch_add(1, std::memory_order_acq_rel) + 1 == job.chunks) {
+            std::lock_guard lock(mutex);
+            doneCondition.notify_all();
+        }
+        claimed = cursor.load(std::memory_order_acquire);
     }
 }
 
+// A worker only helps with the job it woke for; the caller waits for that job's chunks, not for every worker to
+// wake, so a worker the scheduler runs late (they run below normal priority next to a GPU) delays nothing.
 void WorkerPool::workerLoop(WorkerPriority priority) {
     applyPriority(priority);
-    size_t seenGeneration = 0;
+    uint64_t seenGeneration = 0;
     while (true) {
+        Job job;
         {
             std::unique_lock lock(mutex);
-            wakeCondition.wait(lock, [&] { return stopping || generation != seenGeneration; });
+            wakeCondition.wait(lock, [&] { return stopping || current.generation != seenGeneration; });
             if (stopping) {
                 return;
             }
-            seenGeneration = generation;
+            seenGeneration = current.generation;
+            job = current;
         }
-        drainChunks();
-        {
-            std::lock_guard lock(mutex);
-            --pendingWorkers;
-        }
-        doneCondition.notify_one();
+        drainChunks(job);
     }
 }
 
@@ -105,17 +114,25 @@ size_t WorkerPool::chunkCountFor(size_t itemCount, size_t chunkSize) {
 }
 
 void WorkerPool::runChunks(size_t itemCount, size_t chunkSize, const ChunkTask& task) {
+    Job job;
     {
         std::lock_guard lock(mutex);
-        currentTask = &task;
-        currentItemCount = itemCount;
-        currentChunkSize = std::max<size_t>(chunkSize, 1);
-        nextChunk.store(0, std::memory_order_relaxed);
-        pendingWorkers = workers.size();
-        ++generation;
+        job.task = &task;
+        job.itemCount = itemCount;
+        job.chunkSize = std::max<size_t>(chunkSize, 1);
+        job.chunks = chunkCountFor(itemCount, job.chunkSize);
+        job.generation = current.generation + 1;
+        chunksDone.store(0, std::memory_order_relaxed);
+        cursor.store((job.generation & 0xFFFFFFFFu) << 32, std::memory_order_release);
+        current = job;
     }
-    wakeCondition.notify_all();
-    drainChunks();
+    if (job.chunks == 0) {
+        return;
+    }
+    if (job.chunks > 1) {
+        wakeCondition.notify_all();
+    }
+    drainChunks(job);
     std::unique_lock lock(mutex);
-    doneCondition.wait(lock, [&] { return pendingWorkers == 0; });
+    doneCondition.wait(lock, [&] { return chunksDone.load(std::memory_order_acquire) == job.chunks; });
 }

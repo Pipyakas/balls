@@ -17,7 +17,7 @@
 #define BALLS_PLUGIN_EXPORT extern "C" __attribute__((visibility("default")))
 #endif
 
-inline constexpr int physicsPluginInterfaceVersion = 4;
+inline constexpr int physicsPluginInterfaceVersion = 5;
 
 // One physical device a plugin can run a backend kind on, listed in the plugin's own order (the index that
 // ballsCreateBackendOnDevice takes). Plain data, so it crosses the C boundary. The host matches one GPU across
@@ -149,6 +149,9 @@ public:
     virtual void shareCoresWithGpu() {}
     virtual bool takeCompactTail(size_t, CompactBalls&) { return false; }
     virtual bool addCompact(const CompactBalls&) { return false; }
+    // Allocates the backend's whole ball-memory budget now, never grows afterwards, and returns the capacity in balls
+    // (0 = not supported).
+    virtual size_t preallocateBalls() { return 0; }
 };
 
 using CreateBackendFunction = PhysicsBackend* (*)(const char* kindName);

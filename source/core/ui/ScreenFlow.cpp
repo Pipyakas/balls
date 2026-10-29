@@ -100,10 +100,14 @@ void ScreenFlow::openEditor(GameMode mode, std::optional<LevelFiles> files) {
 void ScreenFlow::showSettings() { enterScreen(FlowScreen::Settings); }
 
 void ScreenFlow::runMachineBenchmark() {
+#if defined(BALLS_FIXED_TARGET)
+    return;
+#else
     enterScreen(FlowScreen::MachineBenchmark);
     benchmarkDone = false;
     benchmarkAdvanceLeft = 0.0f;
     request(FlowRequestKind::StartBenchmark);
+#endif
 }
 
 void ScreenFlow::levelLoaded() {
@@ -280,10 +284,12 @@ bool ScreenFlow::activate(FlowAction action, int row) {
             showMainMenu();
             return true;
         }
+#if !defined(BALLS_FIXED_TARGET)
         if (action == FlowAction::RunMachineBenchmark) {
             runMachineBenchmark();
             return true;
         }
+#endif
         return false;
     case FlowScreen::MachineBenchmark:
         if (action == FlowAction::SkipBenchmark && !benchmarkDone) {

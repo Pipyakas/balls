@@ -140,12 +140,20 @@ BackendKind chooseStartupBackend(std::optional<BackendKind> commandLine, std::st
     if (commandLine && isBackendAvailable(*commandLine)) {
         return *commandLine;
     }
-    const auto usable = [](BackendKind kind) { return isBackendAvailable(kind) && isBackendSelectable(kind); };
-    if (const auto saved = parseSavedBackendKind(settingsDefault); saved && usable(*saved)) {
-        return *saved;
+#if defined(BALLS_FIXED_TARGET)
+    if (isBackendAvailable(BackendKind::CudaAvx2)) {
+        return BackendKind::CudaAvx2;
     }
-    if (const auto target = targetMachineWinner(targetRecordFile); target && usable(target->kind)) {
-        return target->kind;
+#endif
+    const auto usable = [](BackendKind kind) { return isBackendAvailable(kind) && isBackendSelectable(kind); };
+    if (const auto saved = parseSavedBackendKind(settingsDefault); saved && usable(offeredBackend(*saved))) {
+        return offeredBackend(*saved);
+    }
+    if (usable(BackendKind::Hybrid)) {
+        return BackendKind::Hybrid;
+    }
+    if (const auto target = targetMachineWinner(targetRecordFile); target && usable(offeredBackend(target->kind))) {
+        return offeredBackend(target->kind);
     }
     return fastestAvailableCpuBackend();
 }

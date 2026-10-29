@@ -41,8 +41,7 @@ inline constexpr std::string_view defaultBackendLabel = "Default backend";
 inline constexpr std::string_view runBenchmarkLabel = "Run machine benchmark";
 inline constexpr std::string_view devicesLabel = "Devices";
 inline constexpr std::string_view devicesHint =
-    "One backend per device. Two or more devices run as Hybrid, splitting the balls between them; one runs that "
-    "backend alone.";
+    "The devices Hybrid splits the balls between, one backend each. Leaving one device on runs that backend alone.";
 inline constexpr std::string_view advancedSettingsLabel = "Advanced Settings";
 inline constexpr std::string_view releaseLabel = "Release";
 inline constexpr std::string_view spawnRateLabel = "Spawn / sec";
@@ -85,6 +84,8 @@ struct DevicePickRow {
     std::vector<std::optional<BackendKind>> kinds;
 };
 
+// The Devices rows belong to Hybrid: they show only while it is the selected backend.
+inline bool showsDevicePicks(BackendKind selected) { return selected == BackendKind::Hybrid; }
 // One row per physical device for the picks shown; the last device on cannot be turned off.
 std::vector<DevicePickRow> devicePickRows(std::span<const BackendPick> current);
 // The picks after a click on option `option` of row `row`, or nothing when the click changes nothing.

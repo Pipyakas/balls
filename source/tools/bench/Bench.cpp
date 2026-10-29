@@ -68,6 +68,8 @@ struct BenchOptions {
     int ticks = 240;
     bool fullSimulation = false;
     bool scatterSimulation = false;
+    bool growth = false;
+    bool fill = false;
     bool roofline = false;
     bool cpuRoofline = false;
     bool rooflineOnLevel = false;
@@ -147,6 +149,10 @@ BenchOptions parseOptions(int argumentCount, char** arguments) {
             options.fullSimulation = true;
         } else if (argument == "--scatter") {
             options.scatterSimulation = true;
+        } else if (argument == "--fill") {
+            options.fill = true;
+        } else if (argument == "--growth") {
+            options.growth = true;
         } else if (argument == "--collisions") {
             options.collisions = true;
         } else if (argument == "--machine-benchmark") {
@@ -395,6 +401,92 @@ void runScatteredSimulation(const BrickLayout& layout, BackendKind kind, size_t 
     }
 }
 
+// Grows from no balls to ballCount over `ticks` frames, adding an equal share every frame, the way spawning and the
+// capacity probe grow a session. Reports how long creating the backend took and the worst frames, which is where
+// allocation, copies and page faults while growing show up.
+void runGrowth(const BrickLayout& layout, BackendKind kind, size_t ballCount, int ticks, int substeps) {
+    const auto created = std::chrono::steady_clock::now();
+    Simulation simulation(createBackend(kind));
+    const double createMs =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - created).count();
+    simulation.load(layout);
+    // The game always draws through the visibility grid, which caps the per-ball render words.
+    const float slotSize = simulation.tuning().ballRadius * visibilitySlotsPerRadius;
+    simulation.backend().setVisibilityGrid(
+        visibilitySlots(static_cast<float>(simulation.board().columns()), slotSize),
+        visibilitySlots(static_cast<float>(simulation.board().rows()), slotSize));
+    const size_t perColorPerTick = std::max<size_t>(ballCount / ballColorCount / static_cast<size_t>(ticks), 1);
+    std::vector<double> frameMs;
+    std::vector<size_t> frameBalls;
+    frameMs.reserve(static_cast<size_t>(ticks));
+    frameBalls.reserve(static_cast<size_t>(ticks));
+    for (int tick = 0; tick < ticks; ++tick) {
+        const auto start = std::chrono::steady_clock::now();
+        for (BallColor color : allBallColors) {
+            simulation.scatterBalls(color, static_cast<BallCount>(perColorPerTick));
+        }
+        simulation.tick(substeps);
+        frameMs.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+        frameBalls.push_back(static_cast<size_t>(simulation.liveBallCount()));
+    }
+    std::vector<double> sorted = frameMs;
+    std::ranges::sort(sorted);
+    const auto percentile = [&](double fraction) {
+        return sorted[std::min(sorted.size() - 1, static_cast<size_t>(fraction * static_cast<double>(sorted.size())))];
+    };
+    const size_t worstFrame = static_cast<size_t>(std::ranges::max_element(frameMs) - frameMs.begin());
+    std::printf("%-7s growth to %zu balls over %d frames: create %8.1f ms  median %7.3f  p99 %7.3f  max %8.3f ms "
+                "(frame %zu)\n",
+                targetLabel(kind).c_str(), static_cast<size_t>(simulation.liveBallCount()), ticks, createMs,
+                percentile(0.5), percentile(0.99), sorted.back(), worstFrame);
+    constexpr double spikeFactor = 3.0;
+    for (size_t frame = 0; frame < frameMs.size(); ++frame) {
+        if (frameMs[frame] > spikeFactor * percentile(0.5)) {
+            std::printf("        spike frame %4zu  %8.3f ms  %zu balls\n", frame, frameMs[frame], frameBalls[frame]);
+        }
+    }
+}
+
+// What adding balls costs once the board is clear and they fly freely, as the Auto ramp adds them: generating the
+// launches, handing them to the backend, and the next frame's two ticks.
+void runFill(BackendKind kind, size_t batch, int batches) {
+    Simulation simulation(createBackend(kind));
+    BrickLayout layout;
+    layout.width = 30;
+    layout.height = 1;
+    layout.playableHeight = 38;
+    layout.cellIds.assign(static_cast<size_t>(layout.width), emptyBrickId);
+    simulation.load(layout);
+    const float slotSize = simulation.tuning().ballRadius * visibilitySlotsPerRadius;
+    simulation.backend().setVisibilityGrid(
+        visibilitySlots(static_cast<float>(simulation.board().columns()), slotSize),
+        visibilitySlots(static_cast<float>(simulation.board().rows()), slotSize));
+    simulation.tick(2);
+    std::vector<double> generateMs, addMs, stepMs;
+    const auto millisecondsSince = [](std::chrono::steady_clock::time_point start) {
+        return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    };
+    for (int round = 0; round < batches; ++round) {
+        auto start = std::chrono::steady_clock::now();
+        simulation.launchBalls(ballColorFromIndex(round % ballColorCount), static_cast<BallCount>(batch));
+        generateMs.push_back(millisecondsSince(start));
+        start = std::chrono::steady_clock::now();
+        simulation.flushSpawns();
+        addMs.push_back(millisecondsSince(start));
+        start = std::chrono::steady_clock::now();
+        simulation.tick(2);
+        stepMs.push_back(millisecondsSince(start));
+    }
+    const auto median = [](std::vector<double> values) {
+        std::ranges::sort(values);
+        return values[values.size() / 2];
+    };
+    const double perBallNs = 1e6 / static_cast<double>(batch);
+    std::printf("%-7s fill %zu x %d to %zu balls: generate %6.1f ns/ball  add %6.1f ns/ball  step %7.3f ms\n",
+                targetLabel(kind).c_str(), batch, batches, static_cast<size_t>(simulation.liveBallCount()),
+                median(generateMs) * perBallNs, median(addMs) * perBallNs, median(stepMs));
+}
+
 BrickLayout emptyBoard(int width, int rows) {
     BrickLayout layout;
     layout.width = width;
@@ -536,7 +628,11 @@ int main(int argumentCount, char** arguments) {
             continue;
         }
         for (size_t count : options.ballCounts) {
-            if (options.scatterSimulation) {
+            if (options.fill) {
+                runFill(kind, count, options.ticks);
+            } else if (options.growth) {
+                runGrowth(level->bricks, kind, count, options.ticks, options.substeps);
+            } else if (options.scatterSimulation) {
                 runScatteredSimulation(level->bricks, kind, count, options.ticks, options.substeps,
                                        options.collisions);
             } else if (options.fullSimulation) {

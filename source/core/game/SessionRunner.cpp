@@ -216,6 +216,8 @@ void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, Le
         view->frameNumber = ++frameNumber;
         view->physicsFrameMs = rate.lastFrameMs();
         view->physicsFramesPerSecond = rate.framesPerSecond();
+        view->physicsLongestFrameMs = rate.longestFrameMs();
+        view->physicsSlowFrames = rate.slowFrameCount();
         {
             std::lock_guard lock(shared->mutex);
             shared->latest = view;

@@ -7,12 +7,17 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <chrono>
+#include <condition_variable>
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <map>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
 
 #if defined(BALLS_STATIC_CPU_BACKEND)
 extern "C" {
@@ -322,7 +327,97 @@ std::string backendDetail(BackendKind kind) {
     return std::string(plugin.detail(kindArgument(kind).c_str()));
 }
 
+namespace {
+
+BackendHandle createPair() {
+    return HybridBackend::create(createBackend(BackendKind::Cuda), createBackend(BackendKind::Avx2));
+}
+
+bool preallocatesPair() {
+#if defined(BALLS_FIXED_TARGET)
+    return true;
+#else
+    const char* variable = std::getenv("BALLS_PREALLOCATE");
+    return variable && std::string_view(variable) == "1";
+#endif
+}
+
+// A preallocated pair holds nearly all of the GPU's and the system's memory, so a second one would get none. One
+// pair lives for the whole process: releasing its handle parks it, cleared, and the next request takes it back. A
+// new session asks before the one it replaces has let go (that happens on other threads), so a request waits for it.
+struct PreallocatedPair {
+    std::mutex mutex;
+    std::condition_variable parked;
+    PhysicsBackend* backend = nullptr;
+    bool lent = false;
+};
+
+PreallocatedPair& preallocatedPair() {
+    // Never destroyed: the pair's memory goes back to the system when the process ends.
+    static PreallocatedPair* pair = new PreallocatedPair();
+    return *pair;
+}
+
+void parkPair(PhysicsBackend* backend) {
+    backend->clear();
+    PreallocatedPair& pair = preallocatedPair();
+    {
+        std::lock_guard lock(pair.mutex);
+        pair.lent = false;
+    }
+    pair.parked.notify_all();
+}
+
+BackendHandle takePreallocatedPair() {
+    constexpr auto releaseWait = std::chrono::seconds(30);
+    PreallocatedPair& pair = preallocatedPair();
+    std::unique_lock lock(pair.mutex);
+    if (!pair.parked.wait_for(lock, releaseWait, [&] { return !pair.lent; })) {
+        std::fprintf(stderr, "CUDA+AVX2: the preallocated pair is still in use\n");
+        return BackendHandle(nullptr, BackendRelease{});
+    }
+    pair.lent = true;
+    if (pair.backend) {
+        return BackendHandle(pair.backend, BackendRelease{parkPair, nullptr});
+    }
+    // Built without the lock: creating the two parts goes through createBackend, which takes it to free a parked pair.
+    lock.unlock();
+    BackendHandle cuda = createBackend(BackendKind::Cuda);
+    BackendHandle avx2 = createBackend(BackendKind::Avx2);
+    const size_t cudaCapacity = cuda ? cuda->preallocateBalls() : 0;
+    const size_t avx2Capacity = avx2 ? avx2->preallocateBalls() : 0;
+    std::fprintf(stderr, "CUDA+AVX2 preallocated: CUDA %zu balls, AVX2 %zu balls\n", cudaCapacity, avx2Capacity);
+    BackendHandle created = HybridBackend::create(std::move(cuda), std::move(avx2));
+    lock.lock();
+    if (!created) {
+        pair.lent = false;
+        pair.parked.notify_all();
+        return created;
+    }
+    pair.backend = created.release();
+    return BackendHandle(pair.backend, BackendRelease{parkPair, nullptr});
+}
+
+// Any other backend needs the memory a parked pair holds (a single CUDA or AVX2 backend would get none), so asking
+// for one frees the pair; the next CUDA+AVX2 request preallocates again.
+void freeParkedPair() {
+    PreallocatedPair& pair = preallocatedPair();
+    PhysicsBackend* freed = nullptr;
+    {
+        std::lock_guard lock(pair.mutex);
+        if (!pair.lent) {
+            freed = std::exchange(pair.backend, nullptr);
+        }
+    }
+    delete freed;
+}
+
+} // namespace
+
 BackendHandle createBackend(BackendKind kind) {
+    if (kind != BackendKind::CudaAvx2 && preallocatesPair()) {
+        freeParkedPair();
+    }
     if (kind == BackendKind::Hybrid) {
         const std::vector<BackendPick> picks = hybridPicks();
         return picks.size() < 2 ? BackendHandle(nullptr, BackendRelease{}) : createComposedBackend(picks);
@@ -331,7 +426,7 @@ BackendHandle createBackend(BackendKind kind) {
         return createBackendOnDevice(kind, *device);
     }
     if (kind == BackendKind::CudaAvx2) {
-        return HybridBackend::create(createBackend(BackendKind::Cuda), createBackend(BackendKind::Avx2));
+        return preallocatesPair() ? takePreallocatedPair() : createPair();
     }
     if (kind == BackendKind::VulkanMulti) {
         const std::vector<BackendPick> picks = backendPicks();

@@ -24,7 +24,7 @@ namespace Balls.Physics.Burst
     {
         public const int BackendBurst = 5;
 
-        public static readonly int[] SpawnRateOptions = { 10, 50, 200, 1000, 2000, 0 };
+        public static readonly int[] SpawnRateOptions = { 10, 50, 200, 1000, 2000, 10000, 50000, 200000, 1000000, 0 };
         public static readonly ulong[] BallMultiplierOptions = { 1, 10, 100, 1000, 10000 };
         public static readonly ulong[] BallLimitOptions = { 10000, 100000, 1000000, 10000000, ulong.MaxValue };
 

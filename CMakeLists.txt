@@ -5,6 +5,18 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+set(BALLS_PROFILE "all" CACHE STRING "Target profile to build: all or scoring")
+set_property(CACHE BALLS_PROFILE PROPERTY STRINGS all scoring)
+
+# The scoring profile builds only what the target PC (i9-14900K, GTX 1650 sm_75) runs: the CUDA+AVX2 pair, with
+# every ball allocated up front. "all" is the extended build with every backend and front-end feature.
+if(BALLS_PROFILE STREQUAL "scoring")
+    set(BALLS_ENABLE_ROCM OFF CACHE BOOL "ROCm backend disabled in scoring profile" FORCE)
+    set(BALLS_ENABLE_CUDA ON CACHE BOOL "CUDA backend required in scoring profile" FORCE)
+    set(BALLS_BUILD_UNITY_PLUGIN OFF CACHE BOOL "No Unity plugin in scoring profile" FORCE)
+    set(BALLS_WHOLE_PROGRAM_OPTIMIZATION ON CACHE BOOL "Whole-program optimization enabled in scoring profile" FORCE)
+endif()
+
 set(BALLS_FRONTEND "sdl" CACHE STRING "Game front end to build: sdl or none")
 set_property(CACHE BALLS_FRONTEND PROPERTY STRINGS sdl none)
 option(BALLS_BUILD_TOOLS "Build tests and benchmarks" ON)
@@ -49,8 +61,18 @@ if(MSVC)
 else()
     set(BALLS_WARNINGS -Wall -Wextra -Wpedantic)
     set(BALLS_OPTIMIZE $<$<CONFIG:Release,RelWithDebInfo>:-O3 -ffast-math>)
-    set(BALLS_AVX2_FLAGS -mavx2 -mfma)
+    if(BALLS_PROFILE STREQUAL "scoring")
+        set(BALLS_AVX2_FLAGS -mavx2 -mfma -mtune=raptorlake)
+    else()
+        set(BALLS_AVX2_FLAGS -mavx2 -mfma)
+    endif()
     set(BALLS_AVX512_FLAGS -mavx512f -mavx512bw -mavx512dq -mavx512vl -mavx512vbmi2 -mavx512vpopcntdq -mfma -mbmi2 -mtune=znver4)
+endif()
+
+if(BALLS_PROFILE STREQUAL "scoring")
+    # Global fixed-target configuration: target PC is known (i9-14900K + GTX 1650), so AVX2 and FMA are universal.
+    add_compile_definitions(BALLS_FIXED_TARGET=1)
+    add_compile_options(${BALLS_AVX2_FLAGS})
 endif()
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
@@ -112,8 +134,8 @@ if(BALLS_FRONTEND STREQUAL "sdl")
 endif()
 
 # The Vulkan physics plugin is desktop-only: its link group needs CMake 3.24+, and Android runs
-# physics through the statically linked CPU backend instead.
-if(TARGET nvrhi AND TARGET nvrhi_vk AND NOT ANDROID AND NOT EMSCRIPTEN)
+# physics through the statically linked CPU backend instead. The scoring profile runs physics on CUDA and AVX2 only.
+if(TARGET nvrhi AND TARGET nvrhi_vk AND NOT ANDROID AND NOT EMSCRIPTEN AND NOT BALLS_PROFILE STREQUAL "scoring")
     add_subdirectory(source/backends/vulkan)
 endif()
 
@@ -179,8 +201,10 @@ add_executable(balls_tests source/tests/TestMain.cpp source/tests/LevelTests.cpp
     source/tests/MenuModelTests.cpp
     source/tests/ScreenFlowTests.cpp
     source/tests/PhysicsRateTests.cpp
+    source/tests/AdditionGovernorTests.cpp
     source/tests/ThemeTests.cpp
     source/tests/FreeFlightTests.cpp
+    source/tests/PreallocationTests.cpp
     source/tests/LevelImportTests.cpp
     source/tests/BenchmarkTests.cpp
     source/tests/GpuAdapterTests.cpp

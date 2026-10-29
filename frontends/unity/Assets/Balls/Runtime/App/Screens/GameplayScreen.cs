@@ -74,7 +74,7 @@ namespace Balls.App.Screens
         private GameBackend syncedBackend;
         private Vector2 interactionScroll;
         private Vector2 debugScroll;
-        private readonly string[] spawnRateOptions = { "10", "50", "200", "1000", "2000", "Max" };
+        private readonly string[] spawnRateOptions = { "10", "50", "200", "1000", "2000", "10k", "50k", "200k", "1M", "Max" };
         private readonly string[] multiplierOptions = { "x1", "x10", "x100", "x1000", "x10000" };
         private readonly string[] limitOptions = { "Auto", "10k", "100k", "1M", "10M", "Max" };
 

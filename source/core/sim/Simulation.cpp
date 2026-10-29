@@ -1,5 +1,7 @@
 #include "sim/Simulation.h"
 
+#include "common/ParallelChunks.h"
+
 #include <algorithm>
 #include <chrono>
 #include <new>
@@ -70,18 +72,37 @@ void Simulation::setBallCollisions(bool enabled) {
     physics->setBallCollisions(enabled);
 }
 
+// Launches are generated a chunk per core, each chunk from its own generator seeded by this call's draw and the
+// chunk's place, so the Auto ramp's millions a frame do not hold up the frame and the balls do not depend on the
+// core count.
 void Simulation::launchBalls(BallColor color, BallCount requested) {
     constexpr float degreesToRadians = std::numbers::pi_v<float> / 180.0f;
+    constexpr size_t launchChunkBalls = size_t{1} << 12;
     const BallCount count = std::min(requested, ballRoom());
     const float halfAngle = settings.launchHalfAngleDegrees * degreesToRadians;
-    std::uniform_real_distribution<float> angleDistribution(-halfAngle, halfAngle);
-    std::uniform_real_distribution<float> jitterDistribution(-settings.ballRadius, settings.ballRadius);
-    pendingSpawns.reserve(pendingSpawns.size() + std::min(static_cast<size_t>(count), spawnFlushBalls));
-    for (BallCount i = 0; i < count; ++i) {
-        const float angle = angleDistribution(random);
-        pendingSpawns.push_back({launchX() + jitterDistribution(random), launchY(),
-                                 std::sin(angle) * settings.ballSpeed, -std::cos(angle) * settings.ballSpeed,
-                                 toIndex(color)});
+    const float originX = launchX();
+    const float originY = launchY();
+    const float radius = settings.ballRadius;
+    const float speed = settings.ballSpeed;
+    const int colorIndex = toIndex(color);
+    const uint64_t seed = (static_cast<uint64_t>(random()) << 32) | random();
+    for (BallCount launched = 0; launched < count;) {
+        const size_t batch = static_cast<size_t>(std::min<BallCount>(count - launched, spawnFlushBalls));
+        const size_t first = pendingSpawns.size();
+        pendingSpawns.resize(first + batch);
+        const uint64_t batchStart = launched;
+        parallelChunks(batch, launchChunkBalls, [&](size_t, size_t begin, size_t end) {
+            std::mt19937 chunkRandom(static_cast<uint32_t>(seed ^ ((batchStart + begin) * 0x9E3779B97F4A7C15ull)) ^
+                                     static_cast<uint32_t>(seed >> 32));
+            std::uniform_real_distribution<float> angleDistribution(-halfAngle, halfAngle);
+            std::uniform_real_distribution<float> jitterDistribution(-radius, radius);
+            for (size_t i = begin; i < end; ++i) {
+                const float angle = angleDistribution(chunkRandom);
+                pendingSpawns[first + i] = {originX + jitterDistribution(chunkRandom), originY,
+                                            std::sin(angle) * speed, -std::cos(angle) * speed, colorIndex};
+            }
+        });
+        launched += batch;
         flushSpawnsIfLarge();
     }
     statistics.ballsByColor[toIndex(color)] += count;
@@ -235,11 +256,15 @@ void Simulation::resolveHits() {
     }
 }
 
-void Simulation::tick(int substeps) {
+void Simulation::flushSpawns() {
     if (!pendingSpawns.empty()) {
         physics->addBalls(pendingSpawns);
         pendingSpawns.clear();
     }
+}
+
+void Simulation::tick(int substeps) {
+    flushSpawns();
     syncBoardIfChanged();
     hits.clear();
     physics->step(stepParams(substeps), hits);

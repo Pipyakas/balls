@@ -26,6 +26,7 @@ public:
     void removeBalls(std::span<const uint32_t> descendingIndices) override;
     size_t ballCount() const override { return count; }
     size_t ballCapacityLimit() const override;
+    size_t preallocateBalls() override;
     BallSnapshot snapshot() override;
     std::vector<BallSpawn> exportBalls() override;
     std::vector<BallSpawn> takeTail(size_t count) override;
@@ -78,6 +79,12 @@ private:
     bool isFaulted() const { return !fault.empty(); }
     bool launch(CUfunction function, size_t threads, void** arguments, const char* what);
     bool ensureBallCapacity(size_t required);
+    static size_t preallocatedBallsFor(size_t freeBytes);
+    void freeBallArrays();
+    bool allocateFixedBallArrays(size_t ballCapacity);
+    static size_t boardBytes(const BoardUpload& board);
+    void releaseArray(DeviceArray& array);
+    void carveBallArraysAfterBoard(size_t boardArrayBytes);
     bool growThroughHost(size_t wanted);
     void ensurePackedCapacity(size_t required);
     void ensureArray(DeviceArray& array, size_t bytes);
@@ -116,6 +123,9 @@ private:
     size_t capacity = 0;
     size_t packedCapacity = 0;
     size_t count = 0;
+    bool fixedCapacity = false;
+    // The capacity preallocateBalls carved; a board too big for the reserve may hold the arrays below it for a while.
+    size_t preallocatedCapacity = 0;
     DeviceArray paddedCells;
     DeviceArray brickColors;
     DeviceArray targetCells;

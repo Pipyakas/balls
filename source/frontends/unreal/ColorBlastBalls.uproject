@@ -60,7 +60,7 @@
       "\"$(ProjectDir)\\BuildCoreAndroid.bat\""
     ],
     "Linux": [
-      "\"$(ProjectDir)\\BuildCoreLinux.bat\""
+      "\"$(ProjectDir)/BuildCoreLinux.sh\" \"$(EngineDir)\""
     ]
   }
 }

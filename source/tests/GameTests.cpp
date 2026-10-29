@@ -53,6 +53,18 @@ TEST_CASE("normal level can be cleared by releasing every launcher") {
     EXPECT(session.state() == SessionState::Won);
 }
 
+#if defined(BALLS_FIXED_TARGET)
+TEST_CASE("the scoring build's Auto limit is the backend's capacity, with no probe") {
+    GameSession session(GameMode::Performance, loadSample("performance", "DA_1000Bricks"), BackendKind::Scalar);
+    session.startCapacityProbe(60.0);
+    EXPECT(!session.capacityProbe().isActive());
+    EXPECT(session.isUsingMachineBallLimit());
+    EXPECT(session.ballLimit() == static_cast<BallCount>(session.simulation().backend().ballCapacityLimit()));
+    EXPECT(session.simulation().liveBallCount() == 0);
+    session.selectBallLimit(0);
+    EXPECT(session.ballLimit() == ballLimitOptions[0]);
+}
+#else
 TEST_CASE("a capacity probe jump is launched within a frame budget and completes over frames") {
     GameSession session(GameMode::Performance, loadSample("performance", "DA_1000Bricks"), BackendKind::Scalar);
     session.startCapacityProbe(60.0);
@@ -64,6 +76,7 @@ TEST_CASE("a capacity probe jump is launched within a frame budget and completes
     }
     EXPECT(session.simulation().liveBallCount() >= probeInitialBalls);
 }
+#endif
 
 TEST_CASE("performance session waits for one click then releases automatically") {
     GameSession session(GameMode::Performance, loadSample("performance", "DA_1000Bricks"), BackendKind::Scalar);

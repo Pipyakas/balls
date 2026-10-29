@@ -4,6 +4,8 @@
 #include "cpu/SimdVector.h"
 #include "sim/PhysicsBackend.h"
 
+class WorkerPool;
+
 namespace compact {
 
 inline constexpr float positionScale = 65535.0f;
@@ -41,8 +43,8 @@ struct CompactBallStore {
     unsigned int clockTick = 0;
     StepParams flightParams{};
 
-    // Adds as many spawns as memory takes and returns how many that was.
-    size_t add(std::span<const BallSpawn> spawns);
+    // Adds as many spawns as memory takes and returns how many that was; a big batch is encoded on the pool.
+    size_t add(std::span<const BallSpawn> spawns, WorkerPool* pool = nullptr);
     void swapRemove(std::span<const uint32_t> descendingIndices);
     void clear() {
         resize(0);
@@ -61,6 +63,11 @@ struct CompactBallStore {
     size_t sampledChunkCount() const;
     void renderSampledChunks(size_t first, size_t end);
     void materializeRange(size_t begin, size_t end);
+    size_t preallocate(size_t maxBalls, WorkerPool* pool = nullptr);
+    bool isPreallocated() const { return position.isPreallocated(); }
+    // Committed in 64 MB granules, so a preallocated capacity is already a whole number of lanes.
+    size_t capacity() const { return position.capacity(); }
+    size_t roomLeft() const { return capacity() > count ? capacity() - count : 0; }
 
 private:
     bool resize(size_t newCount);

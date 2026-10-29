@@ -34,7 +34,7 @@ const DebugRow* findRow(const std::vector<DebugRow>& rows, std::string_view labe
 } // namespace
 
 TEST_CASE("the control gadget lists the game's spawn rates, ball counts and ball limits with Auto first") {
-    EXPECT((labels(spawnRateChoices(2)) == std::vector<std::string>{"10", "50", "200", "1000", "2000", "Max"}));
+    EXPECT((labels(spawnRateChoices(2)) == std::vector<std::string>{"10", "50", "200", "1000", "2000", "10k", "50k", "200k", "1M", "Max"}));
     EXPECT(selectedIndex(spawnRateChoices(2)) == 2);
     EXPECT((labels(ballMultiplierChoices(0)) == std::vector<std::string>{"x1", "x10", "x100", "x1000", "x10000"}));
 
@@ -67,7 +67,8 @@ TEST_CASE("Settings rows follow the design: orientation, off and on, every selec
     EXPECT(selectedIndex(orientationOptions(LayoutOrientation::Portrait)) == 2);
     EXPECT(selectedIndex(offOnOptions(true)) == 1);
 
-    const std::vector<BackendRow> rows = defaultBackendRows(fastestAvailableCpuBackend(), {});
+    // offeredBackend: the scoring build lists only the CUDA+AVX2 pair, whatever the CPU backend is.
+    const std::vector<BackendRow> rows = defaultBackendRows(offeredBackend(fastestAvailableCpuBackend()), {});
     EXPECT(!rows.empty());
     int selected = 0;
     for (const BackendRow& row : rows) {
