@@ -68,6 +68,19 @@ TEST_CASE("performance mode keeps releasing launchers once the board is cleared"
     EXPECT(session.launchers().launcherCount() < launchers - 1);
 }
 
+TEST_CASE("performance auto release spawns every color at once, however big each launcher is") {
+    LevelData level = loadSample("performance", "Unlimited");
+    std::fill(level.bricks.cellIds.begin(), level.bricks.cellIds.end(), emptyBrickId);
+    GameSession session(GameMode::Performance, std::move(level), BackendKind::Scalar);
+    session.startAutoRelease();
+    for (int frame = 0; frame < 60; ++frame) {
+        session.update(1.0f / 60.0f);
+    }
+    for (const BallCount balls : session.simulation().stats().ballsByColor) {
+        EXPECT(balls > 0);
+    }
+}
+
 #if defined(BALLS_FIXED_TARGET)
 TEST_CASE("the scoring build's Auto limit is the backend's capacity, with no probe") {
     GameSession session(GameMode::Performance, loadSample("performance", "DA_1000Bricks"), BackendKind::Scalar);
