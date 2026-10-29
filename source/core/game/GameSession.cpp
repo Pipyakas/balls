@@ -8,6 +8,10 @@
 
 namespace {
 
+// Performance auto release keeps this many launchers spawning at once, so every color is on the board together
+// however many balls one launcher holds.
+constexpr size_t concurrentPerformanceReleases = ballColorCount;
+
 double secondsSince(std::chrono::steady_clock::time_point start) {
     return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
 }
@@ -28,6 +32,7 @@ void GameSession::restart() {
     physicsSimulation.load(levelData.bricks);
     launcherQueue.load(levelData.launchers);
     spawnController.clear();
+    spawnController.setInterleaved(gameMode == GameMode::Performance);
     pendingProbeBalls = 0;
     fillRemaining = 0;
     additionGovernor = AdditionGovernor(physicsSimulation.tuning().tickSeconds);
@@ -354,10 +359,12 @@ void GameSession::update(float deltaTime) {
     physicsSimulation.animate(deltaTime);
     if (sessionState == SessionState::Running) {
         elapsed += deltaTime;
-        if (autoRelease && spawnController.isIdle()) {
-            if (const auto launcher = launcherQueue.takeNextInRotation()) {
-                releaseLauncher(*launcher);
+        while (autoRelease && spawnController.activeStreams() < concurrentPerformanceReleases) {
+            const auto launcher = launcherQueue.takeNextInRotation();
+            if (!launcher) {
+                break;
             }
+            releaseLauncher(*launcher);
         }
     }
     addBallsWithinBudget(deltaTime);
