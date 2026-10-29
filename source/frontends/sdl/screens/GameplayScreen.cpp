@@ -266,6 +266,7 @@ void GameplayScreen::drawMainSection(const GameplayLayout& layout) {
     drawBricks(*view->board, layout.board);
     drawLaunchPoint({view->launchX, view->launchY}, layout.board);
     app.ballRenderer().draw(view->balls, layout.board, view->ballRadius);
+    drawBrickEffects(*view->board, layout.board, view->ballRadius);
     gfx::endClip();
 }
 
