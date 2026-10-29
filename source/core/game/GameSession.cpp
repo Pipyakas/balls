@@ -76,25 +76,14 @@ void GameSession::startCapacityProbe(double targetFps) {
     if (gameMode != GameMode::Performance) {
         return;
     }
-#if defined(BALLS_FIXED_TARGET)
     (void)targetFps;
     useCapacityBallLimit();
-    // Auto then ramps the balls up to that capacity like the probe did, as fast as 60 FPS allows.
+    // Auto then ramps the balls up to that capacity, as fast as 60 FPS allows.
     if (sessionState == SessionState::Ready) {
         autoRelease = false;
         sessionState = SessionState::Running;
     }
     fillRemaining = unlimitedBalls;
-#else
-    if (sessionState == SessionState::Ready) {
-        autoRelease = false;
-        sessionState = SessionState::Running;
-    }
-    probeColorIndex = 0;
-    pendingProbeBalls = 0;
-    probe.start(targetFps);
-    pumpCapacityProbe();
-#endif
 }
 
 void GameSession::cancelCapacityProbe() {
@@ -174,12 +163,8 @@ void GameSession::fillWithBalls(BallCount count) {
     cancelCapacityProbe();
     useMachineBallLimit(count);
     const BallCount live = physicsSimulation.liveBallCount();
-#if defined(BALLS_FIXED_TARGET)
     // Over frames, within the 60 FPS budget.
     fillRemaining = count > live ? count - live : 0;
-#else
-    launchAcrossColors(count > live ? count - live : 0);
-#endif
 }
 
 void GameSession::selectSpawnRate(int optionIndex) {
@@ -189,8 +174,8 @@ void GameSession::selectSpawnRate(int optionIndex) {
     }
 }
 
-// The scoring build allocates its whole memory budget up front, and in free flight a frame costs the same whatever
-// the ball count, so the most balls it holds is that capacity: nothing is left to measure.
+// Auto is the most balls the backend holds, worked out again every launch and never saved: in free flight a frame
+// costs the same whatever the ball count, and balls are only added as fast as 60 FPS allows.
 void GameSession::useCapacityBallLimit() {
     cancelCapacityProbe();
     measuredMachineLimit.reset();

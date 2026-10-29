@@ -45,7 +45,6 @@ private:
     void loadSession();
     void handleLauncherClick(const GameplayLayout& layout);
     void applyDefaultBallLimit();
-    void rememberFinishedProbe();
     void useAutoBallLimit();
     void handleSessionEvents();
     void tickPhysics(const GameplayLayout& layout);
@@ -79,7 +78,6 @@ private:
     std::unique_ptr<SessionRunner> runner;
     std::shared_ptr<const SessionView> view;
     std::string loadError;
-    bool probeResultSaved = true;
     int probeTargetFps = 60;
     float controlsScroll = 0.0f;
     float performanceControlsHeight = 0.0f;
