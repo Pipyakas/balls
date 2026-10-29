@@ -81,30 +81,21 @@ TEST_CASE("performance auto release spawns every color at once, however big each
     }
 }
 
-#if defined(BALLS_FIXED_TARGET)
-TEST_CASE("the scoring build's Auto limit is the backend's capacity, with no probe") {
+TEST_CASE("Auto is the backend's capacity, never a saved probe, and the ramp fills toward it over frames") {
     GameSession session(GameMode::Performance, loadSample("performance", "DA_1000Bricks"), BackendKind::Scalar);
-    session.startCapacityProbe(60.0);
-    EXPECT(!session.capacityProbe().isActive());
+    session.useCapacityBallLimit();
     EXPECT(session.isUsingMachineBallLimit());
     EXPECT(session.ballLimit() == static_cast<BallCount>(session.simulation().backend().ballCapacityLimit()));
     EXPECT(session.simulation().liveBallCount() == 0);
+    session.startCapacityProbe(60.0);
+    EXPECT(!session.capacityProbe().isActive());
+    for (int frame = 0; frame < 10; ++frame) {
+        session.update(1.0f / 60.0f);
+    }
+    EXPECT(session.simulation().liveBallCount() > 0);
     session.selectBallLimit(0);
     EXPECT(session.ballLimit() == ballLimitOptions[0]);
 }
-#else
-TEST_CASE("a capacity probe jump is launched within a frame budget and completes over frames") {
-    GameSession session(GameMode::Performance, loadSample("performance", "DA_1000Bricks"), BackendKind::Scalar);
-    session.startCapacityProbe(60.0);
-    // The probe's first jump must be in the simulation after a few frames, and the probe must not have moved on to
-    // measuring while part of it was still waiting to be launched.
-    for (int frame = 0; frame < 600 && session.simulation().liveBallCount() < probeInitialBalls; ++frame) {
-        EXPECT(session.capacityProbe().phase() != ProbePhase::Measuring);
-        session.reportFrameSeconds(1.0 / 240.0, 1.0 / 240.0);
-    }
-    EXPECT(session.simulation().liveBallCount() >= probeInitialBalls);
-}
-#endif
 
 TEST_CASE("performance session waits for one click then releases automatically") {
     GameSession session(GameMode::Performance, loadSample("performance", "DA_1000Bricks"), BackendKind::Scalar);

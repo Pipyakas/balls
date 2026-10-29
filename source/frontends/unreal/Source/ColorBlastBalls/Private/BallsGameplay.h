@@ -96,6 +96,5 @@ private:
     std::shared_ptr<const SessionView> View;
     float VisibilitySlotCells = 0.0f;
     FString LoadError;
-    bool bProbeResultShown = true;
     int32 ProbeTargetFps = static_cast<int32>(defaultProbeTargetFps);
 };

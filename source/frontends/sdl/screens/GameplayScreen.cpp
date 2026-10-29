@@ -89,26 +89,8 @@ void GameplayScreen::applyDefaultBallLimit() {
     }
 }
 
-// Auto means the most balls this machine holds at the target frame rate: the remembered probe result when it was
-// measured at this target, otherwise a new probe.
-// The remembered limit depends on the backend, which the session may only settle on the physics thread; the
-// profile is the UI's, so the choice is made there, in the command, from a copy of it.
 void GameplayScreen::useAutoBallLimit() {
-#if defined(BALLS_FIXED_TARGET)
-    // The scoring build's Auto is its preallocated capacity, never a remembered probe.
     runner->post([](GameSession& session) { session.useCapacityBallLimit(); });
-#else
-    const MachineProfile profile = app.machineProfile();
-    const int targetFps = probeTargetFps;
-    runner->post([profile, targetFps](GameSession& session) {
-        const auto remembered = profile.ballLimit(session.backend());
-        if (remembered && static_cast<int>(remembered->targetFps) == targetFps) {
-            session.useMachineBallLimit(remembered->balls);
-        } else {
-            session.startCapacityProbe(static_cast<double>(targetFps));
-        }
-    });
-#endif
 }
 
 void GameplayScreen::handleSessionEvents() {
@@ -126,20 +108,6 @@ void GameplayScreen::handleSessionEvents() {
 void GameplayScreen::startProbe() {
     const double targetFps = static_cast<double>(probeTargetFps);
     runner->post([targetFps](GameSession& session) { session.startCapacityProbe(targetFps); });
-}
-
-void GameplayScreen::rememberFinishedProbe() {
-    const CapacityProbe& probe = view->probe;
-    if (probe.isActive()) {
-        probeResultSaved = false;
-        return;
-    }
-    if (!probeResultSaved && probe.phase() == ProbePhase::Done) {
-        app.machineProfile().rememberBallLimit(view->backend, probe.targetFps(),
-                                               probe.bestPassingCount());
-        app.showToast(probeResultMessage(view->backend, probe.bestPassingCount(), probe.targetFps()), false);
-        probeResultSaved = true;
-    }
 }
 
 LevelDiskState GameplayScreen::diskState() const {
@@ -247,7 +215,6 @@ void GameplayScreen::update(float /*deltaTime*/) {
         handleLauncherClick(layout);
     }
     tickPhysics(layout);
-    rememberFinishedProbe();
 }
 
 // The physics thread keeps its own pace; this hands it the pause state, the UI's frame timings for the capacity probe

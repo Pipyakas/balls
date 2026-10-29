@@ -50,15 +50,7 @@ void FBallsGameplay::UseAutoBallLimit() {
         return;
     }
     // The backend may still be settling (a physics thread, a fallback), so the session picks its own limit.
-    Host->post([Profile = App.GetMachineProfile(), TargetFps = ProbeTargetFps](GameSession& Session) {
-        const std::optional<MachineProfile::MeasuredLimit> Limit = Profile.ballLimit(Session.backend());
-        if (Limit && static_cast<int32>(Limit->targetFps) == TargetFps) {
-            Session.cancelCapacityProbe();
-            Session.useMachineBallLimit(Limit->balls);
-        } else {
-            Session.startCapacityProbe(static_cast<double>(TargetFps));
-        }
-    });
+    Host->post([](GameSession& Session) { Session.useCapacityBallLimit(); });
 }
 
 void FBallsGameplay::StartCapacityProbe() {
@@ -138,19 +130,6 @@ void FBallsGameplay::Tick(float DeltaSeconds, double FrameSeconds, double WorkSe
         } else {
             ShowToast(BallsText::FromUtf8(backendFailedMessage(Event.backend)), true);
         }
-    }
-    if (!View) {
-        return;
-    }
-
-    const CapacityProbe& Probe = View->probe;
-    if (Probe.isActive()) {
-        bProbeResultShown = false;
-    } else if (!bProbeResultShown && Probe.phase() == ProbePhase::Done) {
-        App.GetMachineProfile().rememberBallLimit(View->backend, Probe.targetFps(), Probe.bestPassingCount());
-        ShowToast(BallsText::FromUtf8(probeResultMessage(View->backend, Probe.bestPassingCount(), Probe.targetFps())),
-                  false);
-        bProbeResultShown = true;
     }
 }
 
