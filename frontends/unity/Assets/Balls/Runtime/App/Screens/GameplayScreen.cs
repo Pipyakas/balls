@@ -108,7 +108,7 @@ namespace Balls.App.Screens
             }
             else if (outcome == 2)
             {
-                App.Toast($"Could not start the {BallsNative.BackendName(kind)} backend");
+                App.Toast(BallsNative.MenuMessage(BallsNative.MenuTextBackendFailed, kind, 0, 0, null));
             }
         }
 
@@ -145,7 +145,7 @@ namespace Balls.App.Screens
             if (App.Profile.TryLimit(backend.BackendKind, out ulong balls, out double fps) && Mathf.RoundToInt((float)fps) == probeTargetFps)
             {
                 backend.UseMachineLimit(balls);
-                App.Toast($"{name} limit {balls:N0} balls @{fps:F0} FPS");
+                App.Toast(BallsNative.MenuMessage(BallsNative.MenuTextProbeResult, backend.BackendKind, balls, fps, null));
             }
             else
             {
@@ -707,11 +707,36 @@ namespace Balls.App.Screens
         private void SwitchToPicks(List<BallsNative.Pick> picks)
         {
             App.SwitchBackend(BallsNative.KindForPicks(picks));
-            App.Toast($"Physics on {BallsNative.PicksLabel(picks)}");
+            App.Toast(BallsNative.MenuPhysicsOn(picks));
         }
 
         private float DrawSpawnControls(Widgets widgets, GameBackend backend, Rect content, float y)
         {
+            System.IntPtr session = SessionSystem.Current != null ? SessionSystem.Current.SessionHandle : System.IntPtr.Zero;
+            string[] spawnRateOptions = this.spawnRateOptions;
+            string[] multiplierOptions = this.multiplierOptions;
+            string[] limitOptions = this.limitOptions;
+            if (session != System.IntPtr.Zero)
+            {
+                var spawnOpts = BallsNative.MenuOptions(BallsNative.MenuSpawnRate, spawnRateIndex, session);
+                if (spawnOpts.Count > 0)
+                {
+                    spawnRateOptions = new string[spawnOpts.Count];
+                    for (int i = 0; i < spawnOpts.Count; ++i) spawnRateOptions[i] = spawnOpts[i].Label;
+                }
+                var multOpts = BallsNative.MenuOptions(BallsNative.MenuBallMultiplier, multiplierIndex, session);
+                if (multOpts.Count > 0)
+                {
+                    multiplierOptions = new string[multOpts.Count];
+                    for (int i = 0; i < multOpts.Count; ++i) multiplierOptions[i] = multOpts[i].Label;
+                }
+                var limitOpts = BallsNative.MenuOptions(BallsNative.MenuBallLimit, limitIndex, session);
+                if (limitOpts.Count > 0)
+                {
+                    limitOptions = new string[limitOpts.Count];
+                    for (int i = 0; i < limitOpts.Count; ++i) limitOptions[i] = limitOpts[i].Label;
+                }
+            }
             widgets.Label(new Rect(content.x, y, content.width, 22f), "Spawn", TypeSizes.Small, Palette.Accent,
                 TextAnchor.UpperLeft, true);
             y += 24f;
@@ -740,7 +765,9 @@ namespace Balls.App.Screens
                 {
                     backend?.StartProbe(probeTargetFps);
                 }
-                widgets.Muted(new Rect(content.x, y + 40f, content.width, 22f), ProbeStatus(backend), TypeSizes.Small);
+                string probeStatus = session != System.IntPtr.Zero ? BallsNative.MenuProbeStatus(session) : ProbeStatus(backend);
+                if (string.IsNullOrEmpty(probeStatus)) probeStatus = ProbeStatus(backend);
+                widgets.Muted(new Rect(content.x, y + 40f, content.width, 22f), probeStatus, TypeSizes.Small);
                 height += 70f;
             }
             return height;
@@ -847,7 +874,7 @@ namespace Balls.App.Screens
         {
             if (BallsNative.SetComputeGpu(preference))
             {
-                App.Toast($"Compute GPU: {label}");
+                App.Toast(BallsNative.MenuMessage(BallsNative.MenuTextComputeGpu, 0, 0, 0, label));
             }
             else
             {

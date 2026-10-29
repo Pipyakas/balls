@@ -35,7 +35,7 @@ namespace Balls.App
         public string LoadFailure { get; set; }
 
         /// <summary>The core's frame statistics, for the control API's /state.</summary>
-        public System.IntPtr FrameTimingsHandle => frameTimings;
+        public System.IntPtr FrameTimingsHandle => frameTimings; public System.IntPtr SessionHandle => sessionHandle;
 
         /// <summary>A toast the session has for the player (the core's ball collisions notice), taken by BallsApp.</summary>
         public string Notice { get; set; }

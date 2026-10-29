@@ -131,16 +131,6 @@ namespace Balls.Native
         }
     }
 
-    [StructLayout(LayoutKind.Sequential)]
-    public struct NativeValidation
-    {
-        public ulong brickHits0, brickHits1, brickHits2, brickHits3, brickHits4, brickHits5, brickHits6;
-        public ulong balls0, balls1, balls2, balls3, balls4, balls5, balls6;
-        public int problemCount;
-        public int playable;
-    }
-
-
     /// <summary>The game's gameplay layout in layout units; see balls_compute_layout.</summary>
     [StructLayout(LayoutKind.Sequential)]
     public struct NativeLayout
@@ -185,18 +175,100 @@ namespace Balls.Native
         }
     }
 
+    /// <summary>Mirrors BallsEditorState in BallsUnityApi.h.</summary>
     [StructLayout(LayoutKind.Sequential)]
-    public struct NativeEditorInfo
+    public struct NativeEditorState
     {
         public int width;
         public int height;
         public int playableHeight;
         public int launcherColumns;
         public int launcherVisibleRows;
+        public int launcherRows;
         public int dirty;
         public int canUndo;
         public int canRedo;
-        public int brickCount;
+        public int tool;
+        public int brushColor;
+        public int brushHits;
+        public int launcherBalls;
+        public int selectedBrick;
+        public int mode;
+        public int playable;
+        public int problemCount;
+        public float messageSecondsLeft;
+        public int messageIsError;
+    }
+
+    /// <summary>Mirrors BallsUiOption in BallsUnityApi.h.</summary>
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public struct NativeUiOption
+    {
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 128)] public byte[] label;
+        public int enabled;
+        public int selected;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 256)] public byte[] detail;
+        public int kind;
+
+        public string Label => Read(label);
+        public string Detail => Read(detail);
+
+        private static string Read(byte[] bytes)
+        {
+            if (bytes == null)
+            {
+                return string.Empty;
+            }
+            int length = Array.IndexOf(bytes, (byte)0);
+            return System.Text.Encoding.UTF8.GetString(bytes, 0, length < 0 ? bytes.Length : length);
+        }
+    }
+
+    /// <summary>Mirrors BallsDevicePickRow in BallsUnityApi.h.</summary>
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public struct NativeDevicePickRow
+    {
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)] public byte[] device;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 256)] public byte[] label;
+        public int optionCount;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 12)] public NativeUiOption[] options;
+
+        public string Device => Read(device);
+        public string Label => Read(label);
+
+        private static string Read(byte[] bytes)
+        {
+            if (bytes == null)
+            {
+                return string.Empty;
+            }
+            int length = Array.IndexOf(bytes, (byte)0);
+            return System.Text.Encoding.UTF8.GetString(bytes, 0, length < 0 ? bytes.Length : length);
+        }
+    }
+
+    /// <summary>Mirrors BallsDebugRow in BallsUnityApi.h.</summary>
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
+    public struct NativeDebugRow
+    {
+        public int kind;
+        public int tone;
+        public int colorIndex;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 64)] public byte[] label;
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 192)] public byte[] value;
+
+        public string Label => Read(label);
+        public string Value => Read(value);
+
+        private static string Read(byte[] bytes)
+        {
+            if (bytes == null)
+            {
+                return string.Empty;
+            }
+            int length = Array.IndexOf(bytes, (byte)0);
+            return System.Text.Encoding.UTF8.GetString(bytes, 0, length < 0 ? bytes.Length : length);
+        }
     }
 
     [StructLayout(LayoutKind.Sequential)]

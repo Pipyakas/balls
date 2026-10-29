@@ -8,7 +8,7 @@
 
 #include <stdint.h>
 
-#define BALLS_UNITY_ABI_VERSION 5
+#define BALLS_UNITY_ABI_VERSION 6
 
 #if defined(_WIN32)
 #define BALLS_API __declspec(dllexport)
@@ -159,13 +159,6 @@ typedef struct BallsSettings {
     char defaultBackend[64];
 } BallsSettings;
 
-typedef struct BallsValidation {
-    uint64_t brickHits[BALLS_COLOR_COUNT];
-    uint64_t balls[BALLS_COLOR_COUNT];
-    int32_t problemCount;
-    int32_t playable;
-} BallsValidation;
-
 // The game's gameplay layout for one frame size, in layout units (1 unit = 1 px at 1440x900). Computed by the core
 // so every front end lays out the same way: header, main board frame, interaction gadget and debug gadget.
 typedef struct BallsLayout {
@@ -178,18 +171,6 @@ typedef struct BallsLayout {
     float cellSize;
     int32_t portrait;
 } BallsLayout;
-
-typedef struct BallsEditorInfo {
-    int32_t width;
-    int32_t height;
-    int32_t playableHeight;
-    int32_t launcherColumns;
-    int32_t launcherVisibleRows;
-    int32_t dirty;
-    int32_t canUndo;
-    int32_t canRedo;
-    int32_t brickCount;
-} BallsEditorInfo;
 
 // One row of the machine benchmark: a candidate backend, its state and its score.
 typedef struct BallsBenchmarkRow {
@@ -274,7 +255,6 @@ typedef struct BallsControlAction {
 } BallsControlAction;
 
 typedef struct BallsControl BallsControl;
-typedef struct BallsEditor BallsEditor;
 typedef struct BallsLevelWatcher BallsLevelWatcher;
 
 // --- Process-wide --------------------------------------------------------------------------------------------
@@ -565,45 +545,6 @@ BALLS_API int32_t balls_profile_benchmark_score(const BallsProfile* profile, int
 // Stores the benchmark's results, winner and this machine's fingerprint as the profile's record.
 BALLS_API void balls_profile_remember_benchmark(BallsProfile* profile, BallsBenchmark* benchmark, int32_t complete,
                                                 const char* gameVersion);
-
-// --- Editor --------------------------------------------------------------------------------------------------
-
-BALLS_API BallsEditor* balls_editor_create(void);
-BALLS_API void balls_editor_destroy(BallsEditor* editor);
-
-BALLS_API void balls_editor_new_level(BallsEditor* editor, const char* name, int32_t width, int32_t height,
-                                      int32_t playableHeight, int32_t launcherColumns, int32_t visibleRows);
-BALLS_API int32_t balls_editor_load_level(BallsEditor* editor, const char* levelDirectory, const char* levelName);
-// Writes both files of a level back into its directory. Returns 0 on success.
-BALLS_API int32_t balls_editor_save_level(BallsEditor* editor, const char* levelDirectory);
-BALLS_API void balls_editor_info(const BallsEditor* editor, BallsEditorInfo* info);
-
-// Brick id under a cell, or -1; gives the editor a way to pick what the cursor is over.
-BALLS_API int32_t balls_editor_brick_at(const BallsEditor* editor, int32_t column, int32_t row);
-BALLS_API int32_t balls_editor_brick_color(const BallsEditor* editor, int32_t column, int32_t row);
-BALLS_API int32_t balls_editor_brick_hits(const BallsEditor* editor, int32_t column, int32_t row);
-
-BALLS_API void balls_editor_resize_board(BallsEditor* editor, int32_t width, int32_t height, int32_t playableHeight);
-BALLS_API void balls_editor_paint_cell(BallsEditor* editor, int32_t column, int32_t row, int32_t color, int32_t hits);
-BALLS_API int32_t balls_editor_extend_brick(BallsEditor* editor, int32_t column, int32_t row);
-BALLS_API void balls_editor_erase_cell(BallsEditor* editor, int32_t column, int32_t row);
-BALLS_API void balls_editor_set_brick_hits(BallsEditor* editor, int32_t column, int32_t row, int32_t hits);
-BALLS_API void balls_editor_set_brick_color(BallsEditor* editor, int32_t column, int32_t row, int32_t color);
-
-BALLS_API void balls_editor_set_launcher_columns(BallsEditor* editor, int32_t columns);
-BALLS_API void balls_editor_set_visible_rows(BallsEditor* editor, int32_t rows);
-BALLS_API void balls_editor_set_launcher(BallsEditor* editor, int32_t column, int32_t row, int32_t present,
-                                         int32_t color, int32_t ballCount);
-BALLS_API void balls_editor_remove_launcher_row(BallsEditor* editor, int32_t row);
-BALLS_API void balls_editor_auto_fill_launchers(BallsEditor* editor, int32_t ballsPerLauncher);
-
-BALLS_API void balls_editor_begin_edit(BallsEditor* editor);
-BALLS_API int32_t balls_editor_undo(BallsEditor* editor);
-BALLS_API int32_t balls_editor_redo(BallsEditor* editor);
-BALLS_API void balls_editor_mark_saved(BallsEditor* editor);
-
-BALLS_API void balls_editor_validate(const BallsEditor* editor, int32_t mode, BallsValidation* validation);
-BALLS_API int32_t balls_editor_problem(const BallsEditor* editor, int32_t index, char* buffer, int32_t size);
 
 // The core's screen flow (ui/ScreenFlow.h): which screen and overlay are up, their buttons, Level select's list and
 // the toast. The host draws them, reports clicks with balls_flow_activate and carries out each request it takes.
