@@ -10,15 +10,34 @@ split of the balls between those two, and Hybrid, which runs one backend on each
 and every GPU) and splits the balls between all of them (see
 [data/docs/hybrid-physics.md](data/docs/hybrid-physics.md)).
 
+## Quick start
+
+On Windows 10/11 with Visual Studio 2022 (C++ workload), CMake 3.25+ and Python 3:
+
+1. Double-click `build.bat` (or run it from a terminal). It checks the PC first and names anything missing, then
+   builds the submission version into `dist\win32-sdl\balls.exe`. The first build downloads its dependencies.
+2. Run `dist\win32-sdl\balls.exe`. Normal mode has the campaign levels; Performance mode has the samples'
+   `DA_1000Bricks` and our `Unlimited` level, whose launchers never run out.
+3. For the most balls in Performance mode: pick `Unlimited`, set Spawn / sec to `Max` and Ball count to `x10000`,
+   leave Ball limit on `Auto`, then `Start`. Auto is everything the physics can hold, measured when the game starts,
+   and balls are only added as fast as every physics frame stays within 1/60 s. Close other programs first,
+   GPU-heavy ones especially (see the scoring profile below).
+4. Tests: see [Tests and benchmark](#tests-and-benchmark).
+
+The submission is tagged (`git tag -l`); each tag is a build that passed the tests and was played on the target PC.
+
 ## Features
 
 - **Normal mode (campaign).** Pick launchers from a 3-column queue. Each one releases its exact number of balls.
   Balls bounce with mirror reflection off walls and bricks, and break bricks of their own color. After the third
   bounce they home toward the nearest brick of their color.
 - **Performance mode.** Start with one click and launchers release automatically. Spawn speed can be set to
-  10 / 50 / 200 / 1000 / 2000 balls per second or Max. A ball-count multiplier (x1 to x1000) scales the stress
-  test. You can switch the physics backend live from the control gadget's Advanced Settings, and pick one
+  10 / 50 / 200 / 1000 / 2000 balls per second or faster up to Max, and seven launchers release at once so every
+  color is on the board together. A ball-count multiplier (x1 to x10000) scales the stress test. In the extended
+  build you can switch the physics backend live from the control gadget's Advanced Settings, and pick one
   backend per device for Hybrid (for example AVX2 on the CPU, CUDA on an RTX card and Vulkan on a Radeon).
+- **Effects.** Bricks flash when hit, slide up into gaps and burst into pieces when broken; a ball that hits its
+  brick leaves a ring in its color and shrinks away.
 - **Three-section screen.** The main board, the user interaction section (the only place that accepts gameplay
   input) and a debug panel. The debug panel shows FPS, min FPS, total objects, the ball count per color and the
   backend.
