@@ -24,8 +24,10 @@ set(BALLS_LINUX_CXX_INCLUDES "-nostdinc++ -isystem \"${BALLS_LINUX_SYSROOT}/incl
 set(CMAKE_C_FLAGS_INIT "-fPIC")
 set(CMAKE_CXX_FLAGS_INIT "-fPIC ${BALLS_LINUX_CXX_INCLUDES} -fbinutils-version=2.36")
 
-# lld, and libc++ plus its ABI library linked statically, exactly as UnrealBuildTool links the game.
+# lld, and libc++ plus its ABI library linked statically, as UnrealBuildTool links the game. Unlike the cross twin
+# this keeps the default libraries: the in-tree sysroot's libc is a cross-compile stub, and only the host's own
+# crt and libc can start an executable or a shared library here.
 set(BALLS_LINUX_LIBCXX "\"${BALLS_LINUX_SYSROOT}/lib64/libc++.a\" \"${BALLS_LINUX_SYSROOT}/lib64/libc++abi.a\"")
-set(CMAKE_EXE_LINKER_FLAGS_INIT "-fuse-ld=lld -nodefaultlibs")
-set(CMAKE_SHARED_LINKER_FLAGS_INIT "-fuse-ld=lld -nodefaultlibs")
-set(CMAKE_CXX_STANDARD_LIBRARIES "${BALLS_LINUX_LIBCXX} -lm -lc -lpthread -ldl -lgcc_s")
+set(CMAKE_EXE_LINKER_FLAGS_INIT "-fuse-ld=lld")
+set(CMAKE_SHARED_LINKER_FLAGS_INIT "-fuse-ld=lld")
+set(CMAKE_CXX_STANDARD_LIBRARIES "${BALLS_LINUX_LIBCXX}")
