@@ -92,7 +92,7 @@ if /i "%VARIANT%"=="win64" (
 call "%UE_ROOT%\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun ^
     -project="%~dp0ColorBlastBalls.uproject" -noP4 -platform=%PLATFORM% ^
     -clientconfig=Development -build -cook -stage -pak -archive -archivedirectory="%STAGE_DIR%" ^
-    -map=/Engine/Maps/Entry -utf8output -unattended -nocompileeditor -nullrhi
+    -map=/Engine/Maps/Entry -utf8output -unattended -nullrhi
 if errorlevel 1 (
     echo Build failed.
     cmd /c exit 1
