@@ -175,6 +175,7 @@ add_executable(balls_tests source/tests/TestMain.cpp source/tests/LevelTests.cpp
     source/tests/GameTests.cpp source/tests/SessionRunnerTests.cpp source/tests/ProbeTests.cpp source/tests/EditorTests.cpp source/tests/SettingsTests.cpp
     source/tests/BrickBoardTests.cpp
     source/tests/LayoutTests.cpp
+    source/tests/EditorSessionTests.cpp
     source/tests/ScreenFlowTests.cpp
     source/tests/ThemeTests.cpp
     source/tests/FreeFlightTests.cpp
