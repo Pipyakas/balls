@@ -43,6 +43,11 @@ allocates its whole memory budget once per process (free VRAM less 512 MB, avail
 balls never grow, copy or page-fault during play. Auto is that capacity, with no probe, and ramping up to it keeps every physics frame within 1/60 s. The default, `all`, is the extended build with every backend; set
 `BALLS_PREALLOCATE=1` there to try the same up-front allocation on the pair.
 
+To get the most balls out of the scoring build, close other programs before starting it, GPU-heavy ones especially.
+The budget is measured once, when the game starts: every GB of RAM or VRAM that is free at that moment holds about
+67 million more balls (16 bytes a ball), and anything opened later doesn't change it. On the 64 GB target PC, Auto
+measured between 7.07 and 7.29 billion balls depending on what else was running.
+
 `build.bat` (Windows) and `build.sh` (Linux) at the project root are the one entry point for every front end and
 platform:
 
