@@ -1,5 +1,7 @@
 #include "cpu/CompactBallStore.h"
 
+#include "common/WorkerPool.h"
+
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -66,7 +68,7 @@ size_t CompactBallStore::preallocate(size_t maxBalls, WorkerPool* pool) {
     return position.capacity();
 }
 
-size_t CompactBallStore::add(std::span<const BallSpawn> spawns) {
+size_t CompactBallStore::add(std::span<const BallSpawn> spawns, WorkerPool* pool) {
     if (spawns.empty()) {
         return 0;
     }
@@ -79,35 +81,45 @@ size_t CompactBallStore::add(std::span<const BallSpawn> spawns) {
     if (toAdd == 0 || !resize(count + toAdd)) {
         return 0;
     }
-    for (size_t i = 0; i < toAdd; ++i) {
-        const BallSpawn& spawn = spawns[i];
-        const uint32_t color = static_cast<uint32_t>(spawn.color);
-        int directionX = signedComponent(encodeComponent(spawn.vx * inverseSpeed));
-        int directionY = signedComponent(encodeComponent(spawn.vy * inverseSpeed));
-        float x = spawn.x;
-        float y = spawn.y;
-        if (frozen) {
-            // Projected with the quantized direction that decoding gives back, flipping only the signs, so
-            // flying forward from the epoch lands on the spawn point.
-            const float scale = speed / std::max(std::hypot(static_cast<float>(directionX),
-                                                            static_cast<float>(directionY)), 1.0f);
-            const FreeFlightPosition epoch =
-                flyFreelyBackwards(x, y, static_cast<float>(directionX) * scale, static_cast<float>(directionY) * scale,
-                                   ticksSinceEpoch, flightParams);
-            x = epoch.x;
-            y = epoch.y;
-            directionX = (epoch.vx < 0.0f) == (directionX < 0) ? directionX : -directionX;
-            directionY = (epoch.vy < 0.0f) == (directionY < 0) ? directionY : -directionY;
+    const auto encodeRange = [&](size_t, size_t begin, size_t end) {
+        for (size_t i = begin; i < end; ++i) {
+            const BallSpawn& spawn = spawns[i];
+            const uint32_t color = static_cast<uint32_t>(spawn.color);
+            int directionX = signedComponent(encodeComponent(spawn.vx * inverseSpeed));
+            int directionY = signedComponent(encodeComponent(spawn.vy * inverseSpeed));
+            float x = spawn.x;
+            float y = spawn.y;
+            if (frozen) {
+                // Projected with the quantized direction that decoding gives back, flipping only the signs, so
+                // flying forward from the epoch lands on the spawn point.
+                const float scale = speed / std::max(std::hypot(static_cast<float>(directionX),
+                                                                static_cast<float>(directionY)), 1.0f);
+                const FreeFlightPosition epoch =
+                    flyFreelyBackwards(x, y, static_cast<float>(directionX) * scale, static_cast<float>(directionY) * scale,
+                                       ticksSinceEpoch, flightParams);
+                x = epoch.x;
+                y = epoch.y;
+                directionX = (epoch.vx < 0.0f) == (directionX < 0) ? directionX : -directionX;
+                directionY = (epoch.vy < 0.0f) == (directionY < 0) ? directionY : -directionY;
+            }
+            position[first + i] = encodeAxis(x, fieldWidth) | (encodeAxis(y, fieldHeight) << 16);
+            state[first + i] = (static_cast<uint32_t>(directionX) & compact::directionMask) |
+                               ((static_cast<uint32_t>(directionY) & compact::directionMask) << compact::directionBits) |
+                               (color << compact::colorShift);
+            if (!tracksPacked()) {
+                continue;
+            }
+            packed[first + i] = packBallForRender(spawn.x, spawn.y, spawn.color, renderPackScale(fieldWidth),
+                                                  renderPackScale(fieldHeight));
         }
-        position[first + i] = encodeAxis(x, fieldWidth) | (encodeAxis(y, fieldHeight) << 16);
-        state[first + i] = (static_cast<uint32_t>(directionX) & compact::directionMask) |
-                           ((static_cast<uint32_t>(directionY) & compact::directionMask) << compact::directionBits) |
-                           (color << compact::colorShift);
-        if (!tracksPacked()) {
-            continue;
-        }
-        packed[first + i] = packBallForRender(spawn.x, spawn.y, spawn.color, renderPackScale(fieldWidth),
-                                              renderPackScale(fieldHeight));
+    };
+    // The Auto ramp hands over millions a frame; one thread encoding them took most of its frame budget.
+    constexpr size_t parallelAddBalls = size_t{1} << 14;
+    constexpr size_t addChunkBalls = size_t{1} << 12;
+    if (pool && toAdd >= parallelAddBalls) {
+        pool->runChunks(toAdd, addChunkBalls, encodeRange);
+    } else {
+        encodeRange(0, 0, toAdd);
     }
     return toAdd;
 }

@@ -61,6 +61,7 @@ if(BALLS_ENABLE_CUDA AND EXISTS "${BALLS_CUDA_SDK_DIR}/include/nvrtc.h")
         cuda/CudaDriver.cpp
         cuda/CudaPlugin.cpp
         ${BALLS_SOURCE_DIR}/core/common/DynamicLibrary.cpp
+        ${BALLS_SOURCE_DIR}/core/common/WorkerPool.cpp
     )
     target_include_directories(balls_physics_cuda PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}

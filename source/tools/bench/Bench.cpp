@@ -69,6 +69,7 @@ struct BenchOptions {
     bool fullSimulation = false;
     bool scatterSimulation = false;
     bool growth = false;
+    bool fill = false;
     bool roofline = false;
     bool cpuRoofline = false;
     bool rooflineOnLevel = false;
@@ -148,6 +149,8 @@ BenchOptions parseOptions(int argumentCount, char** arguments) {
             options.fullSimulation = true;
         } else if (argument == "--scatter") {
             options.scatterSimulation = true;
+        } else if (argument == "--fill") {
+            options.fill = true;
         } else if (argument == "--growth") {
             options.growth = true;
         } else if (argument == "--collisions") {
@@ -444,6 +447,46 @@ void runGrowth(const BrickLayout& layout, BackendKind kind, size_t ballCount, in
     }
 }
 
+// What adding balls costs once the board is clear and they fly freely, as the Auto ramp adds them: generating the
+// launches, handing them to the backend, and the next frame's two ticks.
+void runFill(BackendKind kind, size_t batch, int batches) {
+    Simulation simulation(createBackend(kind));
+    BrickLayout layout;
+    layout.width = 30;
+    layout.height = 1;
+    layout.playableHeight = 38;
+    layout.cellIds.assign(static_cast<size_t>(layout.width), emptyBrickId);
+    simulation.load(layout);
+    const float slotSize = simulation.tuning().ballRadius * visibilitySlotsPerRadius;
+    simulation.backend().setVisibilityGrid(
+        visibilitySlots(static_cast<float>(simulation.board().columns()), slotSize),
+        visibilitySlots(static_cast<float>(simulation.board().rows()), slotSize));
+    simulation.tick(2);
+    std::vector<double> generateMs, addMs, stepMs;
+    const auto millisecondsSince = [](std::chrono::steady_clock::time_point start) {
+        return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    };
+    for (int round = 0; round < batches; ++round) {
+        auto start = std::chrono::steady_clock::now();
+        simulation.launchBalls(ballColorFromIndex(round % ballColorCount), static_cast<BallCount>(batch));
+        generateMs.push_back(millisecondsSince(start));
+        start = std::chrono::steady_clock::now();
+        simulation.flushSpawns();
+        addMs.push_back(millisecondsSince(start));
+        start = std::chrono::steady_clock::now();
+        simulation.tick(2);
+        stepMs.push_back(millisecondsSince(start));
+    }
+    const auto median = [](std::vector<double> values) {
+        std::ranges::sort(values);
+        return values[values.size() / 2];
+    };
+    const double perBallNs = 1e6 / static_cast<double>(batch);
+    std::printf("%-7s fill %zu x %d to %zu balls: generate %6.1f ns/ball  add %6.1f ns/ball  step %7.3f ms\n",
+                targetLabel(kind).c_str(), batch, batches, static_cast<size_t>(simulation.liveBallCount()),
+                median(generateMs) * perBallNs, median(addMs) * perBallNs, median(stepMs));
+}
+
 BrickLayout emptyBoard(int width, int rows) {
     BrickLayout layout;
     layout.width = width;
@@ -585,7 +628,9 @@ int main(int argumentCount, char** arguments) {
             continue;
         }
         for (size_t count : options.ballCounts) {
-            if (options.growth) {
+            if (options.fill) {
+                runFill(kind, count, options.ticks);
+            } else if (options.growth) {
                 runGrowth(level->bricks, kind, count, options.ticks, options.substeps);
             } else if (options.scatterSimulation) {
                 runScatteredSimulation(level->bricks, kind, count, options.ticks, options.substeps,

@@ -56,6 +56,8 @@ public:
     void trimBallsTo(BallCount limit);
     void advance(float frameSeconds);
     void tick(int substeps = 1);
+    // Hands launched balls to the backend now instead of at the next tick, so their cost lands where it is timed.
+    void flushSpawns();
     void animate(float frameSeconds) { brickBoard.animate(frameSeconds); }
 
     const BrickBoard& board() const { return brickBoard; }

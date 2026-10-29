@@ -1,7 +1,10 @@
 #include "cuda/CudaBackend.h"
 
+#include "common/WorkerPool.h"
+
 #include <algorithm>
 #include <cmath>
+#include <thread>
 #include <utility>
 
 namespace {
@@ -572,6 +575,18 @@ void CudaBackend::uploadBrickHits(std::span<const int32_t> hitsLeft) {
     ensureArray(holes, static_cast<size_t>(killedCapacity) * 4);
 }
 
+// The Auto ramp hands over millions of balls a frame; one thread encoding them took most of its frame budget.
+template <typename Encode>
+void encodeInParallel(size_t count, const Encode& encode) {
+    constexpr size_t chunkBalls = size_t{1} << 12;
+    if (count <= chunkBalls * 4) {
+        encode(0, count);
+        return;
+    }
+    static WorkerPool pool(std::max(1u, std::thread::hardware_concurrency()));
+    pool.runChunks(count, chunkBalls, [&](size_t, size_t begin, size_t end) { encode(begin, end); });
+}
+
 void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {
     if (spawns.empty() || isFaulted()) {
         return;
@@ -588,32 +603,35 @@ void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {
     ballSpeed = std::max(std::hypot(spawns.front().vx, spawns.front().vy), 1e-6f);
     const float inverseSpeedScale = 1.0f / ballSpeed;
     const unsigned int ticksSinceEpoch = clockTick - freeFlightEpoch;
-    for (size_t i = 0; i < added; ++i) {
-        const BallSpawn& spawn = spawns[i];
-        const uint32_t color = static_cast<uint32_t>(spawn.color);
-        int directionX = signedComponent(encodeComponent(spawn.vx * inverseSpeedScale));
-        int directionY = signedComponent(encodeComponent(spawn.vy * inverseSpeedScale));
-        float x = spawn.x;
-        float y = spawn.y;
-        if (frozen) {
-            // Projected with the quantized direction the kernels decode, flipping only the signs, so flying
-            // forward from the epoch lands on the spawn point.
-            const float scale = ballSpeed / std::max(std::hypot(static_cast<float>(directionX),
-                                                                static_cast<float>(directionY)), 1.0f);
-            const FreeFlightPosition epoch =
-                flyFreelyBackwards(x, y, static_cast<float>(directionX) * scale,
-                                   static_cast<float>(directionY) * scale, ticksSinceEpoch, lastParams);
-            x = epoch.x;
-            y = epoch.y;
-            directionX = (epoch.vx < 0.0f) == (directionX < 0) ? directionX : -directionX;
-            directionY = (epoch.vy < 0.0f) == (directionY < 0) ? directionY : -directionY;
+    const auto encodeRange = [&](size_t begin, size_t end) {
+        for (size_t i = begin; i < end; ++i) {
+            const BallSpawn& spawn = spawns[i];
+            const uint32_t color = static_cast<uint32_t>(spawn.color);
+            int directionX = signedComponent(encodeComponent(spawn.vx * inverseSpeedScale));
+            int directionY = signedComponent(encodeComponent(spawn.vy * inverseSpeedScale));
+            float x = spawn.x;
+            float y = spawn.y;
+            if (frozen) {
+                // Projected with the quantized direction the kernels decode, flipping only the signs, so flying
+                // forward from the epoch lands on the spawn point.
+                const float scale = ballSpeed / std::max(std::hypot(static_cast<float>(directionX),
+                                                                    static_cast<float>(directionY)), 1.0f);
+                const FreeFlightPosition epoch =
+                    flyFreelyBackwards(x, y, static_cast<float>(directionX) * scale,
+                                       static_cast<float>(directionY) * scale, ticksSinceEpoch, lastParams);
+                x = epoch.x;
+                y = epoch.y;
+                directionX = (epoch.vx < 0.0f) == (directionX < 0) ? directionX : -directionX;
+                directionY = (epoch.vy < 0.0f) == (directionY < 0) ? directionY : -directionY;
+            }
+            position[i] = encodeAxis(x, fieldWidth) | (encodeAxis(y, fieldHeight) << 16);
+            state[i] = (static_cast<uint32_t>(directionX) & directionMask) |
+                       ((static_cast<uint32_t>(directionY) & directionMask) << directionBits) | (color << colorShift);
+            packed[i] = packBallForRender(spawn.x, spawn.y, spawn.color, renderPackScale(fieldWidth),
+                                          renderPackScale(fieldHeight));
         }
-        position[i] = encodeAxis(x, fieldWidth) | (encodeAxis(y, fieldHeight) << 16);
-        state[i] = (static_cast<uint32_t>(directionX) & directionMask) |
-                   ((static_cast<uint32_t>(directionY) & directionMask) << directionBits) | (color << colorShift);
-        packed[i] = packBallForRender(spawn.x, spawn.y, spawn.color, renderPackScale(fieldWidth),
-                                      renderPackScale(fieldHeight));
-    }
+    };
+    encodeInParallel(added, encodeRange);
     const auto& api = driver.api();
     const size_t offset = count * 4;
     succeeded(api.memcpyHostToDevice(balls.position + offset, position.data(), added * 4), "upload position");

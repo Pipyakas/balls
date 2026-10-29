@@ -43,8 +43,8 @@ struct CompactBallStore {
     unsigned int clockTick = 0;
     StepParams flightParams{};
 
-    // Adds as many spawns as memory takes and returns how many that was.
-    size_t add(std::span<const BallSpawn> spawns);
+    // Adds as many spawns as memory takes and returns how many that was; a big batch is encoded on the pool.
+    size_t add(std::span<const BallSpawn> spawns, WorkerPool* pool = nullptr);
     void swapRemove(std::span<const uint32_t> descendingIndices);
     void clear() {
         resize(0);
