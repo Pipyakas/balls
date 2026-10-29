@@ -368,7 +368,8 @@ void GameSession::update(float deltaTime) {
                                     physicsSimulation.liveBallCount());
         recoverFromBackendFault();
     }
-    if (sessionState == SessionState::Running && physicsSimulation.isCleared()) {
+    // Performance mode has no win: it keeps releasing and spawning after the last brick until the player leaves.
+    if (gameMode == GameMode::Normal && sessionState == SessionState::Running && physicsSimulation.isCleared()) {
         sessionState = SessionState::Won;
     }
 }

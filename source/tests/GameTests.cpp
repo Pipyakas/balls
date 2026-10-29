@@ -4,6 +4,7 @@
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <thread>
@@ -53,6 +54,20 @@ TEST_CASE("normal level can be cleared by releasing every launcher") {
     EXPECT(session.state() == SessionState::Won);
 }
 
+TEST_CASE("performance mode keeps releasing launchers once the board is cleared") {
+    LevelData level = loadSample("performance", "DA_1000Bricks");
+    std::fill(level.bricks.cellIds.begin(), level.bricks.cellIds.end(), emptyBrickId);
+    GameSession session(GameMode::Performance, std::move(level), BackendKind::Scalar);
+    const int launchers = session.launchers().launcherCount();
+    session.selectSpawnRate(static_cast<int>(spawnRateOptions.size()) - 1);
+    session.startAutoRelease();
+    for (int frame = 0; frame < 60; ++frame) {
+        session.update(1.0f / 60.0f);
+    }
+    EXPECT(session.state() == SessionState::Running);
+    EXPECT(session.launchers().launcherCount() < launchers - 1);
+}
+
 #if defined(BALLS_FIXED_TARGET)
 TEST_CASE("the scoring build's Auto limit is the backend's capacity, with no probe") {
     GameSession session(GameMode::Performance, loadSample("performance", "DA_1000Bricks"), BackendKind::Scalar);
@@ -83,6 +98,7 @@ TEST_CASE("performance session waits for one click then releases automatically")
     session.selectSpawnRate(static_cast<int>(spawnRateOptions.size()) - 1);
     session.update(1.0f / 60.0f);
     EXPECT(session.simulation().stats().totalBallsSpawned == 0);
+    session.selectSpawnRate(static_cast<int>(spawnRateOptions.size()) - 1);
     session.startAutoRelease();
     for (int frame = 0; frame < 10; ++frame) {
         session.update(1.0f / 60.0f);
