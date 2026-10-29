@@ -34,6 +34,11 @@ else()
     target_link_libraries(balls_physics_vulkan PRIVATE $<LINK_GROUP:RESCAN,nvrhi,nvrhi_vk>)
 endif()
 target_compile_options(balls_physics_vulkan PRIVATE ${BALLS_WARNINGS} ${BALLS_OPTIMIZE})
+if(NOT MSVC)
+    # Vulkan structs are zero-filled by naming only their sType ({VK_STRUCTURE_TYPE_...}), which -Wextra reports as
+    # missing initializers for every other member.
+    target_compile_options(balls_physics_vulkan PRIVATE -Wno-missing-field-initializers)
+endif()
 balls_precompile(balls_physics_vulkan <vulkan/vulkan.hpp> <nvrhi/vulkan.h>)
 target_link_options(balls_physics_vulkan PRIVATE ${BALLS_LINK_OPTIMIZE})
 add_dependencies(balls_physics_plugins balls_physics_vulkan)

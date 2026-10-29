@@ -620,16 +620,6 @@ LaneState decodeLanes(__m512i position, __m512i state, const LaneConstants& k) {
             _mm512_and_si512(_mm512_srli_epi32(state, compact::bounceShift), k.bounceMask)};
 }
 
-__m512i encodeAxisLanes(__m512 value, __m512 toPosition, const LaneConstants& k) {
-    const __m512 scaled = _mm512_fmadd_ps(value, toPosition, k.halfCell);
-    return _mm512_cvttps_epi32(_mm512_min_ps(_mm512_max_ps(scaled, k.zero), k.positionMax));
-}
-
-__m512i encodePositionLanes(const LaneState& lanes, const LaneConstants& k) {
-    return _mm512_or_si512(encodeAxisLanes(lanes.x, k.xToPosition, k),
-                           _mm512_slli_epi32(encodeAxisLanes(lanes.y, k.yToPosition, k), 16));
-}
-
 __m512i roundingDitherLanes(__m512i previousPosition) {
     __m512i hash = _mm512_mullo_epi32(previousPosition, _mm512_set1_epi32(static_cast<int>(0x9E3779B1u)));
     hash = _mm512_xor_si512(hash, _mm512_srli_epi32(hash, 15));

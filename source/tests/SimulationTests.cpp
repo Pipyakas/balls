@@ -230,7 +230,7 @@ TEST_CASE("every available backend matches the scalar reference") {
             std::abs(reference.board().aliveBrickCount() - candidate.board().aliveBrickCount());
         const auto ballsDifference =
             std::abs(static_cast<long long>(referenceBalls) - static_cast<long long>(candidateBalls));
-        EXPECT(bricksDifference <= reference.board().bricks().size() / 20);
+        EXPECT(static_cast<size_t>(bricksDifference) <= reference.board().bricks().size() / 20);
         EXPECT(ballsDifference <= static_cast<long long>(referenceBalls / 20 + 10));
         for (size_t color = 0; color < ballColorCount; ++color) {
             const BallCount referenceColor = reference.stats().ballsByColor[color];
