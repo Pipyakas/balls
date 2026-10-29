@@ -137,13 +137,13 @@ disabled and the game runs on AVX2 (or Scalar on CPUs without AVX2).
 
 ### Tests and benchmark
 
+After `build.bat`, the unit tests and the benchmark build and run from the same folder:
+
 ```powershell
-cmake --build build/win32 --config Release --target balls_tests balls_bench
-build/win32/bin/Release/balls_tests.exe
-build/win32/bin/Release/balls_bench.exe --balls 2000,200000,1000000 --ticks 240
-build/win32/bin/Release/balls_bench.exe --full --balls 100000
-build/win32/bin/Release/balls_bench.exe --roofline --balls 4000000,40000000
-python scripts/bench/probe_bench.py --backends cuda avx2 --fps 60
+cmake --build build/win32-scoring --config Release --target balls_tests balls_bench
+build/win32-scoring/bin/Release/balls_tests.exe
+build/win32-scoring/bin/Release/balls_bench.exe --balls 2000,200000,1000000 --ticks 240
+build/win32-scoring/bin/Release/balls_bench.exe --fill --balls 262144 --ticks 100
 ```
 
 ### Shaders
@@ -270,4 +270,4 @@ CMakeLists.txt        builds everything under source/
   no `develop` or any other integration branch: one trunk, short-lived feature branches.
 - `submission` is generated from `main` for the game's scoring repository.
 - Commits use `feat:` / `fix:` / `perf:` / `refactor:` / `build:` / `docs:` / `chore:` prefixes.
-- Commit small, working steps and push after every commit, so other machines and agents never wait on unpushed work.
+- Commit small, working steps and push after every commit, so other machines never wait on unpushed work.
