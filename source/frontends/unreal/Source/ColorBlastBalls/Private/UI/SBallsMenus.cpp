@@ -10,6 +10,8 @@
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SSafeZone.h"
 #include "Widgets/Layout/SBox.h"
+#include "Widgets/Layout/SScaleBox.h"
+#include "Widgets/SLeafWidget.h"
 #include "Widgets/Layout/SScrollBox.h"
 #include "Widgets/Layout/SWidgetSwitcher.h"
 #include "Widgets/SBoxPanel.h"
@@ -51,11 +53,16 @@ TSharedRef<SWidget> Button(TAttribute<FText> Label, TFunction<void()> OnClicked,
                 return FReply::Handled();
             })
             [
-                SNew(STextBlock)
-                .Text(Label)
-                .Font(BallsStyle::Font(FontSize, true))
-                .ColorAndOpacity(TextColor)
-                .Justification(ETextJustify::Center)
+                SNew(SScaleBox)
+                .Stretch(EStretch::ScaleToFit)
+                .StretchDirection(EStretchDirection::DownOnly)
+                [
+                    SNew(STextBlock)
+                    .Text(Label)
+                    .Font(BallsStyle::Font(FontSize, true))
+                    .ColorAndOpacity(TextColor)
+                    .Justification(ETextJustify::Center)
+                ]
             ];
     };
     TSharedRef<SWidget> Normal = Make(&BallsStyle::Button(), FSlateColor::UseForeground());
@@ -92,19 +99,131 @@ TSharedRef<SWidget> Dropdown(TArray<FString> Options, TFunction<int32()> GetInde
             ]
         ];
     }
+    constexpr float ValueInset = 12.0f;
+    TSharedPtr<SButton> Head;
+    auto Lit = [bOpen](const TSharedPtr<SButton>& Button) { return *bOpen || (Button.IsValid() && Button->IsHovered()); };
+    SAssignNew(Head, SButton)
+        .ButtonStyle(&BallsStyle::DropdownButton())
+        .IsFocusable(false)
+        .ContentPadding(FMargin(0.0f))
+        .OnClicked_Lambda([bOpen] {
+            *bOpen = !*bOpen;
+            return FReply::Handled();
+        });
+    TWeakPtr<SButton> WeakHead = Head;
+    Head->SetContent(
+        SNew(SOverlay)
+        + SOverlay::Slot()
+        [
+            SNew(SBorder)
+            .BorderImage(BallsStyle::White())
+            .BorderBackgroundColor_Lambda([WeakHead, bOpen] {
+                return BallsPalette::Linear(*bOpen || (WeakHead.IsValid() && WeakHead.Pin()->IsHovered()) ? BallsPalette::Accent
+                                                                                                         : BallsPalette::Border);
+            })
+            .Padding(1.0f)
+            [
+                SNew(SBorder).BorderImage(BallsStyle::White()).BorderBackgroundColor_Lambda([WeakHead] {
+                    const TSharedPtr<SButton> Button = WeakHead.Pin();
+                    return BallsPalette::Linear(Button && Button->IsPressed()   ? BallsPalette::ControlPressed
+                                                : Button && Button->IsHovered() ? BallsPalette::ControlHover
+                                                                                : BallsPalette::BoardBackdrop);
+                })
+            ]
+        ]
+        + SOverlay::Slot()
+        [
+            SNew(SHorizontalBox)
+            + SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center).Padding(ValueInset, 0.0f)
+            [
+                SNew(STextBlock)
+                .Text_Lambda([Options, GetIndex] {
+                    return FText::FromString(Options[FMath::Clamp(GetIndex(), 0, Options.Num() - 1)]);
+                })
+                .Font(BallsStyle::Font(FontSize))
+                .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Text))
+            ]
+            + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 6.0f)
+            [
+                SNew(SBox).WidthOverride(1.0f)
+                [
+                    SNew(SBorder).BorderImage(BallsStyle::White()).BorderBackgroundColor(BallsPalette::Linear(BallsPalette::Border))
+                ]
+            ]
+            + SHorizontalBox::Slot().AutoWidth()
+            [
+                SNew(SBox).WidthOverride(ControlHeight).HAlign(HAlign_Center).VAlign(VAlign_Center)
+                [
+                    Chevron(TAttribute<EChevron>::CreateLambda([bOpen] { return *bOpen ? EChevron::Up : EChevron::Down; }),
+                            TAttribute<FLinearColor>::CreateLambda([WeakHead, Lit] {
+                                return BallsPalette::Linear(Lit(WeakHead.Pin()) ? BallsPalette::Accent : BallsPalette::TextMuted);
+                            }))
+                ]
+            ]
+        ]);
     return SNew(SVerticalBox)
         + SVerticalBox::Slot().AutoHeight()
         [
-            SNew(SBox).HeightOverride(ControlHeight)
-            [
-                Button(TAttribute<FText>::CreateLambda([Options, GetIndex, bOpen] {
-                           const int32 Index = FMath::Clamp(GetIndex(), 0, Options.Num() - 1);
-                           return FText::FromString(Options[Index] + (*bOpen ? TEXT("  ^") : TEXT("  v")));
-                       }),
-                       [bOpen] { *bOpen = !*bOpen; }, FontSize)
-            ]
+            SNew(SBox).HeightOverride(ControlHeight)[Head.ToSharedRef()]
         ]
         + SVerticalBox::Slot().AutoHeight()[List];
+}
+
+namespace {
+
+class SBallsChevron final : public SLeafWidget {
+public:
+    SLATE_BEGIN_ARGS(SBallsChevron) {}
+        SLATE_ATTRIBUTE(EChevron, Direction)
+        SLATE_ATTRIBUTE(FLinearColor, Color)
+    SLATE_END_ARGS()
+
+    void Construct(const FArguments& InArgs) {
+        Direction = InArgs._Direction;
+        Color = InArgs._Color;
+    }
+
+    FVector2D ComputeDesiredSize(float) const override { return FVector2D(HalfWidth * 2.0f); }
+
+    int32 OnPaint(const FPaintArgs&, const FGeometry& Geometry, const FSlateRect&, FSlateWindowElementList& Out,
+                  int32 LayerId, const FWidgetStyle&, bool) const override {
+        // Strips, as the launch point marker: Slate has no filled polygon here.
+        constexpr int32 Strips = 8;
+        const FVector2f Center = FVector2f(Geometry.GetLocalSize()) * 0.5f;
+        const EChevron Pointing = Direction.Get();
+        for (int32 Strip = 0; Strip < Strips; ++Strip) {
+            // From the wide base to the tip.
+            const float From = static_cast<float>(Strip) / Strips;
+            const float To = static_cast<float>(Strip + 1) / Strips;
+            const float Half = HalfWidth * (1.0f - From);
+            FVector2f Position;
+            FVector2f Size;
+            if (Pointing == EChevron::Right) {
+                Position = FVector2f(Center.X - HalfHeight + 2.0f * HalfHeight * From, Center.Y - Half);
+                Size = FVector2f(2.0f * HalfHeight * (To - From), 2.0f * Half);
+            } else {
+                const float Base = Pointing == EChevron::Down ? Center.Y - HalfHeight + 2.0f * HalfHeight * From
+                                                              : Center.Y + HalfHeight - 2.0f * HalfHeight * To;
+                Position = FVector2f(Center.X - Half, Base);
+                Size = FVector2f(2.0f * Half, 2.0f * HalfHeight * (To - From));
+            }
+            FSlateDrawElement::MakeBox(Out, LayerId, Geometry.ToPaintGeometry(Size, FSlateLayoutTransform(Position)),
+                                       BallsStyle::White(), ESlateDrawEffect::None, Color.Get());
+        }
+        return LayerId + 1;
+    }
+
+private:
+    static constexpr float HalfWidth = 6.0f;
+    static constexpr float HalfHeight = 3.5f;
+    TAttribute<EChevron> Direction;
+    TAttribute<FLinearColor> Color;
+};
+
+}
+
+TSharedRef<SWidget> Chevron(TAttribute<EChevron> Direction, TAttribute<FLinearColor> Color) {
+    return SNew(SBallsChevron).Direction(MoveTemp(Direction)).Color(MoveTemp(Color));
 }
 
 TSharedRef<SWidget> Stepper(TFunction<int32()> GetValue, TFunction<void(int32)> OnChange, int32 Minimum, int32 Maximum,
@@ -149,47 +268,30 @@ void SBallsMainMenu::Construct(const FArguments& InArgs) {
         return SizedButton(MenuButtonWidth, MenuButtonHeight,
                            BallsWidgets::Button(FText::FromString(Label), MoveTemp(OnClicked), 26.0f, bEnabled));
     };
+    // The title and the buttons, in the game's order, come from the core's screen flow, as in the SDL front end.
+    const ScreenFlow& Flow = Owner->GetScreenFlow();
+    TSharedRef<SVerticalBox> Column = SNew(SVerticalBox)
+        + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.0f, 0.0f, 0.0f, TitleSize * 0.7f)
+        [
+            SNew(STextBlock)
+            .Text(FText::FromString(BallsText::FromUtf8(Flow.title())))
+            .Font(BallsStyle::Font(TitleSize, true))
+            .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Accent))
+        ];
+    for (const FlowButton& Entry : Flow.buttons()) {
+        const FlowAction Action = Entry.action;
+        Column->AddSlot().AutoHeight().Padding(0.0f, MenuButtonGap * 0.5f)
+        [
+            MenuButton(*BallsText::FromUtf8(Entry.label), [Owner, Action] { Owner->ActivateFlow(Action); }, Entry.enabled)
+        ];
+    }
     ChildSlot
     [
         SNew(SBox)
         .HAlign(HAlign_Center)
         .VAlign(VAlign_Center)
         [
-            SNew(SVerticalBox)
-            + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center)
-            [
-                SNew(STextBlock)
-                .Text(FText::FromString(TEXT("COLOR BLAST")))
-                .Font(BallsStyle::Font(TitleSize, true))
-                .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Accent))
-            ]
-            + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.0f, 0.0f, 0.0f, TitleSize * 0.5f)
-            [
-                SNew(STextBlock)
-                .Text(FText::FromString(TEXT("BALLS")))
-                .Font(BallsStyle::Font(TitleSize * 0.7f, true))
-                .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Text))
-            ]
-            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, MenuButtonGap * 0.5f)
-            [
-                MenuButton(TEXT("Normal Mode"), [Owner] { Owner->ActivateFlow(FlowAction::NormalMode); })
-            ]
-            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, MenuButtonGap * 0.5f)
-            [
-                MenuButton(TEXT("Performance Mode"), [Owner] { Owner->ActivateFlow(FlowAction::PerformanceMode); })
-            ]
-            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, MenuButtonGap * 0.5f)
-            [
-                MenuButton(TEXT("Map Editor"), [Owner] { Owner->ActivateFlow(FlowAction::MapEditor); })
-            ]
-            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, MenuButtonGap * 0.5f)
-            [
-                MenuButton(TEXT("Settings"), [Owner] { Owner->ActivateFlow(FlowAction::Settings); })
-            ]
-            + SVerticalBox::Slot().AutoHeight().Padding(0.0f, MenuButtonGap * 0.5f)
-            [
-                MenuButton(TEXT("Quit"), [Owner] { Owner->ActivateFlow(FlowAction::Quit); })
-            ]
+            Column
         ]
     ];
 }
@@ -325,7 +427,7 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
                   TAttribute<bool>::CreateLambda([Owner, Level] { return Owner->GetGraphicsQuality() == Level; }),
                   [Owner, Level] { Owner->SetGraphicsQuality(Level); });
     }
-    AddHint(TEXT("Minimum turns bloom and temporal anti-aliasing off, fixes the exposure and draws at 70% screen "
+    AddHint(TEXT("Minimum turns bloom and temporal anti-aliasing off and draws at 70% screen "
                  "resolution; Balanced adds FXAA and bloom at 85%; High is the engine default look at 100%. The same "
                  "list is in the Performance gadget's control column."));
 
@@ -499,7 +601,7 @@ void SBallsLevelSelect::RebuildList() {
                 + SHorizontalBox::Slot().FillWidth(1.0f)
                 [
                     BallsWidgets::Button(FText::FromString(Name), [Owner, Index] { Owner->ActivateFlow(FlowAction::PlayLevel, Index); },
-                                         24.0f, true,
+                                         26.0f, true,
                                          TAttribute<bool>::CreateLambda([Owner, Index] {
                                              const auto& R = Owner->GetScreenFlow().levelRows();
                                              if (Index < 0 || Index >= static_cast<int32>(R.size())) {
@@ -512,7 +614,7 @@ void SBallsLevelSelect::RebuildList() {
                 [
                     SizedButton(110.0f, RowHeight,
                                 BallsWidgets::Button(FText::FromString(TEXT("Edit")),
-                                                     [Owner, Index] { Owner->ActivateFlow(FlowAction::EditLevel, Index); }, 20.0f))
+                                                     [Owner, Index] { Owner->ActivateFlow(FlowAction::EditLevel, Index); }, 26.0f))
                 ]
             ]
         ];
@@ -557,7 +659,7 @@ void SBallsLevelSelect::Construct(const FArguments& InArgs) {
 
     auto Action = [](const TCHAR* Label, TFunction<void()> OnClicked) {
         return SNew(SBox).WidthOverride(200.0f).HeightOverride(56.0f)
-            [BallsWidgets::Button(FText::FromString(Label), MoveTemp(OnClicked), 22.0f)];
+            [BallsWidgets::Button(FText::FromString(Label), MoveTemp(OnClicked), 25.0f)];
     };
 
     ChildSlot
@@ -598,28 +700,32 @@ void SBallsLevelSelect::Construct(const FArguments& InArgs) {
                         .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
                         .AutoWrapText(true)
                     ]
-                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 0.0f)
-                    [
-                        SNew(SHorizontalBox)
-                        + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
-                        [
-                            Action(TEXT("Back"), [Owner] { Owner->ActivateFlow(FlowAction::Back); })
-                        ]
-                        + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
-                        [
-                            Action(TEXT("New Level"), [Owner] { Owner->ActivateFlow(FlowAction::NewLevel); })
-                        ]
-                    ]
+                    // As in the SDL front end: Import and Open Folder under the folder line, then Back and New Level,
+                    // each pair at the two edges of the list.
                     + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 8.0f, 0.0f, 0.0f)
                     [
                         SNew(SHorizontalBox)
-                        + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
+                        + SHorizontalBox::Slot().AutoWidth()
                         [
                             Action(TEXT("Import"), [Owner] { Owner->OpenLevelImportDialog(); })
                         ]
-                        + SHorizontalBox::Slot().AutoWidth().Padding(0.0f, 0.0f, 8.0f, 0.0f)
+                        + SHorizontalBox::Slot().FillWidth(1.0f)
+                        + SHorizontalBox::Slot().AutoWidth()
                         [
                             Action(TEXT("Open Folder"), [Owner] { Owner->OpenLevelFolder(Owner->GetScreenFlow().mode()); })
+                        ]
+                    ]
+                    + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 24.0f, 0.0f, 0.0f)
+                    [
+                        SNew(SHorizontalBox)
+                        + SHorizontalBox::Slot().AutoWidth()
+                        [
+                            Action(TEXT("Back"), [Owner] { Owner->ActivateFlow(FlowAction::Back); })
+                        ]
+                        + SHorizontalBox::Slot().FillWidth(1.0f)
+                        + SHorizontalBox::Slot().AutoWidth()
+                        [
+                            Action(TEXT("New Level"), [Owner] { Owner->ActivateFlow(FlowAction::NewLevel); })
                         ]
                     ]
                 ]

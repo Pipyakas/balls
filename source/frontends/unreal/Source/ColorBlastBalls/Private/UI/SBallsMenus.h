@@ -19,6 +19,10 @@ TSharedRef<SWidget> Button(TAttribute<FText> Label, TFunction<void()> OnClicked,
 TSharedRef<SWidget> Dropdown(TArray<FString> Options, TFunction<int32()> GetIndex, TFunction<void(int32)> OnSelect,
                              float ControlHeight = 44.0f, float FontSize = 20.0f);
 
+// The SDL front end's chevron, 12 by 7: pointing right, down or up, in Color.
+enum class EChevron { Right, Down, Up };
+TSharedRef<SWidget> Chevron(TAttribute<EChevron> Direction, TAttribute<FLinearColor> Color);
+
 // "-  value  +": Shift makes a click step by 10. Limits are inclusive.
 TSharedRef<SWidget> Stepper(TFunction<int32()> GetValue, TFunction<void(int32)> OnChange, int32 Minimum, int32 Maximum,
                             float ControlHeight = 44.0f, float FontSize = 20.0f);
