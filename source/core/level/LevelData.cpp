@@ -1,6 +1,7 @@
 #include "level/LevelData.h"
 
 #include <algorithm>
+#include <format>
 #include <set>
 
 const BrickType* BrickLayout::findType(int id) const {
@@ -18,6 +19,16 @@ std::unordered_map<int, const BrickType*> BrickLayout::typesById() const {
         index.try_emplace(type.id, &type);
     }
     return index;
+}
+
+int countPlacedBricks(const BrickLayout& layout) {
+    std::set<int> placedIds(layout.cellIds.begin(), layout.cellIds.end());
+    placedIds.erase(emptyBrickId);
+    return static_cast<int>(placedIds.size());
+}
+
+std::string levelNameWithBrickCount(std::string_view baseName, int bricks) {
+    return std::format("{}_{}{}", baseName, bricks, bricks == 1 ? "Brick" : "Bricks");
 }
 
 ColorTally countBrickHitsByColor(const BrickLayout& layout) {

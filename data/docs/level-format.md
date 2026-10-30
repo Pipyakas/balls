@@ -17,7 +17,7 @@ ball radius and speed, how many bounces before a ball heads for the nearest bric
 the physics tick rate and the Normal-mode spawn rate. Values the simulation cannot run (a ball that would cross more
 than its radius in a tick, say) are refused with the level's load error, and a key left out keeps its built-in value.
 
-`performance/Unlimited` has the `DA_1000Bricks` board with one launcher per color at the largest count the format
+`performance/Unlimited_921Bricks` has the `DA_1000Bricks` board with one launcher per color at the largest count the format
 takes (2,147,483,647), so even at x1 it holds more balls than any machine's capacity: auto release keeps spawning
 until the ball limit stops it.
 
@@ -26,18 +26,18 @@ until the ball limit stops it.
 | Mode | Level | What it shows |
 |---|---|---|
 | Normal | `DA_FirstLevel`, `DA_49Bricks` | The sample levels |
-| Normal | `Warmup` | 3 colors: single and 2-hit bricks, two 2-wide and two 2-tall bricks |
-| Normal | `Pillars` | 4 colors: 3-wide and 2-tall multi-hit bricks, open cells at the bottom of two columns |
-| Normal | `Stalactites` | 5 colors: columns of different lengths, so each column slides on its own |
-| Normal | `Fortress` | 7 colors: 2x2 bricks of 4 hits, 3-wide bricks of 3 hits and a ragged bottom row |
+| Normal | `Warmup_24Bricks` | 3 colors: single and 2-hit bricks, two 2-wide and two 2-tall bricks |
+| Normal | `Pillars_28Bricks` | 4 colors: 3-wide and 2-tall multi-hit bricks, open cells at the bottom of two columns |
+| Normal | `Stalactites_33Bricks` | 5 colors: columns of different lengths, so each column slides on its own |
+| Normal | `Fortress_43Bricks` | 7 colors: 2x2 bricks of 4 hits, 3-wide bricks of 3 hits and a ragged bottom row |
 | Performance | `DA_1000Bricks` | The sample level |
-| Performance | `Unlimited` | `DA_1000Bricks`' board with launchers that never run out |
-| Performance | `Stress_Solid_128x128` | 16,384 single-hit bricks: the column slide under constant breaking |
-| Performance | `Stress_Tough_256x256` | 65,536 bricks of 100,000 hits: brick-hit resolution on a full board |
-| Performance | `Stress_Checker_512x512` | 65,536 tough bricks with a gap on every side: hits and bounces everywhere |
-| Performance | `Stress_Shelves_512x512` | Long rows of tough bricks with doors: balls cross the board between hits |
-| Performance | `Stress_Wide_2048x64` | A board 2,048 cells wide and 64 deep: long bounces across a very wide grid |
-| Performance | `Stress_LoneBrick_512x512` | One brick on an empty 512x512 board: free flight, the most balls at 60 FPS |
+| Performance | `Unlimited_921Bricks` | `DA_1000Bricks`' board with launchers that never run out |
+| Performance | `Stress_Solid_128x128_16384Bricks` | 16,384 single-hit bricks: the column slide under constant breaking |
+| Performance | `Stress_Tough_256x256_65536Bricks` | 65,536 bricks of 100,000 hits: brick-hit resolution on a full board |
+| Performance | `Stress_Checker_512x512_65536Bricks` | 65,536 tough bricks with a gap on every side: hits and bounces everywhere |
+| Performance | `Stress_Shelves_512x512_57344Bricks` | Long rows of tough bricks with doors: balls cross the board between hits |
+| Performance | `Stress_Wide_2048x64_32768Bricks` | A board 2,048 cells wide and 64 deep: long bounces across a very wide grid |
+| Performance | `Stress_LoneBrick_512x512_1Brick` | One brick on an empty 512x512 board: free flight, the most balls at 60 FPS |
 
 Every level in Normal mode releases exactly as many balls of a color as its bricks of that color take hits. The
 Performance stress levels launch every color from launchers of 2,147,483,647 balls, so release stops only at the

@@ -6,7 +6,7 @@ board to a fixed count, settles, and samples /state: physics frames per second, 
 (the share of a second the physics thread is busy), and the UI frame rate. Attach to a game already started with
 --control-port, or let the script start one.
 
-    python -I scripts/bench/physics_pacing_bench.py --attach --port 7781 --case Edge_Empty_512x512:2000000000
+    python -I scripts/bench/physics_pacing_bench.py --attach --port 7781 --case Edge_Empty_512x512_0Bricks:2000000000
 """
 
 import argparse
@@ -93,7 +93,7 @@ def main():
     parser.add_argument("--game", default=str(DEFAULT_GAME))
     parser.add_argument("--port", type=int, default=7781)
     parser.add_argument("--backend", default="hybrid")
-    parser.add_argument("--case", action="append", required=True, help="level:balls, e.g. Edge_Empty_512x512:2000000000")
+    parser.add_argument("--case", action="append", required=True, help="level:balls, e.g. Edge_Empty_512x512_0Bricks:2000000000")
     parser.add_argument("--settle", type=float, default=5.0)
     parser.add_argument("--seconds", type=float, default=10.0)
     parser.add_argument("--fill-timeout", type=float, default=180.0)

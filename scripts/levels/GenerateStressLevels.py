@@ -66,17 +66,18 @@ def write_level(name, width, height, is_brick, hits, open_rows, rng):
         open_rows = max(MINIMUM_LAUNCH_ROWS, height // LAUNCH_ROWS_DIVISOR)
     bricks = ["[Board]", f"Width {width}", f"Height {height}", f"PlayableHeight {height + open_rows}", "",
               "[Layout]", *ids, "", "[BrickTypes]", *types]
+    name = f"{name}_{len(types)}Brick{'' if len(types) == 1 else 's'}"
     (OUTPUT_DIRECTORY / f"{name}_Bricks.txt").write_text("\n".join(bricks) + "\n", newline="\n")
     slots = [f"{color}({LARGEST_COUNT})" for color in COLORS] + ["Empty", "Empty"]
     launchers = ["[Board]", "Width 3", "Height 3", "", "[Layout]"]
     launchers += [" ".join(slots[row:row + 3]) for row in range(0, len(slots), 3)]
     (OUTPUT_DIRECTORY / f"{name}_SpawnBall.txt").write_text("\n".join(launchers) + "\n", newline="\n")
-    return len(types)
+    return name, len(types)
 
 
 def main():
     for name, width, height, is_brick, hits, open_rows in LEVELS:
-        bricks = write_level(name, width, height, is_brick, hits, open_rows, random.Random(f"{SEED}-{name}"))
+        name, bricks = write_level(name, width, height, is_brick, hits, open_rows, random.Random(f"{SEED}-{name}"))
         print(f"{name}: {bricks} bricks of {hits} hits")
 
 

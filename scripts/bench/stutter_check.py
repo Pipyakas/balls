@@ -5,7 +5,7 @@ Starts the game hidden on a Performance level, then either runs the capacity pro
 second whose worst frame took more than twice a 60 FPS frame (or twice its average, when slower) is a stutter: frames
 drawn at hundreds a second vary with the ticks they run, and only a frame a 60 Hz display would miss shows.
 
-    python -I scripts/bench/stutter_check.py --level Edge_Tough_48x48 --mode probe --seconds 40
+    python -I scripts/bench/stutter_check.py --level Edge_Tough_48x48_2304Bricks --mode probe --seconds 40
 """
 
 import argparse

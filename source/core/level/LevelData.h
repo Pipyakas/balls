@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -64,3 +65,7 @@ using ColorTally = std::array<int, ballColorCount>;
 ColorTally countBrickHitsByColor(const BrickLayout& layout);
 ColorTally countBallsByColor(const LauncherLayout& layout);
 int countDistinctColors(const ColorTally& tally);
+// Bricks actually on the board: distinct ids in the layout, so a multi-cell brick counts once.
+int countPlacedBricks(const BrickLayout& layout);
+// Every shipped level but the samples' ends its name with its brick count: "Stress_Solid_128x128_16384Bricks".
+std::string levelNameWithBrickCount(std::string_view baseName, int bricks);

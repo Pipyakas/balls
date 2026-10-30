@@ -13,7 +13,7 @@ the first build.
 
 1. Double-click `build.bat`. It checks the PC, names anything missing, and builds `dist\win32-sdl\balls.exe`.
 2. Run `dist\win32-sdl\balls.exe`.
-3. For the most balls: Performance mode, level `Unlimited`, Spawn / sec `Max`, Ball count `x10000`, Ball limit
+3. For the most balls: Performance mode, level `Unlimited_921Bricks`, Spawn / sec `Max`, Ball count `x10000`, Ball limit
    `Auto`, then `Start`. Close other programs first: Auto is the RAM and VRAM free when the game starts.
 
 The release is tagged (`git tag -l`).

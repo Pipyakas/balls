@@ -70,7 +70,7 @@ TEST_CASE("performance mode keeps releasing launchers once the board is cleared"
 }
 
 TEST_CASE("performance auto release spawns every color at once, however big each launcher is") {
-    LevelData level = loadSample("performance", "Unlimited");
+    LevelData level = loadSample("performance", "Unlimited_921Bricks");
     std::fill(level.bricks.cellIds.begin(), level.bricks.cellIds.end(), emptyBrickId);
     GameSession session(GameMode::Performance, std::move(level), BackendKind::Scalar);
     session.startAutoRelease();
