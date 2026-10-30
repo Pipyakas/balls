@@ -96,7 +96,7 @@ The engine front ends follow the same pattern from Windows:
 
 | Command | Output |
 |---|---|
-| `build.bat unreal win64`, `build.bat unreal linux` | `dist\win32-ue\ColorBlastBalls.exe`, `dist\linux-ue\` (needs the engine fork at `UE_ROOT`) |
+| `build.bat unreal win64`, `build.bat unreal linux` | `dist\win32-ue\ColorBlastBalls.exe`, `dist\linux-ue\` (needs Unreal Engine 5.8 at `UE_ROOT`; a stock install works) |
 | `build.bat unity win64` | `dist\win32-unity\ColorBlastBallsUnity.exe` (Mono player; needs the Unity version in `source\frontends\unity\ProjectSettings\ProjectVersion.txt`, or `UNITY_EXE`) |
 | `build.bat unity linux` | `dist\linux-unity\ColorBlastBallsUnity.x86_64` (IL2CPP; needs the Linux `.so` files, built on Linux, in `source\frontends\unity\NativeLibraries\linux-x86_64`) |
 
@@ -282,7 +282,7 @@ source/
   tools/              benchmarks, instruction counter, NVRTC PTX generator, compute-shader port
 scripts/              CUDA SDK fetch, shader compilers, benchmark drivers, remote benchmark machine setup
 dist/                 build output, one runnable folder per <platform>-<frontend> (not committed)
-build-*/run-*         build and launch one front end on one platform
+build.bat, build.sh   the one build entry point for every front end and platform
 CMakeLists.txt        builds everything under source/
 ```
 
