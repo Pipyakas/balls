@@ -2,118 +2,304 @@
 
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "HAL/IConsoleManager.h"
+#include "RHI.h"
+#include "RenderUtils.h"
 
 namespace {
 
-struct FQualityProfile {
-    EBallsGraphics Quality;
+constexpr int32 GroupCount = FBallsGraphicsSettings::GroupCount;
+constexpr int32 LevelCount = FBallsGraphicsSettings::LevelCount;
+constexpr int32 MinimumDynamicScreenPercentage = 50;
+constexpr float FrameBudgetMs = 1000.0f / 60.0f;
+
+const TCHAR* const PresetNames[LevelCount] = {TEXT("Low"), TEXT("Medium"), TEXT("High"), TEXT("Epic"), TEXT("Cinematic")};
+
+struct FGroupInfo {
     const TCHAR* Name;
-    // 0 none, 1 FXAA, 2 TAA. TSR (=4) needs SM6 and costs more than this scene pays back.
-    int32 AntiAliasingMethod;
-    int32 ScreenPercentage;
-    bool bBloom;
+    const TCHAR* Key;
+    const TCHAR* Cvar;
 };
 
-// The scene is flat colours, two shadowless lights and one instanced ball draw, so everything the post chain does
-// beyond tonemapping is wasted. Minimum is the performance-mode sweep: every optional effect off, scalability on
-// its lowest step, and a smaller frame upscaled without filtering.
-const FQualityProfile Profiles[] = {
-    {EBallsGraphics::Minimum, TEXT("Minimum"), 0, 67, false},
-    {EBallsGraphics::Balanced, TEXT("Balanced"), 1, 85, true},
-    {EBallsGraphics::High, TEXT("High"), 2, 100, true},
+const FGroupInfo Groups[GroupCount] = {
+    {TEXT("View distance"), TEXT("viewdistance"), TEXT("sg.ViewDistanceQuality")},
+    {TEXT("Anti-aliasing"), TEXT("antialiasing"), TEXT("sg.AntiAliasingQuality")},
+    {TEXT("Post-processing"), TEXT("postprocess"), TEXT("sg.PostProcessQuality")},
+    {TEXT("Shadows"), TEXT("shadows"), TEXT("sg.ShadowQuality")},
+    {TEXT("Global illumination"), TEXT("globalillumination"), TEXT("sg.GlobalIlluminationQuality")},
+    {TEXT("Reflections"), TEXT("reflections"), TEXT("sg.ReflectionQuality")},
+    {TEXT("Textures"), TEXT("textures"), TEXT("sg.TextureQuality")},
+    {TEXT("Effects"), TEXT("effects"), TEXT("sg.EffectsQuality")},
+    {TEXT("Foliage"), TEXT("foliage"), TEXT("sg.FoliageQuality")},
+    {TEXT("Shading"), TEXT("shading"), TEXT("sg.ShadingQuality")},
 };
 
-const FQualityProfile& ProfileFor(EBallsGraphics Quality) {
-    for (const FQualityProfile& Profile : Profiles) {
-        if (Profile.Quality == Quality) {
-            return Profile;
+const TCHAR* const AntiAliasingNames[] = {TEXT("Off"), TEXT("FXAA"), TEXT("TAA"), TEXT("TAAU"), TEXT("TSR"), TEXT("FSR")};
+const TCHAR* const GlobalIlluminationNames[] = {TEXT("Off"), TEXT("Lumen")};
+const TCHAR* const ReflectionNames[] = {TEXT("Off"), TEXT("Screen space"), TEXT("Lumen")};
+const TCHAR* const ShadowNames[] = {TEXT("Off"), TEXT("Shadow maps"), TEXT("Virtual")};
+
+// AMD's FidelityFX plugins register one of these when installed; none ships with the engine.
+const TCHAR* const FsrEnableCvars[] = {TEXT("r.FidelityFX.FSR4.Enabled"), TEXT("r.FidelityFX.FSR3.Enabled"),
+                                       TEXT("r.FidelityFX.FSR.Enabled")};
+
+IConsoleVariable* InstalledFsrCvar() {
+    for (const TCHAR* Name : FsrEnableCvars) {
+        if (IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(Name)) {
+            return Variable;
         }
     }
-    return Profiles[0];
+    return nullptr;
 }
 
-// Optional passes that can be switched off outright; the ball draw and the tonemapper are the only things this
-// frontend needs from the post chain.
-const TCHAR* const CheapPostProcess[] = {
-    TEXT("r.PostProcessAAQuality 0"),
-    TEXT("r.LensFlareQuality 0"),
-    TEXT("r.SceneColorFringeQuality 0"),
-    TEXT("r.Tonemapper.Quality 0"),
-    TEXT("r.Tonemapper.Sharpen 0"),
-    TEXT("r.Tonemapper.GrainQuantization 0"),
-    TEXT("r.DepthOfFieldQuality 0"),
-    TEXT("r.AmbientOcclusionLevels 0"),
-    TEXT("r.AmbientOcclusionStaticFraction 0"),
-    TEXT("r.SSR.Quality 0"),
-    TEXT("r.LightShafts 0"),
-    TEXT("r.VolumetricFog 0"),
-    TEXT("r.SeparateTranslucency 0"),
-    TEXT("r.Upscale.Quality 0"),
-    TEXT("r.DynamicGlobalIlluminationMethod 0"),
-    TEXT("r.ReflectionMethod 0"),
-    TEXT("r.Shadow.Virtual.Enable 0"),
-    TEXT("r.DynamicRes.OperationMode 0"),
-};
+const TCHAR* const SmNeeded = TEXT("needs Shader Model 6 (D3D12 or Vulkan)");
 
-const TCHAR* const LowestScalability[] = {
-    TEXT("sg.AntiAliasingQuality 0"), TEXT("sg.PostProcessQuality 0"), TEXT("sg.ShadowQuality 0"),
-    TEXT("sg.EffectsQuality 0"),     TEXT("sg.TextureQuality 0"),     TEXT("sg.ViewDistanceQuality 0"),
-    TEXT("sg.FoliageQuality 0"),     TEXT("sg.ShadingQuality 0"),
-};
+FString Squashed(const FString& Text) { return Text.Replace(TEXT(" "), TEXT("")).Replace(TEXT("-"), TEXT("")).ToLower(); }
 
+template <typename Enum, int32 Count>
+bool ParseName(const FString& Value, const TCHAR* const (&Names)[Count], Enum& Out) {
+    for (int32 Index = 0; Index < Count; ++Index) {
+        if (Squashed(Value) == Squashed(Names[Index])) {
+            Out = static_cast<Enum>(Index);
+            return true;
+        }
+    }
+    return false;
+}
+
+bool ParseFlag(const FString& Value, bool& Out) {
+    const FString Lower = Value.ToLower();
+    if (Lower == TEXT("1") || Lower == TEXT("on") || Lower == TEXT("true")) {
+        Out = true;
+        return true;
+    }
+    if (Lower == TEXT("0") || Lower == TEXT("off") || Lower == TEXT("false")) {
+        Out = false;
+        return true;
+    }
+    return false;
+}
+
+bool ParseLevel(const FString& Value, int32& Out) {
+    for (int32 Level = 0; Level < LevelCount; ++Level) {
+        if (Value == FString::FromInt(Level) || Value.Equals(PresetNames[Level], ESearchCase::IgnoreCase)) {
+            Out = Level;
+            return true;
+        }
+    }
+    return false;
+}
+
+}
+
+bool FBallsGraphicsSettings::operator==(const FBallsGraphicsSettings& Other) const {
+    for (int32 Index = 0; Index < GroupCount; ++Index) {
+        if (Groups[Index] != Other.Groups[Index]) {
+            return false;
+        }
+    }
+    return GlobalIllumination == Other.GlobalIllumination && Reflections == Other.Reflections &&
+           Shadows == Other.Shadows && bNanite == Other.bNanite && AntiAliasing == Other.AntiAliasing &&
+           ScreenPercentage == Other.ScreenPercentage && bDynamicResolution == Other.bDynamicResolution;
 }
 
 namespace BallsGraphics {
 
-TArray<EBallsGraphics> All() { return {EBallsGraphics::Minimum, EBallsGraphics::Balanced, EBallsGraphics::High}; }
+// Low is the old performance setting: the post chain costs more than this flat scene, so nothing optional runs.
+// Medium and High add temporal anti-aliasing, screen-space reflections and the key light's shadows; Epic and
+// Cinematic are the full UE5 look, with Lumen, Nanite and virtual shadow maps.
+FBallsGraphicsSettings Preset(int32 Level) {
+    Level = FMath::Clamp(Level, 0, LevelCount - 1);
+    FBallsGraphicsSettings Settings;
+    for (int32& Group : Settings.Groups) {
+        Group = Level;
+    }
+    const bool bFullUe5 = Level >= 3;
+    Settings.GlobalIllumination = bFullUe5 ? EBallsGlobalIllumination::Lumen : EBallsGlobalIllumination::None;
+    Settings.Reflections = bFullUe5 ? EBallsReflections::Lumen
+                           : Level > 0 ? EBallsReflections::ScreenSpace
+                                       : EBallsReflections::None;
+    Settings.Shadows = bFullUe5 ? EBallsShadows::Virtual : Level > 0 ? EBallsShadows::ShadowMaps : EBallsShadows::Off;
+    Settings.bNanite = bFullUe5;
+    Settings.AntiAliasing = Level == 0 ? EBallsAntiAliasing::None
+                            : Level == 1 ? EBallsAntiAliasing::TAA
+                                         : EBallsAntiAliasing::TSR;
+    return Settings;
+}
 
-FString Name(EBallsGraphics Quality) { return ProfileFor(Quality).Name; }
+FString PresetName(int32 Level) { return PresetNames[FMath::Clamp(Level, 0, LevelCount - 1)]; }
 
-std::optional<EBallsGraphics> Parse(const FString& Text) {
-    for (const FQualityProfile& Profile : Profiles) {
-        if (Text.Equals(Profile.Name, ESearchCase::IgnoreCase)) {
-            return Profile.Quality;
+std::optional<int32> MatchingPreset(const FBallsGraphicsSettings& Settings) {
+    for (int32 Level = 0; Level < LevelCount; ++Level) {
+        if (Settings == Preset(Level)) {
+            return Level;
         }
     }
     return std::nullopt;
 }
 
-void ApplyToWorld(UWorld* World, EBallsGraphics Quality) {
+FString Describe(const FBallsGraphicsSettings& Settings) {
+    const std::optional<int32> Level = MatchingPreset(Settings);
+    return FString::Printf(TEXT("%s - %s, %d%%%s"), Level ? *PresetName(*Level) : TEXT("Custom"),
+                           *AntiAliasingName(Settings.AntiAliasing), Settings.ScreenPercentage,
+                           Settings.bDynamicResolution ? TEXT(" dynamic") : TEXT(""));
+}
+
+FString GroupName(EBallsScalabilityGroup Group) { return Groups[static_cast<int32>(Group)].Name; }
+FString AntiAliasingName(EBallsAntiAliasing Method) { return AntiAliasingNames[static_cast<int32>(Method)]; }
+FString GlobalIlluminationName(EBallsGlobalIllumination Method) { return GlobalIlluminationNames[static_cast<int32>(Method)]; }
+FString ReflectionsName(EBallsReflections Method) { return ReflectionNames[static_cast<int32>(Method)]; }
+FString ShadowsName(EBallsShadows Method) { return ShadowNames[static_cast<int32>(Method)]; }
+TArray<int32> ScreenPercentages() { return {50, 67, 75, 85, 100}; }
+
+FString Unavailable(EBallsAntiAliasing Method) {
+    if (Method == EBallsAntiAliasing::FSR && !InstalledFsrCvar()) {
+        return TEXT("needs AMD's FidelityFX FSR plugin in the engine");
+    }
+    return FString();
+}
+
+FString UnavailableLumen() { return DoesPlatformSupportLumenGI(GMaxRHIShaderPlatform) ? FString() : FString(SmNeeded); }
+
+FString UnavailableNanite() {
+    if (!DoesPlatformSupportNanite(GMaxRHIShaderPlatform, false)) {
+        return SmNeeded;
+    }
+    return UseNanite(GMaxRHIShaderPlatform) ? FString() : FString(TEXT("not enabled in this build"));
+}
+
+FString UnavailableVirtualShadows() {
+    return DoesPlatformSupportVirtualShadowMaps(GMaxRHIShaderPlatform) ? FString() : FString(SmNeeded);
+}
+
+FString Serialize(const FBallsGraphicsSettings& Settings) {
+    FString Text;
+    for (int32 Index = 0; Index < GroupCount; ++Index) {
+        Text += FString::Printf(TEXT("sg.%s=%d;"), Groups[Index].Key, Settings.Groups[Index]);
+    }
+    Text += FString::Printf(TEXT("gi=%s;reflectionmethod=%s;shadowmethod=%s;nanite=%d;aa=%s;screen=%d;dynamic=%d"),
+                            *Squashed(GlobalIlluminationName(Settings.GlobalIllumination)),
+                            *Squashed(ReflectionsName(Settings.Reflections)), *Squashed(ShadowsName(Settings.Shadows)),
+                            Settings.bNanite ? 1 : 0, *Squashed(AntiAliasingName(Settings.AntiAliasing)),
+                            Settings.ScreenPercentage, Settings.bDynamicResolution ? 1 : 0);
+    return Text;
+}
+
+FString ParseInto(const FString& Text, FBallsGraphicsSettings& Base) {
+    TArray<FString> Pairs;
+    Text.ParseIntoArray(Pairs, TEXT(";"));
+    // A preset first, so the other keys in the same request adjust it rather than being replaced by it.
+    for (const FString& Pair : Pairs) {
+        FString Key;
+        FString Value;
+        if (Pair.Split(TEXT("="), &Key, &Value) && Key.TrimStartAndEnd().Equals(TEXT("preset"), ESearchCase::IgnoreCase)) {
+            int32 Level = 0;
+            if (!ParseLevel(Value.TrimStartAndEnd(), Level)) {
+                return FString::Printf(TEXT("preset must be low, medium, high, epic or cinematic, not %s"), *Value);
+            }
+            Base = Preset(Level);
+        }
+    }
+    for (const FString& Pair : Pairs) {
+        FString Key;
+        FString Value;
+        if (!Pair.Split(TEXT("="), &Key, &Value)) {
+            return FString::Printf(TEXT("%s is not key=value"), *Pair);
+        }
+        Key = Key.TrimStartAndEnd().ToLower();
+        Value = Value.TrimStartAndEnd();
+        bool bRead = true;
+        if (Key == TEXT("preset")) {
+            continue;
+        } else if (Key.StartsWith(TEXT("sg."))) {
+            bRead = false;
+            for (int32 Index = 0; Index < GroupCount; ++Index) {
+                if (Key.RightChop(3) == Groups[Index].Key) {
+                    bRead = ParseLevel(Value, Base.Groups[Index]);
+                }
+            }
+        } else if (Key == TEXT("gi")) {
+            bRead = ParseName(Value, GlobalIlluminationNames, Base.GlobalIllumination);
+        } else if (Key == TEXT("reflectionmethod")) {
+            bRead = ParseName(Value, ReflectionNames, Base.Reflections);
+        } else if (Key == TEXT("shadowmethod")) {
+            bRead = ParseName(Value, ShadowNames, Base.Shadows);
+        } else if (Key == TEXT("nanite")) {
+            bRead = ParseFlag(Value, Base.bNanite);
+        } else if (Key == TEXT("aa")) {
+            bRead = ParseName(Value, AntiAliasingNames, Base.AntiAliasing);
+        } else if (Key == TEXT("screen")) {
+            bRead = Value.IsNumeric() && FCString::Atoi(*Value) >= MinimumDynamicScreenPercentage &&
+                    FCString::Atoi(*Value) <= 100;
+            if (bRead) {
+                Base.ScreenPercentage = FCString::Atoi(*Value);
+            }
+        } else if (Key == TEXT("dynamic")) {
+            bRead = ParseFlag(Value, Base.bDynamicResolution);
+        } else {
+            return FString::Printf(TEXT("unknown graphics key %s"), *Key);
+        }
+        if (!bRead) {
+            return FString::Printf(TEXT("cannot read %s=%s"), *Key, *Value);
+        }
+    }
+    return FString();
+}
+
+void ApplyToWorld(UWorld* World, const FBallsGraphicsSettings& Settings) {
     if (!GEngine) {
         return;
     }
-    const FQualityProfile& Profile = ProfileFor(Quality);
     const auto Run = [World](const FString& Command) { GEngine->Exec(World, *Command); };
 
-    Run(FString::Printf(TEXT("r.AntiAliasingMethod %d"), Profile.AntiAliasingMethod));
-    Run(FString::Printf(TEXT("r.ScreenPercentage %d"), Profile.ScreenPercentage));
-    Run(FString::Printf(TEXT("r.DefaultFeature.Bloom %d"), Profile.bBloom ? 1 : 0));
-    Run(FString::Printf(TEXT("r.BloomQuality %d"), Profile.bBloom ? 4 : 0));
-    Run(TEXT("r.MotionBlurQuality 0"));
-    if (Quality == EBallsGraphics::Minimum) {
-        // Performance mode: everything optional off, lowest scalability step, and a filtered-free upscale.
-        for (const TCHAR* Command : LowestScalability) {
-            Run(Command);
-        }
-        for (const TCHAR* Command : CheapPostProcess) {
-            Run(Command);
-        }
-        // Auto-exposure stays on, after the sweep since the lowest post-process step turns it off: without it the
-        // fixed exposure draws the lit bricks nearly black.
-        Run(TEXT("r.EyeAdaptationQuality 2"));
-    } else {
-        // Leaving Minimum must undo the sweep, or the low scalability step sticks.
-        for (const TCHAR* Command : LowestScalability) {
-            FString Restored(Command);
-            Restored.ReplaceInline(TEXT(" 0"), *FString::Printf(TEXT(" %d"), Quality == EBallsGraphics::High ? 3 : 2));
-            Run(Restored);
-        }
-        Run(TEXT("r.PostProcessAAQuality 1"));
-        Run(TEXT("r.EyeAdaptationQuality 3"));
-        Run(TEXT("r.Upscale.Quality 1"));
+    // The groups first: each one rewrites its own r.* values from the scalability ini, and the explicit methods
+    // below must win over them.
+    for (int32 Index = 0; Index < GroupCount; ++Index) {
+        Run(FString::Printf(TEXT("%s %d"), Groups[Index].Cvar, Settings.Groups[Index]));
     }
-    UE_LOG(LogTemp, Display, TEXT("BallsGraphics: %s (AA %d, screen %d%%, bloom %d)"), Profile.Name,
-           Profile.AntiAliasingMethod, Profile.ScreenPercentage, Profile.bBloom ? 1 : 0);
+    // The lowest post-process step also turns eye adaptation off, which drops the camera's manual exposure and
+    // draws the lit bricks nearly black.
+    if (Settings.Groups[static_cast<int32>(EBallsScalabilityGroup::PostProcess)] == 0) {
+        Run(TEXT("r.EyeAdaptationQuality 2"));
+    }
+    Run(TEXT("r.MotionBlurQuality 0"));
+
+    const bool bLumen = UnavailableLumen().IsEmpty();
+    Run(FString::Printf(TEXT("r.DynamicGlobalIlluminationMethod %d"),
+                        bLumen && Settings.GlobalIllumination == EBallsGlobalIllumination::Lumen ? 1 : 0));
+    const int32 ReflectionMethod = Settings.Reflections == EBallsReflections::Lumen ? (bLumen ? 1 : 2)
+                                   : Settings.Reflections == EBallsReflections::ScreenSpace ? 2
+                                                                                            : 0;
+    Run(FString::Printf(TEXT("r.ReflectionMethod %d"), ReflectionMethod));
+    Run(FString::Printf(TEXT("r.Shadow.Virtual.Enable %d"),
+                        Settings.Shadows == EBallsShadows::Virtual && UnavailableVirtualShadows().IsEmpty() ? 1 : 0));
+    Run(FString::Printf(TEXT("r.Nanite %d"), Settings.bNanite && UnavailableNanite().IsEmpty() ? 1 : 0));
+
+    IConsoleVariable* Fsr = InstalledFsrCvar();
+    const bool bFsr = Settings.AntiAliasing == EBallsAntiAliasing::FSR && Fsr;
+    int32 Method = 0;
+    switch (Settings.AntiAliasing) {
+    case EBallsAntiAliasing::None: Method = 0; break;
+    case EBallsAntiAliasing::FXAA: Method = 1; break;
+    case EBallsAntiAliasing::TAA:
+    case EBallsAntiAliasing::TAAU: Method = 2; break;
+    case EBallsAntiAliasing::TSR: Method = 4; break;
+    // FSR replaces the temporal upscaler, so it sits on TAA; without the plugin TSR is the closest match.
+    case EBallsAntiAliasing::FSR: Method = bFsr ? 2 : 4; break;
+    default: break;
+    }
+    Run(FString::Printf(TEXT("r.AntiAliasingMethod %d"), Method));
+    Run(FString::Printf(TEXT("r.TemporalAA.Upsampling %d"), Settings.AntiAliasing == EBallsAntiAliasing::TAAU ? 1 : 0));
+    if (Fsr) {
+        Fsr->Set(bFsr ? 1 : 0, ECVF_SetByCode);
+    }
+
+    Run(FString::Printf(TEXT("r.ScreenPercentage %d"), Settings.ScreenPercentage));
+    Run(FString::Printf(TEXT("r.DynamicRes.OperationMode %d"), Settings.bDynamicResolution ? 2 : 0));
+    Run(FString::Printf(TEXT("r.DynamicRes.MinScreenPercentage %d"), MinimumDynamicScreenPercentage));
+    Run(FString::Printf(TEXT("r.DynamicRes.MaxScreenPercentage %d"), Settings.ScreenPercentage));
+    Run(FString::Printf(TEXT("r.DynamicRes.FrameTimeBudget %.2f"), FrameBudgetMs));
+    UE_LOG(LogTemp, Display, TEXT("BallsGraphics: %s"), *Serialize(Settings));
 }
 
 }

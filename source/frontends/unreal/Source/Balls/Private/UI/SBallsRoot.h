@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Widgets/SCompoundWidget.h"
+#include "Widgets/SOverlay.h"
 
 DECLARE_DELEGATE_RetVal_OneParam(bool, FOnBallsKey, const FKey&);
 DECLARE_DELEGATE_OneParam(FOnBallsFilesDropped, const TArray<FString>&);
@@ -16,6 +17,8 @@ public:
 
     void Construct(const FArguments& InArgs);
     void SetScreen(TSharedRef<SWidget> Screen);
+    // A page shown over the screen (the Graphics page), or none.
+    void SetPopup(TSharedPtr<SWidget> Popup);
 
     bool SupportsKeyboardFocus() const override { return true; }
     FReply OnKeyDown(const FGeometry& MyGeometry, const FKeyEvent& InKeyEvent) override;
@@ -25,6 +28,9 @@ public:
     FReply OnDrop(const FGeometry& MyGeometry, const FDragDropEvent& DragDropEvent) override;
 
 private:
+    // The screen, and the popup over it.
+    SOverlay::FOverlaySlot* ScreenSlot = nullptr;
+    SOverlay::FOverlaySlot* PopupSlot = nullptr;
     FOnBallsKey OnKey;
     FOnBallsFilesDropped OnFilesDropped;
 };

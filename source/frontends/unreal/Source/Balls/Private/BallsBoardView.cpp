@@ -35,6 +35,9 @@ constexpr size_t MaximumDrawnBalls = 4'000'000;
 // The manual exposure (EV) that shows the lit bricks as bright as the SDL front end's flat ones.
 constexpr float ManualExposureBias = 13.0f;
 const TCHAR* CubePath = TEXT("/Engine/BasicShapes/Cube.Cube");
+// The engine cube with Nanite turned on (Content/Balls/NaniteCube.uasset, the project's one asset): with Nanite off
+// the renderer draws its fallback mesh, the plain cube, so it serves every setting.
+const TCHAR* NaniteCubePath = TEXT("/Game/Balls/NaniteCube.NaniteCube");
 const TCHAR* ShapeMaterialPath = TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial");
 
 using BallsBoardView::CellWorldSize;
@@ -110,14 +113,15 @@ void FBallsBoardView::SpawnScene() {
     Camera.Reset(CameraActor);
     SceneActors.Emplace(CameraActor);
 
-    ADirectionalLight* KeyLight = World->SpawnActor<ADirectionalLight>(
+    ADirectionalLight* Key = World->SpawnActor<ADirectionalLight>(
         FVector::ZeroVector, FRotator(-35.0, -60.0, 0.0), Parameters);
     // Runtime-spawned lights default to Stationary, which does not light dynamic meshes without baked data.
-    KeyLight->GetLightComponent()->SetMobility(EComponentMobility::Movable);
-    KeyLight->GetLightComponent()->SetIntensity(1.2f);
-    // The board is a flat 2.5D scene; the backdrop sits right behind the bricks, so shadows only add streaks.
-    KeyLight->GetLightComponent()->SetCastShadows(false);
-    SceneActors.Emplace(KeyLight);
+    Key->GetLightComponent()->SetMobility(EComponentMobility::Movable);
+    Key->GetLightComponent()->SetIntensity(1.2f);
+    // Shadows follow the graphics settings (ApplyGraphics); the low presets keep the flat 2.5D look without them.
+    Key->GetLightComponent()->SetCastShadows(false);
+    KeyLight.Reset(Key);
+    SceneActors.Emplace(Key);
 
     // A soft shadowless light from the camera side keeps brick fronts readable without a sky.
     ADirectionalLight* FillLight = World->SpawnActor<ADirectionalLight>(
@@ -133,7 +137,12 @@ void FBallsBoardView::SpawnScene() {
     Actor->SetRootComponent(Root);
     Root->RegisterComponent();
     UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, CubePath);
-    UE_LOG(LogTemp, Verbose, TEXT("BallsBoardView: cube mesh %s"), Cube ? TEXT("loaded") : TEXT("MISSING"));
+    UStaticMesh* BrickMesh = LoadObject<UStaticMesh>(nullptr, NaniteCubePath, nullptr, LOAD_NoWarn);
+    UE_LOG(LogTemp, Display, TEXT("BallsBoardView: cube mesh %s, Nanite cube %s"), Cube ? TEXT("loaded") : TEXT("MISSING"),
+           BrickMesh ? TEXT("loaded") : TEXT("missing, bricks use the plain cube"));
+    if (!BrickMesh) {
+        BrickMesh = Cube;
+    }
 
     UStaticMeshComponent* BackdropComponent = NewObject<UStaticMeshComponent>(Actor, TEXT("Backdrop"));
     BackdropComponent->SetStaticMesh(Cube);
@@ -165,7 +174,7 @@ void FBallsBoardView::SpawnScene() {
     for (int32 Color = 0; Color < ballColorCount; ++Color) {
         UInstancedStaticMeshComponent* Bricks =
             NewObject<UInstancedStaticMeshComponent>(Actor, *FString::Printf(TEXT("Bricks%d"), Color));
-        Bricks->SetStaticMesh(Cube);
+        Bricks->SetStaticMesh(BrickMesh);
         Bricks->SetMaterial(0, MakeColoredMaterial(Bricks, BallsPalette::Brick(ballColorFromIndex(Color)), 0.35f));
         Bricks->SetMobility(EComponentMobility::Movable);
         Bricks->SetCollisionEnabled(ECollisionEnabled::NoCollision);
@@ -185,18 +194,23 @@ void FBallsBoardView::SpawnScene() {
     }
 }
 
-void FBallsBoardView::ApplyGraphics(EBallsGraphics Quality) {
+void FBallsBoardView::ApplyGraphics(const FBallsGraphicsSettings& Settings) {
+    const int32 PostLevel = Settings.Groups[static_cast<int32>(EBallsScalabilityGroup::PostProcess)];
+    const bool bFullBloom = PostLevel >= 3;
     // With bloom off the balls are drawn at their palette colour instead of above-white, so nothing clips.
-    BallBrightness = Quality == EBallsGraphics::High ? 2.2f : 1.0f;
+    BallBrightness = bFullBloom ? 2.2f : 1.0f;
+    if (KeyLight) {
+        KeyLight->GetLightComponent()->SetCastShadows(Settings.Shadows != EBallsShadows::Off);
+    }
     UCameraComponent* CameraComponent = Camera ? Camera->GetCameraComponent() : nullptr;
     if (!CameraComponent) {
         return;
     }
     FPostProcessSettings& Post = CameraComponent->PostProcessSettings;
     Post.bOverride_BloomIntensity = true;
-    Post.BloomIntensity = Quality == EBallsGraphics::High ? 0.9f : Quality == EBallsGraphics::Balanced ? 0.5f : 0.0f;
+    Post.BloomIntensity = bFullBloom ? 0.9f : PostLevel > 0 ? 0.5f : 0.0f;
     Post.bOverride_VignetteIntensity = true;
-    Post.VignetteIntensity = Quality == EBallsGraphics::High ? 0.25f : Quality == EBallsGraphics::Balanced ? 0.15f : 0.0f;
+    Post.VignetteIntensity = bFullBloom ? 0.25f : PostLevel > 0 ? 0.15f : 0.0f;
 }
 
 void FBallsBoardView::Hide() {

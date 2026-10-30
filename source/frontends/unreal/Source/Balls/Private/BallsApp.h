@@ -69,9 +69,13 @@ public:
     void ApplyOrientation();
     bool IsVSyncEnabled() const { return bVSync; }
     void SetVSyncEnabled(bool bEnabled);
-    // The port starts at Minimum: the UE post chain costs more than this scene, and the player can trade it back.
-    EBallsGraphics GetGraphicsQuality() const { return GraphicsQuality; }
-    void SetGraphicsQuality(EBallsGraphics Quality);
+    // The Unreal port's graphics settings (scalability, UE5 features, upscaling), saved per user and applied at
+    // once. The port starts at the Low preset: the UE post chain costs more than this scene.
+    const FBallsGraphicsSettings& GetGraphics() const { return Graphics; }
+    void SetGraphics(const FBallsGraphicsSettings& Next);
+    // The Graphics page is a popup over whatever screen is up, so it can be changed while a game runs.
+    void ShowGraphicsPage(bool bShow);
+    bool IsGraphicsPageOpen() const { return bGraphicsPageOpen; }
     FBallsGameplay* GetGameplay() const { return Gameplay.Get(); }
     const FrameTimings& GetFrameTimings() const { return Frames; }
     const FrameSample& GetLatestSample() const { return Frames.latest(); }
@@ -113,7 +117,8 @@ private:
     BackendKind PreferredBackend = BackendKind::Scalar;
     Settings CurrentSettings;
     bool bVSync = false;
-    EBallsGraphics GraphicsQuality = EBallsGraphics::Minimum;
+    FBallsGraphicsSettings Graphics;
+    bool bGraphicsPageOpen = false;
     bool bOrientationApplied = false;
     TWeakPtr<SBallsLevelSelect> LevelSelect;
     std::unique_ptr<ScreenFlow> Flow;

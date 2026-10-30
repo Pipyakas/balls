@@ -897,8 +897,10 @@ void SBallsGameplayHud::Construct(const FArguments& InArgs) {
         [
             SNew(SCanvas)
             .Visibility_Lambda([HasSession] {
+                // Only its children take input: hit-testable itself, it covered the whole HUD and kept the header's
+                // hover and clicks (Pause / Resume) from the canvas under it.
                 return HasSession() != EVisibility::Collapsed && CVarBallsHud.GetValueOnGameThread() != 0
-                           ? EVisibility::Visible
+                           ? EVisibility::SelfHitTestInvisible
                            : EVisibility::Collapsed;
             })
             + SCanvas::Slot()
@@ -1169,22 +1171,27 @@ TSharedRef<SWidget> SBallsGameplayHud::MakeAdvancedSettings(bool bPerformance) {
         }
     };
 
+    // The Unreal port's own lever, in both modes where SDL lists its render and compute GPUs: the Graphics page
+    // opens over the running game, so each change shows on the live board and in the debug gadget's frame times.
+    auto AddGraphics = [&] {
+        const TSharedRef<SVerticalBox> Rows = AddGroup(TEXT("Graphics"));
+        AddRow(Rows, BallsWidgets::Button(
+                         TAttribute<FText>::CreateLambda([Owner] {
+                             const std::optional<int32> Preset = BallsGraphics::MatchingPreset(Owner->GetGraphics());
+                             return FText::FromString(FString::Printf(
+                                 TEXT("%s..."), Preset ? *BallsGraphics::PresetName(*Preset) : TEXT("Custom")));
+                         }),
+                         [Owner] { Owner->ShowGraphicsPage(true); }, ControlLabelSize));
+    };
     AddPhysics();
     if (bPerformance) {
         AddDevices();
-        // The Unreal port's own lever, where SDL lists its render and compute GPUs: the post chain (bloom, TAA,
-        // auto-exposure, screen percentage) is what keeps this front end off the SDL frame time.
-        const TSharedRef<SVerticalBox> Rows = AddGroup(TEXT("Graphics"));
-        for (const EBallsGraphics Level : BallsGraphics::All()) {
-            AddRow(Rows, BallsWidgets::Button(
-                             LabelText(BallsGraphics::Name(Level)), [Owner, Level] { Owner->SetGraphicsQuality(Level); },
-                             ControlLabelSize, true,
-                             TAttribute<bool>::CreateLambda([Owner, Level] { return Owner->GetGraphicsQuality() == Level; })));
-        }
+        AddGraphics();
         AddCollisions();
     } else {
         AddCollisions();
         AddDevices();
+        AddGraphics();
     }
     return Section;
 }

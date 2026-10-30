@@ -342,8 +342,8 @@ int32 SBallsMainMenu::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedG
 
 // The SDL front end's Settings panel (SettingsPanel.cpp): a bordered panel, 560 wide and at most 940 high, that
 // scrolls; a section heading, a row of options side by side and a hint per block; the Default backend list with each
-// backend's benchmark score at the right; the Hybrid device picks; Back at the bottom. Unreal's Graphics quality
-// stands where SDL lists its Renderer and Graphics API.
+// backend's benchmark score at the right; the Hybrid device picks; Back at the bottom. Unreal's Graphics page
+// button stands where SDL lists its Renderer and Graphics API.
 void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
     FBallsApp* Owner = InArgs._App;
     static constexpr float PanelWidth = 560.0f;
@@ -447,19 +447,16 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
                    [Owner] { Owner->SetVSyncEnabled(true); }}});
     AddHint(TEXT("Replaces the old V shortcut."));
 
-    // Unreal's own Graphics quality, where SDL lists its renderer and graphics API.
-    AddSection(TEXT("Graphics quality"), false);
-    {
-        TArray<FOption> Options;
-        for (const EBallsGraphics Level : BallsGraphics::All()) {
-            Options.Add({BallsGraphics::Name(Level),
-                         TAttribute<bool>::CreateLambda([Owner, Level] { return Owner->GetGraphicsQuality() == Level; }),
-                         [Owner, Level] { Owner->SetGraphicsQuality(Level); }});
-        }
-        AddOptionRow(MoveTemp(Options));
-    }
-    AddHint(TEXT("Minimum turns bloom and anti-aliasing off and draws at 67% screen resolution; High is the engine's "
-                 "full look."));
+    // Unreal's own Graphics page, where SDL lists its renderer and graphics API.
+    AddSection(TEXT("Graphics"), false);
+    AddOptionRow({{TEXT("Graphics settings..."), false, [Owner] { Owner->ShowGraphicsPage(true); }}});
+    Column->AddSlot().AutoHeight().Padding(0.0f, HintGap, 0.0f, BlockGap)
+    [
+        SNew(STextBlock)
+        .Text_Lambda([Owner] { return FText::FromString(BallsGraphics::Describe(Owner->GetGraphics())); })
+        .Font(BallsStyle::Font(HintSize))
+        .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
+    ];
 
     // Physics: the Default backend list, with the machine benchmark's score at the right of each row.
     AddSection(BallsText::FromUtf8(menuText::physicsHeading));
