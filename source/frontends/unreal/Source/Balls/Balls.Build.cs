@@ -1,8 +1,8 @@
 using UnrealBuildTool;
 
-public class ColorBlastBalls : ModuleRules
+public class Balls : ModuleRules
 {
-    public ColorBlastBalls(ReadOnlyTargetRules Target) : base(Target)
+    public Balls(ReadOnlyTargetRules Target) : base(Target)
     {
         PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
         CppStandard = CppStandardVersion.Cpp20;

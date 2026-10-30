@@ -136,7 +136,7 @@ r.Shadow.Virtual.ProjectEnabled=1
 r.Shadow.Virtual.NonNanite.ProjectEnabled=1
 ```
 
-Scene change in `Source/ColorBlastBalls/Private/BallsBoardView.cpp` (for exploration only):
+Scene change in `Source/Balls/Private/BallsBoardView.cpp` (for exploration only):
 
 ```cpp
 KeyLight->GetLightComponent()->SetCastShadows(true);
@@ -286,7 +286,7 @@ Recommended exploration priority for this scene:
 
 ## Suggested implementation notes (not applied)
 
-- Parse `-BallsHighEnd` in `Source/ColorBlastBalls/Private/BallsGameMode.cpp` or `BallsApp`, then apply:
+- Parse `-BallsHighEnd` in `Source/Balls/Private/BallsGameMode.cpp` or `BallsApp`, then apply:
   - `r.AntiAliasingMethod=4`
   - `r.DynamicRes.OperationMode=2`
   - optionally `r.DynamicGlobalIlluminationMethod=1; r.ReflectionMethod=1`
@@ -297,7 +297,7 @@ Recommended exploration priority for this scene:
 
 - `frontends/unreal/Config/DefaultEngine.ini`
 - `frontends/unreal/Config/Windows/WindowsEngine.ini`
-- `frontends/unreal/Source/ColorBlastBalls/Private/BallsBoardView.cpp`
+- `frontends/unreal/Source/Balls/Private/BallsBoardView.cpp`
 - `frontends/unreal/Source/BallsRendering/Private/BallsSceneViewExtension.cpp`
 - `Engine/Config/Android/DataDrivenPlatformInfo.ini`
 - `Engine/Config/Windows/DataDrivenPlatformInfo.ini`

@@ -34,7 +34,7 @@ set "PLATFORM=Win64"
 set "DIST_DIR=%~dp0..\..\..\dist\win32-ue"
 set "STAGE_DIR=%~dp0..\..\..\build\win32-ue\stage"
 set "STAGE_SRC=%STAGE_DIR%\Windows"
-set "LAUNCHER=ColorBlastBalls.exe"
+set "LAUNCHER=Balls.exe"
 goto :check
 
 :linux
@@ -43,7 +43,7 @@ set "DIST_DIR=%~dp0..\..\..\dist\linux-ue"
 set "STAGE_DIR=%~dp0..\..\..\build\linux-ue\stage"
 rem The Linux archive has no platform folder: the launcher and the game folder sit at the archive root.
 set "STAGE_SRC=%STAGE_DIR%"
-set "LAUNCHER=ColorBlastBalls.sh"
+set "LAUNCHER=Balls.sh"
 goto :check
 
 :check
@@ -97,8 +97,11 @@ if /i "%VARIANT%"=="win64" (
     )
 )
 
+rem The archive keeps whatever earlier runs put there, such as a game staged under an older project name, and
+rem dist is mirrored from it.
+if exist "%STAGE_DIR%" rmdir /s /q "%STAGE_DIR%"
 call "%UE_ROOT%\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun ^
-    -project="%~dp0ColorBlastBalls.uproject" -noP4 -platform=%PLATFORM% ^
+    -project="%~dp0Balls.uproject" -noP4 -platform=%PLATFORM% ^
     -clientconfig=Development -build -cook -stage -pak -archive -archivedirectory="%STAGE_DIR%" ^
     -map=/Engine/Maps/Entry -utf8output -unattended -nullrhi
 if errorlevel 1 (
@@ -108,12 +111,13 @@ if errorlevel 1 (
 )
 
 if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
-powershell -NoProfile -Command "Get-Process ColorBlastBalls -ErrorAction SilentlyContinue | Stop-Process -Force"
+rem Only the copy staged here: the SDL game is balls.exe too, and process names ignore case.
+powershell -NoProfile -Command "$dist = [IO.Path]::GetFullPath('%DIST_DIR%'); Get-Process Balls -ErrorAction SilentlyContinue | Where-Object { $_.Path -like \"$dist\*\" } | Stop-Process -Force"
 robocopy "%STAGE_SRC%" "%DIST_DIR%" /mir /njh /njs /nfl /ndl /np >nul
 if errorlevel 8 (cmd /c exit 1 & goto :eof)
 
 rem The core reads level files from disk; packaged builds look in <project dir>\assets.
-robocopy "%~dp0..\..\..\data\assets" "%DIST_DIR%\ColorBlastBalls\assets" /mir /njh /njs /nfl /ndl /np >nul
+robocopy "%~dp0..\..\..\data\assets" "%DIST_DIR%\Balls\assets" /mir /njh /njs /nfl /ndl /np >nul
 if errorlevel 8 (cmd /c exit 1 & goto :eof)
 
 echo.

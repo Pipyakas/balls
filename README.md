@@ -99,7 +99,7 @@ The engine front ends follow the same pattern from Windows:
 
 | Command | Output |
 |---|---|
-| `build.bat unreal win64`, `build.bat unreal linux` | `dist\win32-ue\ColorBlastBalls.exe`, `dist\linux-ue\` (needs Unreal Engine 5.8 at `UE_ROOT`; a stock install works) |
+| `build.bat unreal win64`, `build.bat unreal linux` | `dist\win32-ue\Balls.exe`, `dist\linux-ue\` (needs Unreal Engine 5.8 at `UE_ROOT`; a stock install works) |
 | `build.bat unity win64` | `dist\win32-unity\ColorBlastBallsUnity.exe` (Mono player; needs the Unity version in `source\frontends\unity\ProjectSettings\ProjectVersion.txt`, or `UNITY_EXE`) |
 | `build.bat unity linux` | `dist\linux-unity\ColorBlastBallsUnity.x86_64` (IL2CPP; needs the Linux `.so` files, built on Linux, in `source\frontends\unity\NativeLibraries\linux-x86_64`) |
 

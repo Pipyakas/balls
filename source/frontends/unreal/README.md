@@ -25,9 +25,9 @@ the CUDA backend, run `pwsh scripts/FetchCudaSdk.ps1` once first. The core loads
 packaged builds stage them beside the executable, and the editor finds them in `build/win32-ue/bin/Release`.
 
 ```powershell
-D:\Unreal\UnrealEngine\Engine\Build\BatchFiles\Build.bat ColorBlastBallsEditor Win64 Development `
-    -Project="$PWD\source\frontends\unreal\ColorBlastBalls.uproject" -WaitMutex
-D:\Unreal\UnrealEngine\Engine\Binaries\Win64\UnrealEditor.exe "$PWD\source\frontends\unreal\ColorBlastBalls.uproject" `
+D:\Unreal\UnrealEngine\Engine\Build\BatchFiles\Build.bat BallsEditor Win64 Development `
+    -Project="$PWD\source\frontends\unreal\Balls.uproject" -WaitMutex
+D:\Unreal\UnrealEngine\Engine\Binaries\Win64\UnrealEditor.exe "$PWD\source\frontends\unreal\Balls.uproject" `
     -game -windowed -ResX=1600 -ResY=900 -BallsPlay=normal:DA_FirstLevel -BallsBackend=avx2
 ```
 
@@ -45,7 +45,7 @@ D:\Unreal\UnrealEngine\Engine\Binaries\Win64\UnrealEditor.exe "$PWD\source\front
 `source\frontends\unreal\build.bat` cooks, stages and archives the game; the root `build.bat` reaches it as
 `build.bat unreal win64` (or `build.bat --menu`). Variants:
 
-- `win64` stages `dist\win32-ue\ColorBlastBalls.exe`.
+- `win64` stages `dist\win32-ue\Balls.exe`.
 - `linux` stage `dist\linux-ue\` for x86_64 Linux, cross-compiled on Windows with Unreal's own toolchain
   (`LINUX_MULTIARCH_ROOT`, default `D:\UnrealToolchains\v26_clang-20.1.8-rockylinux8`). UnrealBuildTool skips the
   `.uproject` pre-build steps for a cross-compiled target, so the script builds the core and the plugins through
@@ -54,7 +54,7 @@ D:\Unreal\UnrealEngine\Engine\Binaries\Win64\UnrealEditor.exe "$PWD\source\front
 Set `UE_ROOT` if the engine is not at `D:\Unreal\UnrealEngine`; a stock Unreal Engine 5.8 install works (checked with
 5.8.4). The first run compiles the game target and
 takes about an hour; later runs are incremental. The script also copies `data/assets` to the packaged game's
-`ColorBlastBalls\assets`, where it looks for levels, and the physics plugins stage next to the executable.
+`Balls\assets`, where it looks for levels, and the physics plugins stage next to the executable.
 
 The fork lists two prebuilt shaders as staged runtime dependencies that its tree does not contain, and staging
 aborts without them. Create empty placeholders (nothing here uses them):
@@ -76,7 +76,7 @@ run.
 
 ```powershell
 D:\Unreal\UnrealEngine\Engine\Build\BatchFiles\RunUAT.bat BuildCookRun `
-    -project="$PWD\source\frontends\unreal\ColorBlastBalls.uproject" -noP4 -platform=Android `
+    -project="$PWD\source\frontends\unreal\Balls.uproject" -noP4 -platform=Android `
     -clientconfig=Development -build -cook -package -stage -deploy -device=<serial> `
     -architecture=arm64 -cookflavor=ASTC -map=/Engine/Maps/Entry -utf8output -unattended
 ```
@@ -98,7 +98,7 @@ merge in `ShaderFormatD3D`). This project therefore:
 
 - targets `PCD3D_SM5` (`Config/DefaultEngine.ini`);
 - disables SM6 bindless (`Config/Windows/WindowsEngine.ini`);
-- passes `-Wno-macro-redefined` on Android (`Source/ColorBlastBalls.Target.cs`), because the fork's
+- passes `-Wno-macro-redefined` on Android (`Source/Balls.Target.cs`), because the fork's
   `Misc/Build.h` defaults its UEX/XFSDK macros to 0 while `Renderer`/`RenderCore`/`Engine` define them to 1;
   MSVC only warns, clang under `-Werror` fails;
 - drops the XFSDK "Callisto" skin-shading includes from `Engine/Shaders/Private/ShadingModels.ush` and
