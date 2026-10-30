@@ -2,14 +2,34 @@
 
 #include "Framework/Application/SlateApplication.h"
 #include "Input/DragAndDrop.h"
+#include "Widgets/Layout/SBox.h"
+#include "Widgets/SNullWidget.h"
+
+namespace {
+
+// A full-size slot over the screen must never take its clicks or hover, so an empty popup is collapsed.
+TSharedRef<SWidget> NoPopup() { return SNew(SBox).Visibility(EVisibility::Collapsed); }
+
+}
 
 void SBallsRoot::Construct(const FArguments& InArgs) {
     OnKey = InArgs._OnKey;
     OnFilesDropped = InArgs._OnFilesDropped;
+    ChildSlot
+    [
+        SNew(SOverlay)
+        + SOverlay::Slot().Expose(ScreenSlot)[SNullWidget::NullWidget]
+        + SOverlay::Slot().Expose(PopupSlot)[NoPopup()]
+    ];
 }
 
 void SBallsRoot::SetScreen(TSharedRef<SWidget> Screen) {
-    ChildSlot[Screen];
+    ScreenSlot->AttachWidget(Screen);
+    FSlateApplication::Get().SetAllUserFocus(SharedThis(this), EFocusCause::SetDirectly);
+}
+
+void SBallsRoot::SetPopup(TSharedPtr<SWidget> Popup) {
+    PopupSlot->AttachWidget(Popup ? Popup.ToSharedRef() : NoPopup());
     FSlateApplication::Get().SetAllUserFocus(SharedThis(this), EFocusCause::SetDirectly);
 }
 

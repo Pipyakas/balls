@@ -6,10 +6,11 @@
 #include "CoreMinimal.h"
 #include "UObject/StrongObjectPtr.h"
 
-enum class EBallsGraphics;
+struct FBallsGraphicsSettings;
 
 class ACameraActor;
 class AActor;
+class ADirectionalLight;
 class UInstancedStaticMeshComponent;
 class UMaterialInstanceDynamic;
 class UStaticMeshComponent;
@@ -31,9 +32,9 @@ public:
     void SubmitBalls(const BallSnapshot& Snapshot, float BallRadius, const FBallsGameplayLayout& Layout, float DpiScale);
     static float VisibilitySlotCells(float BallRadius, const FBallsGameplayLayout& Layout, float DpiScale);
     void Hide();
-    // Camera half of the graphics level: bloom and vignette strength, a fixed exposure below High, and how bright
-    // the balls are drawn (1.0 once bloom is off, so the palette reads exactly).
-    void ApplyGraphics(EBallsGraphics Quality);
+    // Scene half of the graphics settings: bloom and vignette strength from the post-processing level, how bright
+    // the balls are drawn (1.0 once bloom is off, so the palette reads exactly), and the key light's shadows.
+    void ApplyGraphics(const FBallsGraphicsSettings& Settings);
 
 private:
     void SpawnScene();
@@ -44,6 +45,7 @@ private:
 
     UWorld* World = nullptr;
     TStrongObjectPtr<ACameraActor> Camera;
+    TStrongObjectPtr<ADirectionalLight> KeyLight;
     TStrongObjectPtr<AActor> BoardActor;
     // Backdrop is exactly the play field; Outside fills the rest of the screen and the four walls (left, right,
     // top, bottom) mark where balls bounce.

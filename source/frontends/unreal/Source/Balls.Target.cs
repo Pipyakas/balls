@@ -1,13 +1,13 @@
 using UnrealBuildTool;
 
-public class ColorBlastBallsTarget : TargetRules
+public class BallsTarget : TargetRules
 {
-    public ColorBlastBallsTarget(TargetInfo Target) : base(Target)
+    public BallsTarget(TargetInfo Target) : base(Target)
     {
         Type = TargetType.Game;
         DefaultBuildSettings = BuildSettingsVersion.Latest;
         IncludeOrderVersion = EngineIncludeOrderVersion.Latest;
-        ExtraModuleNames.Add("ColorBlastBalls");
+        ExtraModuleNames.Add("Balls");
 
         // The engine fork's Misc/Build.h defaults its UEX/XFSDK feature macros to 0, but the fork's
         // Renderer/RenderCore/Engine Build.cs files define them to 1. The shared PCH sees Build.h

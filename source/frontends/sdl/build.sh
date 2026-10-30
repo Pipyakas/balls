@@ -53,7 +53,7 @@ generator=()
 if [ ! -f "$build_dir/CMakeCache.txt" ] && command -v ninja >/dev/null 2>&1; then
     generator=(-G Ninja)
 fi
-cmake -S . -B "$build_dir" "${generator[@]}" -DCMAKE_BUILD_TYPE=Release -DBALLS_FRONTEND=sdl -DBALLS_RENDERER="$renderer"
+cmake -S . -B "$build_dir" "${generator[@]}" -DCMAKE_BUILD_TYPE=Release -DBALLS_FRONTEND=sdl -DBALLS_RENDERER="$renderer" -DBALLS_PROFILE=extended
 cmake --build "$build_dir" --parallel --target balls
 
 pkill -f "$root/$dist_dir/balls" 2>/dev/null || true

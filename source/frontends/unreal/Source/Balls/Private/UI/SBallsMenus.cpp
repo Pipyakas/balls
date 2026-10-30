@@ -342,8 +342,8 @@ int32 SBallsMainMenu::OnPaint(const FPaintArgs& Args, const FGeometry& AllottedG
 
 // The SDL front end's Settings panel (SettingsPanel.cpp): a bordered panel, 560 wide and at most 940 high, that
 // scrolls; a section heading, a row of options side by side and a hint per block; the Default backend list with each
-// backend's benchmark score at the right; the Hybrid device picks; Back at the bottom. Unreal's Graphics quality
-// stands where SDL lists its Renderer and Graphics API.
+// backend's benchmark score at the right; the Hybrid device picks; Back at the bottom. Unreal's Graphics page
+// button stands where SDL lists its Renderer and Graphics API.
 void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
     FBallsApp* Owner = InArgs._App;
     static constexpr float PanelWidth = 560.0f;
@@ -418,9 +418,9 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
         ]
     ];
 
-    // Layout: the core's orientation options.
-    AddSection(BallsText::FromUtf8(menuText::layoutHeading));
-    {
+    // Layout: the core's orientation options, which the scoring build leaves out (always landscape).
+    if (layoutChoiceOffered) {
+        AddSection(BallsText::FromUtf8(menuText::layoutHeading));
         TArray<FOption> Options;
         const LayoutOrientation Values[3] = {LayoutOrientation::Auto, LayoutOrientation::Landscape, LayoutOrientation::Portrait};
         const std::vector<UiOption> Labels = orientationOptions(Owner->GetSettings().layout);
@@ -435,8 +435,8 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
                          }});
         }
         AddOptionRow(MoveTemp(Options));
+        AddHint(BallsText::FromUtf8(menuText::layoutHint));
     }
-    AddHint(BallsText::FromUtf8(menuText::layoutHint));
 
     // Display: VSync.
     AddSection(BallsText::FromUtf8(menuText::displayHeading));
@@ -447,92 +447,91 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
                    [Owner] { Owner->SetVSyncEnabled(true); }}});
     AddHint(TEXT("Replaces the old V shortcut."));
 
-    // Unreal's own Graphics quality, where SDL lists its renderer and graphics API.
-    AddSection(TEXT("Graphics quality"), false);
-    {
-        TArray<FOption> Options;
-        for (const EBallsGraphics Level : BallsGraphics::All()) {
-            Options.Add({BallsGraphics::Name(Level),
-                         TAttribute<bool>::CreateLambda([Owner, Level] { return Owner->GetGraphicsQuality() == Level; }),
-                         [Owner, Level] { Owner->SetGraphicsQuality(Level); }});
-        }
-        AddOptionRow(MoveTemp(Options));
-    }
-    AddHint(TEXT("Minimum turns bloom and anti-aliasing off and draws at 67% screen resolution; High is the engine's "
-                 "full look."));
+    // Unreal's own Graphics page, where SDL lists its renderer and graphics API.
+    AddSection(TEXT("Graphics"), false);
+    AddOptionRow({{TEXT("Graphics settings..."), false, [Owner] { Owner->ShowGraphicsPage(true); }}});
+    Column->AddSlot().AutoHeight().Padding(0.0f, HintGap, 0.0f, BlockGap)
+    [
+        SNew(STextBlock)
+        .Text_Lambda([Owner] { return FText::FromString(BallsGraphics::Describe(Owner->GetGraphics())); })
+        .Font(BallsStyle::Font(HintSize))
+        .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
+    ];
 
     // Physics: the Default backend list, with the machine benchmark's score at the right of each row.
-    AddSection(BallsText::FromUtf8(menuText::physicsHeading));
-    {
-        TSharedRef<SHorizontalBox> Heading = SNew(SHorizontalBox)
-            + SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Top)
-            [
-                SNew(STextBlock)
-                .Text(FText::FromString(BallsText::FromUtf8(menuText::defaultBackendLabel)))
-                .Font(BallsStyle::Font(SectionSize))
-                .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Text))
-            ];
-        if (InArgs._bAllowBenchmark && Owner->GetScreenFlow().canRunMachineBenchmark()) {
-            Heading->AddSlot().AutoWidth().Padding(0.0f, -OptionGap, 0.0f, 0.0f)
-            [
-                SNew(SBox).WidthOverride(RunBenchmarkWidth).HeightOverride(SectionHeight + OptionGap * 0.5f)
+    if (backendChoiceOffered()) {
+        AddSection(BallsText::FromUtf8(menuText::physicsHeading));
+        {
+            TSharedRef<SHorizontalBox> Heading = SNew(SHorizontalBox)
+                + SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Top)
                 [
-                    BallsWidgets::Button(FText::FromString(BallsText::FromUtf8(menuText::runBenchmarkLabel)),
-                                         [Owner] { Owner->ActivateFlow(FlowAction::RunMachineBenchmark); },
-                                         (SectionHeight + OptionGap * 0.5f) * 0.45f)
+                    SNew(STextBlock)
+                    .Text(FText::FromString(BallsText::FromUtf8(menuText::defaultBackendLabel)))
+                    .Font(BallsStyle::Font(SectionSize))
+                    .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Text))
+                ];
+            if (InArgs._bAllowBenchmark && Owner->GetScreenFlow().canRunMachineBenchmark()) {
+                Heading->AddSlot().AutoWidth().Padding(0.0f, -OptionGap, 0.0f, 0.0f)
+                [
+                    SNew(SBox).WidthOverride(RunBenchmarkWidth).HeightOverride(SectionHeight + OptionGap * 0.5f)
+                    [
+                        BallsWidgets::Button(FText::FromString(BallsText::FromUtf8(menuText::runBenchmarkLabel)),
+                                             [Owner] { Owner->ActivateFlow(FlowAction::RunMachineBenchmark); },
+                                             (SectionHeight + OptionGap * 0.5f) * 0.45f)
+                    ]
+                ];
+            }
+            Column->AddSlot().AutoHeight()[SNew(SBox).HeightOverride(SectionHeight)[Heading]];
+        }
+        auto BackendRowsNow = [Owner]() {
+            const std::optional<BenchmarkRecord>& Record = Owner->GetBenchmark().GetRecord();
+            return defaultBackendRows(Owner->GetPreferredBackend(),
+                                      Record ? std::span<const CandidateResult>(Record->results) : std::span<const CandidateResult>());
+        };
+        const std::vector<BackendRow> InitialRows = BackendRowsNow();
+        for (size_t RowIndex = 0; RowIndex < InitialRows.size(); ++RowIndex) {
+            const BackendKind Kind = InitialRows[RowIndex].kind;
+            auto Option = [BackendRowsNow, Kind]() {
+                for (const BackendRow& Row : BackendRowsNow()) {
+                    if (Row.kind == Kind) {
+                        return Row.option;
+                    }
+                }
+                return UiOption{};
+            };
+            // A disabled row says why in its label; an enabled one shows its score at the right.
+            const UiOption Initial = InitialRows[RowIndex].option;
+            const FString Label = BallsText::FromUtf8(
+                !Initial.enabled && !Initial.detail.empty() ? Initial.label + " - " + Initial.detail : Initial.label);
+            Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, OptionGap)
+            [
+                SNew(SBox).HeightOverride(OptionHeight)
+                [
+                    SNew(SOverlay)
+                    + SOverlay::Slot()
+                    [
+                        BallsWidgets::Button(FText::FromString(Label), [Owner, Kind] { Owner->SetPreferredBackend(Kind); },
+                                             OptionLabelSize, Initial.enabled,
+                                             TAttribute<bool>::CreateLambda([Option] { return Option().selected; }))
+                    ]
+                    + SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Center).Padding(0.0f, 0.0f, ScoreInset, 0.0f)
+                    [
+                        SNew(STextBlock)
+                        .Visibility(EVisibility::HitTestInvisible)
+                        .Text_Lambda([Option] {
+                            const UiOption Now = Option();
+                            return FText::FromString(Now.enabled ? BallsText::FromUtf8(Now.detail) : FString());
+                        })
+                        .Font(BallsStyle::Font(HintSize))
+                        .ColorAndOpacity_Lambda([Option] {
+                            return FSlateColor(BallsPalette::Linear(Option().selected ? BallsPalette::Panel : BallsPalette::TextMuted));
+                        })
+                    ]
                 ]
             ];
         }
-        Column->AddSlot().AutoHeight()[SNew(SBox).HeightOverride(SectionHeight)[Heading]];
+        Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, BlockGap - OptionGap)[SNullWidget::NullWidget];
     }
-    auto BackendRowsNow = [Owner]() {
-        const std::optional<BenchmarkRecord>& Record = Owner->GetBenchmark().GetRecord();
-        return defaultBackendRows(Owner->GetPreferredBackend(),
-                                  Record ? std::span<const CandidateResult>(Record->results) : std::span<const CandidateResult>());
-    };
-    const std::vector<BackendRow> InitialRows = BackendRowsNow();
-    for (size_t RowIndex = 0; RowIndex < InitialRows.size(); ++RowIndex) {
-        const BackendKind Kind = InitialRows[RowIndex].kind;
-        auto Option = [BackendRowsNow, Kind]() {
-            for (const BackendRow& Row : BackendRowsNow()) {
-                if (Row.kind == Kind) {
-                    return Row.option;
-                }
-            }
-            return UiOption{};
-        };
-        // A disabled row says why in its label; an enabled one shows its score at the right.
-        const UiOption Initial = InitialRows[RowIndex].option;
-        const FString Label = BallsText::FromUtf8(
-            !Initial.enabled && !Initial.detail.empty() ? Initial.label + " - " + Initial.detail : Initial.label);
-        Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, OptionGap)
-        [
-            SNew(SBox).HeightOverride(OptionHeight)
-            [
-                SNew(SOverlay)
-                + SOverlay::Slot()
-                [
-                    BallsWidgets::Button(FText::FromString(Label), [Owner, Kind] { Owner->SetPreferredBackend(Kind); },
-                                         OptionLabelSize, Initial.enabled,
-                                         TAttribute<bool>::CreateLambda([Option] { return Option().selected; }))
-                ]
-                + SOverlay::Slot().HAlign(HAlign_Right).VAlign(VAlign_Center).Padding(0.0f, 0.0f, ScoreInset, 0.0f)
-                [
-                    SNew(STextBlock)
-                    .Visibility(EVisibility::HitTestInvisible)
-                    .Text_Lambda([Option] {
-                        const UiOption Now = Option();
-                        return FText::FromString(Now.enabled ? BallsText::FromUtf8(Now.detail) : FString());
-                    })
-                    .Font(BallsStyle::Font(HintSize))
-                    .ColorAndOpacity_Lambda([Option] {
-                        return FSlateColor(BallsPalette::Linear(Option().selected ? BallsPalette::Panel : BallsPalette::TextMuted));
-                    })
-                ]
-            ]
-        ];
-    }
-    Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, BlockGap - OptionGap)[SNullWidget::NullWidget];
 
     // Devices: one row per physical device, via the core's device pick rows. They belong to Hybrid, so they go in a
     // box of their own that collapses unless Hybrid is the default (showsDevicePicks); the Add* helpers fill it while

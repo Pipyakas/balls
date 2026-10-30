@@ -5,6 +5,9 @@
 #include "BallsPalette.h"
 #include "BallsText.h"
 #include "DynamicRHI.h"
+#include "Engine/Engine.h"
+#include "Engine/GameViewportClient.h"
+#include "UnrealClient.h"
 #include "RHI.h"
 #include "Rendering/DrawElements.h"
 #include "UI/BallsStyle.h"
@@ -230,10 +233,14 @@ FLinearColor FpsColor(double Fps) {
 
 class FPanelWriter {
 public:
+    // Scroll moves the rows up by that much; the caller clips them to the area.
     FPanelWriter(FSlateWindowElementList& InOut, int32 InLayer, const FGeometry& InGeometry, const FSlateRect& InArea,
-                 float InLineHeight = 26.0f)
-        : Out(InOut), Layer(InLayer), Geometry(InGeometry), Area(InArea), Cursor(InArea.Top + Padding),
+                 float InLineHeight = 26.0f, float Scroll = 0.0f)
+        : Out(InOut), Layer(InLayer), Geometry(InGeometry), Area(InArea), Cursor(InArea.Top + Padding - Scroll),
           LineHeight(InLineHeight) {}
+
+    // Where the next row would start: the bottom of everything written so far.
+    float Bottom() const { return Cursor + Padding; }
 
     void Heading(const FString& Text) {
         Cursor += 6.0f;
@@ -301,6 +308,18 @@ public:
     }
 
     FVector2D ComputeDesiredSize(float) const override { return FVector2D::ZeroVector; }
+
+    // The debug gadget scrolls under the wheel like the SDL front end's, when its rows are taller than the gadget.
+    FReply OnMouseWheel(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override {
+        const FBallsGameplayLayout Layout = LayoutFor(MyGeometry);
+        const FVector2D Point = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
+        if (Layout.bPortrait || !Layout.RightGadget.ContainsPoint(Point)) {
+            return FReply::Unhandled();
+        }
+        DebugScroll = FMath::Clamp(DebugScroll - MouseEvent.GetWheelDelta() * WheelStep, 0.0f,
+                                   MaximumDebugScroll(Layout.RightGadget));
+        return FReply::Handled();
+    }
 
     FReply OnMouseMove(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override {
         const FVector2D Point = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
@@ -740,9 +759,11 @@ private:
         if (const FString Detail = CachedBackendDetail(Session.backend); !Detail.IsEmpty()) {
             Writer.Row(TEXT("Device"), Detail);
         }
-        Writer.Row(TEXT("Ball collisions"), !Session.collisionsRequested ? FString(TEXT("Off"))
-                                            : Session.collisionsActive    ? FString(TEXT("On"))
-                                                                            : FString(TEXT("On (unsupported)")));
+        if (ballCollisionsOffered()) {
+            Writer.Row(TEXT("Ball collisions"), !Session.collisionsRequested ? FString(TEXT("Off"))
+                                                : Session.collisionsActive    ? FString(TEXT("On"))
+                                                                                : FString(TEXT("On (unsupported)")));
+        }
     }
 
     void WriteObjects(FPanelWriter& Writer, const SessionView& Session) const {
@@ -782,7 +803,11 @@ private:
     // Portrait has no room for the three groups, so it shows the 48-unit stats strip instead (see PaintStatsStrip).
      void PaintDebugPanel(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,
                           const SessionView& Session, const FSlateRect& Area) const {
-        FPanelWriter Writer(Out, Layer, Geometry, Area);
+        DebugScroll = FMath::Clamp(DebugScroll, 0.0f, MaximumDebugScroll(Area));
+        const FVector2D TopLeft = Geometry.LocalToAbsolute(FVector2D(Area.Left, Area.Top));
+        const FVector2D BottomRight = Geometry.LocalToAbsolute(FVector2D(Area.Right, Area.Bottom));
+        Out.PushClip(FSlateClippingZone(FSlateRect(TopLeft.X, TopLeft.Y, BottomRight.X, BottomRight.Y)));
+        FPanelWriter Writer(Out, Layer, Geometry, Area, 26.0f, DebugScroll);
         const FrameTimings& Frames = App->GetFrameTimings();
         DebugGadgetOptions Options;
         Options.showBackend = App->GetSettings().advancedSettings;
@@ -828,6 +853,34 @@ private:
                 break;
             }
         }
+        // With Advanced Settings open, what the renderer runs, under the core's rows.
+        if (App->GetSettings().advancedSettings) {
+            const FIntPoint ViewportPixels = GEngine && GEngine->GameViewport && GEngine->GameViewport->Viewport
+                                                 ? GEngine->GameViewport->Viewport->GetSizeXY()
+                                                 : FIntPoint::ZeroValue;
+            Writer.Heading(TEXT("Graphics"));
+            for (const TPair<FString, FString>& Row : BallsGraphics::DebugRows(App->GetGraphics(), ViewportPixels)) {
+                if (Row.Value.IsEmpty()) {
+                    Writer.Heading(Row.Key);
+                } else {
+                    Writer.Row(Row.Key, Row.Value);
+                }
+            }
+        }
+        DebugContentHeight = Writer.Bottom() + DebugScroll - Area.Top;
+        Out.PopClip();
+        // A thin bar at the right edge shows how much is scrolled, as SDL's scroll frame does.
+        const float Visible = static_cast<float>(Area.GetSize().Y);
+        if (DebugContentHeight > Visible) {
+            const float BarHeight = Visible * Visible / DebugContentHeight;
+            const float BarTop = Area.Top + (Visible - BarHeight) * DebugScroll / MaximumDebugScroll(Area);
+            DrawBox(Out, Layer + 1, Geometry, FSlateRect(Area.Right - ScrollBarWidth - 2.0f, BarTop, Area.Right - 2.0f, BarTop + BarHeight),
+                    BallsStyle::RoundedBox(ScrollBarWidth * 0.5f), BallsPalette::Linear(BallsPalette::Border));
+        }
+    }
+
+    float MaximumDebugScroll(const FSlateRect& Area) const {
+        return FMath::Max(0.0f, DebugContentHeight - static_cast<float>(Area.GetSize().Y));
     }
 
     void PaintToast(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry) const {
@@ -851,6 +904,11 @@ private:
     FBallsApp* App = nullptr;
     TSharedPtr<FBallsGameplay> Gameplay;
     FVector2D Mouse = FVector2D(-1.0);
+    static constexpr float WheelStep = 40.0f;
+    static constexpr float ScrollBarWidth = 4.0f;
+    // The debug gadget's scroll, and its rows' height as last painted.
+    mutable float DebugScroll = 0.0f;
+    mutable float DebugContentHeight = 0.0f;
     // Portrait launcher row: sideways scroll and the press that may become a tap or a drag.
     float Scroll = 0.0f;
     bool bPressed = false;
@@ -897,8 +955,10 @@ void SBallsGameplayHud::Construct(const FArguments& InArgs) {
         [
             SNew(SCanvas)
             .Visibility_Lambda([HasSession] {
+                // Only its children take input: hit-testable itself, it covered the whole HUD and kept the header's
+                // hover and clicks (Pause / Resume) from the canvas under it.
                 return HasSession() != EVisibility::Collapsed && CVarBallsHud.GetValueOnGameThread() != 0
-                           ? EVisibility::Visible
+                           ? EVisibility::SelfHitTestInvisible
                            : EVisibility::Collapsed;
             })
             + SCanvas::Slot()
@@ -1076,6 +1136,9 @@ TSharedRef<SWidget> SBallsGameplayHud::MakeAdvancedSettings(bool bPerformance) {
     };
 
     auto AddCollisions = [&] {
+        if (!ballCollisionsOffered()) {
+            return;
+        }
         const TSharedRef<SVerticalBox> Rows = AddGroup(BallsText::FromUtf8(menuText::ballCollisionsLabel));
         auto Choice = [Owner]() { return ballCollisionsChoice(Owner->GetSettings().ballCollisions); };
         auto SetCollisions = [Owner](bool bOn) {
@@ -1169,22 +1232,29 @@ TSharedRef<SWidget> SBallsGameplayHud::MakeAdvancedSettings(bool bPerformance) {
         }
     };
 
-    AddPhysics();
+    // The Unreal port's own lever, in both modes where SDL lists its render and compute GPUs: the Graphics page
+    // opens over the running game, so each change shows on the live board and in the debug gadget's frame times.
+    auto AddGraphics = [&] {
+        const TSharedRef<SVerticalBox> Rows = AddGroup(TEXT("Graphics"));
+        AddRow(Rows, BallsWidgets::Button(
+                         TAttribute<FText>::CreateLambda([Owner] {
+                             const std::optional<int32> Preset = BallsGraphics::MatchingPreset(Owner->GetGraphics());
+                             return FText::FromString(FString::Printf(
+                                 TEXT("%s..."), Preset ? *BallsGraphics::PresetName(*Preset) : TEXT("Custom")));
+                         }),
+                         [Owner] { Owner->ShowGraphicsPage(true); }, ControlLabelSize));
+    };
+    if (backendChoiceOffered()) {
+        AddPhysics();
+    }
     if (bPerformance) {
         AddDevices();
-        // The Unreal port's own lever, where SDL lists its render and compute GPUs: the post chain (bloom, TAA,
-        // auto-exposure, screen percentage) is what keeps this front end off the SDL frame time.
-        const TSharedRef<SVerticalBox> Rows = AddGroup(TEXT("Graphics"));
-        for (const EBallsGraphics Level : BallsGraphics::All()) {
-            AddRow(Rows, BallsWidgets::Button(
-                             LabelText(BallsGraphics::Name(Level)), [Owner, Level] { Owner->SetGraphicsQuality(Level); },
-                             ControlLabelSize, true,
-                             TAttribute<bool>::CreateLambda([Owner, Level] { return Owner->GetGraphicsQuality() == Level; })));
-        }
+        AddGraphics();
         AddCollisions();
     } else {
         AddCollisions();
         AddDevices();
+        AddGraphics();
     }
     return Section;
 }

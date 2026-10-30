@@ -33,6 +33,7 @@
 #include "UnrealClient.h"
 #include "UI/SBallsBenchmark.h"
 #include "UI/SBallsGameplayHud.h"
+#include "UI/SBallsGraphicsPage.h"
 #include "UI/SBallsMapEditor.h"
 #include "UI/SBallsMenus.h"
 #include "Widgets/SOverlay.h"
@@ -70,29 +71,6 @@ void StageAndroidLevels() {
 }
 #endif
 
-// Desktop quality preset. Lumen, Nanite and virtual shadow maps need SM6 (the fork currently targets
-// PCD3D_SM5 and has a broken DXC path), but TSR and dynamic resolution are available on SM5.
-// See data/docs/ue5-high-end-features.md.
-void ApplyHighEndPreset(UWorld* World) {
-    const TCHAR* Commands[] = {
-        TEXT("r.AntiAliasingMethod 4"),
-        TEXT("r.DynamicRes.OperationMode 2"),
-        TEXT("r.DynamicRes.MinScreenPercentage 50"),
-        TEXT("r.DynamicRes.MaxScreenPercentage 100"),
-        TEXT("r.DynamicRes.FrameTimeBudget 16.67"),
-    };
-    for (const TCHAR* Command : Commands) {
-        GEngine->Exec(World, Command);
-    }
-    const auto Read = [](const TCHAR* Name) {
-        const IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(Name);
-        return Variable ? Variable->GetInt() : -1;
-    };
-    UE_LOG(LogTemp, Display, TEXT("BallsHighEnd: anti-aliasing=%d dynamic-res=%d min=%d max=%d"),
-           Read(TEXT("r.AntiAliasingMethod")), Read(TEXT("r.DynamicRes.OperationMode")),
-           Read(TEXT("r.DynamicRes.MinScreenPercentage")), Read(TEXT("r.DynamicRes.MaxScreenPercentage")));
-}
-
 #if PLATFORM_WINDOWS && defined(BALLS_PLUGIN_DIR)
 // The core loads its physics backends (CPU, CUDA) as DLLs by file name. Packaged builds stage them beside the
 // executable; the editor and development builds find them in the core's build output.
@@ -124,22 +102,44 @@ std::filesystem::path SettingsFile() {
 
 std::filesystem::path ProfileFolder() { return SettingsFile().parent_path(); }
 
-// The Unreal port owns this one: the design has no graphics level, but its post chain costs more than the scene.
-EBallsGraphics SavedGraphics() {
-    // The command line wins: screenshots and measurements pin the level they want to capture.
+const TCHAR* GraphicsKey = TEXT("GraphicsSettings");
+// The three levels the port had before its Graphics page, still in older GameUserSettings.ini files.
+const TCHAR* LegacyGraphicsKey = TEXT("Graphics");
+
+// The Unreal port owns this one: the design has no graphics settings, but the UE post chain costs more than the scene.
+FBallsGraphicsSettings SavedGraphics() {
+    // The command line wins: screenshots and measurements pin what they capture. It takes a preset name or the
+    // saved key=value form (-BallsGraphics="preset=epic;aa=tsr").
     FString Requested;
     if (FParse::Value(FCommandLine::Get(), TEXT("BallsGraphics="), Requested)) {
-        if (const std::optional<EBallsGraphics> Parsed = BallsGraphics::Parse(Requested)) {
-            return *Parsed;
+        FBallsGraphicsSettings Settings = BallsGraphics::Preset(0);
+        if (BallsGraphics::ParseInto(Requested.Contains(TEXT("=")) ? Requested : TEXT("preset=") + Requested, Settings)
+                .IsEmpty()) {
+            return Settings;
         }
     }
-    FString Name;
-    if (GConfig && GConfig->GetString(PreferencesSection, TEXT("Graphics"), Name, GGameUserSettingsIni)) {
-        if (const std::optional<EBallsGraphics> Parsed = BallsGraphics::Parse(Name)) {
-            return *Parsed;
+    // -BallsHighEnd was the desktop quality switch before the Graphics page.
+    if (FParse::Param(FCommandLine::Get(), TEXT("BallsHighEnd"))) {
+        return BallsGraphics::Preset(3);
+    }
+    FString Saved;
+    if (GConfig && GConfig->GetString(PreferencesSection, GraphicsKey, Saved, GGameUserSettingsIni)) {
+        FBallsGraphicsSettings Settings = BallsGraphics::Preset(0);
+        if (BallsGraphics::ParseInto(Saved, Settings).IsEmpty()) {
+            // Older saves had dynamic resolution off and no target FPS; give existing users the new defaults.
+            if (!Saved.Contains(TEXT("fps="))) {
+                Settings.bDynamicResolution = true;
+                Settings.TargetFps = 60;
+            }
+            return Settings;
         }
     }
-    return EBallsGraphics::Minimum;
+    if (GConfig && GConfig->GetString(PreferencesSection, LegacyGraphicsKey, Saved, GGameUserSettingsIni)) {
+        return BallsGraphics::Preset(Saved.Equals(TEXT("High"), ESearchCase::IgnoreCase)       ? 2
+                                     : Saved.Equals(TEXT("Balanced"), ESearchCase::IgnoreCase) ? 1
+                                                                                               : 0);
+    }
+    return BallsGraphics::Preset(0);
 }
 
 bool SavedVSync() {
@@ -163,7 +163,7 @@ BackendKind StartupBackend(const std::string& SettingsDefault, const std::filesy
 
 FBallsApp::FBallsApp(UWorld* InWorld)
     : World(InWorld), CurrentSettings(loadSettings(SettingsFile())), bVSync(SavedVSync()),
-      GraphicsQuality(SavedGraphics()), Profile(ProfileFolder()) {
+      Graphics(SavedGraphics()), Profile(ProfileFolder()) {
     Profile.load();
 #if PLATFORM_ANDROID
     StageAndroidLevels();
@@ -196,15 +196,9 @@ FBallsApp::FBallsApp(UWorld* InWorld)
     if (GEngine) {
         GEngine->Exec(World, TEXT("DisableAllScreenMessages"));
         GEngine->Exec(World, bVSync ? TEXT("r.VSync 1") : TEXT("r.VSync 0"));
-        // The port starts at Minimum quality; the player raises it in the Performance gadget or the Settings page.
-        BoardView->ApplyGraphics(GraphicsQuality);
-        BallsGraphics::ApplyToWorld(World, GraphicsQuality);
-        // The preset is desktop-only: Vulkan ES3.1 on Android has neither TSR nor usable DRS.
-#if !PLATFORM_ANDROID
-        if (FParse::Param(FCommandLine::Get(), TEXT("BallsHighEnd"))) {
-            ApplyHighEndPreset(World);
-        }
-#endif
+        // The port starts at the Low preset; the player raises it on the Graphics page.
+        BoardView->ApplyGraphics(Graphics);
+        BallsGraphics::ApplyToWorld(World, Graphics);
     }
     ApplyOrientation();
     Flow = std::make_unique<ScreenFlow>(LevelDirectory(GameMode::Normal), LevelDirectory(GameMode::Performance));
@@ -551,11 +545,11 @@ void FBallsApp::SetPreferredBackend(BackendKind Kind) {
 }
 
 void FBallsApp::ApplyOrientation() {
-    SetLayoutOrientation(CurrentSettings.layout);
+    SetLayoutOrientation(layoutInUse(CurrentSettings));
 #if !PLATFORM_ANDROID
     UGameViewportClient* Viewport = World ? World->GetGameViewport() : nullptr;
     const TSharedPtr<SWindow> Window = Viewport ? Viewport->GetWindow() : nullptr;
-    if (!Window || CurrentSettings.layout == LayoutOrientation::Auto || Window->IsWindowMaximized() ||
+    if (!Window || windowLayout(CurrentSettings) == LayoutOrientation::Auto || Window->IsWindowMaximized() ||
         Window->GetWindowMode() != EWindowMode::Windowed) {
         return;
     }
@@ -593,14 +587,19 @@ void FBallsApp::SetVSyncEnabled(bool bEnabled) {
     }
 }
 
-void FBallsApp::SetGraphicsQuality(EBallsGraphics Quality) {
-    GraphicsQuality = Quality;
+void FBallsApp::SetGraphics(const FBallsGraphicsSettings& Next) {
+    Graphics = Next;
     if (GConfig) {
-        GConfig->SetString(PreferencesSection, TEXT("Graphics"), *BallsGraphics::Name(Quality), GGameUserSettingsIni);
+        GConfig->SetString(PreferencesSection, GraphicsKey, *BallsGraphics::Serialize(Graphics), GGameUserSettingsIni);
         GConfig->Flush(false, GGameUserSettingsIni);
     }
-    BoardView->ApplyGraphics(Quality);
-    BallsGraphics::ApplyToWorld(World, Quality);
+    BoardView->ApplyGraphics(Graphics);
+    BallsGraphics::ApplyToWorld(World, Graphics);
+}
+
+void FBallsApp::ShowGraphicsPage(bool bShow) {
+    bGraphicsPageOpen = bShow;
+    Root->SetPopup(bShow ? TSharedPtr<SWidget>(SNew(SBallsGraphicsPage).App(this)) : TSharedPtr<SWidget>());
 }
 
 void FBallsApp::ShowMapEditor(GameMode Mode, std::optional<LevelFiles> Files) {
@@ -620,6 +619,12 @@ void FBallsApp::Quit() {
 }
 
 bool FBallsApp::HandleKey(const FKey& Key) {
+    if (bGraphicsPageOpen) {
+        if (Key == EKeys::Escape) {
+            ShowGraphicsPage(false);
+        }
+        return true;
+    }
     if (CurrentScreen == EScreen::MapEditor) {
         return MapEditorState && MapEditorState->HandleKey(Key);
     }
@@ -889,19 +894,33 @@ std::optional<ControlResponse> FBallsApp::HandleOwnControl(const ControlRequest&
                                                jsonEscape(TCHAR_TO_UTF8(*CvarName)), Variable->GetInt()));
     }
     if (Path == TEXT("/graphics")) {
-        const FString Requested = Param("level");
-        if (!Requested.IsEmpty()) {
-            const std::optional<EBallsGraphics> Parsed = BallsGraphics::Parse(Requested);
-            if (!Parsed) {
-                return ControlResponse::error(400, "level must be minimum, balanced or high");
+        // Every query parameter is a graphics key (preset, sg.<group>, gi, reflectionmethod, shadowmethod, nanite,
+        // aa, screen, dynamic); "level" is the old three-step name, read as a preset.
+        FString Changes;
+        for (const auto& [Key, Value] : Request.query) {
+            const FString Name = UTF8_TO_TCHAR(Key.c_str());
+            FString Text = UTF8_TO_TCHAR(Value.c_str());
+            if (Name == TEXT("level")) {
+                Text = Text.Equals(TEXT("minimum"), ESearchCase::IgnoreCase)    ? TEXT("low")
+                       : Text.Equals(TEXT("balanced"), ESearchCase::IgnoreCase) ? TEXT("medium")
+                                                                                : Text;
+                Changes += TEXT("preset=") + Text + TEXT(";");
+            } else {
+                Changes += Name + TEXT("=") + Text + TEXT(";");
             }
-            SetGraphicsQuality(*Parsed);
         }
-        const int32 ScreenPercentage = GraphicsQuality == EBallsGraphics::Minimum    ? 70
-                                       : GraphicsQuality == EBallsGraphics::Balanced ? 85
-                                                                                     : 100;
-        return ControlResponse::ok(std::format("{{\"ok\":true,\"level\":\"{}\",\"screenPercentage\":{}}}",
-                                               TCHAR_TO_UTF8(*BallsGraphics::Name(GraphicsQuality)), ScreenPercentage));
+        if (!Changes.IsEmpty()) {
+            FBallsGraphicsSettings Next = Graphics;
+            const FString Error = BallsGraphics::ParseInto(Changes, Next);
+            if (!Error.IsEmpty()) {
+                return ControlResponse::error(400, TCHAR_TO_UTF8(*Error));
+            }
+            SetGraphics(Next);
+        }
+        const std::optional<int32> Preset = BallsGraphics::MatchingPreset(Graphics);
+        return ControlResponse::ok(std::format("{{\"ok\":true,\"preset\":\"{}\",\"settings\":\"{}\"}}",
+                                               TCHAR_TO_UTF8(*(Preset ? BallsGraphics::PresetName(*Preset) : FString(TEXT("Custom")))),
+                                               TCHAR_TO_UTF8(*BallsGraphics::Serialize(Graphics))));
     }
     return std::nullopt;
 }

@@ -342,8 +342,8 @@ void App::retireRenderer(std::unique_ptr<IRenderer> retired) {
 }
 
 void App::applyOrientationToWindow() {
-    applyOrientationHint(currentSettings.layout);
-    const LayoutOrientation orientation = currentSettings.layout;
+    applyOrientationHint(windowLayout(currentSettings));
+    const LayoutOrientation orientation = windowLayout(currentSettings);
     if (orientation == LayoutOrientation::Auto || !window) {
         return;
     }
@@ -442,7 +442,7 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
     profile.load();
     setComputeGpuPreference(options.computeGpu);
     computeAdapterList = enumerateGpuAdapters(GpuApi::Vulkan);
-    applyOrientationHint(currentSettings.layout);
+    applyOrientationHint(windowLayout(currentSettings));
     setVsync(effective.vsync || currentSettings.vsync);
     backendChoice = chooseStartupBackend(options.backend, currentSettings.defaultBackend, assetRoot() / targetBenchmarkFileName);
     if (options.controlPort > 0) {

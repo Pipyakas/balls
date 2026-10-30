@@ -110,7 +110,7 @@ bool FBallsGameplay::HandleKey(const FKey& Key) {
 void FBallsGameplay::ApplySettings() {
     if (Host) {
         // What it did, with the game's toast, comes back as an event at the next tick.
-        Host->setBallCollisions(App.GetSettings().ballCollisions);
+        Host->setBallCollisions(ballCollisionsOffered() && App.GetSettings().ballCollisions);
     }
 }
 

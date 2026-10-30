@@ -33,6 +33,12 @@ public class BallsCore : ModuleRules
         else
         {
             PublicAdditionalLibraries.Add(Path.Combine(RepoRoot, "build", "win32-ue", "source", "core", "Release", "balls_core.lib"));
+            // BuildCore.bat builds the Win64 core in the scoring profile unless BALLS_PROFILE=extended; the core's
+            // headers change with BALLS_FIXED_TARGET, so the game module must agree with the library it links.
+            if (System.Environment.GetEnvironmentVariable("BALLS_PROFILE") != "extended")
+            {
+                PublicDefinitions.Add("BALLS_FIXED_TARGET=1");
+            }
 
             // The physics backends (CPU, CUDA) are DLLs the core loads at run time. Packaged builds stage them next
             // to the executable; the editor finds them through BALLS_PLUGIN_DIR (see FBallsApp).

@@ -28,7 +28,7 @@ if not exist "%OUT%\CMakeCache.txt" (
     cmake -S "%REPO%" -B "%OUT%" -G Ninja -DCMAKE_MAKE_PROGRAM="%NINJA%" ^
         -DCMAKE_TOOLCHAIN_FILE="%NDK_ROOT%\build\cmake\android.toolchain.cmake" ^
         -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-26 -DANDROID_STL=c++_static ^
-        -DCMAKE_BUILD_TYPE=Release -DBALLS_BUILD_GAME=OFF -DBALLS_ENABLE_CUDA=OFF -DBALLS_LTO=OFF
+        -DCMAKE_BUILD_TYPE=Release -DBALLS_BUILD_GAME=OFF -DBALLS_PROFILE=extended -DBALLS_ENABLE_CUDA=OFF -DBALLS_LTO=OFF
     if errorlevel 1 goto failed
 )
 cmake --build "%OUT%" --target balls_core --parallel

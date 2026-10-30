@@ -82,12 +82,16 @@ constexpr float blockHeight = sectionHeight + optionHeight + hintGap + hintHeigh
 float settingsContentHeight(BackendKind selectedBackend) {
     float height = panelPadding * 2.0f;
     height += titleHeight + blockGap;
-    height += blockHeight;
+    if (layoutChoiceOffered) {
+        height += blockHeight;
+    }
     height += sectionHeight + blockHeight;
     height += blockHeight;
     height += blockHeight;
-    height += sectionHeight + sectionHeight + (optionHeight + optionGap) * selectableBackends().size() -
-              optionGap + blockGap - optionGap;
+    if (backendChoiceOffered()) {
+        height += sectionHeight + sectionHeight + (optionHeight + optionGap) * selectableBackends().size() -
+                  optionGap + blockGap - optionGap;
+    }
     if (showsDevicePicks(selectedBackend)) {
         height += sectionHeight + devicePickerHeight(devicePickerStyle) + hintGap + hintHeight * 2.0f + blockGap;
     }
@@ -114,22 +118,24 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
     ui::drawTextInRect("Settings", {innerX, cursor, innerWidth, titleHeight}, titleSize, palette::text);
     cursor += titleHeight + blockGap;
 
-    ui::drawText(std::string(menuText::layoutHeading), {innerX, cursor}, sectionSize, palette::textMuted);
-    cursor += sectionHeight;
-    const Rect layoutButtons{innerX, cursor, innerWidth, optionHeight};
-    for (size_t i = 0; i < layoutOptions.size(); ++i) {
-        const auto& [orientation, label] = layoutOptions[i];
-        if (ui::button(ui::columnSlice(layoutButtons, static_cast<int>(i),
-                                       static_cast<int>(layoutOptions.size()), optionGap),
-                       label, true, current.layout == orientation) &&
-            current.layout != orientation) {
-            edit.settings.layout = orientation;
-            edit.changed = true;
+    if (layoutChoiceOffered) {
+        ui::drawText(std::string(menuText::layoutHeading), {innerX, cursor}, sectionSize, palette::textMuted);
+        cursor += sectionHeight;
+        const Rect layoutButtons{innerX, cursor, innerWidth, optionHeight};
+        for (size_t i = 0; i < layoutOptions.size(); ++i) {
+            const auto& [orientation, label] = layoutOptions[i];
+            if (ui::button(ui::columnSlice(layoutButtons, static_cast<int>(i),
+                                           static_cast<int>(layoutOptions.size()), optionGap),
+                           label, true, current.layout == orientation) &&
+                current.layout != orientation) {
+                edit.settings.layout = orientation;
+                edit.changed = true;
+            }
         }
+        cursor += optionHeight + hintGap;
+        ui::drawText(std::string(menuText::layoutHint), {innerX, cursor}, hintSize, palette::textMuted);
+        cursor += hintHeight + blockGap;
     }
-    cursor += optionHeight + hintGap;
-    ui::drawText(std::string(menuText::layoutHint), {innerX, cursor}, hintSize, palette::textMuted);
-    cursor += hintHeight + blockGap;
 
     ui::drawText(std::string(menuText::displayHeading), {innerX, cursor}, sectionSize, palette::textMuted);
     cursor += sectionHeight;
@@ -189,40 +195,42 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
                  palette::textMuted);
     cursor += hintHeight + blockGap;
 
-    ui::drawText(std::string(menuText::physicsHeading), {innerX, cursor}, sectionSize, palette::textMuted);
-    cursor += sectionHeight;
-    ui::drawText(std::string(menuText::defaultBackendLabel), {innerX, cursor}, sectionSize, palette::text);
+    if (backendChoiceOffered()) {
+        ui::drawText(std::string(menuText::physicsHeading), {innerX, cursor}, sectionSize, palette::textMuted);
+        cursor += sectionHeight;
+        ui::drawText(std::string(menuText::defaultBackendLabel), {innerX, cursor}, sectionSize, palette::text);
 #if !defined(BALLS_FIXED_TARGET)
-    if (canRunBenchmark) {
-        const Rect runBenchmark{innerX + innerWidth - runBenchmarkWidth, cursor - optionGap, runBenchmarkWidth,
-                                sectionHeight + optionGap * 0.5f};
-        if (ui::button(runBenchmark, std::string(menuText::runBenchmarkLabel))) {
-            edit.runBenchmark = true;
+        if (canRunBenchmark) {
+            const Rect runBenchmark{innerX + innerWidth - runBenchmarkWidth, cursor - optionGap, runBenchmarkWidth,
+                                    sectionHeight + optionGap * 0.5f};
+            if (ui::button(runBenchmark, std::string(menuText::runBenchmarkLabel))) {
+                edit.runBenchmark = true;
+            }
         }
-    }
 #else
-    (void)canRunBenchmark;
+        (void)canRunBenchmark;
 #endif
-    cursor += sectionHeight;
-    for (const BackendRow& rowInfo : defaultBackendRows(selectedBackend, benchmarkScores)) {
-        const BackendKind kind = rowInfo.kind;
-        std::string label = rowInfo.option.label;
-        if (!rowInfo.option.enabled && !rowInfo.option.detail.empty()) {
-            label += std::string(" - ") + rowInfo.option.detail;
+        cursor += sectionHeight;
+        for (const BackendRow& rowInfo : defaultBackendRows(selectedBackend, benchmarkScores)) {
+            const BackendKind kind = rowInfo.kind;
+            std::string label = rowInfo.option.label;
+            if (!rowInfo.option.enabled && !rowInfo.option.detail.empty()) {
+                label += std::string(" - ") + rowInfo.option.detail;
+            }
+            const Rect row{innerX, cursor, innerWidth, optionHeight};
+            if (ui::button(row, label, rowInfo.option.enabled, rowInfo.option.selected) && rowInfo.option.enabled) {
+                edit.backend = kind;
+                edit.changed = true;
+            }
+            if (rowInfo.option.enabled && !rowInfo.option.detail.empty()) {
+                const bool selected = selectedBackend == kind;
+                ui::drawTextInRect(rowInfo.option.detail, {row.x, row.y, row.width - scoreInset, row.height}, hintSize,
+                                   selected ? palette::panel : palette::textMuted, ui::Align::Right);
+            }
+            cursor += optionHeight + optionGap;
         }
-        const Rect row{innerX, cursor, innerWidth, optionHeight};
-        if (ui::button(row, label, rowInfo.option.enabled, rowInfo.option.selected) && rowInfo.option.enabled) {
-            edit.backend = kind;
-            edit.changed = true;
-        }
-        if (rowInfo.option.enabled && !rowInfo.option.detail.empty()) {
-            const bool selected = selectedBackend == kind;
-            ui::drawTextInRect(rowInfo.option.detail, {row.x, row.y, row.width - scoreInset, row.height}, hintSize,
-                               selected ? palette::panel : palette::textMuted, ui::Align::Right);
-        }
-        cursor += optionHeight + optionGap;
+        cursor += blockGap - optionGap;
     }
-    cursor += blockGap - optionGap;
 
     if (showsDevicePicks(selectedBackend)) {
         ui::drawText(std::string(menuText::devicesLabel), {innerX, cursor}, sectionSize, palette::text);

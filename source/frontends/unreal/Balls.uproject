@@ -47,7 +47,7 @@
       "LoadingPhase": "PostConfigInit"
     },
     {
-      "Name": "ColorBlastBalls",
+      "Name": "Balls",
       "Type": "Runtime",
       "LoadingPhase": "Default"
     }

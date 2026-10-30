@@ -9,6 +9,19 @@
 
 enum class LayoutOrientation { Auto, Landscape, Portrait };
 
+// The target PC has a landscape monitor, so the scoring build has no Layout choice: the game always lays out in
+// landscape, and the window keeps the size it was given. A saved layout is kept in the file but not used.
+#if defined(BALLS_FIXED_TARGET)
+inline constexpr bool layoutChoiceOffered = false;
+#else
+inline constexpr bool layoutChoiceOffered = true;
+#endif
+
+struct Settings;
+// The orientation the gameplay and editor layouts use, and the one the window is sized for (Auto: left alone).
+LayoutOrientation layoutInUse(const Settings& settings);
+LayoutOrientation windowLayout(const Settings& settings);
+
 // Player-facing options shown on the Settings page.
 // Front ends own where the file lives; core owns the format and the defaults.
 struct Settings {

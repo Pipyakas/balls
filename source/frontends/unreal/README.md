@@ -25,9 +25,9 @@ the CUDA backend, run `pwsh scripts/FetchCudaSdk.ps1` once first. The core loads
 packaged builds stage them beside the executable, and the editor finds them in `build/win32-ue/bin/Release`.
 
 ```powershell
-D:\Unreal\UnrealEngine\Engine\Build\BatchFiles\Build.bat ColorBlastBallsEditor Win64 Development `
-    -Project="$PWD\source\frontends\unreal\ColorBlastBalls.uproject" -WaitMutex
-D:\Unreal\UnrealEngine\Engine\Binaries\Win64\UnrealEditor.exe "$PWD\source\frontends\unreal\ColorBlastBalls.uproject" `
+D:\Unreal\UnrealEngine\Engine\Build\BatchFiles\Build.bat BallsEditor Win64 Development `
+    -Project="$PWD\source\frontends\unreal\Balls.uproject" -WaitMutex
+D:\Unreal\UnrealEngine\Engine\Binaries\Win64\UnrealEditor.exe "$PWD\source\frontends\unreal\Balls.uproject" `
     -game -windowed -ResX=1600 -ResY=900 -BallsPlay=normal:DA_FirstLevel -BallsBackend=avx2
 ```
 
@@ -36,25 +36,52 @@ D:\Unreal\UnrealEngine\Engine\Binaries\Win64\UnrealEditor.exe "$PWD\source\front
 - `-BallsEditor` opens the map editor instead of the main menu.
 - `-BallsScreen=<settings|levels-normal|levels-performance|pause|pause-settings>` opens a screen directly (the pause
   ones need `-BallsPlay` too), for screenshots and conformance checks.
-- `-BallsHighEnd` turns on the desktop quality preset: TSR anti-aliasing plus dynamic resolution
-  (50-100% screen percentage, 60 fps budget). Lumen/Nanite/VSM need an SM6 build; see
-  `data/docs/ue5-high-end-features.md`.
+- `-BallsGraphics=<low|medium|high|epic|cinematic>` starts at that graphics preset without saving it; the same
+  switch takes the saved `key=value;...` form (`-BallsGraphics="preset=epic;aa=taau;screen=67"`). `-BallsHighEnd`
+  is the Epic preset.
+
+## Graphics page
+
+The Unreal port's own settings page (the design has none), a popup opened from Settings > Graphics settings or from
+the Graphics button in the game's Advanced Settings, so every change shows on the running board:
+
+- **Resolution**: screen resolution 50-100%; dynamic resolution (on by default, drops to 50% to hold the target
+  FPS); target FPS 1 to the display's highest refresh rate (default 60). These settings are kept across presets.
+- **Preset**: Low, Medium, High, Epic, Cinematic. Low is the flat look with nothing optional (the port's default);
+  Medium and High add TAA/TSR, screen-space reflections and shadow maps; Epic and Cinematic turn on Lumen GI and
+  reflections, virtual shadow maps and Nanite. Changing any row below makes the settings Custom.
+- **Anti-aliasing**: Off, FXAA, TAA, TAAU, TSR or FSR (only with AMD's FidelityFX FSR plugin installed in the
+  engine).
+- **UE5 features**: global illumination (Lumen), reflections (screen space or Lumen), shadows (shadow maps or
+  virtual), Nanite. A feature the GPU or shader model cannot run is disabled with the reason.
+- **Scalability**: the engine's ten `sg.*` groups, each Low to Cinematic.
+
+The settings are saved per user (`GameUserSettings.ini`, `[Balls] GraphicsSettings`), and the control API's
+`/graphics` takes the same keys: `preset`, `sg.<group>`, `gi`, `reflectionmethod`, `shadowmethod`, `nanite`, `aa`,
+`screen`, `dynamic`, `fps` (for example `/graphics?preset=epic&aa=taau&screen=67&fps=120`).
+
+Windows builds cook shaders for SM6, which Lumen, Nanite and virtual shadow maps need, and SM5 as the fallback for
+older GPUs and the engine fork. `Content/Balls/NaniteCube.uasset`, the project's only asset, is the engine cube with
+Nanite on; `Scripts/MakeNaniteCube.py` recreates it. On the dev PC (i5-12400F, GTX 1650, 50M balls) the presets cost
+0.8, 1.8, 3.8, 9.0 and 23.7 ms of GPU time from Low to Cinematic.
 
 ## Packaged build
 
 `source\frontends\unreal\build.bat` cooks, stages and archives the game; the root `build.bat` reaches it as
 `build.bat unreal win64` (or `build.bat --menu`). Variants:
 
-- `win64` stages `dist\win32-ue\ColorBlastBalls.exe`.
+- `win64` stages `dist\win32-ue\Balls.exe`.
 - `linux` stage `dist\linux-ue\` for x86_64 Linux, cross-compiled on Windows with Unreal's own toolchain
   (`LINUX_MULTIARCH_ROOT`, default `D:\UnrealToolchains\v26_clang-20.1.8-rockylinux8`). UnrealBuildTool skips the
   `.uproject` pre-build steps for a cross-compiled target, so the script builds the core and the plugins through
   `BuildCoreLinux.bat` itself.
 
-Set `UE_ROOT` if the engine is not at `D:\Unreal\UnrealEngine`; a stock Unreal Engine 5.8 install works (checked with
+Without `UE_ROOT`, the script finds a 5.8 engine at `D:\Unreal\UnrealEngine`, in the launcher's registered
+installs and source builds, or at `UE_5.8`, `Unreal\UE_5.8` or `Program Files\Epic Games\UE_5.8` on any drive;
+set `UE_ROOT` for an engine anywhere else. A stock Unreal Engine 5.8 install works (checked with
 5.8.4). The first run compiles the game target and
 takes about an hour; later runs are incremental. The script also copies `data/assets` to the packaged game's
-`ColorBlastBalls\assets`, where it looks for levels, and the physics plugins stage next to the executable.
+`Balls\assets`, where it looks for levels, and the physics plugins stage next to the executable.
 
 The fork lists two prebuilt shaders as staged runtime dependencies that its tree does not contain, and staging
 aborts without them. Create empty placeholders (nothing here uses them):
@@ -76,7 +103,7 @@ run.
 
 ```powershell
 D:\Unreal\UnrealEngine\Engine\Build\BatchFiles\RunUAT.bat BuildCookRun `
-    -project="$PWD\source\frontends\unreal\ColorBlastBalls.uproject" -noP4 -platform=Android `
+    -project="$PWD\source\frontends\unreal\Balls.uproject" -noP4 -platform=Android `
     -clientconfig=Development -build -cook -package -stage -deploy -device=<serial> `
     -architecture=arm64 -cookflavor=ASTC -map=/Engine/Maps/Entry -utf8output -unattended
 ```
@@ -98,7 +125,7 @@ merge in `ShaderFormatD3D`). This project therefore:
 
 - targets `PCD3D_SM5` (`Config/DefaultEngine.ini`);
 - disables SM6 bindless (`Config/Windows/WindowsEngine.ini`);
-- passes `-Wno-macro-redefined` on Android (`Source/ColorBlastBalls.Target.cs`), because the fork's
+- passes `-Wno-macro-redefined` on Android (`Source/Balls.Target.cs`), because the fork's
   `Misc/Build.h` defaults its UEX/XFSDK macros to 0 while `Renderer`/`RenderCore`/`Engine` define them to 1;
   MSVC only warns, clang under `-Werror` fails;
 - drops the XFSDK "Callisto" skin-shading includes from `Engine/Shaders/Private/ShadingModels.ush` and

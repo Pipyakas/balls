@@ -59,7 +59,7 @@ void GameplayScreen::refreshSettings() {
     if (!runner) {
         return;
     }
-    runner->setBallCollisions(app.settings().ballCollisions);
+    runner->setBallCollisions(ballCollisionsOffered() && app.settings().ballCollisions);
 }
 
 void GameplayScreen::loadSession() {
@@ -201,7 +201,7 @@ void GameplayScreen::update(float /*deltaTime*/) {
     app.flow().sessionStateChanged(view->state);
     const GameplayLayout layout = computeGameplayLayout(\
         {static_cast<float>(gfx::screenWidth()), static_cast<float>(gfx::screenHeight())}, view->board->columns(),
-        view->board->rows(), app.settings().layout, mode == GameMode::Normal ? view->launchers.visibleRows() : 0);
+        view->board->rows(), layoutInUse(app.settings()), mode == GameMode::Normal ? view->launchers.visibleRows() : 0);
     if (!app.flow().isPaused()) {
         handleLauncherClick(layout);
     }
@@ -500,7 +500,9 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
     columnCursors = {headerY + advancedHeaderHeight + groupGap, headerY + advancedHeaderHeight + groupGap};
     if (advancedOpen) {
         const float backendHeight = (controlRowHeight + controlGap) * selectableBackends().size() - controlGap;
-        drawBackendList(group("Physics", backendHeight), view->backend);
+        if (backendChoiceOffered()) {
+            drawBackendList(group("Physics", backendHeight), view->backend);
+        }
         if (showsDevicePicks(shownBackend())) {
             drawDevicePicker(group("Devices", devicePickerHeight(gameplayDevicePicker)));
         }
@@ -514,11 +516,13 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
                             true);
         }
         // Last, across both columns: a testing aid outside the game rules.
-        const float collisionsY = std::max(columnCursors[0], columnCursors[1]);
-        ui::drawText("Ball collisions", {inner.x, collisionsY}, 20.0f, palette::textMuted);
-        drawBallCollisions({inner.x, collisionsY + groupLabelHeight, contentWidth, collisionsGroupHeight});
-        const float collisionsEnd = collisionsY + groupLabelHeight + collisionsGroupHeight + groupGap;
-        columnCursors = {collisionsEnd, collisionsEnd};
+        if (ballCollisionsOffered()) {
+            const float collisionsY = std::max(columnCursors[0], columnCursors[1]);
+            ui::drawText("Ball collisions", {inner.x, collisionsY}, 20.0f, palette::textMuted);
+            drawBallCollisions({inner.x, collisionsY + groupLabelHeight, contentWidth, collisionsGroupHeight});
+            const float collisionsEnd = collisionsY + groupLabelHeight + collisionsGroupHeight + groupGap;
+            columnCursors = {collisionsEnd, collisionsEnd};
+        }
     }
     performanceControlsHeight = std::max(columnCursors[0], columnCursors[1]) - top - groupGap;
     ui::scrollHints(inner, controlsScroll, performanceControlsHeight, palette::panel);
@@ -528,12 +532,16 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
 float GameplayScreen::normalContentHeight() const {
     const float launcherHeight = 320.0f;
     const float advancedHeight = app.settings().advancedSettings
-                                     ? groupGap + groupLabelHeight +
-                                           (controlRowHeight + controlGap) * selectableBackends().size() - controlGap +
+                                     ? (backendChoiceOffered()
+                                            ? groupGap + groupLabelHeight +
+                                                  (controlRowHeight + controlGap) * selectableBackends().size() -
+                                                  controlGap
+                                            : 0.0f) +
                                            (showsDevicePicks(shownBackend())
                                                 ? groupGap + groupLabelHeight + devicePickerHeight(gameplayDevicePicker)
                                                 : 0.0f) +
-                                           groupGap + groupLabelHeight + collisionsGroupHeight
+                                           (ballCollisionsOffered() ? groupGap + groupLabelHeight + collisionsGroupHeight
+                                                                    : 0.0f)
                                      : 0.0f;
     return launcherHeight + groupGap + advancedHeaderHeight + advancedHeight;
 }
@@ -607,15 +615,19 @@ void GameplayScreen::drawNormalControls(Rect area) {
     }
     cursor += advancedHeaderHeight + groupGap;
     if (advancedOpen) {
-        ui::drawText("Physics", {inner.x, cursor}, 20.0f, palette::textMuted);
-        cursor += groupLabelHeight;
-        const float backendHeight = (controlRowHeight + controlGap) * selectableBackends().size() - controlGap;
-        drawBackendList({inner.x, cursor, width, backendHeight}, view->backend);
-        cursor += backendHeight + groupGap;
-        ui::drawText("Ball collisions", {inner.x, cursor}, 20.0f, palette::textMuted);
-        cursor += groupLabelHeight;
-        drawBallCollisions({inner.x, cursor, width, collisionsGroupHeight});
-        cursor += collisionsGroupHeight + groupGap;
+        if (backendChoiceOffered()) {
+            ui::drawText("Physics", {inner.x, cursor}, 20.0f, palette::textMuted);
+            cursor += groupLabelHeight;
+            const float backendHeight = (controlRowHeight + controlGap) * selectableBackends().size() - controlGap;
+            drawBackendList({inner.x, cursor, width, backendHeight}, view->backend);
+            cursor += backendHeight + groupGap;
+        }
+        if (ballCollisionsOffered()) {
+            ui::drawText("Ball collisions", {inner.x, cursor}, 20.0f, palette::textMuted);
+            cursor += groupLabelHeight;
+            drawBallCollisions({inner.x, cursor, width, collisionsGroupHeight});
+            cursor += collisionsGroupHeight + groupGap;
+        }
         if (showsDevicePicks(shownBackend())) {
             ui::drawText(std::string(menuText::devicesLabel), {inner.x, cursor}, 20.0f, palette::textMuted);
             cursor += groupLabelHeight;
@@ -691,7 +703,7 @@ void GameplayScreen::draw() {
     }
     const GameplayLayout layout = computeGameplayLayout(
         {static_cast<float>(gfx::screenWidth()), static_cast<float>(gfx::screenHeight())}, view->board->columns(),
-        view->board->rows(), app.settings().layout, mode == GameMode::Normal ? view->launchers.visibleRows() : 0);
+        view->board->rows(), layoutInUse(app.settings()), mode == GameMode::Normal ? view->launchers.visibleRows() : 0);
     drawHeader(layout);
     if (layout.isPortrait) {
         ui::drawPanel(layout.topGadget, palette::panel, 0.25f);

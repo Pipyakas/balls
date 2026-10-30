@@ -180,3 +180,11 @@ Result<void> saveSettings(const std::filesystem::path& file, const Settings& set
     }
     return {};
 }
+
+LayoutOrientation layoutInUse(const Settings& settings) {
+    return layoutChoiceOffered ? settings.layout : LayoutOrientation::Landscape;
+}
+
+LayoutOrientation windowLayout(const Settings& settings) {
+    return layoutChoiceOffered ? settings.layout : LayoutOrientation::Auto;
+}

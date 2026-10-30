@@ -102,6 +102,11 @@ struct BallCollisionsChoice {
     std::string hint;
 };
 BallCollisionsChoice ballCollisionsChoice(bool requested);
+// Ball collisions run only on Scalar. Where Scalar is not offered (the scoring build, or any machine with a faster
+// backend) the option could never turn on, so front ends leave it, and its debug row, out.
+bool ballCollisionsOffered();
+// A single selectable backend cannot be changed, so the choice is pointless to show.
+bool backendChoiceOffered();
 
 // Debug gadget.
 struct DebugRow {

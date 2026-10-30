@@ -80,7 +80,7 @@ if /i "%VARIANT%"=="linux" (
     if exist "%PROJECT_DIR%\NativeLibraries\linux-x86_64\libballs_unity.so" (
         echo   [ ok ] Linux native plugins   source\frontends\unity\NativeLibraries\linux-x86_64
     ) else (
-        echo   [MISS] Linux native plugins   build them on Linux: cmake -S . -B build/linux-unity -DBALLS_FRONTEND=none
+        echo   [MISS] Linux native plugins   build them on Linux: cmake -S . -B build/linux-unity -DBALLS_FRONTEND=none -DBALLS_PROFILE=extended
         echo                                  then copy build/linux-unity/bin/*.so into source\frontends\unity\NativeLibraries\linux-x86_64
         set "MISSING=1"
     )
@@ -99,9 +99,9 @@ if not exist ".deps\cuda\sdk\include\nvrtc.h" (
 
 rem The Windows DLLs are built for both variants: the editor loads them while it builds the player.
 if exist "%BUILD_DIR%\CMakeCache.txt" (
-    cmake -S . -B "%BUILD_DIR%" -DBALLS_FRONTEND=none -DBALLS_BUILD_UNITY_PLUGIN=ON -DBALLS_BUILD_TOOLS=OFF >nul
+    cmake -S . -B "%BUILD_DIR%" -DBALLS_FRONTEND=none -DBALLS_PROFILE=extended -DBALLS_BUILD_UNITY_PLUGIN=ON -DBALLS_BUILD_TOOLS=OFF >nul
 ) else (
-    cmake -S . -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A x64 -DBALLS_FRONTEND=none -DBALLS_BUILD_UNITY_PLUGIN=ON -DBALLS_BUILD_TOOLS=OFF
+    cmake -S . -B "%BUILD_DIR%" -G "Visual Studio 17 2022" -A x64 -DBALLS_FRONTEND=none -DBALLS_PROFILE=extended -DBALLS_BUILD_UNITY_PLUGIN=ON -DBALLS_BUILD_TOOLS=OFF
 )
 if errorlevel 1 goto :failed
 cmake --build "%BUILD_DIR%" --config Release --parallel
