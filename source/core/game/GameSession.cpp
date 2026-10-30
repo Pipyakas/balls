@@ -311,6 +311,42 @@ void GameSession::update(float deltaTime) {
     }
 }
 
+namespace {
+
+// Hands up to count balls to launch in slices, each sent to the backend before the next, and stops once the next
+// slice would run past seconds after start, so a frame whose additions cost more than the governor expected stops
+// short instead of running over. launch returns how many it launched; fewer ends the batch. Returns the total.
+template <typename Launch>
+BallCount launchInSlices(Simulation& simulation, BallCount count, double seconds,
+                         std::chrono::steady_clock::time_point start, double secondsPerBall, Launch&& launch) {
+    constexpr BallCount sliceBalls = BallCount{1} << 18;
+    constexpr BallCount smallestSlice = BallCount{1} << 12;
+    constexpr double sliceCostMargin = 1.25;
+    simulation.flushSpawns();
+    BallCount launched = 0;
+    while (launched < count) {
+        const double left = seconds - secondsSince(start);
+        const BallCount fits = left > 0.0 ? static_cast<BallCount>(left / (secondsPerBall * sliceCostMargin)) : 0;
+        const BallCount slice = std::min({count - launched, sliceBalls, fits});
+        if (slice == 0 || (slice < smallestSlice && slice < count - launched)) {
+            break;
+        }
+        const auto sliceStart = std::chrono::steady_clock::now();
+        const BallCount sent = launch(slice);
+        simulation.flushSpawns();
+        if (sent >= smallestSlice) {
+            secondsPerBall = secondsSince(sliceStart) / static_cast<double>(sent);
+        }
+        launched += sent;
+        if (sent < slice) {
+            break;
+        }
+    }
+    return launched;
+}
+
+}
+
 void GameSession::addBallsWithinBudget(float deltaTime) {
     const bool spawning = sessionState == SessionState::Running;
     if (!spawning && fillRemaining == 0) {
@@ -322,42 +358,26 @@ void GameSession::addBallsWithinBudget(float deltaTime) {
     const bool freeFlight = physicsSimulation.isCleared() && !physicsSimulation.ballCollisionsActive();
     const BallCount allowance =
         std::min(additionGovernor.allowance(before, freeFlight), remainingCapacity(limit, before));
+    const double additionSeconds = additionGovernor.additionSeconds(before, freeFlight);
+    const double secondsPerBall = additionGovernor.predictedSeconds(1);
+    BallCount used = 0;
     if (spawning) {
-        spawnController.update(deltaTime, physicsSimulation, allowance);
+        const BallCount accrued = spawnController.accrue(deltaTime, allowance);
+        used = launchInSlices(physicsSimulation, accrued, additionSeconds, start, secondsPerBall,
+                              [&](BallCount slice) { return spawnController.release(physicsSimulation, slice); });
     }
     if (fillRemaining > 0) {
-        const BallCount live = physicsSimulation.liveBallCount();
-        const BallCount used = live > before ? live - before : 0;
-        const BallCount room = std::min(remainingCapacity(limit, live), physicsSimulation.ballRoom());
+        const BallCount room =
+            std::min(remainingCapacity(limit, physicsSimulation.liveBallCount()), physicsSimulation.ballRoom());
         if (room == 0) {
             fillRemaining = 0;
         } else {
-            // In slices handed to the backend one by one, so a frame whose additions cost more than the governor
-            // expected stops short instead of running over.
-            constexpr BallCount fillSliceBalls = BallCount{1} << 18;
-            constexpr BallCount smallestFillSlice = BallCount{1} << 12;
-            constexpr double sliceCostMargin = 1.25;
-            const double fillSeconds = additionGovernor.additionSeconds(before, freeFlight);
-            BallCount batch = std::min({fillRemaining, room, allowance > used ? allowance - used : 0});
-            physicsSimulation.flushSpawns();
-            double secondsPerBall = additionGovernor.predictedSeconds(1);
-            while (batch > 0) {
-                const double left = fillSeconds - secondsSince(start);
-                const BallCount fits =
-                    left > 0.0 ? static_cast<BallCount>(left / (secondsPerBall * sliceCostMargin)) : 0;
-                const BallCount slice = std::min({batch, fillSliceBalls, fits});
-                if (slice == 0 || (slice < smallestFillSlice && slice < batch)) {
-                    break;
-                }
-                const auto sliceStart = std::chrono::steady_clock::now();
-                launchAcrossColors(slice);
-                physicsSimulation.flushSpawns();
-                if (slice >= smallestFillSlice) {
-                    secondsPerBall = secondsSince(sliceStart) / static_cast<double>(slice);
-                }
-                batch -= slice;
-                fillRemaining -= slice;
-            }
+            const BallCount batch = std::min({fillRemaining, room, allowance > used ? allowance - used : 0});
+            fillRemaining -= launchInSlices(physicsSimulation, batch, additionSeconds, start, secondsPerBall,
+                                            [&](BallCount slice) {
+                                                launchAcrossColors(slice);
+                                                return slice;
+                                            });
         }
     }
     physicsSimulation.flushSpawns();
