@@ -3,7 +3,9 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "HAL/IConsoleManager.h"
+#include "DataDrivenShaderPlatformInfo.h"
 #include "RHI.h"
+#include "RHIStrings.h"
 #include "RenderUtils.h"
 
 namespace {
@@ -244,6 +246,52 @@ FString ParseInto(const FString& Text, FBallsGraphicsSettings& Base) {
         }
     }
     return FString();
+}
+
+TArray<TPair<FString, FString>> DebugRows(const FBallsGraphicsSettings& Settings, FIntPoint ViewportPixels) {
+    const auto Read = [](const TCHAR* Name) {
+        const IConsoleVariable* Variable = IConsoleManager::Get().FindConsoleVariable(Name);
+        return Variable ? Variable->GetFloat() : -1.0f;
+    };
+    const std::optional<int32> Level = MatchingPreset(Settings);
+    FString FeatureLevel;
+    GetFeatureLevelName(GMaxRHIFeatureLevel, FeatureLevel);
+    const int32 Method = static_cast<int32>(Read(TEXT("r.AntiAliasingMethod")));
+    const TCHAR* const MethodNames[] = {TEXT("Off"), TEXT("FXAA"), TEXT("TAA"), TEXT("MSAA"), TEXT("TSR")};
+    FString AntiAliasing = Method >= 0 && Method < UE_ARRAY_COUNT(MethodNames) ? MethodNames[Method] : TEXT("?");
+    if (Method == 2 && Read(TEXT("r.TemporalAA.Upsampling")) > 0.0f) {
+        AntiAliasing = TEXT("TAAU");
+    }
+    if (const IConsoleVariable* Fsr = InstalledFsrCvar(); Fsr && Fsr->GetInt() > 0) {
+        AntiAliasing = TEXT("FSR");
+    }
+    const float Percentage = Read(TEXT("r.ScreenPercentage"));
+    const bool bDynamic = Read(TEXT("r.DynamicRes.OperationMode")) > 0.0f;
+    const int32 Gi = static_cast<int32>(Read(TEXT("r.DynamicGlobalIlluminationMethod")));
+    const int32 Reflections = static_cast<int32>(Read(TEXT("r.ReflectionMethod")));
+    FString GroupLevels;
+    for (const int32 Group : Settings.Groups) {
+        GroupLevels += FString::FromInt(Group);
+    }
+    return {
+        {TEXT("Preset"), Level ? PresetName(*Level) : FString(TEXT("Custom"))},
+        {TEXT("Shader platform"), FString::Printf(TEXT("%s (%s)"),
+                                                  *FDataDrivenShaderPlatformInfo::GetName(GMaxRHIShaderPlatform).ToString(),
+                                                  *FeatureLevel)},
+        {TEXT("Anti-aliasing"), AntiAliasing},
+        {TEXT("Resolution"), bDynamic ? FString::Printf(TEXT("dynamic %d-%.0f%%"), MinimumDynamicScreenPercentage, Percentage)
+                                      : FString::Printf(TEXT("%.0f%%"), Percentage)},
+        {TEXT("Render size"), FString::Printf(TEXT("%dx%d of %dx%d"), FMath::RoundToInt(ViewportPixels.X * Percentage / 100.0f),
+                                              FMath::RoundToInt(ViewportPixels.Y * Percentage / 100.0f), ViewportPixels.X,
+                                              ViewportPixels.Y)},
+        {TEXT("Global illumination"), Gi == 1 ? TEXT("Lumen") : Gi == 2 ? TEXT("Screen space") : TEXT("Off")},
+        {TEXT("Reflections"), Reflections == 1 ? TEXT("Lumen") : Reflections == 2 ? TEXT("Screen space") : TEXT("Off")},
+        {TEXT("Shadows"), Settings.Shadows == EBallsShadows::Off ? FString(TEXT("Off"))
+                          : Read(TEXT("r.Shadow.Virtual.Enable")) > 0.0f ? FString(TEXT("Virtual"))
+                                                                          : FString(TEXT("Shadow maps"))},
+        {TEXT("Nanite"), Read(TEXT("r.Nanite")) > 0.0f && UseNanite(GMaxRHIShaderPlatform) ? TEXT("On") : TEXT("Off")},
+        {TEXT("Scalability"), GroupLevels},
+    };
 }
 
 void ApplyToWorld(UWorld* World, const FBallsGraphicsSettings& Settings) {

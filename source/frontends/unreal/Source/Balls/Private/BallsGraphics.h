@@ -76,6 +76,10 @@ FString Serialize(const FBallsGraphicsSettings& Settings);
 // "shadowmethod", "nanite", "aa", "screen", "dynamic". Returns an error message for anything it cannot read.
 FString ParseInto(const FString& Text, FBallsGraphicsSettings& Base);
 
+// The debug gadget's Graphics rows (shown with Advanced Settings open): what the renderer actually runs, read back
+// from the engine rather than from the settings, so a feature the machine refused shows as off.
+TArray<TPair<FString, FString>> DebugRows(const FBallsGraphicsSettings& Settings, FIntPoint ViewportPixels);
+
 // Frame-wide state: scalability groups, the rendering methods and screen resolution. Scene-side pieces (the key
 // light's shadows, bloom on the camera) live in FBallsBoardView.
 void ApplyToWorld(UWorld* World, const FBallsGraphicsSettings& Settings);

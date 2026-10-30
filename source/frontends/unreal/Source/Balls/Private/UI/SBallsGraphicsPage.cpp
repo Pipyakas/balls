@@ -235,15 +235,21 @@ void SBallsGraphicsPage::Construct(const FArguments& InArgs) {
 
     ChildSlot
     [
+        // A click on the dimmed board around the page closes it; one inside the page stops at the panel.
         SNew(SBorder)
         .BorderImage(BallsStyle::White())
         .BorderBackgroundColor(BallsPalette::Linear(BallsPalette::Background, DimAlpha))
         .HAlign(HAlign_Center)
         .VAlign(VAlign_Center)
+        .OnMouseButtonDown_Lambda([Owner](const FGeometry&, const FPointerEvent&) {
+            Owner->ShowGraphicsPage(false);
+            return FReply::Handled();
+        })
         [
             SNew(SBox).WidthOverride(PageWidth).MaxDesiredHeight(PageHeight)
             [
                 SNew(SBorder).BorderImage(BallsStyle::Panel()).Padding(0.0f)
+                .OnMouseButtonDown_Lambda([](const FGeometry&, const FPointerEvent&) { return FReply::Handled(); })
                 [
                     SNew(SScrollBox) + SScrollBox::Slot().Padding(PagePadding)[Column]
                 ]

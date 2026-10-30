@@ -5,6 +5,9 @@
 #include "BallsPalette.h"
 #include "BallsText.h"
 #include "DynamicRHI.h"
+#include "Engine/Engine.h"
+#include "Engine/GameViewportClient.h"
+#include "UnrealClient.h"
 #include "RHI.h"
 #include "Rendering/DrawElements.h"
 #include "UI/BallsStyle.h"
@@ -846,6 +849,16 @@ private:
             case DebugRow::Kind::Color:
                 Writer.ColorRow(Row.colorIndex, BallsText::FromUtf8(Row.value));
                 break;
+            }
+        }
+        // With Advanced Settings open, what the renderer runs, under the core's rows.
+        if (App->GetSettings().advancedSettings) {
+            const FIntPoint ViewportPixels = GEngine && GEngine->GameViewport && GEngine->GameViewport->Viewport
+                                                 ? GEngine->GameViewport->Viewport->GetSizeXY()
+                                                 : FIntPoint::ZeroValue;
+            Writer.Heading(TEXT("Graphics"));
+            for (const TPair<FString, FString>& Row : BallsGraphics::DebugRows(App->GetGraphics(), ViewportPixels)) {
+                Writer.Row(Row.Key, Row.Value);
             }
         }
         DebugContentHeight = Writer.Bottom() + DebugScroll - Area.Top;
