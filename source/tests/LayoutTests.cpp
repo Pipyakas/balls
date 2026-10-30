@@ -1,6 +1,8 @@
 #include "TestFramework.h"
 #include "ui/GameplayLayout.h"
 
+#include <utility>
+
 #include <cmath>
 
 namespace {
@@ -233,4 +235,20 @@ TEST_CASE("landscape gadgets widen to fill the frame up to 16:9") {
     const CoreGameplayLayout boardBound = compute(1440.0f, 900.0f, 40, 10, LayoutOrientation::Landscape, false);
     EXPECT(near(boardBound.leftGadget.width, baseGadgetWidth));
     EXPECT(near(boardBound.rightGadget.width, baseGadgetWidth));
+}
+
+TEST_CASE("a board with more cells than the window has pixels keeps both gadgets on screen") {
+    constexpr float width = 1920.0f;
+    constexpr float height = 1080.0f;
+    constexpr float smallestGadget = 310.0f;
+    for (const auto& [columns, rows] : {std::pair{2048, 64}, std::pair{64, 2048}, std::pair{4096, 4096}}) {
+        const CoreGameplayLayout layout = compute(width, height, columns, rows, LayoutOrientation::Landscape, false);
+        EXPECT(layout.leftGadget.x >= 0.0f);
+        EXPECT(layout.rightGadget.x + layout.rightGadget.width <= width + epsilon);
+        EXPECT(layout.leftGadget.width >= smallestGadget - epsilon);
+        EXPECT(layout.rightGadget.width >= smallestGadget - epsilon);
+        EXPECT(layout.main.y + layout.main.height <= height + epsilon);
+        EXPECT(!overlaps(layout.main, layout.leftGadget));
+        EXPECT(!overlaps(layout.main, layout.rightGadget));
+    }
 }

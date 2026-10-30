@@ -1,5 +1,7 @@
 #include "render/IRenderer.h"
 
+#include "sim/PhysicsBackend.h"
+
 #include "shaders/generated/ShaderBlobs.h"
 
 #include <SDL3/SDL.h>
@@ -503,7 +505,7 @@ void SdlGpuRenderer::dispatch(SDL_GPUCommandBuffer* commandBuffer, SDL_GPUComput
 
 void SdlGpuRenderer::runBallVisibility(SDL_GPUCommandBuffer* commandBuffer) {
     const BallDrawRequest& request = pendingBalls;
-    const float slotSize = std::max(request.radiusCells * request.slotsPerRadius, 1.0f / std::max(request.cellPixels, 1.0f));
+    const float slotSize = visibilitySlotSize(request.radiusCells, request.cellPixels);
     gridWidth = std::max<uint32_t>(static_cast<uint32_t>(std::ceil(request.fieldWidth / slotSize)), 1);
     gridHeight = std::max<uint32_t>(static_cast<uint32_t>(std::ceil(request.fieldHeight / slotSize)), 1);
     gridCells = static_cast<size_t>(gridWidth) * gridHeight;

@@ -23,6 +23,9 @@ constexpr float launcherGapShare = 0.18f;
 constexpr float bottomFraction = 0.38f;
 constexpr float bottomMinimum = 200.0f;
 constexpr float bottomMaximum = 620.0f;
+// Cells may be smaller than a pixel: a board with more cells than the window has pixels (2048 columns in a
+// 1920-wide window) otherwise grew past the frame and pushed the gadgets off it. This only keeps the size positive.
+constexpr float smallestCellSize = 1e-3f;
 
 float panelHeight(float frameHeight, int launcherRows, float frameWidth) {
     const float controlsHeight = std::clamp(frameHeight * bottomFraction, bottomMinimum, bottomMaximum);
@@ -58,8 +61,8 @@ CoreGameplayLayout computeCoreGameplayLayout(float frameWidth, float frameHeight
         const float boardWidth = frameWidth - outerMargin * 2.0f - landscapeGadgetWidth * 2.0f -
                                  gadgetGap * 2.0f - boardPadding * 2.0f;
         const float boardHeight = frameHeight - outerMargin * 2.0f - boardPadding * 2.0f;
-        layout.cellSize = std::max(
-            1.0f, std::min(boardWidth / static_cast<float>(columns), boardHeight / static_cast<float>(rows)));
+        layout.cellSize = std::max(smallestCellSize, std::min(boardWidth / static_cast<float>(columns),
+                                                              boardHeight / static_cast<float>(rows)));
         const float frameBoardWidth = layout.cellSize * static_cast<float>(columns) + boardPadding * 2.0f;
         const float frameBoardHeight = layout.cellSize * static_cast<float>(rows) + boardPadding * 2.0f;
         const float minimumGroupWidth = landscapeGadgetWidth * 2.0f + gadgetGap * 2.0f + frameBoardWidth;
@@ -95,8 +98,8 @@ CoreGameplayLayout computeCoreGameplayLayout(float frameWidth, float frameHeight
         const float boardWidth = frameWidth - outerMargin * 2.0f - boardPadding * 2.0f;
         const float boardHeight = frameHeight - outerMargin * 2.0f - topHeight - bottomHeight -
                                   gadgetGap * 2.0f - boardPadding * 2.0f;
-        layout.cellSize = std::max(
-            1.0f, std::min(boardWidth / static_cast<float>(columns), boardHeight / static_cast<float>(rows)));
+        layout.cellSize = std::max(smallestCellSize, std::min(boardWidth / static_cast<float>(columns),
+                                                              boardHeight / static_cast<float>(rows)));
         const float frameBoardWidth = layout.cellSize * static_cast<float>(columns) + boardPadding * 2.0f;
         const float frameBoardHeight = layout.cellSize * static_cast<float>(rows) + boardPadding * 2.0f;
         const float groupHeight = topHeight + gadgetGap + frameBoardHeight + gadgetGap + bottomHeight;

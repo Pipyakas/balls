@@ -6,6 +6,8 @@
 // Step 4: balls pipeline, visibility compute passes (clear, bid, resolve, compact), indirect draw.
 
 #include "render/webgpu/WebGpuRenderer.h"
+
+#include "sim/PhysicsBackend.h"
 #include "shaders/generated/web/WgslShaders.h"
 
 #include <webgpu/webgpu.h>
@@ -1205,7 +1207,7 @@ private:
     void runBallVisibility(WGPUCommandEncoder encoder) {
         const BallDrawRequest& request = pendingBalls;
         const float slotSize =
-            std::max(request.radiusCells * request.slotsPerRadius, 1.0f / std::max(request.cellPixels, 1.0f));
+            visibilitySlotSize(request.radiusCells, request.cellPixels);
         const uint32_t gridWidth =
             std::max<uint32_t>(static_cast<uint32_t>(std::ceil(request.fieldWidth / slotSize)), 1);
         const uint32_t gridHeight =
