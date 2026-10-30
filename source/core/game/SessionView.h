@@ -1,5 +1,6 @@
 #pragma once
 
+#include "game/BoardSnapshots.h"
 #include "game/GameMode.h"
 #include "game/GameSession.h"
 #include "game/LauncherQueue.h"
@@ -76,4 +77,5 @@ struct SessionView {
 // previous view when it has not changed. The physics
 // thread builds its views this way; a front end that ticks the session on its game thread uses it to read the session
 // the same way, for the control API's state.
-void describeSession(const GameSession& session, SessionView& view, const SessionView* previous = nullptr);
+void describeSession(const GameSession& session, SessionView& view, const SessionView* previous = nullptr,
+                     BoardSnapshots* boards = nullptr);

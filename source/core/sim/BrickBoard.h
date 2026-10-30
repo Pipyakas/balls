@@ -65,6 +65,15 @@ public:
     const std::vector<int>& animatingBrickIndices() const { return animatingBricks; }
     const BrickCellImage& cellImage() const { return image; }
 
+    // Snapshots for the UI. Copying a board of millions of bricks every physics frame took 0.2 s at 2048x2048 and
+    // 2 s at 4096x4096, so the live board can log which bricks and cells change, and a copy that follows it replays
+    // only those. The log is off until a follower asks for it; trimming drops what every follower already has.
+    void catchUpWith(const BrickBoard& live);
+    void trimChangeLog(uint64_t keepFrom) const;
+    uint64_t changeLogEnd() const { return changeLogBase + changeLog.size(); }
+    uint64_t followedPosition() const { return followed; }
+    uint64_t layoutSerial() const { return image.layoutSerial(); }
+
 private:
     int freeRowsAbove(int brickIndex) const;
     bool raiseFully(int brickIndex);
@@ -75,6 +84,9 @@ private:
     uint8_t shadeOf(int brickIndex) const;
     void reshadeBrick(int brickIndex);
     void markCellChanged(int index);
+    enum class LoggedChange : uint32_t { Brick = 0, Cell = 1, Death = 2 };
+    void logChange(LoggedChange kind, int index);
+    void copyForView(const BrickBoard& live);
     void rebuildNearCounts();
     int lowestRowInColumn(int brickIndex, int column) const;
     void queueFirstBrickBelow(int column, int row);
@@ -100,4 +112,11 @@ private:
     std::vector<uint8_t> brickAnimating;
     uint64_t changeRevision = 0;
     BrickCellImage image;
+    // Entries are (kind << changeKindShift) | index, starting at absolute position changeLogBase. Mutable so that a
+    // const board can be asked to start logging or to drop what its followers have.
+    mutable std::vector<uint32_t> changeLog;
+    mutable uint64_t changeLogBase = 0;
+    mutable bool logging = false;
+    uint64_t followed = 0;
+    bool following = false;
 };

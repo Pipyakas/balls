@@ -13,6 +13,7 @@
 #include "sim/EdgeCaseSweep.h"
 #include "sim/PhysicsAccuracy.h"
 #include "sim/Simulation.h"
+#include "sim/TargetField.h"
 
 #include <emmintrin.h>
 
@@ -89,6 +90,7 @@ struct BenchOptions {
     int substeps = 2;
     std::filesystem::path machineBenchmarkOutput;
     bool accuracy = false;
+    bool loadTiming = false;
     bool edgeCases = false;
     std::string edgeLayouts = "all";
     std::string edgeSizes = "all";
@@ -182,6 +184,8 @@ BenchOptions parseOptions(int argumentCount, char** arguments) {
             ++i;
         } else if (argument == "--accuracy") {
             options.accuracy = true;
+        } else if (argument == "--load-timing") {
+            options.loadTiming = true;
         } else if (argument == "--edge-cases") {
             options.edgeCases = true;
         } else if (argument == "--layouts") {
@@ -807,6 +811,33 @@ void runCpuRoofline(size_t ballCount, int passes) {
 
 } // namespace
 
+// Where a huge level's load time goes: the parse, the board, the target field, and a backend taking the board.
+int runLoadTiming(const BenchOptions& options, const BrickLayout& layout, std::chrono::steady_clock::duration parse) {
+    using Seconds = std::chrono::duration<double>;
+    std::printf("parse %8.2f s  (%d x %d, %zu bricks)\n", Seconds(parse).count(), layout.width, layout.height,
+                layout.types.size());
+    auto start = std::chrono::steady_clock::now();
+    BrickBoard board;
+    board.load(layout);
+    std::printf("board %8.2f s\n", Seconds(std::chrono::steady_clock::now() - start).count());
+    start = std::chrono::steady_clock::now();
+    TargetField targets;
+    targets.rebuild(board);
+    std::printf("field %8.2f s\n", Seconds(std::chrono::steady_clock::now() - start).count());
+    start = std::chrono::steady_clock::now();
+    const BrickBoard copy = board;
+    std::printf("copy  %8.2f s  (one board snapshot)\n", Seconds(std::chrono::steady_clock::now() - start).count());
+    for (const BenchTarget& target : options.backends) {
+        const BackendKind kind = applyTarget(target);
+        start = std::chrono::steady_clock::now();
+        Simulation simulation(createBackend(kind));
+        simulation.load(layout);
+        std::printf("%-9s %8.2f s  (whole Simulation::load)%s\n", targetLabel(kind).c_str(),
+                    Seconds(std::chrono::steady_clock::now() - start).count(), memoryReport().c_str());
+    }
+    return 0;
+}
+
 int main(int argumentCount, char** arguments) {
     if (const std::optional<std::string> computeGpu = environmentVariable("BALLS_COMPUTE_GPU")) {
         setComputeGpuPreference(*computeGpu);
@@ -838,10 +869,14 @@ int main(int argumentCount, char** arguments) {
     if (options.edgeCases) {
         return options.traceFrames > 0 ? traceEdgeCases(options) : runEdgeCases(options);
     }
+    const auto parseStart = std::chrono::steady_clock::now();
     auto level = loadLevel(levelFilesFor(options.levelDirectory, options.levelName));
     if (!level) {
         std::fprintf(stderr, "level load failed: %s\n", level.error().c_str());
         return 1;
+    }
+    if (options.loadTiming) {
+        return runLoadTiming(options, level->bricks, std::chrono::steady_clock::now() - parseStart);
     }
     if (!options.machineBenchmarkOutput.empty()) {
         return runMachineBenchmark(options, std::move(level->bricks));

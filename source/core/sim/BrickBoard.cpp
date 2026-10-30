@@ -7,6 +7,10 @@ namespace {
 
 constexpr float riseSpeedCellsPerSecond = 10.0f;
 constexpr int32_t emptyCell = -1;
+constexpr uint32_t changeKindShift = 30;
+constexpr uint32_t changeIndexMask = (1u << changeKindShift) - 1;
+// Past this many unread entries the log is dropped; a follower that far behind copies the whole board instead.
+constexpr size_t longestChangeLog = size_t{1} << 26;
 
 }
 
@@ -60,6 +64,8 @@ void BrickBoard::load(const BrickLayout& layout) {
     cellChanged.assign(cells.size(), 0);
     dirtyCells.clear();
     ++changeRevision;
+    changeLogBase += changeLog.size();
+    changeLog.clear();
 }
 
 void BrickBoard::rebuildNearCounts() {
@@ -90,6 +96,73 @@ void BrickBoard::clearChangedCells() {
     dirtyCells.clear();
 }
 
+void BrickBoard::logChange(LoggedChange kind, int index) {
+    if (!logging) {
+        return;
+    }
+    if (changeLog.size() >= longestChangeLog) {
+        changeLogBase += changeLog.size();
+        changeLog.clear();
+    }
+    changeLog.push_back((static_cast<uint32_t>(kind) << changeKindShift) | static_cast<uint32_t>(index));
+}
+
+void BrickBoard::trimChangeLog(uint64_t keepFrom) const {
+    logging = true;
+    if (keepFrom <= changeLogBase) {
+        return;
+    }
+    const size_t dropped = static_cast<size_t>(std::min<uint64_t>(keepFrom - changeLogBase, changeLog.size()));
+    changeLog.erase(changeLog.begin(), changeLog.begin() + static_cast<std::ptrdiff_t>(dropped));
+    changeLogBase += dropped;
+}
+
+// Everything the UI reads; the physics-only state (near-brick counts, changed cells, the settle queue) stays empty.
+void BrickBoard::copyForView(const BrickBoard& live) {
+    columnCount = live.columnCount;
+    rowCount = live.rowCount;
+    cells = live.cells;
+    colors = live.colors;
+    brickList = live.brickList;
+    aliveCount = live.aliveCount;
+    aliveBricks = live.aliveBricks;
+    alivePosition = live.alivePosition;
+    brickAnimating = live.brickAnimating;
+    image = live.image;
+}
+
+void BrickBoard::catchUpWith(const BrickBoard& live) {
+    live.logging = true;
+    const bool sameBoard = following && layoutSerial() == live.layoutSerial() && followed >= live.changeLogBase;
+    if (!sameBoard) {
+        copyForView(live);
+    } else {
+        for (uint64_t position = followed; position < live.changeLogEnd(); ++position) {
+            const uint32_t entry = live.changeLog[static_cast<size_t>(position - live.changeLogBase)];
+            const int index = static_cast<int>(entry & changeIndexMask);
+            switch (static_cast<LoggedChange>(entry >> changeKindShift)) {
+            case LoggedChange::Brick:
+                brickList[static_cast<size_t>(index)] = live.brickList[static_cast<size_t>(index)];
+                brickAnimating[static_cast<size_t>(index)] = live.brickAnimating[static_cast<size_t>(index)];
+                break;
+            case LoggedChange::Cell:
+                cells[static_cast<size_t>(index)] = live.cells[static_cast<size_t>(index)];
+                break;
+            case LoggedChange::Death:
+                markDead(index);
+                break;
+            }
+        }
+        image.catchUpWith(live.image);
+        aliveCount = live.aliveCount;
+    }
+    animatingBricks = live.animatingBricks;
+    remainingHits = live.remainingHits;
+    changeRevision = live.changeRevision;
+    followed = live.changeLogEnd();
+    following = true;
+}
+
 void BrickBoard::markCellChanged(int index) {
     if (!cellChanged[static_cast<size_t>(index)]) {
         cellChanged[static_cast<size_t>(index)] = 1;
@@ -104,6 +177,7 @@ void BrickBoard::setCell(int index, int32_t value) {
     }
     cells[static_cast<size_t>(index)] = value;
     markCellChanged(index);
+    logChange(LoggedChange::Cell, index);
     const int width = paddedWidth();
     image.set(index % width - 1, index / width - 1, value == emptyCell ? BrickCellImage::emptyShade : shadeOf(value));
     if ((previous == emptyCell) == (value == emptyCell)) {
@@ -131,6 +205,7 @@ bool BrickBoard::applyHit(int brickIndex) {
     const bool wasFlashing = brick.hitFlash > 0.0f;
     brick.hitFlash = brickHitFlashSeconds;
     startAnimating(brickIndex);
+    logChange(LoggedChange::Brick, brickIndex);
     if (brick.isAlive()) {
         if (!wasFlashing) {
             reshadeBrick(brickIndex);
@@ -217,6 +292,7 @@ bool BrickBoard::raiseFully(int brickIndex) {
     placeBrick(brickIndex, brickIndex);
     brick.riseOffset += static_cast<float>(distance);
     startAnimating(brickIndex);
+    logChange(LoggedChange::Brick, brickIndex);
     return true;
 }
 
@@ -306,6 +382,7 @@ void BrickBoard::animate(float deltaTime) {
         } else {
             brickAnimating[static_cast<size_t>(index)] = 0;
         }
+        logChange(LoggedChange::Brick, index);
     }
     animatingBricks.resize(kept);
 }
@@ -318,6 +395,7 @@ void BrickBoard::startAnimating(int brickIndex) {
 }
 
 void BrickBoard::markDead(int brickIndex) {
+    logChange(LoggedChange::Death, brickIndex);
     const int position = alivePosition[static_cast<size_t>(brickIndex)];
     const int last = aliveBricks.back();
     aliveBricks[static_cast<size_t>(position)] = last;

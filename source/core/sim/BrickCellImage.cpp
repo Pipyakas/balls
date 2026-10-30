@@ -1,5 +1,6 @@
 #include "sim/BrickCellImage.h"
 
+#include <algorithm>
 #include <atomic>
 
 namespace {
@@ -17,6 +18,22 @@ void BrickCellImage::reset(int columnCount, int rowCount) {
     nextRevision = 1;
     revisions.assign(static_cast<size_t>(tilesX) * tilesY, nextRevision);
     serial = ++lastLayoutSerial;
+}
+
+void BrickCellImage::catchUpWith(const BrickCellImage& source) {
+    if (serial != source.serial || revisions.size() != source.revisions.size()) {
+        *this = source;
+        return;
+    }
+    for (size_t tile = 0; tile < revisions.size(); ++tile) {
+        if (revisions[tile] != source.revisions[tile]) {
+            revisions[tile] = source.revisions[tile];
+            const auto first = source.shades.begin() + static_cast<std::ptrdiff_t>(tile * cellsPerTile);
+            std::copy(first, first + static_cast<std::ptrdiff_t>(cellsPerTile),
+                      shades.begin() + static_cast<std::ptrdiff_t>(tile * cellsPerTile));
+        }
+    }
+    nextRevision = source.nextRevision;
 }
 
 void BrickCellImage::set(int column, int row, uint8_t shade) {

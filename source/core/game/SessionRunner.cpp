@@ -63,17 +63,6 @@ std::shared_ptr<SessionView> freeView(std::array<std::shared_ptr<SessionView>, v
     return std::make_shared<SessionView>();
 }
 
-// The board is shared between views until it changes, so a frame without hits or falling bricks copies nothing.
-std::shared_ptr<const BrickBoard> boardFor(const Simulation& simulation, const std::shared_ptr<const BrickBoard>& previous,
-                                           uint64_t& previousRevision) {
-    const BrickBoard& board = simulation.board();
-    if (previous && previousRevision == board.revision() && !board.isAnimating()) {
-        return previous;
-    }
-    previousRevision = board.revision();
-    return std::make_shared<const BrickBoard>(board);
-}
-
 // Everything but the board and the balls, which the physics thread shares and recycles between views.
 void describeSessionState(const GameSession& session, SessionView& view) {
     const Simulation& simulation = session.simulation();
@@ -136,10 +125,10 @@ void captureBalls(Simulation& simulation, float slotCells, FieldSize& field, Bal
     frame.packed.assign(snapshot.packed, snapshot.packed + snapshot.count);
 }
 
-void fillView(GameSession& session, SessionView& view, const SessionView* previous, uint64_t& boardRevision,
+void fillView(GameSession& session, SessionView& view, const SessionView* previous, BoardSnapshots& boards,
               float slotCells, FieldSize& field) {
     describeSessionState(session, view);
-    view.board = boardFor(session.simulation(), previous ? previous->board : nullptr, boardRevision);
+    view.board = boards.publish(session.simulation().board(), previous ? previous->board : nullptr);
     captureBalls(session.simulation(), slotCells, field, view.balls);
 }
 
@@ -151,7 +140,7 @@ void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, Le
     Clock::duration framePeriod = tickPeriod;
     PhysicsRate rate;
     uint64_t frameNumber = 0;
-    uint64_t boardRevision = 0;
+    BoardSnapshots boards;
     FieldSize field;
     bool wasPaused = false;
     bool drawing = true;
@@ -205,7 +194,7 @@ void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, Le
             drawing = input.drawing;
             session->simulation().backend().setDrawing(drawing);
         }
-        fillView(*session, *view, previous.get(), boardRevision, input.visibilitySlotCells, field);
+        fillView(*session, *view, previous.get(), boards, input.visibilitySlotCells, field);
         rate.frame(workStart, Clock::now());
         view->frameNumber = ++frameNumber;
         view->physicsFrameMs = rate.lastFrameMs();
@@ -284,9 +273,14 @@ std::vector<SessionEvent> SessionRunner::takeEvents() {
     return std::exchange(shared->events, {});
 }
 
-void describeSession(const GameSession& session, SessionView& view, const SessionView* previous) {
+void describeSession(const GameSession& session, SessionView& view, const SessionView* previous,
+                     BoardSnapshots* boards) {
     describeSessionState(session, view);
     const BrickBoard& board = session.simulation().board();
+    if (boards) {
+        view.board = boards->publish(board, previous ? previous->board : nullptr);
+        return;
+    }
     // Like the physics thread's views, a board that has not changed is shared rather than copied.
     if (previous && previous->board && previous->board->revision() == board.revision() && !board.isAnimating()) {
         view.board = previous->board;

@@ -33,6 +33,7 @@ add_library(balls_core STATIC
     sim/EdgeCaseSweep.cpp
     game/GameSession.cpp
     game/SessionRunner.cpp
+    game/BoardSnapshots.cpp
     game/SessionHost.cpp
     game/Settings.cpp
     game/MachineProfile.cpp
