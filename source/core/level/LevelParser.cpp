@@ -23,6 +23,10 @@ constexpr std::string_view emptySlotToken = "Empty";
 // Brick ids up to this many times the number of types, plus the floor, are checked with a flag per id.
 constexpr size_t denseIdSlack = 4;
 constexpr size_t denseIdFloor = 1 << 16;
+// The simulation indexes the target field (one entry per padded cell and color) and every padded cell with 32-bit
+// integers, and the GPU packs a brick's index into 28 bits of a cell word: boards past these would overflow them.
+constexpr uint64_t mostTargetFieldEntries = 0x7FFFFFFF;
+constexpr size_t mostBricks = size_t{1} << 28;
 
 using BoardValues = std::map<std::string, int, std::less<>>;
 
@@ -111,6 +115,11 @@ Result<BrickLayout> parseBrickLayout(std::string_view text) {
     if (layout.playableHeight < layout.height) {
         return Error{"PlayableHeight must be at least Height"};
     }
+    const uint64_t paddedCells = (static_cast<uint64_t>(layout.width) + 2) * (static_cast<uint64_t>(layout.playableHeight) + 2);
+    if (paddedCells * ballColorCount > mostTargetFieldEntries) {
+        return Error{std::format("the board is too large: {}x{} cells, at most {} cells including the open rows",
+                                 layout.width, layout.playableHeight, mostTargetFieldEntries / ballColorCount)};
+    }
 
     const auto* rows = findSection(sections, layoutSection);
     if (!rows || static_cast<int>(rows->size()) != layout.height) {
@@ -144,6 +153,9 @@ Result<BrickLayout> parseBrickLayout(std::string_view text) {
     const auto* typeLines = findSection(sections, brickTypesSection);
     if (!typeLines) {
         return Error{"missing [BrickTypes] section"};
+    }
+    if (typeLines->size() > mostBricks) {
+        return Error{std::format("too many bricks: {}, at most {}", typeLines->size(), mostBricks)};
     }
     layout.types.reserve(typeLines->size());
     for (const std::string_view line : *typeLines) {
