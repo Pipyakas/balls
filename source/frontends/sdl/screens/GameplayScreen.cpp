@@ -200,7 +200,7 @@ void GameplayScreen::update(float /*deltaTime*/) {
     app.flow().sessionStateChanged(view->state);
     const GameplayLayout layout = computeGameplayLayout(\
         {static_cast<float>(gfx::screenWidth()), static_cast<float>(gfx::screenHeight())}, view->board->columns(),
-        view->board->rows(), app.settings().layout, mode == GameMode::Normal ? view->launchers.visibleRows() : 0);
+        view->board->rows(), layoutInUse(app.settings()), mode == GameMode::Normal ? view->launchers.visibleRows() : 0);
     if (!app.flow().isPaused()) {
         handleLauncherClick(layout);
     }
@@ -688,7 +688,7 @@ void GameplayScreen::draw() {
     }
     const GameplayLayout layout = computeGameplayLayout(
         {static_cast<float>(gfx::screenWidth()), static_cast<float>(gfx::screenHeight())}, view->board->columns(),
-        view->board->rows(), app.settings().layout, mode == GameMode::Normal ? view->launchers.visibleRows() : 0);
+        view->board->rows(), layoutInUse(app.settings()), mode == GameMode::Normal ? view->launchers.visibleRows() : 0);
     drawHeader(layout);
     if (layout.isPortrait) {
         ui::drawPanel(layout.topGadget, palette::panel, 0.25f);

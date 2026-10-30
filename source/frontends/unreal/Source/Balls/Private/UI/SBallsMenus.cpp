@@ -418,9 +418,9 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
         ]
     ];
 
-    // Layout: the core's orientation options.
-    AddSection(BallsText::FromUtf8(menuText::layoutHeading));
-    {
+    // Layout: the core's orientation options, which the scoring build leaves out (always landscape).
+    if (layoutChoiceOffered) {
+        AddSection(BallsText::FromUtf8(menuText::layoutHeading));
         TArray<FOption> Options;
         const LayoutOrientation Values[3] = {LayoutOrientation::Auto, LayoutOrientation::Landscape, LayoutOrientation::Portrait};
         const std::vector<UiOption> Labels = orientationOptions(Owner->GetSettings().layout);
@@ -435,8 +435,8 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
                          }});
         }
         AddOptionRow(MoveTemp(Options));
+        AddHint(BallsText::FromUtf8(menuText::layoutHint));
     }
-    AddHint(BallsText::FromUtf8(menuText::layoutHint));
 
     // Display: VSync.
     AddSection(BallsText::FromUtf8(menuText::displayHeading));

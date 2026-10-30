@@ -540,11 +540,11 @@ void FBallsApp::SetPreferredBackend(BackendKind Kind) {
 }
 
 void FBallsApp::ApplyOrientation() {
-    SetLayoutOrientation(CurrentSettings.layout);
+    SetLayoutOrientation(layoutInUse(CurrentSettings));
 #if !PLATFORM_ANDROID
     UGameViewportClient* Viewport = World ? World->GetGameViewport() : nullptr;
     const TSharedPtr<SWindow> Window = Viewport ? Viewport->GetWindow() : nullptr;
-    if (!Window || CurrentSettings.layout == LayoutOrientation::Auto || Window->IsWindowMaximized() ||
+    if (!Window || windowLayout(CurrentSettings) == LayoutOrientation::Auto || Window->IsWindowMaximized() ||
         Window->GetWindowMode() != EWindowMode::Windowed) {
         return;
     }

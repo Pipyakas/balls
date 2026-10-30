@@ -49,7 +49,7 @@ MapEditorScreen::Regions MapEditorScreen::computeRegions() const {
     const float height = static_cast<float>(gfx::screenHeight());
     Regions regions;
     const float landscapeGridWidth = width - sidePanelWidth - propertyPanelWidth - margin * 4.0f;
-    regions.isPortrait = resolveOrientation(app.settings().layout, width, height) == LayoutOrientation::Portrait ||
+    regions.isPortrait = resolveOrientation(layoutInUse(app.settings()), width, height) == LayoutOrientation::Portrait ||
                          landscapeGridWidth < minimumGridWidth;
     if (regions.isPortrait) {
         const float contentWidth = width - margin * 2.0f;

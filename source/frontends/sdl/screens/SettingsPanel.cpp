@@ -110,22 +110,24 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
     ui::drawTextInRect("Settings", {innerX, cursor, innerWidth, titleHeight}, titleSize, palette::text);
     cursor += titleHeight + blockGap;
 
-    ui::drawText(std::string(menuText::layoutHeading), {innerX, cursor}, sectionSize, palette::textMuted);
-    cursor += sectionHeight;
-    const Rect layoutButtons{innerX, cursor, innerWidth, optionHeight};
-    for (size_t i = 0; i < layoutOptions.size(); ++i) {
-        const auto& [orientation, label] = layoutOptions[i];
-        if (ui::button(ui::columnSlice(layoutButtons, static_cast<int>(i),
-                                       static_cast<int>(layoutOptions.size()), optionGap),
-                       label, true, current.layout == orientation) &&
-            current.layout != orientation) {
-            edit.settings.layout = orientation;
-            edit.changed = true;
+    if (layoutChoiceOffered) {
+        ui::drawText(std::string(menuText::layoutHeading), {innerX, cursor}, sectionSize, palette::textMuted);
+        cursor += sectionHeight;
+        const Rect layoutButtons{innerX, cursor, innerWidth, optionHeight};
+        for (size_t i = 0; i < layoutOptions.size(); ++i) {
+            const auto& [orientation, label] = layoutOptions[i];
+            if (ui::button(ui::columnSlice(layoutButtons, static_cast<int>(i),
+                                           static_cast<int>(layoutOptions.size()), optionGap),
+                           label, true, current.layout == orientation) &&
+                current.layout != orientation) {
+                edit.settings.layout = orientation;
+                edit.changed = true;
+            }
         }
+        cursor += optionHeight + hintGap;
+        ui::drawText(std::string(menuText::layoutHint), {innerX, cursor}, hintSize, palette::textMuted);
+        cursor += hintHeight + blockGap;
     }
-    cursor += optionHeight + hintGap;
-    ui::drawText(std::string(menuText::layoutHint), {innerX, cursor}, hintSize, palette::textMuted);
-    cursor += hintHeight + blockGap;
 
     ui::drawText(std::string(menuText::displayHeading), {innerX, cursor}, sectionSize, palette::textMuted);
     cursor += sectionHeight;

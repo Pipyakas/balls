@@ -93,6 +93,9 @@ std::optional<ControlResponse> handleSettings(ControlHost& host, const ControlRe
         next.ballCollisions = *legacy;
     }
     if (const auto layout = request.text("layout")) {
+        if (!layoutChoiceOffered) {
+            return ControlResponse::error(400, "this build is always landscape");
+        }
         const auto orientation = parseOrientation(*layout);
         if (!orientation) {
             return ControlResponse::error(400, "layout must be auto, landscape or portrait");
