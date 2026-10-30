@@ -64,6 +64,7 @@ Levels are `<Name>_Bricks.txt` and `<Name>_SpawnBall.txt` pairs in `data/assets/
 
 ```
 data/assets/          fonts and level files
+externals/            prebuilt third-party libraries (wgpu-native for Android)
 data/docs/            build guide, level format, physics notes and measurements
 source/core/          engine-agnostic game, level, editor and simulation code (no SDL, no engine types)
 source/backends/      physics plugins: cpu (Scalar, AVX2, Zen4), cuda, rocm, vulkan

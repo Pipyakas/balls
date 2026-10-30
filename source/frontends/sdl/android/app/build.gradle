@@ -31,7 +31,7 @@ android {
     }
     sourceSets.main {
         assets.srcDirs = ['../../../../../data/assets']
-        jniLibs.srcDirs = ['src/main/jniLibs', '../../../../../third_party/wgpu-native/android']
+        jniLibs.srcDirs = ['src/main/jniLibs', '../../../../../externals/wgpu-native/android']
     }
     externalNativeBuild {
         cmake {
