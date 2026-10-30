@@ -669,6 +669,10 @@ void SBallsLevelSelect::RebuildList() {
     List->ClearChildren();
     FBallsApp* Owner = App;
     const auto& Rows = Owner->GetScreenFlow().levelRows();
+    BuiltRows.clear();
+    for (const FlowLevelRow& Row : Rows) {
+        BuiltRows += Row.name + (Row.highlighted ? "*\n" : "\n");
+    }
     for (int32 Index = 0; Index < static_cast<int32>(Rows.size()); ++Index) {
         const FlowLevelRow& Row = Rows[static_cast<size_t>(Index)];
         const FString Name = BallsText::FromUtf8(Row.name);
@@ -724,7 +728,13 @@ void SBallsLevelSelect::Highlight(const FString& LevelName) {
 }
 
 EActiveTimerReturnType SBallsLevelSelect::Poll(double, float) {
-    RebuildList();
+    std::string Rows;
+    for (const FlowLevelRow& Row : App->GetScreenFlow().levelRows()) {
+        Rows += Row.name + (Row.highlighted ? "*\n" : "\n");
+    }
+    if (Rows != BuiltRows) {
+        RebuildList();
+    }
     return EActiveTimerReturnType::Continue;
 }
 
