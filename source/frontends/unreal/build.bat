@@ -26,8 +26,7 @@ if /i "%VARIANT%"=="win64" goto :win64
 if /i "%VARIANT%"=="linux" goto :linux
 echo Unknown Unreal variant "%VARIANT%". Known variants:
 call "%~f0" --variants
-cmd /c exit 1
-goto :eof
+exit /b 1
 
 :win64
 set "PLATFORM=Win64"
@@ -54,35 +53,30 @@ if not defined UE_ROOT (
 )
 if not defined UE_ROOT (
     echo Unreal Engine 5.8 not found. Set UE_ROOT to its folder, the one that contains Engine\.
-    cmd /c exit 1
-    goto :eof
+    exit /b 1
 )
 if not exist "%UE_ROOT%\Engine\Build\BatchFiles\RunUAT.bat" (
     echo Unreal Engine not found at "%UE_ROOT%". Set UE_ROOT to an Unreal Engine 5.8 install.
-    cmd /c exit 1
-    goto :eof
+    exit /b 1
 )
 if /i "%VARIANT%"=="linux" (
     if not defined LINUX_MULTIARCH_ROOT set "LINUX_MULTIARCH_ROOT=D:\UnrealToolchains\v26_clang-20.1.8-rockylinux8\"
     if not exist "%LINUX_MULTIARCH_ROOT%x86_64-unknown-linux-gnu\bin\clang++.exe" (
         echo Unreal's Linux toolchain not found at "%LINUX_MULTIARCH_ROOT%".
         echo Install it from Epic's Linux cross-compile toolchain, or set LINUX_MULTIARCH_ROOT.
-        cmd /c exit 1
-        goto :eof
+        exit /b 1
     )
     rem UnrealBuildTool does not run the .uproject pre-build steps for a cross-compiled target, so the core and the
     rem plugins are built here, with the same toolchain, before UAT links the game against them.
     call "%~dp0BuildCoreLinux.bat"
     if errorlevel 1 (
         echo The Linux core failed to build.
-        cmd /c exit 1
-        goto :eof
+        exit /b 1
     )
 )
 where cmake >nul 2>&1 || (
     echo CMake not found on PATH; the core builds through CMake.
-    cmd /c exit 1
-    goto :eof
+    exit /b 1
 )
 if defined SETUP_ONLY (
     echo %VARIANT%: everything needed is present.
@@ -101,8 +95,7 @@ if /i "%VARIANT%"=="win64" (
     call "%~dp0BuildCore.bat"
     if errorlevel 1 (
         echo The core failed to build.
-        cmd /c exit 1
-        goto :eof
+        exit /b 1
     )
 )
 
@@ -115,19 +108,18 @@ call "%UE_ROOT%\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun ^
     -map=/Engine/Maps/Entry -utf8output -unattended -nullrhi
 if errorlevel 1 (
     echo Build failed.
-    cmd /c exit 1
-    goto :eof
+    exit /b 1
 )
 
 if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
 rem Only the copy staged here: the SDL game is balls.exe too, and process names ignore case.
 powershell -NoProfile -Command "$dist = [IO.Path]::GetFullPath('%DIST_DIR%'); Get-Process Balls -ErrorAction SilentlyContinue | Where-Object { $_.Path -like \"$dist\*\" } | Stop-Process -Force"
 robocopy "%STAGE_SRC%" "%DIST_DIR%" /mir /njh /njs /nfl /ndl /np >nul
-if errorlevel 8 (cmd /c exit 1 & goto :eof)
+if errorlevel 8 exit /b 1
 
 rem The core reads level files from disk; packaged builds look in <project dir>\assets.
 robocopy "%~dp0..\..\..\data\assets" "%DIST_DIR%\Balls\assets" /mir /njh /njs /nfl /ndl /np >nul
-if errorlevel 8 (cmd /c exit 1 & goto :eof)
+if errorlevel 8 exit /b 1
 
 echo.
 echo Built: %DIST_DIR%\%LAUNCHER%
