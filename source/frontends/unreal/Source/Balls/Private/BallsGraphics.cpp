@@ -13,6 +13,9 @@ namespace {
 constexpr int32 GroupCount = FBallsGraphicsSettings::GroupCount;
 constexpr int32 LevelCount = FBallsGraphicsSettings::LevelCount;
 constexpr int32 MinimumDynamicScreenPercentage = 50;
+// Where no display mode can be read (off-screen rendering, no desktop session).
+constexpr int32 FallbackMaximumTargetFps = 240;
+constexpr int32 DefaultTargetFps = 60;
 
 const TCHAR* const PresetNames[LevelCount] = {TEXT("Low"), TEXT("Medium"), TEXT("High"), TEXT("Epic"), TEXT("Cinematic")};
 
@@ -179,14 +182,21 @@ FString ReflectionsName(EBallsReflections Method) { return ReflectionNames[stati
 FString ShadowsName(EBallsShadows Method) { return ShadowNames[static_cast<int32>(Method)]; }
 TArray<int32> ScreenPercentages() { return {50, 67, 75, 85, 100}; }
 
+// The display's modes are enumerated once: saving, reading and applying the settings all clamp to this. Never below
+// the 60 FPS default: over Remote Desktop the only display is a 32 Hz virtual one, and the target is about how fast
+// frames are made, not how fast that display shows them.
 int32 MaximumTargetFps() {
-    FScreenResolutionArray Resolutions;
-    int32 MaxRefreshRate = 0;
-    RHIGetAvailableResolutions(Resolutions, true);
-    for (const FScreenResolutionRHI& Resolution : Resolutions) {
-        MaxRefreshRate = FMath::Max(MaxRefreshRate, static_cast<int32>(Resolution.RefreshRate));
-    }
-    return MaxRefreshRate > 0 ? MaxRefreshRate : 240;
+    static const int32 Maximum = [] {
+        FScreenResolutionArray Resolutions;
+        int32 Fastest = 0;
+        if (RHIGetAvailableResolutions(Resolutions, true)) {
+            for (const FScreenResolutionRHI& Resolution : Resolutions) {
+                Fastest = FMath::Max(Fastest, static_cast<int32>(Resolution.RefreshRate));
+            }
+        }
+        return Fastest > 0 ? FMath::Max(Fastest, DefaultTargetFps) : FallbackMaximumTargetFps;
+    }();
+    return Maximum;
 }
 
 FString Unavailable(EBallsAntiAliasing Method) {
