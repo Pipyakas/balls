@@ -32,6 +32,15 @@ TEST_CASE("the governor's allowance keeps the predicted frame within 1/60 s") {
     EXPECT(governor.allowance(live, false) < allowance);
 }
 
+TEST_CASE("the governor still adds balls when the front end alone draws slower than the budget") {
+    AdditionGovernor governor(tickSeconds);
+    governor.recordStep(0.0001, 1, 1'000'000);
+    governor.recordAdditions(0.0001, 100'000);
+    governor.recordFrame(0.020);
+    EXPECT(governor.allowance(1'000'000, true) > 0);
+    EXPECT(governor.allowance(1'000'000, false) > 0);
+}
+
 TEST_CASE("the governor at most doubles the balls in one frame") {
     AdditionGovernor governor(tickSeconds);
     governor.recordStep(0.00001, 1, 1'000'000);

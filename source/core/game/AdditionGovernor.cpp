@@ -15,6 +15,10 @@ constexpr BallCount smallestScaledBalls = 1 << 16;
 constexpr double initialSecondsPerAddedBall = 100e-9;
 // Too few balls to time an addition by.
 constexpr BallCount smallestTimedAddition = 1 << 12;
+// The most of the budget the rest of the frame (the front end's drawing, mostly) is charged for. A front end that
+// draws slower than the budget on its own, such as Unreal at its Cinematic preset (15 ms of GPU on a GTX 1650), left
+// nothing for additions, and its games never launched a ball; adding them cannot make that drawing any faster.
+constexpr double largestOtherShare = 0.5;
 
 }
 
@@ -50,7 +54,8 @@ double AdditionGovernor::stepSecondsPerBall() const {
 
 double AdditionGovernor::additionSeconds(BallCount liveBalls, bool freeFlight) const {
     const double frameBudgetSeconds = (freeFlight ? freeFlightBudgetShare : steppingBudgetShare) / targetFramesPerSecond;
-    return std::max(0.0, frameBudgetSeconds - otherSeconds - stepSecondsPerBall() * static_cast<double>(liveBalls));
+    const double chargedOtherSeconds = std::min(otherSeconds, frameBudgetSeconds * largestOtherShare);
+    return std::max(0.0, frameBudgetSeconds - chargedOtherSeconds - stepSecondsPerBall() * static_cast<double>(liveBalls));
 }
 
 BallCount AdditionGovernor::allowance(BallCount liveBalls, bool freeFlight) const {
