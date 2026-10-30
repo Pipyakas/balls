@@ -25,8 +25,8 @@ struct DeviceComposerTuning {
 // counts. With two or more such parts each brick's remaining hits are split between them every tick as a budget
 // (proportional to their ball counts), so the parts together never consume more hits than the brick has; the
 // composer adds up what each consumed and reports the true counts. Host-reporting parts (CPU) hand their hits to
-// Simulation, which accepts them against what the devices left.
-class DeviceComposer final : public PhysicsBackend {
+// Simulation, which accepts them against what the devices left, as it does for the CUDA+AVX2 pair.
+class DeviceComposer : public PhysicsBackend {
 public:
     struct PartSpec {
         BackendHandle backend;
@@ -54,6 +54,8 @@ public:
     BallSnapshot snapshot() override;
     std::vector<BallSpawn> exportBalls() override;
     std::vector<BallSpawn> takeTail(size_t count) override;
+    bool takeCompactTail(size_t count, CompactBalls& balls) override;
+    bool addCompact(const CompactBalls& balls) override;
     void clear() override;
     BallTally truncate(size_t newCount) override;
     std::string_view faultMessage() const override;
@@ -68,6 +70,7 @@ public:
     const std::string& partLabel(size_t part) const { return parts[part].label; }
     size_t partBallCount(size_t part) const { return parts[part].backend->ballCount(); }
     double partStepMs(size_t part) const { return parts[part].lastMs; }
+    const PhysicsBackend& partBackend(size_t part) const { return *parts[part].backend; }
     double partShare(size_t part) const { return parts[part].share; }
     bool partOnHost(size_t part) const { return !parts[part].resolvesOnDevice; }
     // Host time this step spent splitting and merging brick hit budgets (0 with fewer than two device parts).
@@ -78,7 +81,7 @@ public:
     size_t movingStepCount() const { return movingSteps; }
     double averageBrickBudgetMs() const { return budgetSteps > 0 ? budgetMsTotal / static_cast<double>(budgetSteps) : 0.0; }
 
-private:
+protected:
     struct Part {
         BackendHandle backend;
         std::string label;

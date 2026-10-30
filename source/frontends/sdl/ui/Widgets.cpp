@@ -150,7 +150,7 @@ void drawScrollingText(std::string_view text, Rect rect, float size, Color color
 bool button(Rect rect, std::string_view label, bool enabled, bool selected) {
     const bool hovered = enabled && isHovered(rect);
     const bool pressed = hovered && input::mouseDown(input::MouseButton::Left);
-    Color fill = palette::panelLight;
+    Color fill = palette::control;
     if (!enabled) {
         fill = palette::panel;
     } else if (pressed) {
@@ -162,7 +162,7 @@ bool button(Rect rect, std::string_view label, bool enabled, bool selected) {
     }
     const float roundness = style::buttonRoundness * style::roundnessScale;
     gfx::fillRounded(rect, roundness, fill);
-    drawBorder(rect, style::buttonRoundness, selected ? palette::accent : palette::frame);
+    drawBorder(rect, style::buttonRoundness, selected ? palette::accent : palette::border);
     const Color textColor = selected ? palette::background : (enabled ? palette::text : palette::textDim);
     const float preferredSize = std::min(rect.height * style::buttonLabelShare, style::buttonLabelMaximum);
     const float labelWidth = measureText(label, preferredSize).x;
@@ -200,12 +200,12 @@ bool dropdown(Rect rect, std::string_view current, bool& open) {
     const bool hovered = isHovered(rect);
     const Color fill = hovered && input::mouseDown(input::MouseButton::Left) ? palette::controlPressed
                        : hovered                                            ? palette::controlHover
-                                                                            : palette::backgroundDeep;
+                                                                            : palette::boardBackdrop;
     gfx::fillRounded(rect, style::buttonRoundness * style::roundnessScale, fill);
-    drawBorder(rect, style::buttonRoundness, open || hovered ? palette::accent : palette::frame);
+    drawBorder(rect, style::buttonRoundness, open || hovered ? palette::accent : palette::border);
 
     const Rect handle{rect.x + rect.width - rect.height, rect.y, rect.height, rect.height};
-    gfx::drawLine({handle.x, rect.y + 6.0f}, {handle.x, rect.y + rect.height - 6.0f}, 1.0f, palette::frame);
+    gfx::drawLine({handle.x, rect.y + 6.0f}, {handle.x, rect.y + rect.height - 6.0f}, 1.0f, palette::border);
     const Vec2 center{handle.x + handle.width * 0.5f, handle.y + handle.height * 0.5f};
     const Color chevron = open || hovered ? palette::accent : palette::textMuted;
     const Vec2 left{center.x - chevronHalfWidth, center.y + (open ? chevronHalfHeight : -chevronHalfHeight)};
@@ -236,7 +236,7 @@ bool collapsingHeader(Rect rect, std::string_view label, bool open) {
         gfx::fillRounded(rect, style::buttonRoundness * style::roundnessScale,
                          pressed ? palette::controlPressed : palette::controlHover);
     }
-    gfx::drawLine({rect.x, rect.y}, {rect.x + rect.width, rect.y}, style::borderWidth, palette::frame);
+    gfx::drawLine({rect.x, rect.y}, {rect.x + rect.width, rect.y}, style::borderWidth, palette::border);
     const Color color = hovered ? palette::accent : palette::text;
     const Vec2 center{rect.x + chevronHalfWidth + 4.0f, rect.y + rect.height * 0.5f};
     if (open) {
@@ -312,10 +312,10 @@ bool textField(Rect rect, std::string& text, bool& focused, size_t maximumLength
         }
     }
     gfx::fillRounded(rect, style::fieldRoundness * style::roundnessScale,
-                     focused ? palette::controlHover : palette::panelLight);
+                     focused ? palette::controlHover : palette::control);
     gfx::strokeRounded(rect, style::fieldRoundness * style::roundnessScale,
                        focused ? style::focusBorderWidth : style::borderWidth,
-                       focused ? palette::accent : palette::frame);
+                       focused ? palette::accent : palette::border);
     const bool caretVisible = focused && static_cast<int>(input::seconds() * 2.0) % 2 == 0;
     drawTextInRect(text + (caretVisible ? "|" : ""), shrink(rect, 10.0f), rect.height * 0.5f, palette::text,
                    Align::Left);

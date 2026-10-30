@@ -1,6 +1,7 @@
 #include "common/WorkerPool.h"
 #include "game/SpawnPacer.h"
 #include "level/EdgeCaseLevels.h"
+#include "common/Environment.h"
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
 #include "level/LevelWriter.h"
@@ -79,6 +80,8 @@ struct BenchOptions {
     int ticks = 240;
     bool fullSimulation = false;
     bool scatterSimulation = false;
+    bool growth = false;
+    bool fill = false;
     bool roofline = false;
     bool cpuRoofline = false;
     bool rooflineOnLevel = false;
@@ -168,6 +171,10 @@ BenchOptions parseOptions(int argumentCount, char** arguments) {
             options.fullSimulation = true;
         } else if (argument == "--scatter") {
             options.scatterSimulation = true;
+        } else if (argument == "--fill") {
+            options.fill = true;
+        } else if (argument == "--growth") {
+            options.growth = true;
         } else if (argument == "--collisions") {
             options.collisions = true;
         } else if (argument == "--machine-benchmark") {
@@ -362,7 +369,7 @@ int traceEdgeCases(const BenchOptions& options) {
                     const BallCount wanted = options.traceSpawnTo > live ? options.traceSpawnTo - live : 0;
                     const BallCount launched = std::min(wanted, pacer.allowance());
                     simulation.launchBalls(ballColorFromIndex(colorIndex++ % ballColorCount), launched);
-                    simulation.flushPendingSpawns();
+                    simulation.flushSpawns();
                     const auto spawned = Clock::now();
                     pacer.recordSpawn(launched, std::chrono::duration<double>(spawned - start).count());
                     simulation.tick(options.substeps);
@@ -508,14 +515,20 @@ std::vector<BallSpawn> scatterBalls(const BrickBoard& board, size_t count, float
     return balls;
 }
 
-void printComposerParts(const DeviceComposer& composer) {
+// A part that is itself a composer (VulkanMulti) is listed with its own parts, indented.
+void printComposerParts(const DeviceComposer& composer, int depth = 0) {
+    const int indent = 8 + 4 * depth;
     for (size_t part = 0; part < composer.partCount(); ++part) {
-        std::printf("        %-12s share %5.1f%%  balls %10zu  step %7.3f ms\n", composer.partLabel(part).c_str(),
+        std::printf("%*s%-12s share %5.1f%%  balls %10zu  step %7.3f ms\n", indent, "",
+                    composer.partLabel(part).c_str(),
                     100.0 * static_cast<double>(composer.partBallCount(part)) /
                         static_cast<double>(std::max<size_t>(composer.ballCount(), 1)),
                     composer.partBallCount(part), composer.partStepMs(part));
+        if (const auto* nested = dynamic_cast<const DeviceComposer*>(&composer.partBackend(part))) {
+            printComposerParts(*nested, depth + 1);
+        }
     }
-    std::printf("        brick budgets %.3f ms per step on average, %zu balls moved in %zu steps\n",
+    std::printf("%*sbrick budgets %.3f ms per step on average, %zu balls moved in %zu steps\n", indent, "",
                 composer.averageBrickBudgetMs(), composer.movedBallCount(), composer.movingStepCount());
 }
 
@@ -614,6 +627,92 @@ void runScatteredSimulation(const BrickLayout& layout, BackendKind kind, size_t 
     }
 }
 
+// Grows from no balls to ballCount over `ticks` frames, adding an equal share every frame, the way spawning and the
+// capacity probe grow a session. Reports how long creating the backend took and the worst frames, which is where
+// allocation, copies and page faults while growing show up.
+void runGrowth(const BrickLayout& layout, BackendKind kind, size_t ballCount, int ticks, int substeps) {
+    const auto created = std::chrono::steady_clock::now();
+    Simulation simulation(createBackend(kind));
+    const double createMs =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - created).count();
+    simulation.load(layout);
+    // The game always draws through the visibility grid, which caps the per-ball render words.
+    const float slotSize = simulation.tuning().ballRadius * visibilitySlotsPerRadius;
+    simulation.backend().setVisibilityGrid(
+        visibilitySlots(static_cast<float>(simulation.board().columns()), slotSize),
+        visibilitySlots(static_cast<float>(simulation.board().rows()), slotSize));
+    const size_t perColorPerTick = std::max<size_t>(ballCount / ballColorCount / static_cast<size_t>(ticks), 1);
+    std::vector<double> frameMs;
+    std::vector<size_t> frameBalls;
+    frameMs.reserve(static_cast<size_t>(ticks));
+    frameBalls.reserve(static_cast<size_t>(ticks));
+    for (int tick = 0; tick < ticks; ++tick) {
+        const auto start = std::chrono::steady_clock::now();
+        for (BallColor color : allBallColors) {
+            simulation.scatterBalls(color, static_cast<BallCount>(perColorPerTick));
+        }
+        simulation.tick(substeps);
+        frameMs.push_back(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+        frameBalls.push_back(static_cast<size_t>(simulation.liveBallCount()));
+    }
+    std::vector<double> sorted = frameMs;
+    std::ranges::sort(sorted);
+    const auto percentile = [&](double fraction) {
+        return sorted[std::min(sorted.size() - 1, static_cast<size_t>(fraction * static_cast<double>(sorted.size())))];
+    };
+    const size_t worstFrame = static_cast<size_t>(std::ranges::max_element(frameMs) - frameMs.begin());
+    std::printf("%-7s growth to %zu balls over %d frames: create %8.1f ms  median %7.3f  p99 %7.3f  max %8.3f ms "
+                "(frame %zu)\n",
+                targetLabel(kind).c_str(), static_cast<size_t>(simulation.liveBallCount()), ticks, createMs,
+                percentile(0.5), percentile(0.99), sorted.back(), worstFrame);
+    constexpr double spikeFactor = 3.0;
+    for (size_t frame = 0; frame < frameMs.size(); ++frame) {
+        if (frameMs[frame] > spikeFactor * percentile(0.5)) {
+            std::printf("        spike frame %4zu  %8.3f ms  %zu balls\n", frame, frameMs[frame], frameBalls[frame]);
+        }
+    }
+}
+
+// What adding balls costs once the board is clear and they fly freely, as the Auto ramp adds them: generating the
+// launches, handing them to the backend, and the next frame's two ticks.
+void runFill(BackendKind kind, size_t batch, int batches) {
+    Simulation simulation(createBackend(kind));
+    BrickLayout layout;
+    layout.width = 30;
+    layout.height = 1;
+    layout.playableHeight = 38;
+    layout.cellIds.assign(static_cast<size_t>(layout.width), emptyBrickId);
+    simulation.load(layout);
+    const float slotSize = simulation.tuning().ballRadius * visibilitySlotsPerRadius;
+    simulation.backend().setVisibilityGrid(
+        visibilitySlots(static_cast<float>(simulation.board().columns()), slotSize),
+        visibilitySlots(static_cast<float>(simulation.board().rows()), slotSize));
+    simulation.tick(2);
+    std::vector<double> generateMs, addMs, stepMs;
+    const auto millisecondsSince = [](std::chrono::steady_clock::time_point start) {
+        return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+    };
+    for (int round = 0; round < batches; ++round) {
+        auto start = std::chrono::steady_clock::now();
+        simulation.launchBalls(ballColorFromIndex(round % ballColorCount), static_cast<BallCount>(batch));
+        generateMs.push_back(millisecondsSince(start));
+        start = std::chrono::steady_clock::now();
+        simulation.flushSpawns();
+        addMs.push_back(millisecondsSince(start));
+        start = std::chrono::steady_clock::now();
+        simulation.tick(2);
+        stepMs.push_back(millisecondsSince(start));
+    }
+    const auto median = [](std::vector<double> values) {
+        std::ranges::sort(values);
+        return values[values.size() / 2];
+    };
+    const double perBallNs = 1e6 / static_cast<double>(batch);
+    std::printf("%-7s fill %zu x %d to %zu balls: generate %6.1f ns/ball  add %6.1f ns/ball  step %7.3f ms\n",
+                targetLabel(kind).c_str(), batch, batches, static_cast<size_t>(simulation.liveBallCount()),
+                median(generateMs) * perBallNs, median(addMs) * perBallNs, median(stepMs));
+}
+
 BrickLayout emptyBoard(int width, int rows) {
     BrickLayout layout;
     layout.width = width;
@@ -706,18 +805,9 @@ void runCpuRoofline(size_t ballCount, int passes) {
 } // namespace
 
 int main(int argumentCount, char** arguments) {
-#if defined(_MSC_VER)
-    char* computeGpu = nullptr;
-    size_t computeGpuLength = 0;
-    if (_dupenv_s(&computeGpu, &computeGpuLength, "BALLS_COMPUTE_GPU") == 0 && computeGpu) {
-        setComputeGpuPreference(computeGpu);
-        std::free(computeGpu);
+    if (const std::optional<std::string> computeGpu = environmentVariable("BALLS_COMPUTE_GPU")) {
+        setComputeGpuPreference(*computeGpu);
     }
-#else
-    if (const char* computeGpu = std::getenv("BALLS_COMPUTE_GPU")) {
-        setComputeGpuPreference(computeGpu);
-    }
-#endif
     const BenchOptions options = parseOptions(argumentCount, arguments);
     if (options.listDevices) {
         listPhysicalDevices();
@@ -764,7 +854,11 @@ int main(int argumentCount, char** arguments) {
             continue;
         }
         for (size_t count : options.ballCounts) {
-            if (options.scatterSimulation) {
+            if (options.fill) {
+                runFill(kind, count, options.ticks);
+            } else if (options.growth) {
+                runGrowth(level->bricks, kind, count, options.ticks, options.substeps);
+            } else if (options.scatterSimulation) {
                 runScatteredSimulation(level->bricks, kind, count, options.ticks, options.substeps,
                                        options.collisions);
             } else if (options.fullSimulation) {

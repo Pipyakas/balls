@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common/BallColor.h"
+#include "level/GameplayRules.h"
 
 #include <array>
 #include <filesystem>
@@ -49,6 +50,7 @@ struct LevelData {
     std::string name;
     BrickLayout bricks;
     LauncherLayout launchers;
+    GameplayRules rules;
 };
 
 struct LevelFiles {

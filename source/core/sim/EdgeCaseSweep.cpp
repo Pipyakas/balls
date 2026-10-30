@@ -31,7 +31,7 @@ struct SweepRun {
         const Clock::time_point frameStart = Clock::now();
         const BallCount launched = std::min({pacer.allowance(), simulation.ballRoom(), wanted});
         simulation.launchBalls(ballColorFromIndex(colorIndex++ % ballColorCount), launched);
-        simulation.flushPendingSpawns();
+        simulation.flushSpawns();
         const double spawnSeconds = secondsSince(frameStart);
         pacer.recordSpawn(launched, spawnSeconds);
         launchSeconds += spawnSeconds;

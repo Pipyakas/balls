@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <format>
@@ -219,8 +220,9 @@ bool VulkanBackend::initialize() {
     commandParameters.queueType = nvrhi::CommandQueue::Compute;
     commands = device->createCommandList(commandParameters);
     timer = device->createTimerQuery();
-    if (!commands || !timer) {
-        setFault("failed to create Vulkan command list or timer query");
+    stepEventQuery = device->createEventQuery();
+    if (!commands || !timer || !stepEventQuery) {
+        setFault("failed to create Vulkan command list, timer query or event query");
         return false;
     }
     rebuildBindingSets();
@@ -493,11 +495,11 @@ void VulkanBackend::addBalls(std::span<const BallSpawn> spawns) {
     commands->writeBuffer(packedBalls, packedToAdd.data(), packedToAdd.size() * sizeof(uint32_t), byteOffset);
     execute(commands);
     count += spawns.size();
+    sortSchedule.ballsAdded(spawns.size(), count);
     snapshotFresh = false;
 }
 
-void VulkanBackend::step(const StepParams& params, std::vector<BallHit>& hits) {
-    static_cast<void>(hits);
+void VulkanBackend::beginStep(const StepParams& params) {
     snapshotFresh = false;
     lastCounters.fill(0);
     lastStepKernelMs = 0.0;
@@ -558,9 +560,25 @@ void VulkanBackend::step(const StepParams& params, std::vector<BallHit>& hits) {
     commands->setBufferState(countersReadback, nvrhi::ResourceStates::CopyDest);
     commands->commitBarriers();
     commands->copyBuffer(countersReadback, 0, counters, 0, sizeof(zeroCounters));
-    execute(commands);
+
+    commands->close();
+    device->executeCommandList(commands, nvrhi::CommandQueue::Compute);
+    if (stepEventQuery) {
+        device->resetEventQuery(stepEventQuery);
+        device->setEventQuery(stepEventQuery, nvrhi::CommandQueue::Compute);
+    }
     if (sorting) {
         currentBuffer = 1u - currentBuffer;
+    }
+}
+
+void VulkanBackend::finishStep(std::vector<BallHit>& hits) {
+    static_cast<void>(hits);
+    if (count == 0 || isFaulted()) {
+        return;
+    }
+    if (stepEventQuery) {
+        device->waitEventQuery(stepEventQuery);
     }
     const double measuredKernelMs = static_cast<double>(device->getTimerQueryTime(timer)) * 1000.0;
     device->resetTimerQuery(timer);
@@ -582,6 +600,11 @@ void VulkanBackend::step(const StepParams& params, std::vector<BallHit>& hits) {
         return;
     }
     compactKilledBalls(lastCounters[0]);
+}
+
+void VulkanBackend::step(const StepParams& params, std::vector<BallHit>& hits) {
+    beginStep(params);
+    finishStep(hits);
 }
 
 void VulkanBackend::compactKilledBalls(uint32_t killed) {
@@ -746,6 +769,7 @@ bool VulkanBackend::addCompact(const CompactBalls& added) {
     commands->writeBuffer(packedBalls, packed.data(), addedCount * sizeof(uint32_t), byteOffset);
     execute(commands);
     count += addedCount;
+    sortSchedule.ballsAdded(addedCount, count);
     snapshotFresh = false;
     return !isFaulted();
 }

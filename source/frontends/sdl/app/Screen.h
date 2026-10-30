@@ -1,6 +1,6 @@
 #pragma once
 
-#include "control/ControlProtocol.h"
+#include "control/ControlApi.h"
 
 #include <filesystem>
 #include <optional>
@@ -16,7 +16,10 @@ public:
     virtual std::string_view name() const = 0;
     virtual bool drawsFrameTimings() const { return false; }
     virtual std::string stateJson() const { return "{}"; }
+    // Control API routes of this screen's own; the shared ones are answered by the core's handleControlRequest.
     virtual std::optional<ControlResponse> handleControl(const ControlRequest&) { return std::nullopt; }
+    // The game this screen plays, for the control API; null outside gameplay.
+    virtual ControlGame* controlGame() { return nullptr; }
     // Level files picked in the import dialog or dropped on the window. Screens that cannot take them return
     // false and the app tells the player where imports work.
     virtual bool importLevels(std::span<const std::filesystem::path>) { return false; }

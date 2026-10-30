@@ -208,7 +208,13 @@ std::vector<BenchmarkCandidate> benchmarkCandidates() {
 }
 
 bool benchmarkNeeded(const std::optional<BenchmarkRecord>& stored, const HardwareFingerprint& current) {
+#if defined(BALLS_FIXED_TARGET)
+    (void)stored;
+    (void)current;
+    return false;
+#else
     return !stored || !stored->complete || stored->fingerprint != current;
+#endif
 }
 
 std::optional<size_t> bestCandidate(std::span<const CandidateResult> results) {
@@ -520,4 +526,21 @@ void BackendBenchmark::runCandidate(size_t index, std::optional<long long> refer
         result.estimatedBalls = estimate;
         result.ballCapacity = capacity;
     });
+}
+
+std::string candidateResultText(const CandidateResult& result) {
+    constexpr double ballStepsPerMillion = 1e6;
+    switch (result.status) {
+    case CandidateStatus::Done:
+        return std::format("{} balls at 60 FPS   {:.0f} M ball-steps/s", shortBallCount(result.estimatedBalls),
+                           result.ballStepsPerSecond / ballStepsPerMillion);
+    case CandidateStatus::Failed:
+        return "failed: " + result.failure;
+    case CandidateStatus::Unavailable:
+        return "not available";
+    case CandidateStatus::Pending:
+    case CandidateStatus::Running:
+        break;
+    }
+    return {};
 }

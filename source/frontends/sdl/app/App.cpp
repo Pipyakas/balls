@@ -48,9 +48,7 @@ constexpr float fontLoadPixels = 32.0f;
 constexpr float channelScale = 1.0f / 255.0f;
 constexpr const char* windowTitle = "Balls";
 constexpr const char* screenshotExtension = ".bmp";
-constexpr float toastSeconds = 3.0f;
 constexpr char importPathSeparator = '|';
-constexpr float toastTextSize = 24.0f;
 constexpr float toastHeight = 48.0f;
 constexpr float toastPadding = 20.0f;
 constexpr float toastMargin = 24.0f;
@@ -125,34 +123,6 @@ std::string_view gameVersion() {
     return version ? version : "";
 }
 
-constexpr const char* targetBenchmarkFileName = "target-benchmark.txt";
-
-// The scoring machine's machine-benchmark record, measured with balls_bench --machine-benchmark and
-// shipped with the assets, so the game starts on the backend that is fastest where it is judged.
-std::optional<BenchmarkCandidate> targetMachineWinner() {
-    std::ifstream file(assetRoot() / targetBenchmarkFileName, std::ios::binary);
-    std::stringstream text;
-    text << file.rdbuf();
-    const std::optional<BenchmarkRecord> record = parseBenchmarkRecord(text.str());
-    return record ? record->winner : std::nullopt;
-}
-
-// The command line wins, then the Settings default (this machine's own benchmark winner or the player's pick), then
-// the scoring machine's winner, then the fastest CPU backend, skipping any that cannot load on this machine.
-BackendKind startupBackend(std::optional<BackendKind> commandLine, std::string_view settingsDefault) {
-    if (commandLine && isBackendAvailable(*commandLine)) {
-        return *commandLine;
-    }
-    if (const auto saved = parseSavedBackendKind(settingsDefault); saved && isBackendAvailable(*saved) && isBackendSelectable(*saved)) {
-        return *saved;
-    }
-    if (const auto target = targetMachineWinner();
-        target && isBackendAvailable(target->kind) && isBackendSelectable(target->kind)) {
-        return target->kind;
-    }
-    return fastestAvailableCpuBackend();
-}
-
 std::string screenshotFileFor(const std::string& requested) {
     std::filesystem::path path(requested);
     path.replace_extension(screenshotExtension);
@@ -168,10 +138,12 @@ int currentRefreshRate() {
     return mode && mode->refresh_rate > 0.0f ? static_cast<int>(mode->refresh_rate + 0.5f) : 0;
 }
 
+App::App()
+    : flowInstance(levelDirectory(GameMode::Normal), levelDirectory(GameMode::Performance)) {}
+
 App::~App() {
     controlServer.stop();
     currentScreen.reset();
-    pendingScreen.reset();
     // A level left open is still finishing its physics frame; give it a moment so its backend is destroyed while the
     // plugins are loaded, but do not let a stuck step hold the window open.
     static_cast<void>(SessionRunner::waitForStoppedRunners(std::chrono::seconds(2)));
@@ -466,22 +438,26 @@ bool App::initialize(const LaunchOptions& options, std::string& error) {
         }
     }
     balls = std::make_unique<BallView>(*renderer);
+    profile = MachineProfile(preferenceDirectory());
     profile.load();
     setComputeGpuPreference(options.computeGpu);
     computeAdapterList = enumerateGpuAdapters(GpuApi::Vulkan);
     applyOrientationHint(currentSettings.layout);
     setVsync(effective.vsync || currentSettings.vsync);
-    backendChoice = startupBackend(options.backend, currentSettings.defaultBackend);
+    backendChoice = chooseStartupBackend(options.backend, currentSettings.defaultBackend, assetRoot() / targetBenchmarkFileName);
     if (options.controlPort > 0) {
         controlServer.start(options.controlPort);
     }
     const auto startLevel = options.playMode ? findLevel(*options.playMode, options.playLevel) : std::nullopt;
-    if (startLevel) {
+    if (options.editor) {
+        openEditor(options.playMode.value_or(GameMode::Normal), startLevel);
+    } else if (startLevel) {
         startGame(*options.playMode, *startLevel);
     } else {
         showMainMenu();
     }
-    applyPendingScreen();
+    processFlowRequests();
+    applyFlowScreen();
     previousUpdateStart = Clock::now();
     return true;
 }
@@ -501,12 +477,12 @@ void App::handleEvent(const SDL_Event& event) {
     }
 }
 
-void App::showToast(std::string text, bool isError) { toast = {std::move(text), toastSeconds, isError}; }
+void App::showToast(std::string text, bool isError) {
+    flowInstance.showToast(std::move(text), isError);
+}
 
 void App::deliverImport(std::vector<std::filesystem::path> paths) {
-    if (!currentScreen || !currentScreen->importLevels(paths)) {
-        showToast("Open Level select to import levels", false);
-    }
+    flowInstance.importLevels(paths);
 }
 
 // SDL may call this from its own dialog thread, so the result is only queued here and handed to the screen on
@@ -564,17 +540,18 @@ void App::openFolder(const std::filesystem::path& folder) {
 }
 
 void App::drawToast() {
-    toast.secondsLeft = std::max(0.0f, toast.secondsLeft - frameSeconds);
+    const FlowToast& toast = flowInstance.toast();
     if (toast.secondsLeft <= 0.0f) {
         return;
     }
     const float alpha = std::min(1.0f, toast.secondsLeft);
     const float maximumWidth = static_cast<float>(gfx::screenWidth()) - 2.0f * toastMargin;
-    const float size = std::min(toastTextSize, toastTextSize * maximumWidth / std::max(ui::measureText(toast.text, toastTextSize).x, 1.0f));
+    const float size = std::min(theme::toastTextSize, theme::toastTextSize * maximumWidth / std::max(ui::measureText(toast.text, theme::toastTextSize).x, 1.0f));
     const Vec2 extent = ui::measureText(toast.text, size);
-    const Rect rect{(static_cast<float>(gfx::screenWidth()) - extent.x) * 0.5f - toastPadding, currentScreen->toastTop(),
+    const float top = currentScreen ? currentScreen->toastTop() : 0.0f;
+    const Rect rect{(static_cast<float>(gfx::screenWidth()) - extent.x) * 0.5f - toastPadding, top,
                     extent.x + 2.0f * toastPadding, toastHeight};
-    ui::drawPanel(rect, gfx::fade(toast.isError ? palette::danger : palette::panelLight, alpha), 0.4f);
+    ui::drawPanel(rect, gfx::fade(toast.isError ? palette::danger : palette::control, alpha), 0.4f);
     ui::drawTextInRect(toast.text, rect, size, gfx::fade(palette::text, alpha));
 }
 
@@ -606,6 +583,18 @@ bool App::frame() {
     longestFrameIntervalMs = std::max(longestFrameIntervalMs, millisecondsBetween(previousUpdateStart, updateStart));
     previousUpdateStart = updateStart;
     const float deltaTime = std::min(frameSeconds, maximumFrameSeconds);
+
+    if (input::keyPressed(SDL_SCANCODE_ESCAPE) && flowInstance.screen() != FlowScreen::MapEditor) {
+        flowInstance.escape();
+    }
+    flowInstance.update(deltaTime);
+    processFlowRequests();
+    applyFlowScreen();
+
+    if (!currentScreen) {
+        return running;
+    }
+
     renderer->beginFrame();
     const Clock::time_point workStart = Clock::now();
     gfx::beginFrame(renderer->viewWidth(), renderer->viewHeight(), fonts);
@@ -635,15 +624,20 @@ bool App::frame() {
     }
     input::clearTransientState();
     const double gpuWaitMs = renderer->lastGpuWaitMs();
-    timings.record({millisecondsBetween(updateStart, frameEnd),
-                    millisecondsBetween(workStart, presentStart),
-                    renderer->lastGpuBusyMs(),
-                    millisecondsBetween(presentStart, frameEnd) + gpuWaitMs,
-                    renderer->lastFramePresented() ? 1.0 : 0.0, renderer->lastPresentWaitMs()});
+    const double frameMs = millisecondsBetween(updateStart, frameEnd);
+    const double presentWaitMs = renderer->lastPresentWaitMs();
+    timings.record({.frameMs = frameMs,
+                    .workMs = std::max(0.0, frameMs - presentWaitMs),
+                    .cpuMs = millisecondsBetween(workStart, presentStart),
+                    .gpuMs = renderer->lastGpuBusyMs(),
+                    .presentMs = millisecondsBetween(presentStart, frameEnd) + gpuWaitMs,
+                    .presented = renderer->lastFramePresented() ? 1.0 : 0.0,
+                    .waitMs = presentWaitMs});
     applyPendingRenderAdapter();
     applyPendingRendererSwitch();
     adoptPreparedRenderer();
-    applyPendingScreen();
+    processFlowRequests();
+    applyFlowScreen();
     return running;
 }
 
@@ -656,13 +650,87 @@ void App::drawFrameTimingsOverlay() const {
     const float x = 26.0f;
     const float y = static_cast<float>(gfx::screenHeight()) - extent.y - 10.0f;
     ui::drawPanel({x - 10.0f, y - 4.0f, extent.x + 20.0f, extent.y + 8.0f},
-                  gfx::fade(palette::backgroundDeep, 0.85f));
+                  gfx::fade(palette::boardBackdrop, 0.85f));
     ui::drawText(text, {x, y}, 18.0f, palette::textMuted);
 }
 
-void App::applyPendingScreen() {
-    if (pendingScreen) {
-        currentScreen = std::move(pendingScreen);
+void App::processFlowRequests() {
+    while (const auto request = flowInstance.takeRequest()) {
+        switch (request->kind) {
+        case FlowRequestKind::StartGame:
+        case FlowRequestKind::ReloadGame:
+            if (request->files) {
+                currentScreen = std::make_unique<GameplayScreen>(*this, request->mode, *request->files);
+            }
+            break;
+        case FlowRequestKind::RestartGame:
+            if (auto* gameplay = dynamic_cast<GameplayScreen*>(currentScreen.get())) {
+                gameplay->restartSession();
+            }
+            break;
+        case FlowRequestKind::EndGame:
+            if (dynamic_cast<GameplayScreen*>(currentScreen.get())) {
+                currentScreen.reset();
+            }
+            break;
+        case FlowRequestKind::OpenEditor:
+            currentScreen = std::make_unique<MapEditorScreen>(*this, request->mode, request->files);
+            break;
+        case FlowRequestKind::StartBenchmark:
+            currentScreen = std::make_unique<MachineBenchmarkScreen>(*this, currentHardwareFingerprint(gameVersion()));
+            break;
+        case FlowRequestKind::SkipBenchmark:
+            if (auto* benchmark = dynamic_cast<MachineBenchmarkScreen*>(currentScreen.get())) {
+                benchmark->skip();
+            }
+            break;
+        case FlowRequestKind::PickLevelFiles:
+            openLevelImportDialog(request->folder);
+            break;
+        case FlowRequestKind::OpenFolder:
+            openFolder(request->folder);
+            break;
+        case FlowRequestKind::Quit:
+            quit();
+            break;
+        }
+    }
+}
+
+void App::applyFlowScreen() {
+    switch (flowInstance.screen()) {
+    case FlowScreen::MainMenu:
+        if (!dynamic_cast<MainMenuScreen*>(currentScreen.get())) {
+            currentScreen = std::make_unique<MainMenuScreen>(*this);
+        }
+        break;
+    case FlowScreen::LevelSelect:
+        if (!dynamic_cast<LevelSelectScreen*>(currentScreen.get()) || lastLevelSelectMode != flowInstance.mode()) {
+            lastLevelSelectMode = flowInstance.mode();
+            currentScreen = std::make_unique<LevelSelectScreen>(*this, flowInstance.mode());
+        }
+        break;
+    case FlowScreen::Settings:
+        if (!dynamic_cast<SettingsScreen*>(currentScreen.get())) {
+            currentScreen = std::make_unique<SettingsScreen>(*this);
+        }
+        break;
+    case FlowScreen::MachineBenchmark:
+        if (!dynamic_cast<MachineBenchmarkScreen*>(currentScreen.get())) {
+            currentScreen = std::make_unique<MachineBenchmarkScreen>(*this, currentHardwareFingerprint(gameVersion()));
+        }
+        break;
+    case FlowScreen::MapEditor:
+        if (!dynamic_cast<MapEditorScreen*>(currentScreen.get())) {
+            currentScreen = std::make_unique<MapEditorScreen>(*this, flowInstance.mode(), flowInstance.level());
+        }
+        break;
+    case FlowScreen::Gameplay:
+    case FlowScreen::LoadError:
+        if (!dynamic_cast<GameplayScreen*>(currentScreen.get()) && flowInstance.level()) {
+            currentScreen = std::make_unique<GameplayScreen>(*this, flowInstance.mode(), *flowInstance.level());
+        }
+        break;
     }
 }
 
@@ -678,42 +746,111 @@ std::string adapterNamesJson(const std::vector<GpuAdapterInfo>& adapters) {
 
 } // namespace
 
-std::string App::stateJson() const {
-    const FrameSample& sample = timings.average();
-    return std::format(
-        "{{\"ok\":true,\"frontend\":\"sdl\",\"renderer\":\"{}\",\"screen\":\"{}\",\"window\":[{},{}],"
-        "\"fps\":{:.1f},\"minFps\":{:.1f},\"workFps\":{:.1f},\"minWorkFps\":{:.1f},\"shownFps\":{:.1f},\"frameMs\":{:.3f},\"cpuMs\":{:.3f},\"gpuMs\":{:.3f},"
-        "\"presentMs\":{:.3f},\"preferredBackend\":\"{}\",\"computeGpu\":\"{}\",\"vsync\":{},\"toast\":\"{}\","
-        "\"renderAdapters\":{},\"computeAdapters\":{},\"details\":{}}}",
-        jsonEscape(renderer->deviceDescription()), currentScreen->name(), gfx::screenWidth(),
-        gfx::screenHeight(), timings.framesPerSecond(), timings.worstFpsLastSecond(),
-        timings.workFramesPerSecond(), timings.worstWorkFpsLastSecond(), timings.shownFramesPerSecond(),
-        sample.frameMs,
-        sample.cpuMs, sample.gpuMs, sample.presentMs, backendKindName(backendChoice),
-        jsonEscape(backendStatus(BackendKind::Vulkan).detail), isVsyncEnabled(),
-        jsonEscape(toast.secondsLeft > 0.0f ? toast.text : std::string{}), adapterNamesJson(renderAdapterList),
-        adapterNamesJson(computeAdapterList), currentScreen->stateJson());
-}
+// What the core's control API may do to SDL. It runs on the main thread, from ControlServer::pump.
+struct App::ControlBridge final : ControlHost {
+    App& app;
+
+    explicit ControlBridge(App& owner) : app(owner) {}
+
+    ControlFrontEndState frontEndState() const override {
+        ControlFrontEndState state;
+        state.frontEnd = "sdl";
+        state.renderer = app.renderer ? app.renderer->deviceDescription() : std::string{};
+        state.screen = flowScreenName(app.flow().screen());
+        state.windowWidth = gfx::screenWidth();
+        state.windowHeight = gfx::screenHeight();
+        state.frames = &app.timings;
+        state.preferredBackend = app.backendChoice;
+        state.vsync = app.isVsyncEnabled();
+        state.toast = app.flow().toast().secondsLeft > 0.0f ? app.flow().toast().text : std::string{};
+        state.extraFields = std::format("\"computeGpu\":\"{}\",\"renderAdapters\":{},\"computeAdapters\":{}",
+                                        jsonEscape(backendStatus(BackendKind::Vulkan).detail),
+                                        adapterNamesJson(app.renderAdapterList), adapterNamesJson(app.computeAdapterList));
+        state.screenDetails = app.currentScreen ? app.currentScreen->stateJson() : std::string{};
+        return state;
+    }
+    ControlGame* game() override { return app.currentScreen ? app.currentScreen->controlGame() : nullptr; }
+    std::filesystem::path levelDirectory(GameMode mode) const override { return ::levelDirectory(mode); }
+
+    std::optional<ControlResponse> takeScreenshot(const std::string& path) override {
+        app.screenshotPath = screenshotFileFor(path);
+        app.renderer->requestScreenshot(app.screenshotPath);
+        app.screenshotPending = true;
+        return std::nullopt;
+    }
+    void play(GameMode mode, const LevelFiles& level) override {
+        app.flow().startGame(mode, level);
+    }
+    void showMainMenu() override {
+        app.flow().showMainMenu();
+    }
+    bool showLevelSelect(GameMode mode) override {
+        app.flow().showLevelSelect(mode);
+        return true;
+    }
+    bool openEditor(GameMode mode, const std::optional<LevelFiles>& level) override {
+        app.flow().openEditor(mode, level);
+        return true;
+    }
+    void quit() override { app.quit(); }
+
+    const Settings& settings() const override { return app.currentSettings; }
+    void applySettings(const Settings& settings, std::optional<BackendKind> defaultBackend) override {
+        app.applySettings(settings, defaultBackend);
+    }
+    void openSettings() override {
+        if (app.flow().screen() == FlowScreen::Gameplay) {
+            if (app.flow().overlay() == FlowOverlay::None) {
+                app.flow().activate(FlowAction::TogglePause);
+            }
+            app.flow().activate(FlowAction::PauseSettings);
+        } else {
+            app.flow().showSettings();
+        }
+    }
+    void setVsync(bool enabled) override { app.setVsync(enabled); }
+
+    ControlBenchmarkState benchmarkState() const override {
+        if (const auto* screen = dynamic_cast<const MachineBenchmarkScreen*>(app.currentScreen.get())) {
+            return screen->controlState();
+        }
+        const std::optional<BenchmarkRecord>& stored = app.profile.benchmark();
+        if (!stored) {
+            return {};
+        }
+        return {stored->complete ? "done" : "skipped", stored->results, stored->winner};
+    }
+    void runBenchmark() override {
+        app.flow().runMachineBenchmark();
+    }
+    bool skipBenchmark() override {
+        const bool applied = app.flow().activate(FlowAction::SkipBenchmark);
+        return applied;
+    }
+    bool continueFromBenchmark() override {
+        const bool applied = app.flow().activate(FlowAction::ContinueFromBenchmark);
+        return applied;
+    }
+
+    std::optional<ControlResponse> handleOwnRoute(const ControlRequest& request) override {
+        return app.handleOwnControl(request);
+    }
+};
 
 std::optional<ControlResponse> App::handleControl(const ControlRequest& request) {
-    const std::string& path = request.path;
-    if (path == "/state") {
-        return ControlResponse::ok(stateJson());
+    if (!controlBridge) {
+        controlBridge = std::make_shared<ControlBridge>(*this);
     }
+    return handleControlRequest(*controlBridge, request);
+}
+
+// The routes only SDL has: renderer and window controls, level import and the frame hitch probe.
+std::optional<ControlResponse> App::handleOwnControl(const ControlRequest& request) {
+    const std::string& path = request.path;
     if (path == "/hitch") {
         const double longest = longestFrameIntervalMs;
         longestFrameIntervalMs = 0.0;
         return ControlResponse::ok(std::format("{{\"ok\":true,\"longestFrameMs\":{:.2f}}}", longest));
-    }
-    if (path == "/screenshot") {
-        const std::string requested = request.text("path").value_or("");
-        if (requested.empty()) {
-            return ControlResponse::error(400, "missing path");
-        }
-        screenshotPath = screenshotFileFor(requested);
-        renderer->requestScreenshot(screenshotPath);
-        screenshotPending = true;
-        return std::nullopt;
     }
     if (path == "/import") {
         std::vector<std::filesystem::path> paths;
@@ -728,14 +865,14 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
         if (paths.empty()) {
             return ControlResponse::error(400, "missing path");
         }
-        deliverImport(std::move(paths));
-        return ControlResponse::ok(std::format("{{\"ok\":true,\"toast\":\"{}\"}}", jsonEscape(toast.text)));
+        flowInstance.importLevels(paths);
+        return ControlResponse::ok(std::format("{{\"ok\":true,\"toast\":\"{}\"}}", jsonEscape(flowInstance.toast().text)));
     }
     if (path == "/renderer") {
         const std::string wantedRenderer = request.text("renderer").value_or(activeRenderer);
         const std::string wantedApi = request.text("api").value_or(activeGraphicsApi);
         requestRenderer(wantedRenderer, wantedApi);
-        return ControlResponse::ok("{\"ok\":true}");
+        return ControlResponse::ok();
     }
     if (path == "/render-gpu") {
         const auto index = request.integer("index");
@@ -743,98 +880,7 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
             return ControlResponse::error(400, "index must name an adapter from /state renderAdapters");
         }
         requestRenderAdapter(static_cast<int>(*index));
-        return ControlResponse::ok("{\"ok\":true}");
-    }
-    if (path == "/quit") {
-        quit();
-        return ControlResponse::ok("{\"ok\":true}");
-    }
-    if (path == "/benchmark") {
-        if (request.integer("run").value_or(0) != 0) {
-            showMachineBenchmark();
-            return ControlResponse::ok("{\"ok\":true}");
-        }
-        return ControlResponse::ok(benchmarkStateJson());
-    }
-    if (path == "/menu") {
-        showMainMenu();
-        return ControlResponse::ok("{\"ok\":true}");
-    }
-    if (path == "/settings") {
-        Settings next = currentSettings;
-        if (const auto collisions = request.integer("collisions")) {
-            next.ballCollisions = *collisions != 0;
-        }
-        if (const auto layout = request.text("layout")) {
-            if (const auto orientation = parseOrientation(*layout)) {
-                next.layout = *orientation;
-            } else {
-                return ControlResponse::error(400, "layout must be auto, landscape or portrait");
-            }
-        }
-        if (const auto vsync = request.integer("vsync")) {
-            next.vsync = *vsync != 0;
-        }
-        if (const auto frames = request.integer("physicsFrames")) {
-            next.physicsFramesPerSecond = *frames;
-        }
-        if (const auto drawBoard = request.integer("drawBoard")) {
-            next.drawBoard = *drawBoard != 0;
-        }
-        if (const auto advanced = request.integer("advanced")) {
-            next.advancedSettings = *advanced != 0;
-        }
-        if (const auto renderer = request.text("renderer")) {
-            next.renderer = normalizeRendererName(*renderer);
-        }
-        if (const auto api = request.text("graphicsApi")) {
-            next.graphicsApi = normalizeGraphicsApiName(*api);
-        } else if (const auto api = request.text("api")) {
-            next.graphicsApi = normalizeGraphicsApiName(*api);
-        }
-        std::optional<BackendKind> backend;
-        if (const auto name = request.text("backend")) {
-            backend = parseBackendKind(*name);
-            if (!backend || !isBackendAvailable(*backend)) {
-                return ControlResponse::error(400, std::format("backend {} is not available", *name));
-            }
-        }
-        const bool open = request.integer("open").value_or(0) != 0;
-        applySettings(next, backend);
-        if (open && currentScreen) {
-            applyPendingScreen();
-            if (auto* gameplay = dynamic_cast<GameplayScreen*>(currentScreen.get())) {
-                gameplay->openSettingsOverlay();
-            } else if (dynamic_cast<SettingsScreen*>(currentScreen.get()) == nullptr) {
-                showSettings();
-            }
-        }
-        return ControlResponse::ok(settingsJson());
-    }
-    const std::optional<GameMode> mode = parseGameMode(request.text("mode").value_or("normal"));
-    if (path == "/levels" || path == "/play" || path == "/editor") {
-        if (!mode) {
-            return ControlResponse::error(400, "mode must be normal or performance");
-        }
-        const std::string levelName = request.text("level").value_or("");
-        const std::optional<LevelFiles> level =
-            levelName.empty() ? std::nullopt : findLevel(*mode, levelName);
-        if (path == "/levels") {
-            showLevelSelect(*mode);
-        } else if (path == "/editor") {
-            openEditor(*mode, level);
-        } else if (!level) {
-            return ControlResponse::error(404,
-                                          std::format("no level '{}' in {} mode", levelName,
-                                                      *mode == GameMode::Normal ? "normal" : "performance"));
-        } else {
-            startGame(*mode, *level);
-        }
-        return ControlResponse::ok("{\"ok\":true}");
-    }
-    if (path == "/vsync") {
-        setVsync(request.integer("on").value_or(isVsyncEnabled() ? 0 : 1) != 0);
-        return ControlResponse::ok(std::format("{{\"ok\":true,\"vsync\":{}}}", isVsyncEnabled()));
+        return ControlResponse::ok();
     }
     if (path == "/window") {
         int width = 0;
@@ -843,21 +889,17 @@ std::optional<ControlResponse> App::handleControl(const ControlRequest& request)
         width = request.integer("width").value_or(width);
         height = request.integer("height").value_or(height);
         SDL_SetWindowSize(window, std::max(width, minimumWindowWidth), std::max(height, minimumWindowHeight));
-        return ControlResponse::ok("{\"ok\":true}");
+        return ControlResponse::ok();
     }
-    if (auto response = currentScreen->handleControl(request)) {
-        return *response;
-    }
-    return ControlResponse::error(
-        404, std::format("unknown command {} on screen {}", path, currentScreen->name()));
+    return currentScreen ? currentScreen->handleControl(request) : std::nullopt;
 }
 
 void App::showMainMenu() {
-    pendingScreen = std::make_unique<MainMenuScreen>(*this);
+    flowInstance.showMainMenu();
 }
 
 void App::showMachineBenchmark() {
-    pendingScreen = std::make_unique<MachineBenchmarkScreen>(*this, currentHardwareFingerprint(gameVersion()));
+    flowInstance.runMachineBenchmark();
 }
 
 void App::adoptBenchmarkWinner(const BenchmarkCandidate& winner) {
@@ -874,19 +916,8 @@ void App::adoptBenchmarkWinner(const BenchmarkCandidate& winner) {
     static_cast<void>(saveSettings(settingsFilePath(), currentSettings));
 }
 
-std::string App::benchmarkStateJson() const {
-    if (currentScreen && currentScreen->name() == "benchmark") {
-        return currentScreen->stateJson();
-    }
-    const std::optional<BenchmarkRecord>& stored = profile.benchmark();
-    if (!stored) {
-        return benchmarkJson("none", {}, std::nullopt);
-    }
-    return benchmarkJson(stored->complete ? "done" : "skipped", stored->results, stored->winner);
-}
-
 void App::showSettings() {
-    pendingScreen = std::make_unique<SettingsScreen>(*this);
+    flowInstance.showSettings();
 }
 
 bool App::isWebGpuSupported() const { return isWebGpuCompiledIn(); }
@@ -914,30 +945,20 @@ void App::setAdvancedSettingsOpen(bool open) {
     static_cast<void>(saveSettings(settingsFilePath(), currentSettings));
 }
 
-std::string App::settingsJson() const {
-    return std::format(
-        "{{\"ballCollisions\":{},\"layout\":\"{}\",\"vsync\":{},\"defaultBackend\":\"{}\",\"renderer\":\"{}\","
-        "\"graphicsApi\":\"{}\",\"advancedSettings\":{}}}",
-        currentSettings.ballCollisions, orientationName(currentSettings.layout), currentSettings.vsync,
-        jsonEscape(currentSettings.defaultBackend), normalizeRendererName(currentSettings.renderer),
-        normalizeGraphicsApiName(currentSettings.graphicsApi), currentSettings.advancedSettings);
-}
-
 void App::notifySettingsConsumers() {
-    applyPendingScreen();
     if (auto* gameplay = dynamic_cast<GameplayScreen*>(currentScreen.get())) {
         gameplay->refreshSettings();
     }
 }
 
 void App::showLevelSelect(GameMode mode) {
-    pendingScreen = std::make_unique<LevelSelectScreen>(*this, mode);
+    flowInstance.showLevelSelect(mode);
 }
 
 void App::startGame(GameMode mode, const LevelFiles& files) {
-    pendingScreen = std::make_unique<GameplayScreen>(*this, mode, files);
+    flowInstance.startGame(mode, files);
 }
 
 void App::openEditor(GameMode mode, std::optional<LevelFiles> files) {
-    pendingScreen = std::make_unique<MapEditorScreen>(*this, mode, std::move(files));
+    flowInstance.openEditor(mode, std::move(files));
 }

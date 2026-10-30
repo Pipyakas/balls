@@ -1,5 +1,7 @@
 #include "cpu/CompactBallStore.h"
 
+#include "common/WorkerPool.h"
+
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -18,7 +20,10 @@ uint32_t bidderMaskFor(size_t balls, size_t cells, double share) {
     return mask;
 }
 
-size_t roundUpToLanes(size_t count) { return (count + simdLaneCount - 1) / simdLaneCount * simdLaneCount; }
+// The widest stepper (Zen4, 16 lanes) loads and stores whole vectors, so storage is padded to its width.
+constexpr size_t storageLaneCount = 16;
+
+size_t roundUpToLanes(size_t count) { return (count + storageLaneCount - 1) / storageLaneCount * storageLaneCount; }
 
 uint32_t encodeAxis(float value, float extent) {
     const float scaled = value / extent * compact::positionScale + 0.5f;
@@ -52,7 +57,19 @@ bool CompactBallStore::resize(size_t newCount) {
     return true;
 }
 
-size_t CompactBallStore::add(std::span<const BallSpawn> spawns, const RangeRunner& runRanges) {
+size_t CompactBallStore::preallocate(size_t maxBalls, WorkerPool* pool) {
+    const size_t padded = roundUpToLanes(maxBalls);
+    if (!position.commitAndPrefault(padded, pool) || !state.commitAndPrefault(padded, pool)) {
+        return 0;
+    }
+    const size_t cells = gridCellCount();
+    if (cells > 0) {
+        grid.assign(cells, emptyRenderSlot);
+    }
+    return position.capacity();
+}
+
+size_t CompactBallStore::add(std::span<const BallSpawn> spawns, WorkerPool* pool) {
     if (spawns.empty()) {
         return 0;
     }
@@ -60,10 +77,12 @@ size_t CompactBallStore::add(std::span<const BallSpawn> spawns, const RangeRunne
     const float inverseSpeed = 1.0f / speed;
     const size_t first = count;
     const unsigned int ticksSinceEpoch = clockTick - freeFlightEpoch;
-    if (!resize(count + spawns.size())) {
+    // A preallocated store never grows, so it takes what fits.
+    const size_t toAdd = isPreallocated() ? std::min(spawns.size(), roomLeft()) : spawns.size();
+    if (toAdd == 0 || !resize(count + toAdd)) {
         return 0;
     }
-    const auto encode = [&](size_t begin, size_t end) {
+    const auto encodeRange = [&](size_t, size_t begin, size_t end) {
         for (size_t i = begin; i < end; ++i) {
             const BallSpawn& spawn = spawns[i];
             const uint32_t color = static_cast<uint32_t>(spawn.color);
@@ -72,24 +91,22 @@ size_t CompactBallStore::add(std::span<const BallSpawn> spawns, const RangeRunne
             float x = spawn.x;
             float y = spawn.y;
             if (frozen) {
-                // Projected with the quantized direction that decoding gives back, flipping only the signs,
-                // so flying forward from the epoch lands on the spawn point.
+                // Projected with the quantized direction that decoding gives back, flipping only the signs, so
+                // flying forward from the epoch lands on the spawn point.
                 const float scale = speed / std::max(std::hypot(static_cast<float>(directionX),
-                                                                static_cast<float>(directionY)),
-                                                     1.0f);
+                                                                static_cast<float>(directionY)), 1.0f);
                 const FreeFlightPosition epoch =
-                    flyFreelyBackwards(x, y, static_cast<float>(directionX) * scale,
-                                       static_cast<float>(directionY) * scale, ticksSinceEpoch, flightParams);
+                    flyFreelyBackwards(x, y, static_cast<float>(directionX) * scale, static_cast<float>(directionY) * scale,
+                                       ticksSinceEpoch, flightParams);
                 x = epoch.x;
                 y = epoch.y;
                 directionX = (epoch.vx < 0.0f) == (directionX < 0) ? directionX : -directionX;
                 directionY = (epoch.vy < 0.0f) == (directionY < 0) ? directionY : -directionY;
             }
             position[first + i] = encodeAxis(x, fieldWidth) | (encodeAxis(y, fieldHeight) << 16);
-            state[first + i] =
-                (static_cast<uint32_t>(directionX) & compact::directionMask) |
-                ((static_cast<uint32_t>(directionY) & compact::directionMask) << compact::directionBits) |
-                (color << compact::colorShift);
+            state[first + i] = (static_cast<uint32_t>(directionX) & compact::directionMask) |
+                               ((static_cast<uint32_t>(directionY) & compact::directionMask) << compact::directionBits) |
+                               (color << compact::colorShift);
             if (!tracksPacked()) {
                 continue;
             }
@@ -97,12 +114,15 @@ size_t CompactBallStore::add(std::span<const BallSpawn> spawns, const RangeRunne
                                                   renderPackScale(fieldHeight));
         }
     };
-    if (runRanges) {
-        runRanges(spawns.size(), encode);
+    // The Auto ramp hands over millions a frame; one thread encoding them took most of its frame budget.
+    constexpr size_t parallelAddBalls = size_t{1} << 14;
+    constexpr size_t addChunkBalls = size_t{1} << 12;
+    if (pool && toAdd >= parallelAddBalls) {
+        pool->runChunks(toAdd, addChunkBalls, encodeRange);
     } else {
-        encode(0, spawns.size());
+        encodeRange(0, 0, toAdd);
     }
-    return spawns.size();
+    return toAdd;
 }
 
 void CompactBallStore::moveBall(uint32_t from, uint32_t to) {
@@ -195,8 +215,11 @@ void CompactBallStore::takeCompactTail(size_t tailCount, CompactBalls& balls) {
 
 size_t CompactBallStore::addCompact(const CompactBalls& balls) {
     const size_t first = count;
-    const size_t added = std::min(balls.position.size(), balls.state.size());
-    if (!resize(count + added)) {
+    size_t added = std::min(balls.position.size(), balls.state.size());
+    if (isPreallocated()) {
+        added = std::min(added, roomLeft());
+    }
+    if (added == 0 || !resize(count + added)) {
         return 0;
     }
     std::copy_n(balls.position.begin(), added, position.begin() + static_cast<std::ptrdiff_t>(first));

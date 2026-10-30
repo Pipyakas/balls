@@ -1,17 +1,11 @@
 #include "game/SessionRunner.h"
 
-#include "common/WorkerPool.h"
+#include "game/PhysicsRate.h"
 
-#include "sim/DeviceComposer.h"
+#include "sim/HybridBackend.h"
 
 #include <algorithm>
 #include <thread>
-
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <windows.h>
-#endif
 
 namespace {
 
@@ -38,53 +32,6 @@ int& liveThreadCount() {
 double secondsBetween(Clock::time_point start, Clock::time_point end) {
     return std::chrono::duration<double>(end - start).count();
 }
-
-// Windows wakes a waiting thread on its 15.6 ms timer tick, so a physics frame asked for every 8.3 ms ran every 15.6
-// (64 a second) and one asked for every 16.7 ms every 31; raising the timer resolution is not honoured for a game
-// without a visible window. The physics thread instead sleeps in slices of at most a millisecond on a
-// high-resolution waitable timer, checking for commands between them, so a command still starts the next frame
-// within a millisecond.
-class PreciseSleeper {
-public:
-    PreciseSleeper() {
-#if defined(_WIN32)
-        timer = CreateWaitableTimerExW(nullptr, nullptr, CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
-#endif
-    }
-    ~PreciseSleeper() {
-#if defined(_WIN32)
-        if (timer) {
-            CloseHandle(timer);
-        }
-#endif
-    }
-    PreciseSleeper(const PreciseSleeper&) = delete;
-    PreciseSleeper& operator=(const PreciseSleeper&) = delete;
-
-    void sleepFor(Clock::duration duration) {
-#if defined(_WIN32)
-        if (timer) {
-            constexpr long long hundredNanosecondsPerSecond = 10'000'000;
-            LARGE_INTEGER due{};
-            due.QuadPart = -std::chrono::duration_cast<std::chrono::duration<long long, std::ratio<1, hundredNanosecondsPerSecond>>>(
-                                duration)
-                                .count();
-            if (SetWaitableTimer(timer, &due, 0, nullptr, nullptr, FALSE)) {
-                WaitForSingleObject(timer, INFINITE);
-                return;
-            }
-        }
-#endif
-        std::this_thread::sleep_for(duration);
-    }
-
-private:
-#if defined(_WIN32)
-    HANDLE timer = nullptr;
-#endif
-};
-
-constexpr auto longestSleepSlice = std::chrono::milliseconds(1);
 
 } // namespace
 
@@ -127,6 +74,40 @@ std::shared_ptr<const BrickBoard> boardFor(const Simulation& simulation, const s
     return std::make_shared<const BrickBoard>(board);
 }
 
+// Everything but the board and the balls, which the physics thread shares and recycles between views.
+void describeSessionState(const GameSession& session, SessionView& view) {
+    const Simulation& simulation = session.simulation();
+    view.mode = session.mode();
+    view.state = session.state();
+    view.elapsedSeconds = session.elapsedSeconds();
+    view.launchers = session.launchers();
+    view.pendingSpawn = session.spawner().pendingBalls();
+    view.autoReleasing = session.isAutoReleasing();
+    view.spawnRateIndex = session.spawnRateIndex();
+    view.ballMultiplierIndex = session.ballMultiplierIndex();
+    view.ballLimitIndex = session.ballLimitIndex();
+    view.ballLimit = session.ballLimit();
+    view.usingMachineLimit = session.isUsingMachineBallLimit();
+    view.machineLimit = session.machineBallLimit();
+    view.backend = session.backend();
+    view.pendingBackend = session.pendingBackend();
+    view.refilling = session.ballsLeftToRefill();
+    view.backendFault = session.lastBackendFault();
+    view.deviceStepMs = simulation.backend().deviceStepMs();
+    if (const auto* hybrid = dynamic_cast<const HybridBackend*>(&simulation.backend())) {
+        view.hybrid = HybridSplit{hybrid->cpuBallCount(), hybrid->ballCount(), hybrid->cpuStepMs(), hybrid->gpuStepMs()};
+    } else {
+        view.hybrid.reset();
+    }
+    view.collisionsRequested = simulation.ballCollisionsRequested();
+    view.collisionsActive = simulation.ballCollisionsActive();
+    view.stats = simulation.stats();
+    view.liveBalls = simulation.liveBallCount();
+    view.launchX = simulation.launchX();
+    view.launchY = simulation.launchY();
+    view.ballRadius = simulation.tuning().ballRadius;
+}
+
 // The last field size the backend reported, kept across frames: the grid is sized from it, and a size that changed
 // from frame to frame would make the backend rebuild its grid every frame.
 struct FieldSize {
@@ -134,9 +115,9 @@ struct FieldSize {
     float height = 1.0f;
 };
 
-void captureBalls(Simulation& simulation, float slotCells, bool drawing, FieldSize& field, BallFrame& frame) {
+void captureBalls(Simulation& simulation, float slotCells, FieldSize& field, BallFrame& frame) {
     PhysicsBackend& backend = simulation.backend();
-    if (backend.ballCount() == 0 || !drawing) {
+    if (backend.ballCount() == 0) {
         frame.packed.clear();
         return;
     }
@@ -155,155 +136,82 @@ void captureBalls(Simulation& simulation, float slotCells, bool drawing, FieldSi
     frame.packed.assign(snapshot.packed, snapshot.packed + snapshot.count);
 }
 
-HybridSplit hostDeviceSplit(const DeviceComposer& composer) {
-    HybridSplit split;
-    split.totalBalls = composer.ballCount();
-    for (size_t part = 0; part < composer.partCount(); ++part) {
-        if (composer.partOnHost(part)) {
-            split.cpuBalls += composer.partBallCount(part);
-            split.cpuStepMs = std::max(split.cpuStepMs, composer.partStepMs(part));
-        } else {
-            split.gpuStepMs = std::max(split.gpuStepMs, composer.partStepMs(part));
-        }
-    }
-    return split;
-}
-
 void fillView(GameSession& session, SessionView& view, const SessionView* previous, uint64_t& boardRevision,
-              float slotCells, bool drawing, FieldSize& field) {
-    Simulation& simulation = session.simulation();
-    view.mode = session.mode();
-    view.state = session.state();
-    view.elapsedSeconds = session.elapsedSeconds();
-    view.launchers = session.launchers();
-    view.pendingSpawn = session.spawner().pendingBalls() + session.queuedLaunches();
-    view.autoReleasing = session.isAutoReleasing();
-    view.spawnRateIndex = session.spawnRateIndex();
-    view.ballMultiplierIndex = session.ballMultiplierIndex();
-    view.ballLimitIndex = session.ballLimitIndex();
-    view.ballLimit = session.ballLimit();
-    view.usingMachineLimit = session.isUsingMachineBallLimit();
-    view.machineLimit = session.machineBallLimit();
-    view.probe = session.capacityProbe();
-    view.backend = session.backend();
-    view.pendingBackend = session.pendingBackend();
-    view.refilling = session.ballsLeftToRefill();
-    view.backendFault = session.lastBackendFault();
-    view.deviceStepMs = simulation.backend().deviceStepMs();
-    if (const auto* composer = dynamic_cast<const DeviceComposer*>(&simulation.backend())) {
-        view.hybrid = hostDeviceSplit(*composer);
-    } else {
-        view.hybrid.reset();
-    }
-    view.collisionsRequested = simulation.ballCollisionsRequested();
-    view.collisionsActive = simulation.ballCollisionsActive();
-    view.stats = simulation.stats();
-    view.liveBalls = simulation.liveBallCount();
-    view.board = boardFor(simulation, previous ? previous->board : nullptr, boardRevision);
-    view.launchX = simulation.launchX();
-    view.launchY = simulation.launchY();
-    view.ballRadius = simulation.tuning().ballRadius;
-    captureBalls(simulation, slotCells, drawing, field, view.balls);
+              float slotCells, FieldSize& field) {
+    describeSessionState(session, view);
+    view.board = boardFor(session.simulation(), previous ? previous->board : nullptr, boardRevision);
+    captureBalls(session.simulation(), slotCells, field, view.balls);
 }
 
 void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, LevelData level, BackendKind backend,
                 int ticksPerSecond) {
-    PreciseSleeper sleeper;
-    if (environmentNumber("BALLS_PIN_LATENCY_THREADS", 0) != 0) {
-        preferPerformanceCores();
-    }
     auto session = std::make_unique<GameSession>(mode, std::move(level), backend, ticksPerSecond);
+    const Clock::duration tickPeriod =
+        std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(session->simulation().tuning().tickSeconds));
+    Clock::duration framePeriod = tickPeriod;
+    PhysicsRate rate;
     uint64_t frameNumber = 0;
-    uint64_t boardRevision = ~0ull;
+    uint64_t boardRevision = 0;
     FieldSize field;
-    Clock::time_point lastUpdate = Clock::now();
-    Clock::time_point rateWindowStart = lastUpdate;
-    int framesInWindow = 0;
-    double framesPerSecond = 0.0;
-    double lastWorkSeconds = 0.0;
     bool wasPaused = false;
-    const double tickSeconds = session->simulation().tuning().tickSeconds;
-    Clock::duration framePeriod = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(tickSeconds));
-    Clock::duration probePeriod = Clock::duration::zero();
-    for (;;) {
-        std::vector<SessionRunner::Command> commands;
+    bool drawing = true;
+    Clock::time_point lastUpdate = Clock::now();
+    Clock::time_point nextTick = lastUpdate;
+
+    while (true) {
         PhysicsFrameInput input;
+        std::vector<SessionRunner::Command> commands;
         std::shared_ptr<SessionView> view;
         std::shared_ptr<const SessionView> previous;
         {
             std::unique_lock lock(shared->mutex);
-            // One frame per simulation tick: more would step nothing and only republish the same state. A command
-            // wakes the thread at once. While the capacity probe runs, frames come at about its target rate, each
-            // carrying that much simulated time; otherwise at the rate Settings > Advanced > Physics frames asks for.
-            const int requestedFramesPerSecond = shared->input.framesPerSecond;
-            const bool probePaced = probePeriod != Clock::duration::zero();
-            const bool unpaced = !probePaced && requestedFramesPerSecond < 0;
-            framePeriod = probePaced ? probePeriod
-                                     : std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(
-                                           requestedFramesPerSecond > 0 ? 1.0 / requestedFramesPerSecond : tickSeconds));
-            if (frameNumber > 0 && !unpaced) {
-                const Clock::time_point due = lastUpdate + framePeriod;
-                for (Clock::time_point now = Clock::now();
-                     now < due && !shared->stopping && shared->commands.empty(); now = Clock::now()) {
-                    lock.unlock();
-                    sleeper.sleepFor(std::min<Clock::duration>(due - now, longestSleepSlice));
-                    lock.lock();
-                }
+            while (!shared->stopping && Clock::now() < nextTick && shared->commands.empty()) {
+                shared->wake.wait_until(lock, nextTick);
             }
             if (shared->stopping) {
                 break;
             }
-            commands.swap(shared->commands);
             input = shared->input;
+            commands = std::exchange(shared->commands, {});
             previous = shared->latest;
             view = freeView(shared->pool, shared->latest);
         }
+        nextTick = Clock::now() + framePeriod;
         const Clock::time_point workStart = Clock::now();
         for (SessionRunner::Command& command : commands) {
             command(*session);
         }
         session->pollBackgroundWork();
-        session->simulation().backend().setDrawing(input.drawing);
         std::optional<SessionEvent> event;
         if (const auto outcome = session->takeBackendSwitchOutcome()) {
             event = SessionEvent{outcome->succeeded ? SessionEventKind::BackendSwitched : SessionEventKind::BackendFailed,
-                                 outcome->kind};
+                                 outcome->kind, outcome->forBallCollisions};
         }
         const double sinceLastUpdate = secondsBetween(lastUpdate, workStart);
         lastUpdate = workStart;
-        const CapacityProbe& probe = session->capacityProbe();
-        const bool probing = probe.isActive() && probe.targetFps() > 0.0;
-        if (!input.paused && probing) {
-            // The probe asks whether a frame carrying one target interval of ticks finishes within that interval,
-            // so each frame advances exactly that much and reports the longer of it and the work it took. A
-            // sleep's wake-up granularity (15.6 ms on Windows by default) then cannot read as a slow frame.
-            const double targetSeconds = 1.0 / probe.targetFps();
-            session->reportFrameSeconds(std::max({lastWorkSeconds, targetSeconds, input.uiWorkSeconds}),
-                                        std::max(lastWorkSeconds, input.uiWorkSeconds));
-            session->update(static_cast<float>(targetSeconds));
-        } else if (!input.paused) {
+        if (!input.paused) {
             // Coming out of a pause, the paused time is not simulated.
             const double frameSeconds = wasPaused ? 0.0 : std::min(sinceLastUpdate, maximumPhysicsFrameSeconds);
-            session->reportFrameSeconds(std::max(sinceLastUpdate, input.uiFrameSeconds),
-                                        std::max(lastWorkSeconds, input.uiWorkSeconds));
+            session->reportFrameWorkSeconds(std::max(rate.lastFrameSeconds(), input.uiWorkSeconds));
             session->update(static_cast<float>(frameSeconds));
         }
         wasPaused = input.paused;
-        probePeriod = probe.isActive() && probe.targetFps() > 0.0
-                          ? std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0 / probe.targetFps()))
-                          : Clock::duration::zero();
-        fillView(*session, *view, previous.get(), boardRevision, input.visibilitySlotCells, input.drawing, field);
-        const Clock::time_point workEnd = Clock::now();
-        lastWorkSeconds = secondsBetween(workStart, workEnd);
-        ++framesInWindow;
-        if (const double windowSeconds = secondsBetween(rateWindowStart, workEnd); windowSeconds >= 0.5) {
-            framesPerSecond = static_cast<double>(framesInWindow) / windowSeconds;
-            framesInWindow = 0;
-            rateWindowStart = workEnd;
+        // Settings > Advanced > Physics frames: 0 is one frame per tick, -1 as fast as the thread can go.
+        framePeriod = input.framesPerSecond > 0
+                          ? std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0 / input.framesPerSecond))
+                      : input.framesPerSecond < 0 ? Clock::duration::zero()
+                                                  : tickPeriod;
+        if (input.drawing != drawing) {
+            drawing = input.drawing;
+            session->simulation().backend().setDrawing(drawing);
         }
+        fillView(*session, *view, previous.get(), boardRevision, input.visibilitySlotCells, field);
+        rate.frame(workStart, Clock::now());
         view->frameNumber = ++frameNumber;
-        view->physicsFrameMs = lastWorkSeconds * 1000.0;
-        view->physicsFramesPerSecond = framesPerSecond;
+        view->physicsFrameMs = rate.lastFrameMs();
+        view->physicsFramesPerSecond = rate.framesPerSecond();
+        view->physicsLongestFrameMs = rate.longestFrameMs();
+        view->physicsSlowFrames = rate.slowFrameCount();
         {
             std::lock_guard lock(shared->mutex);
             shared->latest = view;
@@ -357,9 +265,34 @@ std::shared_ptr<const SessionView> SessionRunner::view() const {
     return shared->latest;
 }
 
+void SessionRunner::setBallCollisions(bool enabled) {
+    // The physics thread keeps Shared alive while it runs commands, so the raw pointer cannot dangle.
+    post([enabled, shared = shared.get()](GameSession& session) {
+        const BallCollisionsChange change = session.setBallCollisions(enabled);
+        if (change == BallCollisionsChange::None) {
+            return;
+        }
+        SessionEvent event{SessionEventKind::BallCollisionsChanged, session.backend()};
+        event.collisionsChange = change;
+        std::lock_guard lock(shared->mutex);
+        shared->events.push_back(event);
+    });
+}
+
 std::vector<SessionEvent> SessionRunner::takeEvents() {
     std::lock_guard lock(shared->mutex);
     return std::exchange(shared->events, {});
+}
+
+void describeSession(const GameSession& session, SessionView& view, const SessionView* previous) {
+    describeSessionState(session, view);
+    const BrickBoard& board = session.simulation().board();
+    // Like the physics thread's views, a board that has not changed is shared rather than copied.
+    if (previous && previous->board && previous->board->revision() == board.revision() && !board.isAnimating()) {
+        view.board = previous->board;
+    } else {
+        view.board = std::make_shared<const BrickBoard>(board);
+    }
 }
 
 bool SessionRunner::waitForStoppedRunners(std::chrono::milliseconds timeout) {

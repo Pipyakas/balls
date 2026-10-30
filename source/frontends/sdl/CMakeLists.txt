@@ -42,7 +42,7 @@ option(BALLS_WITH_WEBGPU "Build WebGPU desktop renderer alongside NVRHI" OFF)
 
 if(BALLS_WITH_WEBGPU OR BALLS_RENDERER STREQUAL "webgpu")
     if(ANDROID)
-        set(WGPU_PREBUILT_DIR "${CMAKE_SOURCE_DIR}/third_party/wgpu-native")
+        set(WGPU_PREBUILT_DIR "${CMAKE_SOURCE_DIR}/externals/wgpu-native")
         add_library(wgpu_native_lib INTERFACE)
         target_include_directories(wgpu_native_lib INTERFACE "${WGPU_PREBUILT_DIR}/include")
         target_link_directories(wgpu_native_lib INTERFACE "${WGPU_PREBUILT_DIR}/android/${ANDROID_ABI}")
@@ -103,14 +103,10 @@ set(BALLS_SDL_SOURCES
     app/Input.cpp
     app/Paths.cpp
     app/LaunchOptions.cpp
-    app/FrameTimings.cpp
-    app/MachineProfile.cpp
     app/PreferenceDirectory.cpp
-    control/ControlProtocol.cpp
     control/ControlServer.cpp
     render/RendererFactory.cpp
     render/BallView.cpp
-    render/Palette.cpp
     render/BoardRenderer.cpp
     render/LauncherRenderer.cpp
     render/ScreenLayout.cpp
@@ -232,7 +228,6 @@ if(ANDROID)
         ${CMAKE_SOURCE_DIR}/source/backends/cpu/CpuBallStore.cpp
         ${CMAKE_SOURCE_DIR}/source/backends/cpu/CompactBallStore.cpp
         ${CMAKE_SOURCE_DIR}/source/backends/cpu/ScalarBackend.cpp
-        ${CMAKE_SOURCE_DIR}/source/backends/cpu/WorkerPool.cpp
         ${CMAKE_SOURCE_DIR}/source/backends/cpu/CpuPlugin.cpp
     )
     target_include_directories(${BALLS_SDL_TARGET} PRIVATE ${CMAKE_SOURCE_DIR}/source/backends)

@@ -5,7 +5,10 @@
 #include "level/LevelRepository.h"
 
 #include <cmath>
+#include <algorithm>
+#include <chrono>
 #include <filesystem>
+#include <thread>
 
 namespace {
 
@@ -52,11 +55,54 @@ TEST_CASE("normal level can be cleared by releasing every launcher") {
     EXPECT(session.state() == SessionState::Won);
 }
 
+TEST_CASE("performance mode keeps releasing launchers once the board is cleared") {
+    LevelData level = loadSample("performance", "DA_1000Bricks");
+    std::fill(level.bricks.cellIds.begin(), level.bricks.cellIds.end(), emptyBrickId);
+    GameSession session(GameMode::Performance, std::move(level), BackendKind::Scalar);
+    const int launchers = session.launchers().launcherCount();
+    session.selectSpawnRate(static_cast<int>(spawnRateOptions.size()) - 1);
+    session.startAutoRelease();
+    for (int frame = 0; frame < 60; ++frame) {
+        session.update(1.0f / 60.0f);
+    }
+    EXPECT(session.state() == SessionState::Running);
+    EXPECT(session.launchers().launcherCount() < launchers - 1);
+}
+
+TEST_CASE("performance auto release spawns every color at once, however big each launcher is") {
+    LevelData level = loadSample("performance", "Unlimited");
+    std::fill(level.bricks.cellIds.begin(), level.bricks.cellIds.end(), emptyBrickId);
+    GameSession session(GameMode::Performance, std::move(level), BackendKind::Scalar);
+    session.startAutoRelease();
+    for (int frame = 0; frame < 60; ++frame) {
+        session.update(1.0f / 60.0f);
+    }
+    for (const BallCount balls : session.simulation().stats().ballsByColor) {
+        EXPECT(balls > 0);
+    }
+}
+
+TEST_CASE("Auto is the backend's capacity, and the ramp fills toward it over frames") {
+    GameSession session(GameMode::Performance, loadSample("performance", "DA_1000Bricks"), BackendKind::Scalar);
+    session.useCapacityBallLimit();
+    EXPECT(session.isUsingMachineBallLimit());
+    EXPECT(session.ballLimit() == static_cast<BallCount>(session.simulation().backend().ballCapacityLimit()));
+    EXPECT(session.simulation().liveBallCount() == 0);
+    session.fillToBallLimit();
+    for (int frame = 0; frame < 10; ++frame) {
+        session.update(1.0f / 60.0f);
+    }
+    EXPECT(session.simulation().liveBallCount() > 0);
+    session.selectBallLimit(0);
+    EXPECT(session.ballLimit() == ballLimitOptions[0]);
+}
+
 TEST_CASE("performance session waits for one click then releases automatically") {
     GameSession session(GameMode::Performance, loadSample("performance", "DA_1000Bricks"), BackendKind::Scalar);
     session.selectSpawnRate(static_cast<int>(spawnRateOptions.size()) - 1);
     session.update(1.0f / 60.0f);
     EXPECT(session.simulation().stats().totalBallsSpawned == 0);
+    session.selectSpawnRate(static_cast<int>(spawnRateOptions.size()) - 1);
     session.startAutoRelease();
     for (int frame = 0; frame < 10; ++frame) {
         session.update(1.0f / 60.0f);
@@ -64,37 +110,36 @@ TEST_CASE("performance session waits for one click then releases automatically")
     EXPECT(session.simulation().stats().totalBallsSpawned > 0);
 }
 
-TEST_CASE("spawn pacer caps a frame's additions by what making them costs") {
-    SpawnPacer pacer;
-    constexpr double secondsPerBall = 100e-9;
-    constexpr BallCount batch = 1'000'000;
-    for (int frame = 0; frame < 60; ++frame) {
-        pacer.recordSpawn(batch, secondsPerBall * static_cast<double>(batch));
-    }
-    const double expected = pacedFrameSeconds * spawnShareOfFrame / secondsPerBall;
-    EXPECT(std::abs(static_cast<double>(pacer.allowance()) - expected) < expected * 0.01);
+TEST_CASE("ball collisions on Scalar take effect at once") {
+    GameSession session(GameMode::Normal, loadSample("normal", "DA_FirstLevel"), BackendKind::Scalar);
+    EXPECT(session.setBallCollisions(true) == BallCollisionsChange::None);
+    EXPECT(session.simulation().ballCollisionsActive());
+    EXPECT(!session.pendingBackend().has_value());
+    EXPECT(session.setBallCollisions(false) == BallCollisionsChange::None);
+    EXPECT(!session.simulation().ballCollisionsRequested());
 }
 
-TEST_CASE("spawn pacer lets the balls on the board at most double per second") {
-    SpawnPacer pacer;
-    constexpr BallCount live = 1'000'000;
-    constexpr double frame = 1.0 / 60.0;
-    pacer.reportFrame(frame, live);
-    const double expected = static_cast<double>(live) * (std::exp2(liveBallDoublingsPerSecond * frame) - 1.0);
-    EXPECT(std::abs(static_cast<double>(pacer.allowance()) - expected) < expected * 0.01);
-}
-
-TEST_CASE("a large fill reaches the board over several frames, not in one") {
-    GameSession session(GameMode::Performance, loadSample("performance", "DA_1000Bricks"), BackendKind::Scalar);
-    constexpr BallCount fill = 200'000;
-    session.fillWithBalls(fill);
-    session.reportFrameSeconds(0.004, 0.004);
-    session.update(1.0f / 60.0f);
-    EXPECT(session.simulation().liveBallCount() < fill);
-    for (int frame = 0; frame < 600 && session.queuedLaunches() > 0; ++frame) {
-        session.reportFrameSeconds(0.004, 0.004);
-        session.update(1.0f / 60.0f);
+TEST_CASE("ball collisions on another backend move to Scalar only where Scalar is offered") {
+    if (!isBackendAvailable(BackendKind::Avx2)) {
+        return;
     }
-    EXPECT(session.queuedLaunches() == 0);
-    EXPECT(session.simulation().stats().totalBallsSpawned == fill);
+    GameSession session(GameMode::Normal, loadSample("normal", "DA_FirstLevel"), BackendKind::Avx2);
+    const BallCollisionsChange change = session.setBallCollisions(true);
+    EXPECT(session.simulation().ballCollisionsRequested());
+    if (!isBackendSelectable(BackendKind::Scalar)) {
+        EXPECT(change == BallCollisionsChange::ScalarNotOffered);
+        EXPECT(!session.pendingBackend().has_value());
+        return;
+    }
+    EXPECT(change == BallCollisionsChange::SwitchingToScalar);
+    EXPECT(session.pendingBackend() == BackendKind::Scalar);
+    std::optional<BackendSwitchOutcome> outcome;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!outcome && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        session.pollBackgroundWork();
+        outcome = session.takeBackendSwitchOutcome();
+    }
+    EXPECT(outcome && outcome->succeeded && outcome->forBallCollisions);
+    EXPECT(session.simulation().ballCollisionsActive());
 }

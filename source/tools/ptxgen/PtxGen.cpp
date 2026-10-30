@@ -11,8 +11,10 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -25,7 +27,7 @@ struct KernelImage {
 
 constexpr int warpMatchComputeMajor = 7;
 
-constexpr KernelImage kernelImages[] = {
+constexpr KernelImage defaultKernelImages[] = {
     {5, 0, true},  {6, 0, true},  {7, 0, true},  {7, 5, true},  {8, 0, true},
     {8, 6, true},  {8, 9, true},  {7, 5, false}, {5, 0, false},
 };
@@ -131,10 +133,10 @@ std::string compiledImage(nvrtcProgram program, const KernelImage& image) {
     return bytes;
 }
 
-void writeImageTable(std::ofstream& output) {
+void writeImageTable(std::ofstream& output, const std::vector<KernelImage>& images) {
     output << "\nstruct BallKernelImage {\n    int computeMajor;\n    int computeMinor;\n    bool binary;\n"
               "    const unsigned char* bytes;\n};\n\ninline constexpr BallKernelImage ballKernelImages[] = {\n";
-    for (const KernelImage& image : kernelImages) {
+    for (const KernelImage& image : images) {
         output << "    {" << image.computeMajor << ", " << image.computeMinor << ", "
                << (image.binary ? "true" : "false") << ", " << arrayName(image) << "},\n";
     }
@@ -155,19 +157,35 @@ void writeByteArray(std::ofstream& output, const std::string& name, const std::s
 }
 
 int main(int argumentCount, char** arguments) {
-    if (argumentCount < 3) {
-        std::cerr << "usage: balls_ptxgen <output.h> <header>... <kernel.cu>\n";
+    int argIndex = 1;
+    std::optional<int> onlySm;
+    if (argIndex < argumentCount && std::string_view(arguments[argIndex]).starts_with("--only-sm=")) {
+        const std::string_view arg(arguments[argIndex]);
+        const std::string_view smStr = arg.substr(10);
+        onlySm = std::stoi(std::string(smStr));
+        ++argIndex;
+    }
+
+    if (argumentCount - argIndex < 2) {
+        std::cerr << "usage: balls_ptxgen [--only-sm=NN] <output.h> <header>... <kernel.cu>\n";
         return 2;
     }
     if (!loadNvrtc(nvrtc)) {
         return 1;
     }
-    const std::filesystem::path outputPath = arguments[1];
+    const std::filesystem::path outputPath = arguments[argIndex];
     const std::filesystem::path kernelPath = arguments[argumentCount - 1];
+
+    std::vector<KernelImage> activeImages;
+    if (onlySm) {
+        activeImages.push_back({*onlySm / 10, *onlySm % 10, true});
+    } else {
+        activeImages.assign(std::begin(defaultKernelImages), std::end(defaultKernelImages));
+    }
 
     std::vector<std::string> headerContents;
     std::vector<std::string> headerNames;
-    for (int i = 2; i < argumentCount - 1; ++i) {
+    for (int i = argIndex + 1; i < argumentCount - 1; ++i) {
         const std::filesystem::path headerPath = arguments[i];
         headerContents.push_back(readFile(headerPath));
         headerNames.push_back(headerPath.filename().string());
@@ -183,7 +201,7 @@ int main(int argumentCount, char** arguments) {
     std::filesystem::create_directories(outputPath.parent_path());
     std::ofstream output(outputPath, std::ios::binary | std::ios::trunc);
     output << "#pragma once\n";
-    for (const KernelImage& image : kernelImages) {
+    for (const KernelImage& image : activeImages) {
         nvrtcProgram program{};
         if (!check(nvrtc.createProgram(&program, kernelSource.c_str(), kernelPath.filename().string().c_str(),
                                       static_cast<int>(headerContents.size()), headerContentPointers.data(),
@@ -211,6 +229,6 @@ int main(int argumentCount, char** arguments) {
         nvrtc.destroyProgram(&program);
         writeByteArray(output, arrayName(image), bytes);
     }
-    writeImageTable(output);
+    writeImageTable(output, activeImages);
     return 0;
 }

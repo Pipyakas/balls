@@ -20,15 +20,9 @@ struct LaunchOptions {
     bool background = false;
     bool hidden = false;
     bool vsync = false;
+    bool editor = false;
     int windowWidth = 1440;
     int windowHeight = 900;
 };
 
 LaunchOptions parseLaunchOptions(int argumentCount, char** arguments);
-std::optional<GameMode> parseGameMode(std::string_view text);
-// A kind name ("cuda", "hybrid") or device picks ("avx2@cpu+cuda@gpu0"). Picks that can run here become the
-// process-wide picks (setBackendPicks) and yield the kind they make; picks that cannot run yield nullopt.
-std::optional<BackendKind> parseBackendKind(std::string_view text);
-// The same for a value saved in Settings, where the old "Hybrid" or "CUDA+AVX2" (the pair the composer replaced)
-// reads as Hybrid over AVX2 on the CPU and CUDA on the default GPU.
-std::optional<BackendKind> parseSavedBackendKind(std::string_view text);

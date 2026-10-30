@@ -94,6 +94,18 @@ function Find-VisualStudio {
     return $null
 }
 
+# MSBuild builds with the MSVC version Microsoft.VCToolsVersion.v143.default.txt names, which can be one installed
+# only in part, without its libraries (the target PC has 14.34 like that beside a complete 14.44). The build names
+# the newest complete one instead.
+function Find-MsvcToolset([string]$visualStudio) {
+    $tools = Join-Path $visualStudio 'VC\Tools\MSVC'
+    $complete = Get-ChildItem $tools -Directory -ErrorAction SilentlyContinue |
+        Where-Object { Test-Path (Join-Path $_.FullName 'lib\x64\msvcrt.lib') } |
+        Sort-Object { [version]$_.Name } | Select-Object -Last 1
+    if ($complete) { return $complete.Name }
+    return $null
+}
+
 function Find-WindowsSdk {
     $roots = Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows Kits\Installed Roots' -ErrorAction SilentlyContinue
     if (-not $roots -or -not $roots.KitsRoot10) { return $null }
@@ -162,10 +174,14 @@ function Check-Git {
 function Check-Desktop([string]$buildDir) {
     $script:visualStudio = Find-VisualStudio
     $sdk = Find-WindowsSdk
-    if ($script:visualStudio -and $sdk) {
+    $toolset = if ($script:visualStudio) { Find-MsvcToolset $script:visualStudio } else { $null }
+    if ($script:visualStudio -and $sdk -and $toolset) {
         Report 'Visual Studio 2022' $true "C++ tools in $script:visualStudio"
+        Report 'MSVC toolset' $true $toolset
         Report 'Windows SDK' $true $sdk
+        $environment['BALLS_MSVC_TOOLSET'] = $toolset
     } else {
+        if ($script:visualStudio -and -not $toolset) { Report 'MSVC toolset' $false 'no MSVC version with its libraries installed' }
         if (-not $script:visualStudio) { Report 'Visual Studio 2022' $false 'needs the "Desktop development with C++" workload' }
         if (-not $sdk) { Report 'Windows SDK' $false 'needs a Windows 10/11 SDK with Direct3D 12 headers' }
         $override = '--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended'
@@ -309,6 +325,7 @@ function Check-Android {
 
 Write-Host "Checking this PC can build $Variant..."
 switch -Regex ($Variant) {
+    '^win32-scoring$' { Check-Desktop 'build\win32-scoring' }
     '^win32-nvrhi$' { Check-Desktop 'build\win32' }
     '^win32-(webgpu|sdlgpu)$' { Check-Desktop "build\$Variant" }
     '^android$' { Check-Android }

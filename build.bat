@@ -8,7 +8,10 @@ rem   build.bat --setup [...]           only check this PC can build it (with --
 rem Every build first runs its front end's setup check, which names what is missing and offers to install it.
 rem Each front end owns source\frontends\<name>\build.bat; this script only dispatches to them, and the menu lists
 rem whatever variants each of those reports with --variants, so a new front end needs no change here.
-cd /d "%~dp0"
+rem Front-end scripts are called by absolute path: called by a quoted relative one, a script that changes directory
+rem sees its own %~dp0 resolve against the new directory.
+set "ROOT=%~dp0"
+cd /d "%ROOT%"
 
 rem Started by double-clicking, the window would close before the result could be read.
 set "WAIT_AT_END="
@@ -19,7 +22,7 @@ setlocal EnableDelayedExpansion
 set "SETUP_FLAG="
 if /i "%~1"=="--setup" (set "SETUP_FLAG=--setup" & shift /1)
 if "%~1"=="" (
-    call source\frontends\sdl\build.bat %SETUP_FLAG%
+    call "%ROOT%source\frontends\sdl\build.bat" %SETUP_FLAG%
     goto :finish
 )
 if /i "%~1"=="--menu" goto :menu
@@ -33,14 +36,14 @@ if not exist "source\frontends\%~1\build.bat" (
     cmd /c exit 1
     goto :finish
 )
-call "source\frontends\%~1\build.bat" %SETUP_FLAG% %2
+call "%ROOT%source\frontends\%~1\build.bat" %SETUP_FLAG% %2
 goto :finish
 
 :menu
 set /a COUNT=0
 echo.
 echo Build which version?
-for /d %%F in (source\frontends\*) do (
+for /d %%F in ("%ROOT%source\frontends\*") do (
     if exist "%%F\build.bat" (
         for /f "tokens=1* delims=;" %%A in ('"%%F\build.bat" --variants') do (
             set /a COUNT+=1
@@ -69,7 +72,7 @@ goto :finish
 
 :usage
 echo Usage: build.bat [--setup] [--menu ^| ^<frontend^> [variant]]
-echo   no arguments   build the submission version: SDL + NVRHI for Windows, into dist\win32-sdl
+echo   no arguments   build the submission version: SDL + NVRHI, scoring profile, into dist\win32-sdl
 echo   --menu, -m     choose a front end and platform from a list
 echo   sdl android    build one variant directly; build.bat --menu lists them
 echo   --setup        only check this PC has what that build needs, offering to install anything missing

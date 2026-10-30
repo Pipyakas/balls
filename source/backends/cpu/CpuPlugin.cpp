@@ -1,7 +1,11 @@
+#include "common/Environment.h"
 #include "cpu/ScalarBackend.h"
 
 #if defined(BALLS_HAS_AVX2_BACKEND)
 #include "cpu/Avx2Backend.h"
+#endif
+#if defined(BALLS_HAS_ZEN4_BACKEND)
+#include "cpu/Zen4Backend.h"
 #endif
 
 #include <algorithm>
@@ -15,26 +19,19 @@ namespace {
 
 constexpr std::string_view scalarName = "Scalar";
 constexpr std::string_view avx2Name = "AVX2";
+constexpr std::string_view zen4Name = "Zen4";
 constexpr const char* noReason = "";
 constexpr const char* missingAvx2 = "CPU lacks AVX2/FMA";
+constexpr const char* missingZen4 = "CPU lacks AVX-512";
 constexpr const char* avx2NotBuilt = "AVX2 backend not built for this CPU architecture";
+constexpr const char* zen4NotBuilt = "Zen4 backend not built for this CPU architecture";
 constexpr const char* unknownKind = "unknown backend";
 
 constexpr const char* threadCountVariable = "BALLS_CPU_THREADS";
 
 unsigned int requestedThreadCount() {
-#if defined(_WIN32)
-    char* value = nullptr;
-    size_t length = 0;
-    if (_dupenv_s(&value, &length, threadCountVariable) != 0 || !value) {
-        return 0;
-    }
-    const int parsed = std::atoi(value);
-    std::free(value);
-#else
-    const char* value = std::getenv(threadCountVariable);
-    const int parsed = value ? std::atoi(value) : 0;
-#endif
+    const std::optional<std::string> value = environmentVariable(threadCountVariable);
+    const int parsed = value ? std::atoi(value->c_str()) : 0;
     return parsed > 0 ? static_cast<unsigned int>(parsed) : 0;
 }
 
@@ -59,12 +56,19 @@ BALLS_PLUGIN_EXPORT const char* ballsBackendUnavailableReason(const char* kindNa
         return avx2NotBuilt;
 #endif
     }
+    if (kind == zen4Name) {
+#if defined(BALLS_HAS_ZEN4_BACKEND)
+        return Zen4Backend::isSupportedByCpu() ? noReason : missingZen4;
+#else
+        return zen4NotBuilt;
+#endif
+    }
     return unknownKind;
 }
 
 BALLS_PLUGIN_EXPORT const char* ballsBackendDetail(const char* kindName) {
     static std::string detail;
-    detail = std::string_view(kindName) == avx2Name ? std::format("{} threads", threadCount()) : std::string("1 thread");
+    detail = (std::string_view(kindName) == avx2Name || std::string_view(kindName) == zen4Name) ? std::format("{} threads", threadCount()) : std::string("1 thread");
     return detail.c_str();
 }
 
@@ -78,6 +82,11 @@ BALLS_PLUGIN_EXPORT PhysicsBackend* ballsCreateBackend(const char* kindName) {
         return new Avx2Backend(threadCount());
     }
 #endif
+#if defined(BALLS_HAS_ZEN4_BACKEND)
+    if (kind == zen4Name && Zen4Backend::isSupportedByCpu()) {
+        return new Zen4Backend(threadCount());
+    }
+#endif
     return nullptr;
 }
 
@@ -86,7 +95,7 @@ BALLS_PLUGIN_EXPORT void ballsDestroyBackend(PhysicsBackend* backend) { delete b
 // The CPU plugin runs on one device, the processor the game runs on; the host names it.
 BALLS_PLUGIN_EXPORT int ballsDeviceCount(const char* kindName) {
     const std::string_view kind(kindName);
-    return kind == scalarName || kind == avx2Name ? 1 : 0;
+    return kind == scalarName || kind == avx2Name || kind == zen4Name ? 1 : 0;
 }
 
 BALLS_PLUGIN_EXPORT int ballsDeviceInfo(const char* kindName, int device, PhysicsDeviceInfo* info) {

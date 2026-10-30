@@ -230,7 +230,7 @@ TEST_CASE("every available backend matches the scalar reference") {
             std::abs(reference.board().aliveBrickCount() - candidate.board().aliveBrickCount());
         const auto ballsDifference =
             std::abs(static_cast<long long>(referenceBalls) - static_cast<long long>(candidateBalls));
-        EXPECT(bricksDifference <= reference.board().bricks().size() / 20);
+        EXPECT(static_cast<size_t>(bricksDifference) <= reference.board().bricks().size() / 20);
         EXPECT(ballsDifference <= static_cast<long long>(referenceBalls / 20 + 10));
         for (size_t color = 0; color < ballColorCount; ++color) {
             const BallCount referenceColor = reference.stats().ballsByColor[color];
@@ -351,7 +351,7 @@ TEST_CASE("balls a new backend cannot hold are handed back to be launched again"
     simulation.load(makeLayout(singleBrickLevel));
     simulation.backend().addBalls(scatteredBalls(1'000));
     const BackendReplacement replacement = simulation.replaceBackend(
-        BackendHandle(new SmallBackend(true), BackendRelease{[](PhysicsBackend* backend) { delete backend; }}));
+        BackendHandle(new SmallBackend(true), BackendRelease{[](PhysicsBackend* backend) { delete backend; }, nullptr}));
     EXPECT(replacement.ballsToRefill == 1'000);
     EXPECT(simulation.backend().ballCount() == 0);
 }
@@ -361,7 +361,7 @@ TEST_CASE("balls a new backend drops partway are counted and handed back") {
     simulation.load(makeLayout(singleBrickLevel));
     simulation.backend().addBalls(scatteredBalls(1'000));
     const BackendReplacement replacement = simulation.replaceBackend(
-        BackendHandle(new SmallBackend(false), BackendRelease{[](PhysicsBackend* backend) { delete backend; }}), 100);
+        BackendHandle(new SmallBackend(false), BackendRelease{[](PhysicsBackend* backend) { delete backend; }, nullptr}), 100);
     EXPECT(simulation.backend().ballCount() == 300);
     EXPECT(replacement.ballsToRefill == 700);
 }

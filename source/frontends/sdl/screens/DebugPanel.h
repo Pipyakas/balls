@@ -1,6 +1,6 @@
 #pragma once
 
-#include "app/FrameTimings.h"
+#include "game/FrameTimings.h"
 #include "game/SessionView.h"
 
 #include "app/Input.h"
@@ -16,5 +16,5 @@ struct DebugPanelState {
 // showBackend follows the control gadget's Advanced Settings section: closed, the backend and device rows are hidden.
 // deviceDescription: what the renderer runs on, shown instead of the physics device when set.
 void drawDebugPanel(Rect area, const SessionView& session, const FrameTimings& frames, DebugPanelState& state,
-                    bool showBackend, std::string_view deviceDescription = {});
+                    bool showBackend, std::string_view deviceDescription = {}, std::string_view renderer = {});
 void drawPortraitDebugStrip(Rect area, const SessionView& session, const FrameTimings& frames, bool showBackend);

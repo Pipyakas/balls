@@ -1,5 +1,7 @@
 #include "cuda/CudaBackend.h"
 
+#include "common/WorkerPool.h"
+
 #include <algorithm>
 #include <cmath>
 #include <thread>
@@ -19,6 +21,7 @@ constexpr size_t heldBytesPerBall = 8;
 constexpr size_t deviceMemoryReserve = size_t{256} << 20;
 constexpr unsigned int minimumKilledCapacity = 1024;
 constexpr size_t encodeChunkBalls = size_t{1} << 13;
+constexpr unsigned int maximumKilledCapacity = 1u << 22;
 constexpr float positionScale = 65535.0f;
 constexpr unsigned int positionMask = 0xFFFFu;
 constexpr int directionBits = 13;
@@ -269,6 +272,9 @@ size_t CudaBackend::ballCapacityLimit() const {
     if (isFaulted()) {
         return count;
     }
+    if (fixedCapacity) {
+        return capacity;
+    }
     driver.makeCurrent();
     size_t freeBytes = 0;
     size_t totalBytes = 0;
@@ -279,6 +285,122 @@ size_t CudaBackend::ballCapacityLimit() const {
     return capacity + spare / heldBytesPerBall;
 }
 
+// 512 MB stays free for the renderer (interop buffers, framebuffers, the visibility grid), the display driver and
+// the board's own arrays.
+constexpr size_t preallocateGpuReserveBytes = size_t{512} << 20;
+// Position and state, plus the two sort buffers the cell sort writes them into.
+constexpr size_t preallocatedBytesPerBall = 16;
+// The part of the reserve a board's arrays may take before the ball arrays make room for them.
+constexpr size_t boardBytesInReserve = preallocateGpuReserveBytes / 4;
+
+size_t CudaBackend::preallocatedBallsFor(size_t freeBytes) {
+    const size_t usableBytes = freeBytes > preallocateGpuReserveBytes ? freeBytes - preallocateGpuReserveBytes : 0;
+    return usableBytes / preallocatedBytesPerBall / capacityGranule * capacityGranule;
+}
+
+void CudaBackend::freeBallArrays() {
+    const auto& api = driver.api();
+    for (CUdeviceptr* buffer : {&balls.position, &balls.state, &sortedPosition, &sortedState}) {
+        if (*buffer) {
+            api.memFree(*buffer);
+            *buffer = 0;
+        }
+    }
+    capacity = 0;
+    sortedCapacity = 0;
+}
+
+// Replaces the ball arrays with ones of exactly this many balls; with none held, nothing needs copying.
+bool CudaBackend::allocateFixedBallArrays(size_t ballCapacity) {
+    freeBallArrays();
+    const auto& api = driver.api();
+    const size_t bytes = ballCapacity * sizeof(uint32_t);
+    if (api.memAlloc(&balls.position, bytes) != CUDA_SUCCESS || api.memAlloc(&balls.state, bytes) != CUDA_SUCCESS ||
+        api.memAlloc(&sortedPosition, bytes) != CUDA_SUCCESS || api.memAlloc(&sortedState, bytes) != CUDA_SUCCESS) {
+        freeBallArrays();
+        return false;
+    }
+    capacity = ballCapacity;
+    sortedCapacity = ballCapacity;
+    return true;
+}
+
+size_t CudaBackend::preallocateBalls() {
+    if (isFaulted()) {
+        return 0;
+    }
+    driver.makeCurrent();
+    if (fixedCapacity) {
+        return capacity;
+    }
+    // Everything is freed first so the whole budget is one contiguous carve. The sort cursors (bounded by
+    // maxSortCells) and the render words go in before it, so carving again for a board measures the same free
+    // memory. Render words are only kept while there are fewer balls than visibility-grid cells, so sizing them
+    // for a 4K grid covers any window; a bigger grid still grows them once, from the reserve.
+    releaseSortBuffers();
+    if (growInPlace) {
+        for (GrowableDeviceArray* array : {&positionArray, &stateArray, &sortedPositionArray, &sortedStateArray}) {
+            array->release();
+        }
+        balls.position = balls.state = sortedPosition = sortedState = 0;
+        capacity = 0;
+        sortedCapacity = 0;
+        growInPlace = false;
+    }
+    freeBallArrays();
+    constexpr size_t packedBallsUpFront = size_t{8} << 20;
+    ensureArray(cellCursors, static_cast<size_t>(maxSortCells) * sizeof(int32_t));
+    ensurePackedCapacity(packedBallsUpFront);
+    size_t freeBytes = 0;
+    size_t totalBytes = 0;
+    const size_t targetCapacity =
+        driver.api().memGetInfo(&freeBytes, &totalBytes) == CUDA_SUCCESS ? preallocatedBallsFor(freeBytes) : 0;
+    if (targetCapacity == 0 || !allocateFixedBallArrays(targetCapacity)) {
+        ensureBallCapacity(initialBallCapacity);
+        return 0;
+    }
+    fixedCapacity = true;
+    preallocatedCapacity = targetCapacity;
+    return capacity;
+}
+
+// Bytes the board's own arrays take: cells (padded cells, cell words, targets, near-brick flags), bricks (colors,
+// hits left) and one tick's kill records.
+size_t CudaBackend::boardBytes(const BoardUpload& board) {
+    BallCount totalHits = 0;
+    for (const int32_t hits : board.brickHitsLeft) {
+        totalHits += static_cast<BallCount>(std::max(hits, 0));
+    }
+    const size_t killed = static_cast<size_t>(std::clamp<BallCount>(totalHits, minimumKilledCapacity, maximumKilledCapacity));
+    return board.paddedCells.size() * 4 * sizeof(int32_t) + board.brickColors.size() * 2 * sizeof(int32_t) +
+           killed * (killedRecordWords + 1) * sizeof(uint32_t);
+}
+
+void CudaBackend::releaseArray(DeviceArray& array) {
+    if (array.pointer) {
+        driver.api().memFree(array.pointer);
+    }
+    array = {};
+}
+
+// After a board's arrays are in, the ball arrays take what is left, up to the preallocated capacity. The reserve
+// already holds a board of up to boardBytesInReserve, so such a board lands on the preallocated capacity exactly.
+void CudaBackend::carveBallArraysAfterBoard(size_t boardArrayBytes) {
+    size_t freeBytes = 0;
+    size_t totalBytes = 0;
+    const size_t boardInReserve = std::min(boardArrayBytes, boardBytesInReserve);
+    size_t wanted = driver.api().memGetInfo(&freeBytes, &totalBytes) == CUDA_SUCCESS
+                        ? std::min(preallocatedCapacity, preallocatedBallsFor(freeBytes + boardInReserve))
+                        : 0;
+    while (wanted >= capacityGranule && !allocateFixedBallArrays(wanted)) {
+        wanted = (wanted - wanted / 8) / capacityGranule * capacityGranule;
+    }
+    if (capacity == 0) {
+        fixedCapacity = false;
+        ensureBallCapacity(initialBallCapacity);
+    }
+}
+
 // Running out of device memory is the expected ceiling once balls fly freely, so it leaves the backend usable
 // with the capacity it already has instead of faulting.
 bool CudaBackend::ensureBallCapacity(size_t required) {
@@ -287,6 +409,9 @@ bool CudaBackend::ensureBallCapacity(size_t required) {
     }
     if (required <= capacity) {
         return true;
+    }
+    if (fixedCapacity) {
+        return false;
     }
     if (growInPlace) {
         return growInPlaceTo(required);
@@ -396,8 +521,11 @@ bool CudaBackend::growInPlaceTo(size_t required) {
 }
 
 // Near the top of device memory the old and new arrays do not fit side by side, so the balls wait in host memory
-// while the device arrays are replaced. Only the capacity probe grows this far, so the copy's cost is a one-off.
+// while the device arrays are replaced. Only filling to capacity grows this far, so the copy's cost is a one-off.
 bool CudaBackend::growThroughHost(size_t wanted) {
+    if (fixedCapacity) {
+        return false;
+    }
     const auto& api = driver.api();
     std::vector<uint32_t> heldPosition(count);
     std::vector<uint32_t> heldState(count);
@@ -461,10 +589,32 @@ void CudaBackend::uploadBoard(const BoardUpload& board) {
         return;
     }
     driver.makeCurrent();
-    if (board.onlyChangedCells && uploadedCellWords == board.paddedCells.size()) {
-        applyChangedCellWords(board);
-    } else {
+    const bool wholeBoard = !board.onlyChangedCells || uploadedCellWords != board.paddedCells.size();
+    // The board's arrays come out of the reserve. A board too big for its share of it (or the first board after
+    // one) would leave the renderer short, so while no balls are held, which is when a level loads, the ball
+    // arrays are carved again around the new board's: smaller for a huge board, back to full for a normal one.
+    // The capacity then depends on the board alone, and nothing is copied.
+    const size_t boardArrayBytes = fixedCapacity && wholeBoard ? boardBytes(board) : 0;
+    const bool recarve = fixedCapacity && count == 0 && wholeBoard &&
+                         (capacity != preallocatedCapacity || boardArrayBytes > boardBytesInReserve);
+    if (recarve) {
+        freeBallArrays();
+        for (DeviceArray* array : {&paddedCells, &brickColors, &cellWords}) {
+            releaseArray(*array);
+        }
+        if (!board.targetCells.empty()) {
+            releaseArray(targetCells);
+        }
+        if (!board.brickHitsLeft.empty()) {
+            for (DeviceArray* array : {&brickHitsLeft, &killedIndices, &holes}) {
+                releaseArray(*array);
+            }
+        }
+    }
+    if (wholeBoard) {
         uploadWholeBoard(board);
+    } else {
+        applyChangedCellWords(board);
     }
     if (!board.targetCells.empty()) {
         upload(targetCells, board.targetCells.data(), board.targetCells.size_bytes());
@@ -477,6 +627,9 @@ void CudaBackend::uploadBoard(const BoardUpload& board) {
         for (size_t i = 0; i + 1 < board.brickHitUpdates.size(); i += 2) {
             hostBrickHitsLeft[static_cast<size_t>(board.brickHitUpdates[i])] = board.brickHitUpdates[i + 1];
         }
+    }
+    if (recarve) {
+        carveBallArraysAfterBoard(boardArrayBytes);
     }
     fieldWidth = static_cast<float>(board.columns);
     fieldHeight = static_cast<float>(board.rows);
@@ -532,10 +685,23 @@ void CudaBackend::uploadBrickHits(std::span<const int32_t> hitsLeft) {
     for (int32_t hits : hostBrickHitsLeft) {
         totalHits += static_cast<BallCount>(std::max(hits, 0));
     }
-    killedCapacity = static_cast<unsigned int>(
-        std::clamp<BallCount>(totalHits, minimumKilledCapacity, maximumKillsPerStep));
+    // A kill past the capacity puts its hit back for the next tick, so a level with billions of hits needs only
+    // enough records for one tick's worth.
+    killedCapacity = static_cast<unsigned int>(std::clamp<BallCount>(totalHits, minimumKilledCapacity, maximumKilledCapacity));
     ensureArray(killedIndices, static_cast<size_t>(killedCapacity) * killedRecordWords * 4);
     ensureArray(holes, static_cast<size_t>(killedCapacity) * 4);
+}
+
+// The Auto ramp hands over millions of balls a frame; one thread encoding them took most of its frame budget.
+template <typename Encode>
+void encodeInParallel(size_t count, const Encode& encode) {
+    constexpr size_t chunkBalls = size_t{1} << 12;
+    if (count <= chunkBalls * 4) {
+        encode(0, count);
+        return;
+    }
+    static WorkerPool pool(std::max(1u, std::thread::hardware_concurrency()));
+    pool.runChunks(count, chunkBalls, [&](size_t, size_t begin, size_t end) { encode(begin, end); });
 }
 
 void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {
@@ -547,6 +713,9 @@ void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {
         return;
     }
     const size_t added = std::min(spawns.size(), capacity - count);
+    if (added == 0) {
+        return;
+    }
     uint32_t* pinned = uploadStaging(added);
     std::vector<uint32_t> pageable(pinned ? 0 : added * 3);
     uint32_t* const position = pinned ? pinned : pageable.data();
@@ -566,11 +735,10 @@ void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {
             float x = spawn.x;
             float y = spawn.y;
             if (frozen) {
-                // Projected with the quantized direction the kernels decode, flipping only the signs, so
-                // flying forward from the epoch lands on the spawn point.
+                // Projected with the quantized direction the kernels decode, flipping only the signs, so flying
+                // forward from the epoch lands on the spawn point.
                 const float scale = ballSpeed / std::max(std::hypot(static_cast<float>(directionX),
-                                                                    static_cast<float>(directionY)),
-                                                         1.0f);
+                                                                    static_cast<float>(directionY)), 1.0f);
                 const FreeFlightPosition epoch =
                     flyFreelyBackwards(x, y, static_cast<float>(directionX) * scale,
                                        static_cast<float>(directionY) * scale, ticksSinceEpoch, lastParams);
@@ -581,8 +749,7 @@ void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {
             }
             position[i] = encodeAxis(x, fieldWidth) | (encodeAxis(y, fieldHeight) << 16);
             state[i] = (static_cast<uint32_t>(directionX) & directionMask) |
-                       ((static_cast<uint32_t>(directionY) & directionMask) << directionBits) |
-                       (color << colorShift);
+                       ((static_cast<uint32_t>(directionY) & directionMask) << directionBits) | (color << colorShift);
             packed[i] = packBallForRender(spawn.x, spawn.y, spawn.color, renderPackScale(fieldWidth),
                                           renderPackScale(fieldHeight));
         }
@@ -612,6 +779,7 @@ void CudaBackend::addBalls(std::span<const BallSpawn> spawns) {
         }
     }
     count += added;
+    sortSchedule.ballsAdded(added, count);
     snapshotFresh = false;
 }
 
@@ -945,6 +1113,9 @@ bool CudaBackend::downloadGrid() {
 }
 
 void CudaBackend::releaseSortBuffers() {
+    if (fixedCapacity) {
+        return;
+    }
     if (growInPlace) {
         sortedPositionArray.shrinkTo(0);
         sortedStateArray.shrinkTo(0);
@@ -974,6 +1145,9 @@ bool CudaBackend::ensureSortBuffers() {
     }
     if (sortedCapacity == capacity && sortedPosition && sortedState) {
         return true;
+    }
+    if (fixedCapacity) {
+        return sortedPosition && sortedState && sortedCapacity >= capacity;
     }
     const auto& api = driver.api();
     releaseSortBuffers();
@@ -1091,7 +1265,9 @@ bool CudaBackend::takeCompactTail(size_t tailCount, CompactBalls& taken) {
 bool CudaBackend::addCompact(const CompactBalls& added) {
     driver.makeCurrent();
     materializeFreeFlight();
-    const size_t addedCount = std::min(added.position.size(), added.state.size());
+    const size_t availableRoom = capacity > count ? capacity - count : 0;
+    const size_t addedCount = std::min({added.position.size(), added.state.size(),
+                                        fixedCapacity ? availableRoom : std::numeric_limits<size_t>::max()});
     if (isFaulted()) {
         return false;
     }
@@ -1114,6 +1290,7 @@ bool CudaBackend::addCompact(const CompactBalls& added) {
         succeeded(api.memcpyHostToDevice(balls.packed + offset, packed.data(), addedCount * 4), "upload packed");
     }
     count += addedCount;
+    sortSchedule.ballsAdded(addedCount, count);
     snapshotFresh = false;
     return !isFaulted();
 }

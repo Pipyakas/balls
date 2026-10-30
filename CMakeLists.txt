@@ -1,20 +1,45 @@
 cmake_minimum_required(VERSION 3.22)
 project(balls VERSION 0.1.0 LANGUAGES CXX C)
 
+# A PC can have MSBuild's default MSVC version installed without its libraries (the target PC does). build.bat names
+# a complete one in VCToolsVersion for the first configure; the projects keep it, so later builds use it without it.
+if(CMAKE_GENERATOR MATCHES "Visual Studio")
+    set(BALLS_VCTOOLS_VERSION "$ENV{VCToolsVersion}" CACHE STRING "MSVC version the Visual Studio projects build with (empty: MSBuild's default)")
+    if(BALLS_VCTOOLS_VERSION)
+        list(APPEND CMAKE_VS_GLOBALS "VCToolsVersion=${BALLS_VCTOOLS_VERSION}")
+    endif()
+endif()
+
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+set(BALLS_PROFILE "all" CACHE STRING "Target profile to build: all or scoring")
+set_property(CACHE BALLS_PROFILE PROPERTY STRINGS all scoring)
+
+# The scoring profile builds only what the target PC (i9-14900K, GTX 1650 sm_75) runs: the CUDA+AVX2 pair, with
+# every ball allocated up front. "all" is the extended build with every backend and front-end feature.
+if(BALLS_PROFILE STREQUAL "scoring")
+    set(BALLS_ENABLE_ROCM OFF CACHE BOOL "ROCm backend disabled in scoring profile" FORCE)
+    set(BALLS_ENABLE_CUDA ON CACHE BOOL "CUDA backend required in scoring profile" FORCE)
+    set(BALLS_BUILD_UNITY_PLUGIN OFF CACHE BOOL "No Unity plugin in scoring profile" FORCE)
+    set(BALLS_WHOLE_PROGRAM_OPTIMIZATION ON CACHE BOOL "Whole-program optimization enabled in scoring profile" FORCE)
+endif()
+
 set(BALLS_FRONTEND "sdl" CACHE STRING "Game front end to build: sdl or none")
 set_property(CACHE BALLS_FRONTEND PROPERTY STRINGS sdl none)
 option(BALLS_BUILD_TOOLS "Build tests and benchmarks" ON)
+option(BALLS_BUILD_UNITY_PLUGIN "Build the C ABI plugin the Unity front end loads" ON)
 option(BALLS_ENABLE_CUDA "Build the CUDA physics backend (needs NVRTC at build time)" ON)
 option(BALLS_STATIC_CRT "Link the static MSVC runtime (physics plugins need the shared runtime)" OFF)
 # Off by default: it made no measurable difference to the physics (AVX2 972 vs 985 M ball-steps/s, the CUDA work
 # runs on the GPU) and redid code generation for the whole program at every link, which made a one-line change
-# take 19 s to rebuild instead of 5. Renamed from BALLS_LTO so existing build trees drop their cached ON.
+# take 19 s to rebuild instead of 5.
 option(BALLS_WHOLE_PROGRAM_OPTIMIZATION "Enable whole-program optimization (/GL /LTCG)" OFF)
 set(BALLS_CUDA_SDK_DIR "${CMAKE_SOURCE_DIR}/.deps/cuda/sdk" CACHE PATH "Directory with CUDA include/ and bin/ (scripts/FetchCudaSdk.ps1)")
+option(BALLS_ENABLE_ROCM "Build the ROCm physics backend (needs HSA headers and an amdgcn clang)" ON)
+set(BALLS_ROCM_SDK_DIR "${CMAKE_SOURCE_DIR}/.deps/rocm" CACHE PATH "Directory with ROCm HSA include/ (scripts/FetchRocmSdk.sh)")
+set(BALLS_ROCM_CLANG "/usr/lib64/rocm/llvm/bin/clang" CACHE PATH "amdgcn-capable clang for ROCm code objects")
 
 if(BALLS_STATIC_CRT)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -41,10 +66,24 @@ if(MSVC)
         set(BALLS_LINK_OPTIMIZE $<$<CONFIG:Release,RelWithDebInfo>:/LTCG>)
     endif()
     set(BALLS_AVX2_FLAGS /arch:AVX2)
+    set(BALLS_AVX512_FLAGS /arch:AVX512)
 else()
-    set(BALLS_WARNINGS -Wall -Wextra -Wpedantic)
+    # Aggregates here rely on default member initializers for the members they leave out, which -Wextra reports as
+    # missing initializers.
+    set(BALLS_WARNINGS -Wall -Wextra -Wpedantic -Wno-missing-field-initializers)
     set(BALLS_OPTIMIZE $<$<CONFIG:Release,RelWithDebInfo>:-O3 -ffast-math>)
-    set(BALLS_AVX2_FLAGS -mavx2 -mfma)
+    if(BALLS_PROFILE STREQUAL "scoring")
+        set(BALLS_AVX2_FLAGS -mavx2 -mfma -mtune=raptorlake)
+    else()
+        set(BALLS_AVX2_FLAGS -mavx2 -mfma)
+    endif()
+    set(BALLS_AVX512_FLAGS -mavx512f -mavx512bw -mavx512dq -mavx512vl -mavx512vbmi2 -mavx512vpopcntdq -mfma -mbmi2 -mtune=znver4)
+endif()
+
+if(BALLS_PROFILE STREQUAL "scoring")
+    # Global fixed-target configuration: target PC is known (i9-14900K + GTX 1650), so AVX2 and FMA are universal.
+    add_compile_definitions(BALLS_FIXED_TARGET=1)
+    add_compile_options(${BALLS_AVX2_FLAGS})
 endif()
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
@@ -97,13 +136,17 @@ endif()
 add_subdirectory(source/core)
 add_subdirectory(source/backends)
 
+if(BALLS_BUILD_UNITY_PLUGIN)
+    add_subdirectory(source/plugin)
+endif()
+
 if(BALLS_FRONTEND STREQUAL "sdl")
     add_subdirectory(source/frontends/sdl)
 endif()
 
 # The Vulkan physics plugin is desktop-only: its link group needs CMake 3.24+, and Android runs
-# physics through the statically linked CPU backend instead.
-if(TARGET nvrhi AND TARGET nvrhi_vk AND NOT ANDROID AND NOT EMSCRIPTEN)
+# physics through the statically linked CPU backend instead. The scoring profile runs physics on CUDA and AVX2 only.
+if(TARGET nvrhi AND TARGET nvrhi_vk AND NOT ANDROID AND NOT EMSCRIPTEN AND NOT BALLS_PROFILE STREQUAL "scoring")
     add_subdirectory(source/backends/vulkan)
 endif()
 
@@ -161,16 +204,27 @@ if(TARGET nvrhi AND TARGET nvrhi_vk)
 endif()
 
 enable_testing()
-add_executable(balls_tests source/tests/TestMain.cpp source/tests/LevelTests.cpp source/tests/SimulationTests.cpp
-    source/tests/GameTests.cpp source/tests/SessionRunnerTests.cpp source/tests/ProbeTests.cpp source/tests/EditorTests.cpp source/tests/SettingsTests.cpp
+add_executable(balls_tests source/tests/TestMain.cpp source/tests/LevelTests.cpp source/tests/GameplayRulesTests.cpp source/tests/SimulationTests.cpp
+    source/tests/GameTests.cpp source/tests/SessionRunnerTests.cpp source/tests/EditorTests.cpp source/tests/SettingsTests.cpp
     source/tests/BrickBoardTests.cpp
     source/tests/LayoutTests.cpp
+    source/tests/EditorSessionTests.cpp
+    source/tests/MenuModelTests.cpp
+    source/tests/ScreenFlowTests.cpp
+    source/tests/PhysicsRateTests.cpp
+    source/tests/AdditionGovernorTests.cpp
+    source/tests/ThemeTests.cpp
     source/tests/FreeFlightTests.cpp
+    source/tests/PreallocationTests.cpp
     source/tests/LevelImportTests.cpp
     source/tests/BenchmarkTests.cpp
     source/tests/GpuAdapterTests.cpp
     source/tests/DeviceTests.cpp
-    source/tests/ComposerTests.cpp)
+    source/tests/ComposerTests.cpp
+    source/tests/MachineProfileTests.cpp
+    source/tests/FrameTimingsTests.cpp
+    source/tests/LevelWatcherTests.cpp
+    source/tests/ControlApiTests.cpp)
 target_link_libraries(balls_tests PRIVATE balls_core)
 add_dependencies(balls_tests balls_physics_plugins)
 target_compile_options(balls_tests PRIVATE ${BALLS_WARNINGS})

@@ -1,0 +1,54 @@
+#include "/Engine/Private/Common.ush"
+
+StructuredBuffer<uint> PackedBalls;
+float4x4 BoardToClip;
+float2 UnpackScale;
+float Radius;
+float Brightness;
+float OutputGamma;
+// Profiling switch: send every quad off-screen so only the vertex work runs.
+float VertexOnly;
+float4 Palette[8];
+
+// One triangle per ball: the equilateral triangle that circumscribes the unit disc. Measured at 4M balls the pass
+// is vertex-bound (removing every fragment only saved 3 ms of 12), so halving the vertex count is the lever, and
+// the 30% of extra pixels the triangle covers outside the circle are discarded.
+static const float2 QuadCorners[3] = {
+    float2(-1.7320508, -1.0), float2(1.7320508, -1.0), float2(0.0, 2.0),
+};
+
+void MainVS(uint VertexId : SV_VertexID, uint InstanceId : SV_InstanceID,
+            out float4 OutPosition : SV_POSITION, out float2 OutLocal : TEXCOORD0,
+            out nointerpolation float3 OutColor : TEXCOORD1)
+{
+    const uint Packed = PackedBalls[InstanceId];
+    const float2 Center = float2(Packed & 16383u, (Packed >> 14u) & 16383u) * UnpackScale;
+    const float2 Local = QuadCorners[VertexId];
+    OutPosition = mul(float4(Center + Local * Radius, 0.0, 1.0), BoardToClip);
+    // 0xFFFFFFFF marks a visibility-grid slot no ball won; it must not decode into a ball in the corner.
+    OutPosition = (VertexOnly > 0.5 || Packed == 0xFFFFFFFFu) ? float4(1.0e6, 1.0e6, 0.0, 1.0) : OutPosition;
+    OutLocal = Local;
+    OutColor = Palette[(Packed >> 28u) & 7u].rgb;
+}
+
+void MainPS(float4 SvPosition : SV_POSITION, float2 Local : TEXCOORD0,
+            nointerpolation float3 Color : TEXCOORD1, out float4 OutColor : SV_Target0)
+{
+    const float DistanceSq = dot(Local, Local);
+    const float Edge = max(fwidth(DistanceSq), 1e-4);
+    const float Coverage = saturate((1.0 - DistanceSq) / Edge);
+    if (Coverage <= 0.0)
+    {
+        discard;
+    }
+    // Board y grows downward, so a light from the upper left has a negative y.
+    const float3 Normal = float3(Local.x, Local.y, sqrt(saturate(1.0 - DistanceSq)));
+    const float3 LightDirection = normalize(float3(-0.45, -0.55, 0.7));
+    const float Diffuse = saturate(dot(Normal, LightDirection));
+    const float Specular = pow(saturate(dot(reflect(-LightDirection, Normal), float3(0.0, 0.0, 1.0))), 24.0);
+    const float3 Lit = Color * (0.35 + 0.75 * Diffuse) + Specular * 0.6;
+    // Not pre-exposed: the scene color is stored times the exposure, so the ball keeps its palette brightness
+    // whatever the exposure is.
+    const float3 Linear = Lit * Brightness;
+    OutColor = float4(OutputGamma == 1.0 ? Linear : pow(saturate(Linear), OutputGamma), Coverage);
+}

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "common/WorkerPool.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
@@ -37,12 +39,65 @@ public:
     const T* data() const { return elements; }
     size_t size() const { return length; }
     size_t committedBytes() const { return committed; }
+    size_t capacity() const { return committed / sizeof(T); }
+    bool isPreallocated() const { return preallocated; }
     T& operator[](size_t index) { return elements[index]; }
     const T& operator[](size_t index) const { return elements[index]; }
     T* begin() { return elements; }
     T* end() { return elements + length; }
     const T* begin() const { return elements; }
     const T* end() const { return elements + length; }
+
+    // Commits a fixed capacity up front, marks the array as preallocated so it never grows or decommits during play,
+    // and pre-faults every page across the provided WorkerPool (or sequentially if pool is null) by writing one byte per page.
+    bool commitAndPrefault(size_t count, WorkerPool* pool = nullptr) {
+        const size_t bytes = count * sizeof(T);
+        if (bytes == 0) {
+            return true;
+        }
+        if (!reserveAddressSpace(bytes)) {
+            return false;
+        }
+        const size_t target = std::min(roundUp(bytes, commitGranule), reserved);
+        if (target > committed) {
+            if (!commit(committed, target - committed)) {
+                return false;
+            }
+            committed = target;
+        }
+        preallocated = true;
+
+        size_t pageSize = 4096;
+#if defined(_WIN32)
+        SYSTEM_INFO sysInfo{};
+        GetSystemInfo(&sysInfo);
+        if (sysInfo.dwPageSize > 0) {
+            pageSize = static_cast<size_t>(sysInfo.dwPageSize);
+        }
+#else
+        const long sysPage = sysconf(_SC_PAGESIZE);
+        if (sysPage > 0) {
+            pageSize = static_cast<size_t>(sysPage);
+        }
+#endif
+        const size_t totalPages = (committed + pageSize - 1) / pageSize;
+        if (totalPages > 0 && elements) {
+            volatile char* base = reinterpret_cast<volatile char*>(elements);
+            if (pool && pool->threadCount() > 1) {
+                constexpr size_t pagesPerChunk = 2048; // 8 MB per chunk at 4 KB pages
+                pool->runChunks(totalPages, pagesPerChunk, [base, pageSize](size_t, size_t begin, size_t end) {
+                    for (size_t p = begin; p < end; ++p) {
+                        base[p * pageSize] = 0;
+                    }
+                });
+            } else {
+                for (size_t p = 0; p < totalPages; ++p) {
+                    base[p * pageSize] = 0;
+                }
+            }
+        }
+        return true;
+    }
 
     // New elements read as zero. Returns false, leaving the size unchanged, when the pages cannot be committed.
     bool resize(size_t count) {
@@ -51,6 +106,9 @@ public:
             settlePrefault();
         }
         if (bytes > committed) {
+            if (preallocated) {
+                return false;
+            }
             if (!reserveAddressSpace(bytes)) {
                 return false;
             }
@@ -64,7 +122,7 @@ public:
             std::fill(elements + count, elements + length, T{});
         }
         length = count;
-        if (count == 0) {
+        if (count == 0 && !preallocated) {
             settlePrefault();
             decommitAll();
             return true;
@@ -87,6 +145,10 @@ private:
     }
 
     void prefaultAhead(size_t usedBytes) {
+        // A preallocated array was faulted in whole and never commits more.
+        if (preallocated) {
+            return;
+        }
         if (prefault.valid()) {
             if (prefault.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
                 return;
@@ -174,6 +236,7 @@ private:
         reserved = 0;
         committed = 0;
         length = 0;
+        preallocated = false;
     }
 
     T* elements = nullptr;
@@ -182,4 +245,5 @@ private:
     size_t length = 0;
     size_t committed = 0;
     size_t reserved = 0;
+    bool preallocated = false;
 };

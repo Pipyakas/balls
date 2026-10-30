@@ -1,10 +1,13 @@
 add_library(balls_core STATIC
     common/BallColor.cpp
     common/DynamicLibrary.cpp
+    common/ParallelChunks.cpp
     common/WorkerPool.cpp
     gpu/GpuAdapters.cpp
     level/LevelData.cpp
     level/LevelParser.cpp
+    level/SectionText.cpp
+    level/GameplayRules.cpp
     level/LevelWriter.cpp
     level/LevelRepository.cpp
     level/LevelWatcher.cpp
@@ -17,10 +20,11 @@ add_library(balls_core STATIC
     sim/DeviceComposer.cpp
     sim/BackendSelection.cpp
     sim/BackendWorker.cpp
+    sim/HybridBackend.cpp
     sim/BackendBenchmark.cpp
     sim/PhysicsAccuracy.cpp
     sim/ReferenceBackend.cpp
-    game/CapacityProbe.cpp
+    game/AdditionGovernor.cpp
     game/LauncherQueue.cpp
     game/SpawnController.cpp
     game/SpawnPacer.cpp
@@ -28,14 +32,27 @@ add_library(balls_core STATIC
     sim/EdgeCaseSweep.cpp
     game/GameSession.cpp
     game/SessionRunner.cpp
+    game/SessionHost.cpp
     game/Settings.cpp
+    game/MachineProfile.cpp
+    game/GameMode.cpp
+    control/ControlProtocol.cpp
+    control/ControlApi.cpp
+    game/FrameTimings.cpp
     ui/GameplayLayout.cpp
+    ui/MenuModel.cpp
+    ui/ScreenFlow.cpp
+    ui/Theme.cpp
+    editor/EditorSession.cpp
     editor/LevelEditor.cpp
 )
 target_include_directories(balls_core PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
     $<INSTALL_INTERFACE:include>)
 target_compile_features(balls_core PUBLIC cxx_std_20)
+# The core is static, but hosts link it into shared objects (libballs_unity.so, the physics plugins), so its objects
+# have to be position independent or the ELF link fails.
+set_target_properties(balls_core PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_options(balls_core PRIVATE ${BALLS_WARNINGS} ${BALLS_OPTIMIZE})
 balls_precompile(balls_core)
 target_link_options(balls_core INTERFACE ${BALLS_LINK_OPTIMIZE})
@@ -49,4 +66,3 @@ target_compile_features(balls_physics_interface INTERFACE cxx_std_20)
 
 install(TARGETS balls_core ARCHIVE DESTINATION lib)
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/ DESTINATION include FILES_MATCHING PATTERN "*.h")
-

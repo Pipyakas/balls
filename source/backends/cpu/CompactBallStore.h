@@ -6,6 +6,7 @@
 
 #include <functional>
 #include <vector>
+class WorkerPool;
 
 namespace compact {
 
@@ -46,11 +47,11 @@ struct CompactBallStore {
     unsigned int clockTick = 0;
     StepParams flightParams{};
 
-    // Calls encode(begin, end) over [0, count), on as many threads as the caller has.
-    using RangeRunner = std::function<void(size_t count, const std::function<void(size_t, size_t)>& encode)>;
+    // Calls move(begin, end) over [0, count), on as many threads as the caller has.
+    using RangeRunner = std::function<void(size_t count, const std::function<void(size_t, size_t)>& move)>;
 
-    // Adds as many spawns as memory takes and returns how many that was.
-    size_t add(std::span<const BallSpawn> spawns, const RangeRunner& runRanges = {});
+    // Adds as many spawns as memory takes and returns how many that was; a big batch is encoded on the pool.
+    size_t add(std::span<const BallSpawn> spawns, WorkerPool* pool = nullptr);
     // Fills each removed index below the new count with a surviving ball from the tail. The moves touch random
     // places in a store of many millions of balls, so with runRanges they are spread over its threads.
     void swapRemove(std::span<const uint32_t> descendingIndices, const RangeRunner& runRanges = {});
@@ -72,6 +73,11 @@ struct CompactBallStore {
     void renderSampledChunks(size_t first, size_t end);
     void renderRangeInFlight(size_t begin, size_t end);
     void materializeRange(size_t begin, size_t end);
+    size_t preallocate(size_t maxBalls, WorkerPool* pool = nullptr);
+    bool isPreallocated() const { return position.isPreallocated(); }
+    // Committed in 64 MB granules, so a preallocated capacity is already a whole number of lanes.
+    size_t capacity() const { return position.capacity(); }
+    size_t roomLeft() const { return capacity() > count ? capacity() - count : 0; }
 
 private:
     bool resize(size_t newCount);

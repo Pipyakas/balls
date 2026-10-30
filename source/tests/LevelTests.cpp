@@ -1,5 +1,6 @@
 #include "TestFramework.h"
 
+#include "common/BallCount.h"
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
 #include "level/LevelWriter.h"
@@ -32,6 +33,34 @@ TEST_CASE("sample levels parse with matching ball and hit totals") {
                 EXPECT(balls[color] >= hits[color]);
             }
         }
+    }
+}
+
+TEST_CASE("the Unlimited level holds more balls than any machine's capacity, even at x1") {
+    constexpr BallCount largestCapacity = BallCount{10'000'000'000};
+    auto level = loadLevel(levelFilesFor(performanceLevels, "Unlimited"));
+    EXPECT(level.hasValue());
+    BallCount total = 0;
+    for (const int balls : countBallsByColor(level->launchers)) {
+        total += static_cast<BallCount>(balls);
+    }
+    EXPECT(total > largestCapacity);
+}
+
+TEST_CASE("the team's Normal levels release exactly one ball per brick hit from 3 launcher columns") {
+    constexpr int launcherColumns = 3;
+    for (const char* name : {"Warmup", "Pillars", "Stalactites", "Fortress"}) {
+        auto level = loadLevel(levelFilesFor(normalLevels, name));
+        EXPECT(level.hasValue());
+        EXPECT(level->launchers.columns == launcherColumns);
+        const ColorTally hits = countBrickHitsByColor(level->bricks);
+        const ColorTally balls = countBallsByColor(level->launchers);
+        int colors = 0;
+        for (int color = 0; color < ballColorCount; ++color) {
+            EXPECT(balls[color] == hits[color]);
+            colors += hits[color] > 0 ? 1 : 0;
+        }
+        EXPECT(colors >= 3);
     }
 }
 

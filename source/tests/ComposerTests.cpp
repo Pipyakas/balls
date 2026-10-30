@@ -129,7 +129,7 @@ TEST_CASE("three device-resolving parts split brick budgets exactly") {
     runAndCheckHitAccounting(composed({fakeDevice, fakeDevice, fakeDevice}), true);
 }
 
-TEST_CASE("a device part and a host part share bricks") {
+TEST_CASE("a device part and a host part share bricks like the CUDA+AVX2 pair") {
     runAndCheckHitAccounting(composed({fakeDevice, [] { return createBackend(BackendKind::Scalar); }}), true);
 }
 
@@ -164,6 +164,21 @@ TEST_CASE("composer keeps balls, snapshots and truncation consistent across part
     EXPECT(composer.ballCount() == 1134);
 }
 
+TEST_CASE("multi-device picks round-trip and reject overlap") {
+    const auto picks = parseBackendPicks("VulkanMulti@gpu0|gpu1");
+    if (!picks) {
+        return;
+    }
+    EXPECT(picks->size() == 1 && picks->front().kind == BackendKind::VulkanMulti);
+    EXPECT(formatBackendPicks(*picks) == "VulkanMulti@gpu0|gpu1");
+    EXPECT(kindForPicks(*picks) == BackendKind::VulkanMulti);
+    // Overlap with a pick on one of the claimed devices is rejected.
+    const std::vector<BackendPick> overlap{{BackendKind::VulkanMulti, "gpu0|gpu1"}, {BackendKind::Vulkan, "gpu0"}};
+    EXPECT(!backendPicksProblem(overlap).empty());
+    // A single device is not enough.
+    EXPECT(!parseBackendPicks("VulkanMulti@gpu0"));
+}
+
 TEST_CASE("backend picks round-trip through their text form") {
     const auto picks = parseBackendPicks("avx2@cpu");
     if (!picks) {
@@ -177,6 +192,6 @@ TEST_CASE("backend picks round-trip through their text form") {
     const std::vector<BackendPick> twice{{BackendKind::Avx2, "cpu"}, {BackendKind::Scalar, "cpu"}};
     EXPECT(backendPicksProblem(twice).find("two backends") != std::string::npos);
     EXPECT(parseStoredBackend("AVX2@cpu")->kind == BackendKind::Avx2);
-    EXPECT(parseStoredBackend("CUDA+AVX2")->kind == BackendKind::Hybrid);
+    EXPECT(parseStoredBackend("CUDA+AVX2")->kind == BackendKind::CudaAvx2);
     EXPECT(storedBackendName(BackendKind::Vulkan) == "Vulkan");
 }

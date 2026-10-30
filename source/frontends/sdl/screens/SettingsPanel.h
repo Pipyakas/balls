@@ -25,4 +25,4 @@ struct SettingsPanelEdit {
 // webGpuSupported: lets the Renderer row offer WebGPU only in a build that links it.
 SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind selectedBackend,
                                     std::span<const CandidateResult> benchmarkScores, bool webGpuSupported,
-                                    float& scroll);
+                                    float& scroll, bool canRunBenchmark = true);

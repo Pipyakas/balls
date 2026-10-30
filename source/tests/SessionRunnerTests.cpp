@@ -1,5 +1,6 @@
 #include "TestFramework.h"
 
+#include "game/SessionHost.h"
 #include "game/SessionRunner.h"
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
@@ -27,7 +28,7 @@ std::shared_ptr<const SessionView> tickUntil(SessionRunner& runner,
                                              bool paused = false) {
     const auto deadline = std::chrono::steady_clock::now() + 2s;
     while (std::chrono::steady_clock::now() < deadline) {
-        runner.tick({paused, 0.005, 0.001, 0.0f});
+        runner.tick({paused, 0.001, 0.0f});
         if (const auto view = runner.view(); view && condition(*view)) {
             return view;
         }
@@ -61,7 +62,11 @@ TEST_CASE("a paused runner keeps publishing views without advancing the game") {
     SessionRunner runner(GameMode::Normal, loadSample("normal", "DA_FirstLevel"), BackendKind::Scalar);
     tickUntil(runner, [](const SessionView&) { return true; });
     runner.post([](GameSession& session) { session.chooseLauncher(0, 0); });
-    const auto first = tickUntil(runner, [](const SessionView& view) { return view.state == SessionState::Running; }, true);
+    // A frame already under way when the pause was set read the input before it and still advances the game, so the
+    // paused baseline is a frame that started after it: two past the latest one at the time.
+    const uint64_t pausedAt = tickUntil(runner, [](const SessionView&) { return true; }, true)->frameNumber;
+    const auto first = tickUntil(runner, [&](const SessionView& view) { return view.frameNumber > pausedAt + 1; }, true);
+    EXPECT(first->state == SessionState::Running);
     const double elapsed = first->elapsedSeconds;
     const auto later = tickUntil(runner, [&](const SessionView& view) { return view.frameNumber > first->frameNumber + 5; },
                                  true);
@@ -75,4 +80,34 @@ TEST_CASE("destroyed runners stop their physics threads") {
         tickUntil(runner, [](const SessionView&) { return true; });
     }
     EXPECT(SessionRunner::waitForStoppedRunners(2s));
+}
+
+TEST_CASE("a session host on the UI thread steps the game inside its tick") {
+    SessionHost host(GameMode::Normal, loadSample("normal", "DA_FirstLevel"), BackendKind::Scalar, SessionThreading::UiThread);
+    EXPECT(!host.isThreaded());
+    EXPECT(host.view() != nullptr);
+    host.post([](GameSession& session) { session.chooseLauncher(0, 0); });
+    EXPECT(host.view()->pendingSpawn > 0);
+    for (int frame = 0; frame < 30; ++frame) {
+        host.tick({false, 0.001, 0.0f}, 1.0f / 60.0f);
+    }
+    EXPECT(host.view()->stats.totalBallsSpawned > 0);
+    const double elapsed = host.view()->elapsedSeconds;
+    host.tick({true, 0.001, 0.0f}, 1.0f / 60.0f);
+    EXPECT(host.view()->elapsedSeconds == elapsed);
+}
+
+TEST_CASE("a session host on the physics thread reads the runner's views") {
+    SessionHost host(GameMode::Normal, loadSample("normal", "DA_FirstLevel"), BackendKind::Scalar,
+                     SessionThreading::PhysicsThread);
+    EXPECT(host.isThreaded());
+    EXPECT(host.liveSession() == nullptr);
+    host.post([](GameSession& session) { session.chooseLauncher(0, 0); });
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (std::chrono::steady_clock::now() < deadline &&
+           !(host.view() && host.view()->stats.totalBallsSpawned > 0)) {
+        host.tick({false, 0.001, 0.0f}, 0.005f);
+        std::this_thread::sleep_for(5ms);
+    }
+    EXPECT(host.view() && host.view()->stats.totalBallsSpawned > 0);
 }

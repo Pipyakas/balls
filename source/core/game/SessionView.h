@@ -1,6 +1,5 @@
 #pragma once
 
-#include "game/CapacityProbe.h"
 #include "game/GameMode.h"
 #include "game/GameSession.h"
 #include "game/LauncherQueue.h"
@@ -47,7 +46,6 @@ struct SessionView {
     BallCount ballLimit = 0;
     bool usingMachineLimit = false;
     std::optional<BallCount> machineLimit;
-    CapacityProbe probe;
 
     BackendKind backend = BackendKind::Scalar;
     std::optional<BackendKind> pendingBackend;
@@ -70,4 +68,12 @@ struct SessionView {
     // threads apart the UI frame rate no longer says how fast the simulation runs.
     double physicsFrameMs = 0.0;
     double physicsFramesPerSecond = 0.0;
+    double physicsLongestFrameMs = 0.0;
+    long long physicsSlowFrames = 0;
 };
+
+// Fills everything in a view but the balls from the session as it is now, with its board copied, or shared with the
+// previous view when it has not changed. The physics
+// thread builds its views this way; a front end that ticks the session on its game thread uses it to read the session
+// the same way, for the control API's state.
+void describeSession(const GameSession& session, SessionView& view, const SessionView* previous = nullptr);

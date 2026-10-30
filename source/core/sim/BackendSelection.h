@@ -30,7 +30,7 @@ std::string formatBackendPicks(std::span<const BackendPick> picks);
 // "AVX2 (CPU) + CUDA (RTX 2060) + Vulkan (RX 6700 XT)" for menus and the debug panel.
 std::string backendPicksLabel(std::span<const BackendPick> picks);
 // Empty when the picks can run here; otherwise why not (two picks on one device, a kind the device lacks, a
-// backend that cannot load, Hybrid picked as a part).
+// backend that cannot load, Hybrid or CUDA+AVX2 picked as a part).
 std::string backendPicksProblem(std::span<const BackendPick> picks);
 // Hybrid for two or more picks, the pick's kind for one.
 BackendKind kindForPicks(std::span<const BackendPick> picks);
@@ -59,12 +59,17 @@ std::vector<BackendKind> pickableKinds(const PhysicalDevice& device);
 std::vector<BackendPick> withDevicePick(std::span<const BackendPick> current, std::string_view device,
                                         std::optional<BackendKind> kind);
 
-// Settings and saved profiles store the composer by its picks ("AVX2@cpu+CUDA@gpu0"). A saved "Hybrid" or
-// "CUDA+AVX2" predates the composer and meant the CUDA+AVX2 pair it replaced; it reads as Hybrid over AVX2 on the
-// CPU and CUDA on the default GPU.
+// Settings and saved profiles store the composer by its picks ("AVX2@cpu+CUDA@gpu0"), never as "Hybrid": that
+// word in a saved file predates the composer and meant the CUDA+AVX2 pair.
 struct StoredBackend {
     BackendKind kind = BackendKind::Scalar;
     std::vector<BackendPick> picks;  // set when the text was a picks list
 };
 std::optional<StoredBackend> parseStoredBackend(std::string_view text);
 std::string storedBackendName(BackendKind kind);
+// A kind name ("cuda", "hybrid") or device picks ("avx2@cpu+cuda@gpu0"), as launch options and the control API take
+// them. Picks that can run here become the process-wide picks (setBackendPicks) and yield the kind they make; picks
+// that cannot run yield nullopt.
+std::optional<BackendKind> parseBackendKind(std::string_view text);
+// The same for a value saved in Settings, where the old name "Hybrid" means the CUDA+AVX2 pair.
+std::optional<BackendKind> parseSavedBackendKind(std::string_view text);

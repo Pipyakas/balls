@@ -18,7 +18,7 @@
 #define BALLS_PLUGIN_EXPORT extern "C" __attribute__((visibility("default")))
 #endif
 
-inline constexpr int physicsPluginInterfaceVersion = 4;
+inline constexpr int physicsPluginInterfaceVersion = 5;
 
 // One physical device a plugin can run a backend kind on, listed in the plugin's own order (the index that
 // ballsCreateBackendOnDevice takes). Plain data, so it crosses the C boundary. The host matches one GPU across
@@ -170,6 +170,9 @@ public:
     // Off when nothing will draw the balls: backends then skip the visibility grid and render copy entirely, and
     // balls in free flight cost nothing per frame.
     virtual void setDrawing(bool) {}
+    // Allocates the backend's whole ball-memory budget now, never grows afterwards, and returns the capacity in balls
+    // (0 = not supported).
+    virtual size_t preallocateBalls() { return 0; }
 };
 
 using CreateBackendFunction = PhysicsBackend* (*)(const char* kindName);
@@ -177,6 +180,7 @@ using DeviceCountFunction = int (*)(const char* kindName);
 using DeviceInfoFunction = int (*)(const char* kindName, int device, PhysicsDeviceInfo* info);
 using DeviceTextFunction = const char* (*)(const char* kindName, int device);
 using CreateBackendOnDeviceFunction = PhysicsBackend* (*)(const char* kindName, int device);
+using CreateBackendOnDevicesFunction = PhysicsBackend* (*)(const char* kindName, const int* devices, int count);
 using DestroyBackendFunction = void (*)(PhysicsBackend* backend);
 using BackendTextFunction = const char* (*)(const char* kindName);
 using SetComputeGpuFunction = void (*)(const char* preference);

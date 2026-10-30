@@ -1,19 +1,19 @@
 #pragma once
 
-#include "app/FrameTimings.h"
 #include "app/LaunchOptions.h"
-#include "app/MachineProfile.h"
 #include "app/Paths.h"
 #include "app/Screen.h"
-#include "gpu/GpuAdapters.h"
-#include "ui/Painter.h"
 #include "control/ControlServer.h"
+#include "game/FrameTimings.h"
+#include "game/MachineProfile.h"
 #include "game/Settings.h"
+#include "gpu/GpuAdapters.h"
 #include "level/LevelData.h"
 #include "render/BallView.h"
 #include "render/IRenderer.h"
 #include "sim/BackendFactory.h"
 #include "ui/Painter.h"
+#include "ui/ScreenFlow.h"
 
 #include <chrono>
 #include <filesystem>
@@ -33,6 +33,7 @@ int currentRefreshRate();
 
 class App {
 public:
+    App();
     ~App();
 
     bool initialize(const LaunchOptions& options, std::string& error);
@@ -47,10 +48,12 @@ public:
     void showSettings();
     void quit() { running = false; }
 
+    ScreenFlow& flow() { return flowInstance; }
+    const ScreenFlow& flow() const { return flowInstance; }
+
     const Settings& settings() const { return currentSettings; }
     void applySettings(const Settings& settings, std::optional<BackendKind> backend = std::nullopt);
     void setAdvancedSettingsOpen(bool open);
-    std::string settingsJson() const;
     // Whether this build links a WebGPU renderer, so the Settings page can offer it.
     bool isWebGpuSupported() const;
     void notifySettingsConsumers();
@@ -70,7 +73,7 @@ public:
     bool isVsyncEnabled() const { return renderer && renderer->isVsyncEnabled(); }
     MachineProfile& machineProfile() { return profile; }
     void setVsync(bool enabled);
-    void showToast(std::string text, bool isError);
+    void showToast(std::string text, bool isError = false);
     void openLevelImportDialog(const std::filesystem::path& startFolder);
     void openFolder(const std::filesystem::path& folder);
 
@@ -109,32 +112,31 @@ private:
     static void retireRenderer(std::unique_ptr<IRenderer> retired);
     using Clock = std::chrono::steady_clock;
 
-    struct Toast {
-        std::string text;
-        float secondsLeft = 0.0f;
-        bool isError = false;
-    };
-
     static void receiveImportDialogResult(void* userdata, const char* const* fileList, int filter);
     void deliverImport(std::vector<std::filesystem::path> paths);
     void deliverFinishedDialogs();
     void drawToast();
-    void applyPendingScreen();
+    void processFlowRequests();
+    void applyFlowScreen();
     void drawFrameTimingsOverlay() const;
     void updateTextInput();
+    // Answers the control API through the core's handler; ControlBridge is SDL's side of it.
+    struct ControlBridge;
     std::optional<ControlResponse> handleControl(const ControlRequest& request);
-    std::string stateJson() const;
-    std::string benchmarkStateJson() const;
+    std::optional<ControlResponse> handleOwnControl(const ControlRequest& request);
 
+    ScreenFlow flowInstance;
     SDL_Window* window = nullptr;
     std::unique_ptr<IRenderer> renderer;
     std::unique_ptr<BallView> balls;
     gfx::FontSet fonts;
     bool imguiCreated = false;
     std::unique_ptr<Screen> currentScreen;
-    std::unique_ptr<Screen> pendingScreen;
+    std::optional<GameMode> lastLevelSelectMode;
     FrameTimings timings;
     ControlServer controlServer;
+    // Shared only so ~App, defined before ControlBridge is complete, need not see it.
+    std::shared_ptr<ControlBridge> controlBridge;
     MachineProfile profile;
     Settings currentSettings;
     BackendKind backendChoice = BackendKind::Avx2;
@@ -146,7 +148,6 @@ private:
     // Longest gap between two frame starts since /hitch last read it. Unlike the frame timings it includes the
     // renderer, adapter and screen switches applied after a frame is measured, so it is what a hitch costs.
     double longestFrameIntervalMs = 0.0;
-    Toast toast;
     std::vector<std::filesystem::path> droppedPaths;
     std::mutex dialogMutex;
     std::vector<std::vector<std::filesystem::path>> finishedDialogs;

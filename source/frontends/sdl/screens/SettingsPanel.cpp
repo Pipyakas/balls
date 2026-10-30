@@ -1,6 +1,7 @@
 #include "screens/SettingsPanel.h"
 
 #include "render/Palette.h"
+#include "ui/MenuModel.h"
 #include "screens/DevicePicker.h"
 #include "sim/BackendFactory.h"
 #include "sim/BackendWorker.h"
@@ -78,7 +79,7 @@ constexpr float blockHeight = sectionHeight + optionHeight + hintGap + hintHeigh
 
 } // namespace
 
-float settingsContentHeight() {
+float settingsContentHeight(BackendKind selectedBackend) {
     float height = panelPadding * 2.0f;
     height += titleHeight + blockGap;
     height += blockHeight;
@@ -87,7 +88,10 @@ float settingsContentHeight() {
     height += blockHeight;
     height += sectionHeight + sectionHeight + (optionHeight + optionGap) * selectableBackends().size() -
               optionGap + blockGap - optionGap;
-    height += sectionHeight + devicePickerHeight(devicePickerStyle) + hintGap + hintHeight * 2.0f + blockGap;
+    if (showsDevicePicks(selectedBackend)) {
+        height += sectionHeight + devicePickerHeight(devicePickerStyle) + hintGap + hintHeight * 2.0f + blockGap;
+    }
+    // Advanced: Draw the board, Physics rate, Physics frames.
     height += sectionHeight + blockHeight;
     height += blockHeight;
     height += blockHeight;
@@ -97,11 +101,11 @@ float settingsContentHeight() {
 
 SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind selectedBackend,
                                     std::span<const CandidateResult> benchmarkScores, bool webGpuSupported,
-                                    float& scroll) {
+                                    float& scroll, bool canRunBenchmark) {
     SettingsPanelEdit edit{current, false, false, std::nullopt};
     const Rect inner{area.x, area.y, area.width, area.height};
     float visibleHeight = 0.0f;
-    ui::scrollFrame(inner, scroll, settingsContentHeight(), visibleHeight);
+    ui::scrollFrame(inner, scroll, settingsContentHeight(selectedBackend), visibleHeight);
     gfx::beginClip(inner);
     const float innerX = area.x + panelPadding;
     const float innerWidth = area.width - panelPadding * 2.0f;
@@ -110,7 +114,7 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
     ui::drawTextInRect("Settings", {innerX, cursor, innerWidth, titleHeight}, titleSize, palette::text);
     cursor += titleHeight + blockGap;
 
-    ui::drawText("Layout", {innerX, cursor}, sectionSize, palette::textMuted);
+    ui::drawText(std::string(menuText::layoutHeading), {innerX, cursor}, sectionSize, palette::textMuted);
     cursor += sectionHeight;
     const Rect layoutButtons{innerX, cursor, innerWidth, optionHeight};
     for (size_t i = 0; i < layoutOptions.size(); ++i) {
@@ -124,12 +128,12 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
         }
     }
     cursor += optionHeight + hintGap;
-    ui::drawText("Auto follows the window shape.", {innerX, cursor}, hintSize, palette::textMuted);
+    ui::drawText(std::string(menuText::layoutHint), {innerX, cursor}, hintSize, palette::textMuted);
     cursor += hintHeight + blockGap;
 
-    ui::drawText("Display", {innerX, cursor}, sectionSize, palette::textMuted);
+    ui::drawText(std::string(menuText::displayHeading), {innerX, cursor}, sectionSize, palette::textMuted);
     cursor += sectionHeight;
-    ui::drawText("VSync", {innerX, cursor}, sectionSize, palette::text);
+    ui::drawText(std::string(menuText::vsyncLabel), {innerX, cursor}, sectionSize, palette::text);
     cursor += sectionHeight;
     const Rect vsyncOptions{innerX, cursor, innerWidth, optionHeight};
     if (ui::button(ui::columnSlice(vsyncOptions, 0, 2, optionGap), "Off", true, !current.vsync) &&
@@ -185,53 +189,57 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
                  palette::textMuted);
     cursor += hintHeight + blockGap;
 
-    ui::drawText("Physics", {innerX, cursor}, sectionSize, palette::textMuted);
+    ui::drawText(std::string(menuText::physicsHeading), {innerX, cursor}, sectionSize, palette::textMuted);
     cursor += sectionHeight;
-    ui::drawText("Default backend", {innerX, cursor}, sectionSize, palette::text);
-    const Rect runBenchmark{innerX + innerWidth - runBenchmarkWidth, cursor - optionGap, runBenchmarkWidth,
-                            sectionHeight + optionGap * 0.5f};
-    if (ui::button(runBenchmark, "Run machine benchmark")) {
-        edit.runBenchmark = true;
+    ui::drawText(std::string(menuText::defaultBackendLabel), {innerX, cursor}, sectionSize, palette::text);
+#if !defined(BALLS_FIXED_TARGET)
+    if (canRunBenchmark) {
+        const Rect runBenchmark{innerX + innerWidth - runBenchmarkWidth, cursor - optionGap, runBenchmarkWidth,
+                                sectionHeight + optionGap * 0.5f};
+        if (ui::button(runBenchmark, std::string(menuText::runBenchmarkLabel))) {
+            edit.runBenchmark = true;
+        }
     }
+#else
+    (void)canRunBenchmark;
+#endif
     cursor += sectionHeight;
-    for (const BackendKind kind : selectableBackends()) {
-        const BackendStatus status = backendStatus(kind);
-        const bool available = status.available;
-        std::string label(backendKindName(kind));
-        if (!available) {
-            label += std::string(" - ") + status.unavailableReason;
+    for (const BackendRow& rowInfo : defaultBackendRows(selectedBackend, benchmarkScores)) {
+        const BackendKind kind = rowInfo.kind;
+        std::string label = rowInfo.option.label;
+        if (!rowInfo.option.enabled && !rowInfo.option.detail.empty()) {
+            label += std::string(" - ") + rowInfo.option.detail;
         }
         const Rect row{innerX, cursor, innerWidth, optionHeight};
-        if (ui::button(row, label, available, selectedBackend == kind) && available) {
+        if (ui::button(row, label, rowInfo.option.enabled, rowInfo.option.selected) && rowInfo.option.enabled) {
             edit.backend = kind;
             edit.changed = true;
         }
-        if (const std::string score = benchmarkScore(benchmarkScores, kind); !score.empty()) {
+        if (rowInfo.option.enabled && !rowInfo.option.detail.empty()) {
             const bool selected = selectedBackend == kind;
-            ui::drawTextInRect(score, {row.x, row.y, row.width - scoreInset, row.height}, hintSize,
+            ui::drawTextInRect(rowInfo.option.detail, {row.x, row.y, row.width - scoreInset, row.height}, hintSize,
                                selected ? palette::panel : palette::textMuted, ui::Align::Right);
         }
         cursor += optionHeight + optionGap;
     }
     cursor += blockGap - optionGap;
 
-    ui::drawText("Devices", {innerX, cursor}, sectionSize, palette::text);
-    cursor += sectionHeight;
-    const std::vector<BackendPick> picks = displayedPicks(selectedBackend);
-    if (const auto changed = drawDevicePicker({innerX, cursor, innerWidth, devicePickerHeight(devicePickerStyle)},
-                                              picks, devicePickerStyle)) {
-        setBackendPicks(*changed);
-        refreshBackendStatuses();
-        edit.backend = kindForPicks(*changed);
-        edit.changed = true;
+    if (showsDevicePicks(selectedBackend)) {
+        ui::drawText(std::string(menuText::devicesLabel), {innerX, cursor}, sectionSize, palette::text);
+        cursor += sectionHeight;
+        const std::vector<BackendPick> picks = displayedPicks(selectedBackend);
+        if (const auto changed = drawDevicePicker({innerX, cursor, innerWidth, devicePickerHeight(devicePickerStyle)},
+                                                  picks, devicePickerStyle)) {
+            setBackendPicks(*changed);
+            refreshBackendStatuses();
+            edit.backend = kindForPicks(*changed);
+            edit.changed = true;
+        }
+        cursor += devicePickerHeight(devicePickerStyle) + hintGap;
+        ui::drawTextInRect(std::string(menuText::devicesHint), {innerX, cursor, innerWidth, hintHeight * 2.0f}, hintSize,
+                           palette::textMuted, ui::Align::Left);
+        cursor += hintHeight * 2.0f + blockGap;
     }
-    cursor += devicePickerHeight(devicePickerStyle) + hintGap;
-    ui::drawText("One backend per device. Two or more devices run as Hybrid,", {innerX, cursor}, hintSize,
-                 palette::textMuted);
-    cursor += hintHeight;
-    ui::drawText("splitting the balls between them; one runs that backend alone.", {innerX, cursor}, hintSize,
-                 palette::textMuted);
-    cursor += hintHeight + blockGap;
 
     ui::drawText("Advanced", {innerX, cursor}, sectionSize, palette::textMuted);
     cursor += sectionHeight;
@@ -294,7 +302,7 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
         edit.backPressed = true;
     }
     // Kept clear of the panel's rounded corners, which the fade would square off.
-    ui::scrollHints({innerX, inner.y, innerWidth, inner.height}, scroll, settingsContentHeight(), palette::panel);
+    ui::scrollHints({innerX, inner.y, innerWidth, inner.height}, scroll, settingsContentHeight(selectedBackend), palette::panel);
     gfx::endClip();
     return edit;
 }

@@ -23,6 +23,9 @@ public:
     void uploadBoard(const BoardUpload& board) override;
     void addBalls(std::span<const BallSpawn> spawns) override;
     void step(const StepParams& params, std::vector<BallHit>& hits) override;
+    // Two-phase step used by multi-adapter backends: record and submit without waiting, then wait/read back.
+    void beginStep(const StepParams& params);
+    void finishStep(std::vector<BallHit>& hits);
     void removeBalls(std::span<const uint32_t>) override {}
     size_t ballCount() const override { return count; }
     BallSnapshot snapshot() override;
@@ -119,6 +122,7 @@ private:
     std::array<nvrhi::BindingSetHandle, 2> compactionBindings;
     nvrhi::CommandListHandle commands;
     nvrhi::TimerQueryHandle timer;
+    nvrhi::EventQueryHandle stepEventQuery;
     nvrhi::BufferHandle positions[2];
     nvrhi::BufferHandle states[2];
     nvrhi::BufferHandle packedBalls;

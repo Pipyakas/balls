@@ -5,6 +5,12 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+# A wheel is a zip file, but Windows PowerShell 5.1's Expand-Archive only accepts the .zip extension.
+function Expand-Wheel([string]$wheel, [string]$destination) {
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($wheel, $destination)
+}
 $wheelDir = Join-Path $Destination 'wheels'
 New-Item -ItemType Directory -Force $wheelDir | Out-Null
 
@@ -15,7 +21,7 @@ if ($LASTEXITCODE -ne 0) { throw 'pip download failed' }
 Get-ChildItem $wheelDir -Filter *.whl | ForEach-Object {
     $extractDir = Join-Path $Destination ('unpacked\' + $_.BaseName)
     if (-not (Test-Path $extractDir)) {
-        Expand-Archive -Path $_.FullName -DestinationPath $extractDir
+        Expand-Wheel $_.FullName $extractDir
     }
 }
 
@@ -45,7 +51,7 @@ if ($ProfilerTools) {
     Get-ChildItem $profilerWheels -Filter *.whl | ForEach-Object {
         $extractDir = Join-Path $cuptiRoot ('unpacked' + $_.BaseName)
         if (-not (Test-Path $extractDir)) {
-            Expand-Archive -Path $_.FullName -DestinationPath $extractDir
+            Expand-Wheel $_.FullName $extractDir
         }
     }
     foreach ($sub in 'include', 'bin') {

@@ -1,28 +1,49 @@
 #include "sim/Simulation.h"
 
-#include "common/WorkerPool.h"
+#include "common/ParallelChunks.h"
 
 #include <algorithm>
 #include <chrono>
 #include <new>
 #include <numbers>
-#include <thread>
 
 namespace {
 
 constexpr int maximumScatterAttempts = 8;
-constexpr size_t launchChunkBalls = size_t{1} << 13;
 
+// A uniform float in [0, 1) from 24 bits of a hash.
+float unitFromBits(uint64_t bits) {
+    constexpr float unitPerStep = 1.0f / 16777216.0f;
+    return static_cast<float>(bits & 0xFFFFFF) * unitPerStep;
+}
+
+// SplitMix64's finalizer: launch n's random bits are the hash of the call's seed and n, so a launch does not depend
+// on which core generated it, and no generator state is seeded per chunk.
 uint64_t mixBits(uint64_t value) {
-    value += 0x9e3779b97f4a7c15ull;
-    value = (value ^ (value >> 30)) * 0xbf58476d1ce4e5b9ull;
-    value = (value ^ (value >> 27)) * 0x94d049bb133111ebull;
+    value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9ull;
+    value = (value ^ (value >> 27)) * 0x94D049BB133111EBull;
     return value ^ (value >> 31);
 }
 
-float unitFloat(uint64_t bits) { return static_cast<float>(bits >> 40) * (1.0f / 16777216.0f); }
+// Taylor series to x^9 and x^10, which the compiler vectorizes where std::sin and std::cos stay one call per ball.
+// Launch angles stay within +-90 degrees, where both are within 4e-6 (1e-8 at the default 55).
+void launchSinCos(float angle, float& sine, float& cosine) {
+    const float square = angle * angle;
+    sine = angle * (1.0f + square * (-1.0f / 6.0f + square * (1.0f / 120.0f + square * (-1.0f / 5040.0f +
+                                                                                        square * (1.0f / 362880.0f)))));
+    cosine = 1.0f + square * (-0.5f + square * (1.0f / 24.0f + square * (-1.0f / 720.0f + square * (1.0f / 40320.0f +
+                                                                                       square * (-1.0f / 3628800.0f)))));
+}
 
+}
 
+SimulationTuning simulationTuning(const GameplayRules& rules) {
+    return {rules.ballRadius,
+            rules.ballSpeed,
+            1.0f / static_cast<float>(rules.ticksPerSecond),
+            rules.maxTicksPerFrame,
+            rules.retargetBounces,
+            rules.launchHalfAngleDegrees};
 }
 
 Simulation::Simulation(BackendHandle backend, SimulationTuning tuning)
@@ -93,47 +114,46 @@ void Simulation::setBallCollisions(bool enabled) {
     physics->setBallCollisions(enabled);
 }
 
-// Each ball's angle and jitter come from a hash of its index, so a launch is generated on every hardware thread and
-// still gives the same balls however many threads ran it. The threads stay up between launches: the game launches a
-// few tens of thousands a frame, which starting threads each time would cost more than generating.
+// Launches are generated a chunk per core, each ball from a hash of this call's draw and its place, so the Auto ramp's
+// millions a frame do not hold up the frame and the balls do not depend on the core count.
 void Simulation::launchBalls(BallColor color, BallCount requested) {
     constexpr float degreesToRadians = std::numbers::pi_v<float> / 180.0f;
+    constexpr size_t launchChunkBalls = size_t{1} << 12;
+    constexpr uint64_t launchStride = 0x9E3779B97F4A7C15ull;
     const BallCount count = std::min(requested, ballRoom());
     const float halfAngle = settings.launchHalfAngleDegrees * degreesToRadians;
-    const float x = launchX();
-    const float y = launchY();
+    const float originX = launchX();
+    const float originY = launchY();
     const float radius = settings.ballRadius;
     const float speed = settings.ballSpeed;
-    const int32_t colorIndex = toIndex(color);
-    const uint64_t launchSeed = (static_cast<uint64_t>(random()) << 32) | random();
-    for (BallCount done = 0; done < count;) {
-        flushSpawnsIfLarge();
+    const int colorIndex = toIndex(color);
+    const uint64_t seed = (static_cast<uint64_t>(random()) << 32) | random();
+    for (BallCount launched = 0; launched < count;) {
+        const size_t batch = static_cast<size_t>(std::min<BallCount>(count - launched, spawnFlushBalls));
         const size_t first = pendingSpawns.size();
-        const size_t batch = static_cast<size_t>(std::min<BallCount>(count - done, spawnFlushBalls - first));
         pendingSpawns.resize(first + batch);
-        BallSpawn* out = pendingSpawns.data() + first;
-        const uint64_t batchSeed = launchSeed + done;
-        const auto generate = [&](size_t, size_t begin, size_t end) {
+        BallSpawn* const spawns = pendingSpawns.data() + first;
+        const uint64_t batchStart = launched;
+        parallelChunks(batch, launchChunkBalls, [&](size_t, size_t begin, size_t end) {
             for (size_t i = begin; i < end; ++i) {
-                const uint64_t bits = mixBits(batchSeed + i);
-                const float angle = (unitFloat(bits) * 2.0f - 1.0f) * halfAngle;
-                const float jitter = (unitFloat(bits << 24) * 2.0f - 1.0f) * radius;
-                out[i] = {x + jitter, y, std::sin(angle) * speed, -std::cos(angle) * speed, colorIndex};
+                const uint64_t bits = mixBits(seed + (batchStart + i) * launchStride);
+                const float angle = (2.0f * unitFromBits(bits) - 1.0f) * halfAngle;
+                const float jitter = (2.0f * unitFromBits(bits >> 24) - 1.0f) * radius;
+                float sine = 0.0f;
+                float cosine = 0.0f;
+                launchSinCos(angle, sine, cosine);
+                spawns[i] = {originX + jitter, originY, sine * speed, -cosine * speed, colorIndex};
             }
-        };
-        if (batch <= launchChunkBalls) {
-            generate(0, 0, batch);
-        } else {
-            if (!launchPool) {
-                launchPool = std::make_unique<WorkerPool>(std::max(1u, std::thread::hardware_concurrency()));
-            }
-            launchPool->runChunks(batch, launchChunkBalls, generate);
-        }
-        done += batch;
+        });
+        launched += batch;
+        flushSpawnsIfLarge();
     }
-    flushSpawnsIfLarge();
     statistics.ballsByColor[toIndex(color)] += count;
     statistics.totalBallsSpawned += count;
+}
+
+void Simulation::spawnBalls(const std::vector<BallSpawn>& spawns) {
+    pendingSpawns.insert(pendingSpawns.end(), spawns.begin(), spawns.end());
 }
 
 BallCount Simulation::ballRoom() const {
@@ -142,7 +162,7 @@ BallCount Simulation::ballRoom() const {
     return limit > live ? limit - live : 0;
 }
 
-// Spawns are 20 bytes against 8 stored, so a probe step of billions of balls hands them to the backend in batches
+// Spawns are 20 bytes against 8 stored, so a fill step of billions of balls hands them to the backend in batches
 // instead of holding them all.
 void Simulation::flushSpawnsIfLarge() {
     if (pendingSpawns.size() >= spawnFlushBalls) {
@@ -176,15 +196,8 @@ void Simulation::scatterBalls(BallColor color, BallCount requested) {
     statistics.totalBallsSpawned += count;
 }
 
-void Simulation::flushPendingSpawns() {
-    if (!pendingSpawns.empty()) {
-        physics->addBalls(pendingSpawns);
-        pendingSpawns.clear();
-    }
-}
-
 void Simulation::trimBallsTo(BallCount limit) {
-    flushPendingSpawns();
+    flushSpawns();
     if (physics->ballCount() <= limit) {
         return;
     }
@@ -317,12 +330,19 @@ void Simulation::resolveHits() {
     }
 }
 
+void Simulation::flushSpawns() {
+    if (!pendingSpawns.empty()) {
+        physics->addBalls(pendingSpawns);
+        pendingSpawns.clear();
+    }
+}
+
 void Simulation::tick(int substeps) {
     using Clock = std::chrono::steady_clock;
     const auto milliseconds = [](Clock::time_point from, Clock::time_point to) {
         return std::chrono::duration<double, std::milli>(to - from).count();
     };
-    flushPendingSpawns();
+    flushSpawns();
     const Clock::time_point syncStart = Clock::now();
     syncBoardIfChanged();
     hits.clear();

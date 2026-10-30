@@ -272,14 +272,6 @@ Avx2Backend::Avx2Backend(size_t threadCount)
           static_cast<size_t>(std::max(environmentNumber("BALLS_RENDER_SAMPLES", defaultRenderSamplesPerTask), 1L))) {
 }
 
-// Encoding is about 30 ns a ball when the store is frozen (each spawn is projected back to the free-flight epoch), so
-// launches are split across the pool, down to the few tens of thousands the game launches a frame.
-void Avx2Backend::addBalls(std::span<const BallSpawn> spawns) {
-    constexpr size_t addChunkBalls = size_t{1} << 13;
-    store.add(spawns, [&](size_t count, const std::function<void(size_t, size_t)>& encode) {
-        pool->runChunks(count, addChunkBalls, [&](size_t, size_t begin, size_t end) { encode(begin, end); });
-    });
-}
 
 void Avx2Backend::removeBalls(std::span<const uint32_t> descendingIndices) {
     constexpr size_t removalChunkBalls = size_t{1} << 12;
@@ -334,6 +326,9 @@ void Avx2Backend::materializeFreeFlight() {
 // Paging even part of the balls out would cost more than the frame budget, so the ceiling stops short of it, and
 // once Windows reports memory as low no more balls are taken at all.
 size_t Avx2Backend::ballCapacityLimit() const {
+    if (store.isPreallocated()) {
+        return store.capacity();
+    }
     constexpr size_t bytesPerBall = 8;
     constexpr size_t minimumMarginBytes = size_t{1} << 30;
     constexpr size_t marginDivisor = 32;
@@ -496,6 +491,33 @@ void Avx2Backend::renderSampledChunks(CompactBallStore& store, const FlightRende
         }
         store.renderRangeInFlight(i, last);
     }
+}
+
+size_t Avx2Backend::preallocateBalls() {
+    if (store.isPreallocated()) {
+        return store.capacity();
+    }
+    if (isMemoryLow()) {
+        return 0;
+    }
+    const std::optional<PhysicalMemory> memory = physicalMemory();
+    if (!memory) {
+        return 0;
+    }
+    constexpr size_t minimumMarginBytes = size_t{1} << 30;
+    constexpr size_t marginDivisor = 32;
+    const size_t margin = std::max(minimumMarginBytes, memory->total / marginDivisor);
+    const size_t spare = memory->available > margin ? memory->available - margin : 0;
+    if (spare == 0) {
+        return 0;
+    }
+    constexpr size_t commitGranule = size_t{64} << 20;
+    const size_t bytesPerArray = (spare / 2 / commitGranule) * commitGranule;
+    if (bytesPerArray == 0) {
+        return 0;
+    }
+    const size_t targetBalls = bytesPerArray / sizeof(uint32_t);
+    return store.preallocate(targetBalls, pool.get());
 }
 
 void Avx2Backend::step(const StepParams& params, std::vector<BallHit>& hits) {
@@ -716,16 +738,6 @@ LaneState decodeLanes(__m256i position, __m256i state, const LaneConstants& k) {
             _mm256_mul_ps(dy, scale),
             _mm256_and_si256(_mm256_srli_epi32(state, compact::colorShift), k.colorMask),
             _mm256_and_si256(_mm256_srli_epi32(state, compact::bounceShift), k.bounceMask)};
-}
-
-__m256i encodeAxisLanes(__m256 value, __m256 toPosition, const LaneConstants& k) {
-    const __m256 scaled = _mm256_fmadd_ps(value, toPosition, k.halfCell);
-    return _mm256_cvttps_epi32(_mm256_min_ps(_mm256_max_ps(scaled, k.zero), k.positionMax));
-}
-
-__m256i encodePositionLanes(const LaneState& lanes, const LaneConstants& k) {
-    return _mm256_or_si256(encodeAxisLanes(lanes.x, k.xToPosition, k),
-                           _mm256_slli_epi32(encodeAxisLanes(lanes.y, k.yToPosition, k), 16));
 }
 
 __m256i roundingDitherLanes(__m256i previousPosition) {

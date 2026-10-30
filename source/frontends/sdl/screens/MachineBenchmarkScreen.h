@@ -11,10 +11,6 @@
 
 class App;
 
-// The /benchmark control answer, shared by the live screen and the stored record.
-std::string benchmarkJson(std::string_view state, std::span<const CandidateResult> results,
-                          const std::optional<BenchmarkCandidate>& winner);
-
 // First-launch benchmark: measures every backend on a worker thread, makes the
 // fastest the default and opens the Main menu.
 class MachineBenchmarkScreen final : public Screen {
@@ -24,8 +20,10 @@ public:
     void update(float deltaTime) override;
     void draw() override;
     std::string_view name() const override { return "benchmark"; }
-    std::string stateJson() const override;
-    std::optional<ControlResponse> handleControl(const ControlRequest& request) override;
+    std::string stateJson() const override { return controlBenchmarkJson(controlState()); }
+    // The live run as the control API's /benchmark reports it.
+    ControlBenchmarkState controlState() const;
+    void skip();
 
 private:
     void finish(bool complete);
@@ -37,5 +35,4 @@ private:
     std::string loadError;
     std::optional<BenchmarkCandidate> winner;
     std::vector<CandidateResult> finalResults;
-    float secondsSinceDone = 0.0f;
 };
