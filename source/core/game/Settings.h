@@ -16,6 +16,15 @@ struct Settings {
     bool ballCollisions = false;
     LayoutOrientation layout = LayoutOrientation::Auto;
     bool vsync = false;
+    // Off skips drawing the board and its balls, so the physics can be measured on its own.
+    bool drawBoard = true;
+    // Physics ticks per second: 120 is the game; 240 and 480 check contacts more often, for accuracy on faster
+    // hardware, at that much more work per second. Takes effect when a level starts.
+    int ticksPerSecond = 120;
+    // How often the physics thread runs a frame and publishes it: 0 is one frame per tick, otherwise frames per
+    // second, each running the ticks the fixed tick rate owes. Below the tick rate (60 on a 60 Hz screen) a frame
+    // runs two ticks and draws once, so no picture is made that the screen would not show.
+    int physicsFramesPerSecond = 0;
     // A physics backend name (see backendKindName); empty lets the front end pick. The machine benchmark writes its
     // winner here, and the player can override it from the Settings page.
     std::string defaultBackend;

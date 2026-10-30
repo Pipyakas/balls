@@ -49,6 +49,8 @@ SimulationTuning simulationTuning(const GameplayRules& rules) {
 Simulation::Simulation(BackendHandle backend, SimulationTuning tuning)
     : settings(tuning), physics(std::move(backend)) {}
 
+Simulation::~Simulation() = default;
+
 void Simulation::load(const BrickLayout& layout) {
     brickBoard.load(layout);
     physics->clear();
@@ -98,6 +100,13 @@ BackendReplacement Simulation::replaceBackend(BackendHandle backend, size_t chun
     }
     replacement.ballsToRefill = total - std::min(physics->ballCount(), total);
     return replacement;
+}
+
+void Simulation::setTicksPerSecond(int ticksPerSecond) {
+    const int rate = std::max(ticksPerSecond, 1);
+    settings.tickSeconds = 1.0f / static_cast<float>(rate);
+    settings.maxTicksPerFrame = std::max(1, static_cast<int>(std::ceil(longestCatchUpSeconds * static_cast<float>(rate))));
+    accumulator = 0.0f;
 }
 
 void Simulation::setBallCollisions(bool enabled) {
@@ -188,10 +197,7 @@ void Simulation::scatterBalls(BallColor color, BallCount requested) {
 }
 
 void Simulation::trimBallsTo(BallCount limit) {
-    if (!pendingSpawns.empty()) {
-        physics->addBalls(pendingSpawns);
-        pendingSpawns.clear();
-    }
+    flushSpawns();
     if (physics->ballCount() <= limit) {
         return;
     }
@@ -219,16 +225,38 @@ StepParams Simulation::stepParams(int substeps) const {
 }
 
 void Simulation::syncBoardIfChanged() {
-    targetsUploadPending = targetField.takeFinishedRebuild(brickBoard) || targetsUploadPending;
+    const bool rebuilt = targetField.takeFinishedRebuild(brickBoard);
+    bool sparseTargets = rebuilt && !targetsUploadPending && targetField.lastRebuildIsSparse() &&
+                         physics->acceptsSparseBoardUpdates();
+    targetsUploadPending = rebuilt || targetsUploadPending;
     const bool layoutChanged = uploadedRevision != brickBoard.revision();
     if (!layoutChanged && !hostHitsPending && !targetsUploadPending) {
         return;
     }
     if (layoutChanged) {
-        targetsUploadPending = targetField.requestRebuild(brickBoard) || targetsUploadPending;
+        if (targetField.requestRebuild(brickBoard)) {
+            targetsUploadPending = true;
+            sparseTargets = false;
+        }
     }
     const bool onlyChangedCells = uploadedRevision != ~0ull;
-    const bool sendHits = hostHitsPending || hitsUploadPending;
+    // Hybrid's CPU side reports its hits to the host every tick; on a board of millions of bricks re-sending every
+    // brick's count each time cost tens of milliseconds, so only the bricks hit are sent where the backend takes that.
+    constexpr size_t wholeUploadDivisor = 8;
+    const bool sendHitUpdates = hostHitsPending && !hitsUploadPending && physics->acceptsSparseBoardUpdates() &&
+                                hostHitBricks.size() <= brickBoard.bricks().size() / wholeUploadDivisor;
+    const bool sendHits = (hostHitsPending || hitsUploadPending) && !sendHitUpdates;
+    brickHitUpdates.clear();
+    if (sendHitUpdates) {
+        std::ranges::sort(hostHitBricks);
+        const auto [first, last] = std::ranges::unique(hostHitBricks);
+        hostHitBricks.erase(first, last);
+        for (const int32_t brick : hostHitBricks) {
+            brickHitUpdates.push_back(brick);
+            brickHitUpdates.push_back(std::max(brickBoard.bricks()[brick].hitsLeft, 0));
+        }
+    }
+    hostHitBricks.clear();
     if (sendHits) {
         uploadedBrickHitsLeft = brickBoard.hitsLeftPerBrick();
     }
@@ -237,9 +265,13 @@ void Simulation::syncBoardIfChanged() {
     const std::span<const int32_t> hitsLeft =
         sendHits ? std::span<const int32_t>(uploadedBrickHitsLeft) : std::span<const int32_t>{};
     const std::span<const int32_t> targets =
-        targetsUploadPending ? std::span<const int32_t>(targetField.targetCells()) : std::span<const int32_t>{};
+        targetsUploadPending && !sparseTargets ? std::span<const int32_t>(targetField.targetCells())
+                                               : std::span<const int32_t>{};
+    const std::span<const int32_t> targetUpdates =
+        targetsUploadPending && sparseTargets ? targetField.lastRebuildChanges() : std::span<const int32_t>{};
     physics->uploadBoard({brickBoard.columns(), brickBoard.rows(), brickBoard.paddedCells(), brickBoard.brickColors(),
-                          targets, brickBoard.nearBrickFlags(), hitsLeft, brickBoard.changedCells(), onlyChangedCells});
+                          targets, brickBoard.nearBrickFlags(), hitsLeft, brickBoard.changedCells(), onlyChangedCells,
+                          brickHitUpdates, targetUpdates});
     brickBoard.clearChangedCells();
     targetsUploadPending = false;
     uploadedRevision = brickBoard.revision();
@@ -280,10 +312,18 @@ void Simulation::resolveHits() {
         brickBoard.applyHit(hit.brick);
         anyDestroyed = anyDestroyed || !brickBoard.bricks()[hit.brick].isAlive();
         killedBalls.push_back(hit.ball);
+        if (physics->acceptsSparseBoardUpdates()) {
+            hostHitBricks.push_back(static_cast<int32_t>(hit.brick));
+        }
         --statistics.ballsByColor[toIndex(brickBoard.bricks()[hit.brick].color)];
     }
     statistics.totalHits += killedBalls.size();
-    std::ranges::sort(killedBalls, std::greater<>{});
+    // Backends report hits in ball order, so this is usually a reversal rather than a sort.
+    if (std::ranges::is_sorted(killedBalls)) {
+        std::ranges::reverse(killedBalls);
+    } else {
+        std::ranges::sort(killedBalls, std::greater<>{});
+    }
     physics->removeBalls(killedBalls);
     if (anyDestroyed) {
         brickBoard.settleColumns();
@@ -298,13 +338,23 @@ void Simulation::flushSpawns() {
 }
 
 void Simulation::tick(int substeps) {
+    using Clock = std::chrono::steady_clock;
+    const auto milliseconds = [](Clock::time_point from, Clock::time_point to) {
+        return std::chrono::duration<double, std::milli>(to - from).count();
+    };
     flushSpawns();
+    const Clock::time_point syncStart = Clock::now();
     syncBoardIfChanged();
     hits.clear();
+    const Clock::time_point stepStart = Clock::now();
     physics->step(stepParams(substeps), hits);
+    const Clock::time_point stepEnd = Clock::now();
     elapsedTicks += static_cast<uint32_t>(substeps);
+    statistics.lastHostHits = hits.size();
+    Clock::time_point deviceHitsEnd = stepEnd;
     if (physics->resolvesHitsOnDevice()) {
         applyDeviceHits();
+        deviceHitsEnd = Clock::now();
         if (!hits.empty()) {
             resolveHits();
             hostHitsPending = !killedBalls.empty();
@@ -312,6 +362,11 @@ void Simulation::tick(int substeps) {
     } else {
         resolveHits();
     }
+    const Clock::time_point end = Clock::now();
+    statistics.lastSyncMs = milliseconds(syncStart, stepStart);
+    statistics.lastStepMs = milliseconds(stepStart, stepEnd);
+    statistics.lastDeviceHitsMs = milliseconds(stepEnd, deviceHitsEnd);
+    statistics.lastHostHitsMs = milliseconds(deviceHitsEnd, end);
 }
 
 void Simulation::advance(float frameSeconds) {

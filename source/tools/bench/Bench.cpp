@@ -1,16 +1,27 @@
+#include "common/WorkerPool.h"
+#include "game/SpawnPacer.h"
+#include "level/EdgeCaseLevels.h"
 #include "common/Environment.h"
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
+#include "level/LevelWriter.h"
 #include "sim/BackendBenchmark.h"
 #include "sim/BackendFactory.h"
 #include "sim/BackendSelection.h"
 #include "sim/DeviceComposer.h"
 #include "sim/DeviceInventory.h"
-#include "sim/HybridBackend.h"
+#include "sim/EdgeCaseSweep.h"
 #include "sim/PhysicsAccuracy.h"
 #include "sim/Simulation.h"
 
 #include <emmintrin.h>
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <psapi.h>
+#endif
 
 #include <algorithm>
 #include <chrono>
@@ -78,6 +89,16 @@ struct BenchOptions {
     int substeps = 2;
     std::filesystem::path machineBenchmarkOutput;
     bool accuracy = false;
+    bool edgeCases = false;
+    std::string edgeLayouts = "all";
+    std::string edgeSizes = "all";
+    double edgeCaseSeconds = 40.0;
+    std::filesystem::path edgeOutput;
+    int traceFrames = 0;
+    BallCount traceSpawnTo = 0;
+    bool drawing = true;
+    double targetFps = 60.0;
+    std::filesystem::path edgeLevelDirectory;
     bool listDevices = false;
     bool visibilityGrid = false;
 };
@@ -161,6 +182,34 @@ BenchOptions parseOptions(int argumentCount, char** arguments) {
             ++i;
         } else if (argument == "--accuracy") {
             options.accuracy = true;
+        } else if (argument == "--edge-cases") {
+            options.edgeCases = true;
+        } else if (argument == "--layouts") {
+            options.edgeLayouts = value;
+            ++i;
+        } else if (argument == "--sizes") {
+            options.edgeSizes = value;
+            ++i;
+        } else if (argument == "--case-seconds") {
+            options.edgeCaseSeconds = std::atof(value);
+            ++i;
+        } else if (argument == "--write-edge-levels") {
+            options.edgeLevelDirectory = value;
+            ++i;
+        } else if (argument == "--trace-spawn-to") {
+            options.traceSpawnTo = std::strtoull(value, nullptr, 10);
+            ++i;
+        } else if (argument == "--no-draw") {
+            options.drawing = false;
+        } else if (argument == "--target-fps") {
+            options.targetFps = std::atof(value);
+            ++i;
+        } else if (argument == "--trace-frames") {
+            options.traceFrames = std::atoi(value);
+            ++i;
+        } else if (argument == "--out") {
+            options.edgeOutput = value;
+            ++i;
         } else if (argument == "--grid") {
             options.visibilityGrid = true;
         } else if (argument == "--devices") {
@@ -196,6 +245,15 @@ int runAccuracy(const BenchOptions& options, const BrickLayout& level) {
         {"empty box", emptyBoard(level.width, level.playableHeight), boxBalls, false, boxFrames},
         {"empty box, stepped", emptyBoard(level.width, level.playableHeight), boxBalls, false, boxFrames, 2, 60, false},
         {"level, launched", level, levelBalls, true, levelFrames},
+        {"empty box, not drawn", emptyBoard(level.width, level.playableHeight), boxBalls, false, boxFrames, 2, 60, true,
+         false},
+        {"level, launched, not drawn", level, levelBalls, true, levelFrames, 2, 60, true, false},
+        {"empty box, 240 Hz", emptyBoard(level.width, level.playableHeight), boxBalls, false, boxFrames, 2, 60, true,
+         true, 240},
+        {"level, launched, 240 Hz", level, levelBalls, true, levelFrames, 2, 60, true, true, 240},
+        {"empty box, 480 Hz", emptyBoard(level.width, level.playableHeight), boxBalls, false, boxFrames, 2, 60, true,
+         true, 480},
+        {"level, launched, 480 Hz", level, levelBalls, true, levelFrames, 2, 60, true, true, 480},
     };
     for (const AccuracyScenario& scenario : scenarios) {
         std::printf("== %s: %zu balls, %d frames\n", scenario.name.c_str(), scenario.balls, scenario.frames);
@@ -225,6 +283,182 @@ int runAccuracy(const BenchOptions& options, const BrickLayout& level) {
                                                        static_cast<long long>(reference.samples[i].hits));
             }
             std::printf("             hits minus reference per sample:%s\n", hitsCurve.c_str());
+        }
+    }
+    return 0;
+}
+
+bool listed(const std::string& list, const std::string& name) {
+    return list == "all" || (',' + list + ',').find(',' + name + ',') != std::string::npos;
+}
+
+// Saves the generated boards as level files, so the game lists them under Performance.
+int writeEdgeLevels(const BenchOptions& options) {
+    for (const EdgeBoardSize size : edgeBoardSizes()) {
+        if (!listed(options.edgeSizes, std::format("{}x{}", size.width, size.height))) {
+            continue;
+        }
+        for (const EdgeLayout layout : allEdgeLayouts()) {
+            if (!listed(options.edgeLayouts, edgeLayoutName(layout))) {
+                continue;
+            }
+            const LevelData level = generateEdgeLevel(layout, size);
+            const Result<void> saved = saveLevel(level, levelFilesFor(options.edgeLevelDirectory, level.name));
+            if (!saved) {
+                std::fprintf(stderr, "%s: %s\n", level.name.c_str(), saved.error().c_str());
+                return 1;
+            }
+            std::printf("wrote %s\n", level.name.c_str());
+        }
+    }
+    return 0;
+}
+
+// Available physical memory and the process's page faults so far, to see a fill approach the swap line.
+std::string memoryReport() {
+#if defined(_WIN32)
+    MEMORYSTATUSEX memory{};
+    memory.dwLength = sizeof(memory);
+    GlobalMemoryStatusEx(&memory);
+    PROCESS_MEMORY_COUNTERS counters{};
+    counters.cb = sizeof(counters);
+    K32GetProcessMemoryInfo(GetCurrentProcess(), &counters, sizeof(counters));
+    return std::format("  available {:.1f} GB  working set {:.1f} GB  page faults {}",
+                       static_cast<double>(memory.ullAvailPhys) / 1e9, static_cast<double>(counters.WorkingSetSize) / 1e9,
+                       counters.PageFaultCount);
+#else
+    return {};
+#endif
+}
+
+// One generated board, one backend, one ball count: every frame's time and live balls, to find where spikes come from.
+int traceEdgeCases(const BenchOptions& options) {
+    for (const EdgeBoardSize size : edgeBoardSizes()) {
+        if (!listed(options.edgeSizes, std::format("{}x{}", size.width, size.height))) {
+            continue;
+        }
+        for (const EdgeLayout layout : allEdgeLayouts()) {
+            if (!listed(options.edgeLayouts, edgeLayoutName(layout))) {
+                continue;
+            }
+            for (const BenchTarget& target : options.backends) {
+                const BackendKind kind = applyTarget(target);
+                BackendHandle backend = createBackend(kind);
+                if (!backend) {
+                    continue;
+                }
+                Simulation simulation(std::move(backend));
+                simulation.load(generateEdgeLayout(layout, size));
+                EdgeSweepSettings traceSettings;
+                traceSettings.drawing = options.drawing;
+                useGameVisibilityGrid(simulation, traceSettings);
+                const size_t balls = options.ballCounts.empty() ? size_t{1} << 22 : options.ballCounts.front();
+                for (const BallColor color : allBallColors) {
+                    simulation.launchBalls(color, static_cast<BallCount>(balls / ballColorCount));
+                }
+                std::printf("== %s %s %zu balls\n", edgeCaseName(layout, size).c_str(),
+                            std::string(backendKindName(kind)).c_str(), balls);
+                SpawnPacer pacer;
+                int colorIndex = 0;
+                double sums[6]{};
+                int summed = 0;
+                for (int frame = 0; frame < options.traceFrames; ++frame) {
+                    using Clock = std::chrono::steady_clock;
+                    const auto start = Clock::now();
+                    const BallCount live = simulation.liveBallCount();
+                    const BallCount wanted = options.traceSpawnTo > live ? options.traceSpawnTo - live : 0;
+                    const BallCount launched = std::min(wanted, pacer.allowance());
+                    simulation.launchBalls(ballColorFromIndex(colorIndex++ % ballColorCount), launched);
+                    simulation.flushSpawns();
+                    const auto spawned = Clock::now();
+                    pacer.recordSpawn(launched, std::chrono::duration<double>(spawned - start).count());
+                    simulation.tick(options.substeps);
+                    const double spawnMs = std::chrono::duration<double, std::milli>(spawned - start).count();
+                    const double ms = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+                    pacer.reportFrame(ms / 1e3, simulation.liveBallCount());
+                    std::string split = frame % 50 == 0 ? memoryReport() : std::string();
+                    if (const auto* composer = dynamic_cast<const DeviceComposer*>(&simulation.backend())) {
+                        for (size_t part = 0; part < composer->partCount(); ++part) {
+                            split += std::format("  {} {} balls {:.2f} ms", composer->partLabel(part),
+                                                 composer->partBallCount(part), composer->partStepMs(part));
+                        }
+                    }
+                    const SimulationStats& stats = simulation.stats();
+                    std::printf("frame %4d %8.2f ms  spawn %6.2f ms (%9llu)  live %10llu  sync %5.2f step %6.2f "
+                                "device hits %5.2f host hits %5.2f (%zu)%s\n",
+                                frame, ms, spawnMs, static_cast<unsigned long long>(launched),
+                                static_cast<unsigned long long>(simulation.liveBallCount()), stats.lastSyncMs,
+                                stats.lastStepMs, stats.lastDeviceHitsMs, stats.lastHostHitsMs, stats.lastHostHits,
+                                split.c_str());
+                    if (frame >= options.traceFrames / 2) {
+                        const double values[6]{ms, stats.lastSyncMs, stats.lastStepMs, stats.lastDeviceHitsMs,
+                                               stats.lastHostHitsMs, static_cast<double>(stats.lastHostHits)};
+                        for (int i = 0; i < 6; ++i) {
+                            sums[i] += values[i];
+                        }
+                        ++summed;
+                    }
+                }
+                if (summed > 0) {
+                    std::printf("mean of last %d frames: frame %.2f ms  sync %.2f  step %.2f  device hits %.2f  host hits "
+                                "%.2f ms (%.0f)  live %llu\n",
+                                summed, sums[0] / summed, sums[1] / summed, sums[2] / summed, sums[3] / summed,
+                                sums[4] / summed, sums[5] / summed,
+                                static_cast<unsigned long long>(simulation.liveBallCount()));
+                }
+            }
+        }
+    }
+    return 0;
+}
+
+// Every generated board shape and size against every backend, from small to as big as the machine holds; one line
+// per pair, also written as tab-separated rows to --out.
+int runEdgeCases(const BenchOptions& options) {
+    EdgeSweepSettings settings;
+    settings.caseSeconds = options.edgeCaseSeconds;
+    settings.drawing = options.drawing;
+    settings.targetFps = options.targetFps;
+    std::ofstream output;
+    if (!options.edgeOutput.empty()) {
+        output.open(options.edgeOutput, std::ios::binary);
+        output << "case\tbackend\tballs_at_60\tfilled\twindow_ms\tsettled_ms\tworst_ms\tlaunched\tbricks_left\t"
+                  "launch_ns_per_ball\tstop\tseconds\n";
+    }
+    for (const EdgeBoardSize size : edgeBoardSizes()) {
+        if (!listed(options.edgeSizes, std::format("{}x{}", size.width, size.height))) {
+            continue;
+        }
+        for (const EdgeLayout layout : allEdgeLayouts()) {
+            if (!listed(options.edgeLayouts, edgeLayoutName(layout))) {
+                continue;
+            }
+            const std::string name = edgeCaseName(layout, size);
+            const BrickLayout bricks = generateEdgeLayout(layout, size);
+            for (const BenchTarget& target : options.backends) {
+                const BackendKind kind = applyTarget(target);
+                if (!isBackendAvailable(kind)) {
+                    continue;
+                }
+                const EdgeSweepResult result = sweepEdgeCase(bricks, kind, settings);
+                const std::string backendName = targetLabel(kind);
+                std::printf("%-28s %-7s ~%-7s at %.0f FPS  (filled %s at %.1f ms, settled %.1f ms, worst frame %.1f ms, "
+                            "%s launched)  bricks %d  launch %.0f ns/ball  stop: %s  %.0f s\n",
+                            name.c_str(), backendName.c_str(), shortBallCount(result.ballsAtBudget).c_str(),
+                            options.targetFps, shortBallCount(result.filledBalls).c_str(), result.windowFrameMs, result.settledFrameMs,
+                            result.worstFrameMs, shortBallCount(static_cast<double>(result.launchedBalls)).c_str(),
+                            result.aliveBricks, result.launchNanosecondsPerBall, result.stopReason.c_str(),
+                            result.seconds);
+                std::fflush(stdout);
+                if (output.is_open()) {
+                    output << std::format("{}\t{}\t{:.0f}\t{:.0f}\t{:.2f}\t{:.2f}\t{:.2f}\t{}\t{}\t{:.1f}\t{}\t{:.1f}\n",
+                                          name, backendName, result.ballsAtBudget, result.filledBalls,
+                                          result.windowFrameMs, result.settledFrameMs, result.worstFrameMs,
+                                          result.launchedBalls, result.aliveBricks, result.launchNanosecondsPerBall,
+                                          result.stopReason, result.seconds);
+                    output.flush();
+                }
+            }
         }
     }
     return 0;
@@ -290,10 +524,6 @@ void printComposerParts(const DeviceComposer& composer, int depth = 0) {
                     100.0 * static_cast<double>(composer.partBallCount(part)) /
                         static_cast<double>(std::max<size_t>(composer.ballCount(), 1)),
                     composer.partBallCount(part), composer.partStepMs(part));
-        if (composer.partParked(part)) {
-            std::printf("%*s%-12s parked: slower composed than without it\n", indent, "",
-                        composer.partLabel(part).c_str());
-        }
         if (const auto* nested = dynamic_cast<const DeviceComposer*>(&composer.partBackend(part))) {
             printComposerParts(*nested, depth + 1);
         }
@@ -392,11 +622,6 @@ void runScatteredSimulation(const BrickLayout& layout, BackendKind kind, size_t 
         targetLabel(kind).c_str(), collisions ? 1 : 0, ballCount, seconds * 1000.0 / ticks,
         static_cast<double>(ballCount) * ticks / seconds / 1e6, bricksBefore,
         simulation.board().aliveBrickCount());
-    if (const auto* hybrid = dynamic_cast<const HybridBackend*>(&simulation.backend())) {
-        std::printf("        cpu share %5.1f%%  cpu step %6.3f ms  gpu step %6.3f ms\n",
-                    100.0 * static_cast<double>(hybrid->cpuBallCount()) / static_cast<double>(hybrid->ballCount()),
-                    hybrid->cpuStepMs(), hybrid->gpuStepMs());
-    }
     if (const auto* composer = dynamic_cast<const DeviceComposer*>(&simulation.backend())) {
         printComposerParts(*composer);
     }
@@ -588,6 +813,9 @@ int main(int argumentCount, char** arguments) {
         listPhysicalDevices();
         return 0;
     }
+    if (environmentNumber("BALLS_PIN_LATENCY_THREADS", 0) != 0) {
+        preferPerformanceCores();
+    }
     if (options.cpuRoofline) {
         runCpuRoofline(options.ballCounts.empty() ? size_t{96000000} : options.ballCounts.front(),
                        std::max(options.ticks, 1));
@@ -600,6 +828,12 @@ int main(int argumentCount, char** arguments) {
         std::printf("board: %s\n", onLevel ? options.levelName.c_str() : "empty");
         runRoofline(options, rooflineLevel ? &rooflineLevel->bricks : nullptr);
         return 0;
+    }
+    if (!options.edgeLevelDirectory.empty()) {
+        return writeEdgeLevels(options);
+    }
+    if (options.edgeCases) {
+        return options.traceFrames > 0 ? traceEdgeCases(options) : runEdgeCases(options);
     }
     auto level = loadLevel(levelFilesFor(options.levelDirectory, options.levelName));
     if (!level) {

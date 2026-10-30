@@ -26,16 +26,29 @@ Empty box, mean / worst distance from the reference after 10 s, in cells:
 |---|---|---|
 | Scalar | 0.0004 / 0.002 | 0.0004 / 0.002 |
 | AVX2 | 0.009 / 0.025 | 0.011 / 0.040 |
-| CUDA, CUDA+AVX2 | 0.009 / 0.025 | 0.009 / 0.025 |
+| CUDA, Hybrid (AVX2 + CUDA) | 0.009 / 0.025 | 0.009 / 0.025 |
 | Vulkan | 0.011 / 0.039 | 0.011 / 0.039 |
 
 The compact backends store a direction in 13 bits per axis, so a ball's heading is off by up to about 1/8000 of a
 radian; over 10 s of flight that is the hundredth of a cell above.
 
 DA_1000Bricks with balls launched as in a game: no backend ever put a ball outside the field or left one inside a
-live brick, and speed never changed. Bricks left stay within 3-9% of the reference (noise floor 5.4%); total hits
-end equal and run 10-20 hits ahead of the reference during the first two seconds, because the game checks contacts
-once per tick (0.117 cells of travel) where the reference checks every 0.01 cells.
+live brick, and speed never changed. Total hits end equal and run 10-35 hits off the reference during the first
+four seconds, because the game checks contacts once per tick (0.117 cells of travel) where the reference checks every
+0.01 cells; the whole launch reaches the bricks together, so a few balls landing a tick earlier or later move the
+early curve. Bricks left differ by up to about 20 near the end, which reads as 22-46% when only ~80 remain. How large
+these look depends on the launch's random draw: with the original sequential generator they were 3-9% and 10-20
+hits, with the per-ball hashed launch (parallel generation) 22-46% and 10-35 hits, Scalar included, while the board
+clears on the same frame with the same total.
+
+## Physics rate
+
+Settings > Advanced > Physics rate (120, 240 or 480 ticks a second; `physicsRate` in the settings file) checks
+contacts more often for the same game time. On the launched level the hit curve's worst gap to the reference falls
+from 17-18% at 120 Hz to 2.3-2.5% at 240 Hz (7% at 480 Hz, against a 0.9-1.4% noise floor), and brick counts come
+within 4-13%; the empty box is unchanged, since free flight is exact at any rate. Each doubling doubles the stepping
+work, so it is for hardware with time to spare; on boards over about 1000 cells tall a 480 Hz tick moves a ball less
+than one unit of the 16-bit position, and only the dithered rounding keeps it unbiased.
 
 ## What it has caught
 

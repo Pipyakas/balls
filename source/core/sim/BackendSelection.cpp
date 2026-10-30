@@ -300,9 +300,7 @@ BackendHandle createComposedBackend(std::span<const BackendPick> picks) {
     if (parts.size() == 1) {
         return std::move(parts.front().backend);
     }
-    DeviceComposerTuning tuning;
-    tuning.parkLosingParts = environmentVariable("BALLS_COMPOSER_NO_PARK") != "1";
-    return DeviceComposer::create(std::move(parts), tuning);
+    return DeviceComposer::create(std::move(parts));
 }
 
 std::vector<BackendPick> displayedPicks(BackendKind running) {

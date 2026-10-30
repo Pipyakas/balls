@@ -3,6 +3,7 @@
 #include "level/LevelData.h"
 #include "sim/BackendFactory.h"
 #include "sim/PhysicsBackend.h"
+#include "sim/Simulation.h"
 
 #include <string>
 #include <vector>
@@ -26,6 +27,10 @@ struct AccuracyScenario {
     int sampleEveryFrames = 60;
     // The game's visibility grid; without it no backend lets balls fly freely, so stepping itself is measured.
     bool visibilityGrid = true;
+    // Off as with the board drawing turned off in the game: no grid, no render copy, free flight without drawing.
+    bool drawing = true;
+    // The game's physics rate; the scenario covers the same game time at any rate.
+    int ticksPerSecond = defaultTicksPerSecond;
 };
 
 struct AccuracySample {

@@ -18,12 +18,12 @@ constexpr double minimumShare = 0.01;
 constexpr double shareSmoothing = 0.1;
 constexpr double settlingSmoothing = 0.35;
 constexpr int settlingMeasurements = 24;
+// Steps whose times are added up before a share is measured from them. One step's time on a board where most balls
+// hit bricks varies threefold for the CPU (hits, freshly moved unsorted balls), and shares measured per step made the
+// CPU's balls swing between 4M and 21M of 60M from frame to frame on the target PC, each swing a costly move.
+constexpr int settlingWindowSteps = 4;
+constexpr int settledWindowSteps = 16;
 constexpr double slotSelectionRange = 4294967296.0;
-// A part is parked once the composed step has been this much slower than the other parts alone would be, for this
-// many settled steps in a row: a CPU or small GPU whose fixed cost per step exceeds what its share saves.
-constexpr double parkMargin = 0.03;
-constexpr int parkAfterSteps = 60;
-constexpr double wallSmoothing = 0.1;
 
 using Clock = std::chrono::steady_clock;
 
@@ -110,6 +110,29 @@ void DeviceComposer::uploadBoard(const BoardUpload& board) {
     }
     if (deviceParts >= 2 && !board.brickHitsLeft.empty()) {
         brickHits.assign(board.brickHitsLeft.begin(), board.brickHitsLeft.end());
+    }
+}
+
+// Sparse updates set a brick's hits on every part to the host's count. With two or more device parts each holds its
+// own budget instead, so they take whole boards and get their budgets drawn from those.
+bool DeviceComposer::acceptsSparseBoardUpdates() const {
+    return deviceParts < 2 &&
+           std::ranges::all_of(parts, [](const Part& part) { return part.backend->acceptsSparseBoardUpdates(); });
+}
+
+void DeviceComposer::setDrawing(bool drawing) {
+    for (Part& part : parts) {
+        part.backend->setDrawing(drawing);
+    }
+}
+
+// Each part fills the visibility grid from a sample of its balls; a part holding a fraction of the balls only wins
+// that fraction of the slots in snapshot(), so it needs only that fraction of the samples.
+void DeviceComposer::shareRenderSamples() {
+    const size_t total = ballCount();
+    for (Part& part : parts) {
+        part.backend->setRenderSampleShare(
+            total > 0 ? static_cast<double>(part.backend->ballCount()) / static_cast<double>(total) : 1.0);
     }
 }
 
@@ -223,96 +246,51 @@ void DeviceComposer::rebalance() {
 // Each measured part's share becomes its throughput over the measured parts' total, smoothed; parts with too few
 // balls to time keep theirs.
 void DeviceComposer::updateShares() {
+    for (Part& part : parts) {
+        part.windowBalls += part.steppedBalls;
+        part.windowMs += part.lastMs;
+    }
+    const bool settling = shareMeasurements < settlingMeasurements;
+    if (++windowSteps < (settling ? settlingWindowSteps : settledWindowSteps)) {
+        return;
+    }
+    windowSteps = 0;
     double measuredShare = 0.0;
     double measuredSpeed = 0.0;
     size_t measured = 0;
     const auto measurable = [this](const Part& part) {
-        return !part.parked && part.steppedBalls >= settings.minimumBallsToMeasure && part.lastMs > 0.0;
+        return part.windowBalls >= settings.minimumBallsToMeasure && part.windowMs > 0.0;
     };
+    const auto speed = [](const Part& part) { return static_cast<double>(part.windowBalls) / part.windowMs; };
     for (const Part& part : parts) {
         if (measurable(part)) {
             measuredShare += part.share;
-            measuredSpeed += static_cast<double>(part.steppedBalls) / part.lastMs;
+            measuredSpeed += speed(part);
             ++measured;
         }
     }
     if (measured < 2 || measuredSpeed <= 0.0) {
+        for (Part& part : parts) {
+            part.windowBalls = 0;
+            part.windowMs = 0.0;
+        }
         return;
     }
     const double smoothing = shareMeasurements < settlingMeasurements ? settlingSmoothing : shareSmoothing;
     ++shareMeasurements;
     for (Part& part : parts) {
         if (measurable(part)) {
-            const double balanced = measuredShare * (static_cast<double>(part.steppedBalls) / part.lastMs) / measuredSpeed;
+            const double balanced = measuredShare * speed(part) / measuredSpeed;
             part.share += smoothing * (std::max(balanced, minimumShare) - part.share);
         }
+        part.windowBalls = 0;
+        part.windowMs = 0.0;
     }
     const double total = std::accumulate(parts.begin(), parts.end(), 0.0,
                                          [](double sum, const Part& part) { return sum + part.share; });
     for (Part& part : parts) {
         part.share /= total;
     }
-}
-
-// An outer composer moving balls in or out (this composer is then one of its parts) makes the next steps slow for
-// reasons no part is to blame for, so the comparison that parks a part starts over.
-void DeviceComposer::restartParkWatch() {
-    losingSteps = 0;
-    wallEwma = 0.0;
-    soloEwma = 0.0;
-}
-
-// Equal step times are the best split only while every part's time shrinks with its share. A part with a large
-// fixed cost per step (thread wake-ups, a whole visibility grid to fill, a driver round trip) can make the
-// composed step slower than the other parts would be without it; such a part is parked: its balls move away and it
-// stops stepping. The composed step is compared with what the other parts would take for all the balls without
-// the slowest one, on smoothed times, once the shares have settled.
-void DeviceComposer::parkLosingParts(double wallMs) {
-    if (!settings.parkLosingParts || shareMeasurements < settlingMeasurements) {
-        return;
-    }
-    // The candidate is the slowest stepping part; the others would take its balls at their measured speeds.
-    size_t stepped = 0;
-    double totalSpeed = 0.0;
-    Part* slowest = nullptr;
-    size_t stepping = 0;
-    for (Part& part : parts) {
-        stepped += part.steppedBalls;
-        if (part.parked || part.steppedBalls < settings.minimumBallsToMeasure || part.lastMs <= 0.0) {
-            continue;
-        }
-        ++stepping;
-        const double speed = static_cast<double>(part.steppedBalls) / part.lastMs;
-        totalSpeed += speed;
-        if (!slowest || speed < static_cast<double>(slowest->steppedBalls) / slowest->lastMs) {
-            slowest = &part;
-        }
-    }
-    if (!slowest || stepping < 2) {
-        return;
-    }
-    const double othersSpeed = totalSpeed - static_cast<double>(slowest->steppedBalls) / slowest->lastMs;
-    if (othersSpeed <= 0.0) {
-        return;
-    }
-    const double withoutMs = static_cast<double>(stepped) / othersSpeed;
-    wallEwma = wallEwma <= 0.0 ? wallMs : wallEwma + wallSmoothing * (wallMs - wallEwma);
-    soloEwma = soloEwma <= 0.0 ? withoutMs : soloEwma + wallSmoothing * (withoutMs - soloEwma);
-    losingSteps = wallEwma > soloEwma * (1.0 + parkMargin) ? losingSteps + 1 : 0;
-    if (losingSteps < parkAfterSteps) {
-        return;
-    }
-    slowest->parked = true;
-    slowest->share = 0.0;
-    const double total = std::accumulate(parts.begin(), parts.end(), 0.0,
-                                         [](double sum, const Part& part) { return sum + part.share; });
-    for (Part& part : parts) {
-        part.share /= total;
-    }
-    shareMeasurements = 0;
-    losingSteps = 0;
-    wallEwma = 0.0;
-    soloEwma = 0.0;
 }
 
 // Splits a brick's remaining hits between the device-resolving parts in proportion to their shares of the balls,
@@ -426,13 +404,13 @@ DeviceHitResults DeviceComposer::deviceHitResults() const {
 }
 
 void DeviceComposer::step(const StepParams& params, std::vector<BallHit>& hits) {
-    const Clock::time_point stepStart = Clock::now();
     // In free flight no part steps, so there is no throughput to balance.
     if (!params.freeFlight) {
         rebalance();
     }
     stepGridWidth = gridWidth;
     stepGridHeight = gridHeight;
+    shareRenderSamples();
     lastBudgetMs = 0.0;
     if (deviceParts >= 2 && !brickHits.empty()) {
         const Clock::time_point start = Clock::now();
@@ -467,7 +445,6 @@ void DeviceComposer::step(const StepParams& params, std::vector<BallHit>& hits) 
     }
     if (!params.freeFlight) {
         updateShares();
-        parkLosingParts(millisecondsSince(stepStart));
     }
     if (deviceParts >= 2) {
         const Clock::time_point start = Clock::now();
@@ -599,7 +576,6 @@ std::vector<BallSpawn> DeviceComposer::exportBalls() {
 }
 
 std::vector<BallSpawn> DeviceComposer::takeTail(size_t count) {
-    restartParkWatch();
     std::vector<BallSpawn> balls;
     for (size_t index = parts.size(); index-- > 0 && balls.size() < count;) {
         const std::vector<BallSpawn> partBalls = parts[index].backend->takeTail(count - balls.size());
@@ -609,7 +585,6 @@ std::vector<BallSpawn> DeviceComposer::takeTail(size_t count) {
 }
 
 bool DeviceComposer::takeCompactTail(size_t count, CompactBalls& taken) {
-    restartParkWatch();
     size_t remaining = std::min(count, ballCount());
     std::vector<uint32_t> positions;
     std::vector<uint32_t> states;
@@ -632,7 +607,6 @@ bool DeviceComposer::takeCompactTail(size_t count, CompactBalls& taken) {
 }
 
 bool DeviceComposer::addCompact(const CompactBalls& added) {
-    restartParkWatch();
     const size_t addedCount = std::min(added.position.size(), added.state.size());
     if (addedCount == 0) {
         return true;

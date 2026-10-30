@@ -68,13 +68,6 @@ void VulkanMultiBackend::step(const StepParams& params, std::vector<BallHit>& hi
 
     if (!params.freeFlight) {
         updateShares();
-        // Part times here are GPU kernel times, so the composed step is judged by the slowest kernel too: the
-        // host's readback and merging would cost the same with one device fewer.
-        double slowestKernelMs = 0.0;
-        for (const Part& part : parts) {
-            slowestKernelMs = std::max(slowestKernelMs, part.lastMs);
-        }
-        parkLosingParts(slowestKernelMs);
     }
     if (deviceParts >= 2) {
         const Clock::time_point start = Clock::now();

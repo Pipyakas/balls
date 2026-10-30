@@ -143,8 +143,9 @@ void fillView(GameSession& session, SessionView& view, const SessionView* previo
     captureBalls(session.simulation(), slotCells, field, view.balls);
 }
 
-void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, LevelData level, BackendKind backend) {
-    auto session = std::make_unique<GameSession>(mode, std::move(level), backend);
+void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, LevelData level, BackendKind backend,
+                int ticksPerSecond) {
+    auto session = std::make_unique<GameSession>(mode, std::move(level), backend, ticksPerSecond);
     const Clock::duration tickPeriod =
         std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(session->simulation().tuning().tickSeconds));
     Clock::duration framePeriod = tickPeriod;
@@ -153,6 +154,7 @@ void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, Le
     uint64_t boardRevision = 0;
     FieldSize field;
     bool wasPaused = false;
+    bool drawing = true;
     Clock::time_point lastUpdate = Clock::now();
     Clock::time_point nextTick = lastUpdate;
 
@@ -194,7 +196,15 @@ void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, Le
             session->update(static_cast<float>(frameSeconds));
         }
         wasPaused = input.paused;
-        framePeriod = tickPeriod;
+        // Settings > Advanced > Physics frames: 0 is one frame per tick, -1 as fast as the thread can go.
+        framePeriod = input.framesPerSecond > 0
+                          ? std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(1.0 / input.framesPerSecond))
+                      : input.framesPerSecond < 0 ? Clock::duration::zero()
+                                                  : tickPeriod;
+        if (input.drawing != drawing) {
+            drawing = input.drawing;
+            session->simulation().backend().setDrawing(drawing);
+        }
         fillView(*session, *view, previous.get(), boardRevision, input.visibilitySlotCells, field);
         rate.frame(workStart, Clock::now());
         view->frameNumber = ++frameNumber;
@@ -220,12 +230,13 @@ void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, Le
 
 } // namespace
 
-SessionRunner::SessionRunner(GameMode mode, LevelData level, BackendKind backend) : shared(std::make_shared<Shared>()) {
+SessionRunner::SessionRunner(GameMode mode, LevelData level, BackendKind backend, int ticksPerSecond)
+    : shared(std::make_shared<Shared>()) {
     {
         std::lock_guard lock(liveThreadsMutex());
         ++liveThreadCount();
     }
-    std::thread(runPhysics, shared, mode, std::move(level), backend).detach();
+    std::thread(runPhysics, shared, mode, std::move(level), backend, ticksPerSecond).detach();
 }
 
 SessionRunner::~SessionRunner() {

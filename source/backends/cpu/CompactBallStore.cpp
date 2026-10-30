@@ -11,9 +11,10 @@ namespace {
 constexpr size_t biddersPerSlot = 8;
 constexpr uint32_t largestBidderMask = 0x3FFFFFFFu;
 
-uint32_t bidderMaskFor(size_t balls, size_t cells) {
+uint32_t bidderMaskFor(size_t balls, size_t cells, double share) {
+    const double wanted = std::max(static_cast<double>(cells * biddersPerSlot) * share, 1.0);
     uint32_t mask = 0;
-    while (mask < largestBidderMask && (static_cast<size_t>(mask) + 1) * 2 * cells * biddersPerSlot <= balls) {
+    while (mask < largestBidderMask && (static_cast<double>(mask) + 1.0) * 2.0 * wanted <= static_cast<double>(balls)) {
         mask = mask * 2 + 1;
     }
     return mask;
@@ -50,7 +51,7 @@ bool CompactBallStore::resize(size_t newCount) {
         return false;
     }
     count = newCount;
-    if (!gridFilled) {
+    if (!gridFilled && drawing) {
         packed.resize(padded, 0);
     }
     return true;
@@ -124,17 +125,47 @@ size_t CompactBallStore::add(std::span<const BallSpawn> spawns, WorkerPool* pool
     return toAdd;
 }
 
-void CompactBallStore::swapRemove(std::span<const uint32_t> descendingIndices) {
-    size_t last = count;
-    for (uint32_t index : descendingIndices) {
-        --last;
-        position[index] = position[last];
-        state[index] = state[last];
-        if (tracksPacked()) {
-            packed[index] = packed[last];
+void CompactBallStore::moveBall(uint32_t from, uint32_t to) {
+    position[to] = position[from];
+    state[to] = state[from];
+    if (tracksPacked()) {
+        packed[to] = packed[from];
+    }
+}
+
+void CompactBallStore::swapRemove(std::span<const uint32_t> descendingIndices, const RangeRunner& runRanges) {
+    constexpr size_t parallelRemovals = 16384;
+    if (!runRanges || descendingIndices.size() < parallelRemovals) {
+        size_t last = count;
+        for (uint32_t index : descendingIndices) {
+            moveBall(static_cast<uint32_t>(--last), index);
+        }
+        resize(last);
+        return;
+    }
+    // The removed indices at or above the new count need no filling; the rest (holes) take the tail's survivors
+    // (sources), one to one, so every move is independent of the others.
+    const size_t kept = count - descendingIndices.size();
+    size_t removedInTail = 0;
+    while (removedInTail < descendingIndices.size() && descendingIndices[removedInTail] >= kept) {
+        ++removedInTail;
+    }
+    removalHoles.assign(descendingIndices.begin() + static_cast<std::ptrdiff_t>(removedInTail), descendingIndices.end());
+    removalSources.clear();
+    size_t nextRemoved = 0;
+    for (size_t index = count; index-- > kept;) {
+        if (nextRemoved < removedInTail && descendingIndices[nextRemoved] == index) {
+            ++nextRemoved;
+        } else {
+            removalSources.push_back(static_cast<uint32_t>(index));
         }
     }
-    resize(last);
+    runRanges(removalHoles.size(), [&](size_t begin, size_t end) {
+        for (size_t i = begin; i < end; ++i) {
+            moveBall(removalSources[i], removalHoles[i]);
+        }
+    });
+    resize(kept);
 }
 
 BallTally CompactBallStore::truncate(size_t newCount) {
@@ -205,7 +236,7 @@ bool CompactBallStore::prepareGrid() {
     if (gridFilled) {
         packed = SimdVector<uint32_t>{};
         grid.assign(cells, emptyRenderSlot);
-        bidderMask = bidderMaskFor(count, cells);
+        bidderMask = bidderMaskFor(count, cells, renderSampleShare);
         ++frameSeed;
     }
     if (!gridFilled && !tracksPacked()) {
@@ -240,11 +271,17 @@ uint32_t CompactBallStore::packedInFlight(size_t index, unsigned int ticks) cons
 namespace {
 
 // The Android NDK's libc++ has no std::atomic_ref yet; its clang provides the same relaxed store as a builtin.
+// Writes only an empty slot, like the AVX2 drawing: a filled slot is read, not rewritten, by every thread.
 void storeRelaxed(uint32_t& slot, uint32_t value) {
 #if defined(__cpp_lib_atomic_ref)
-    std::atomic_ref<uint32_t>(slot).store(value, std::memory_order_relaxed);
+    std::atomic_ref<uint32_t> shared(slot);
+    if (shared.load(std::memory_order_relaxed) == emptyRenderSlot) {
+        shared.store(value, std::memory_order_relaxed);
+    }
 #else
-    __atomic_store_n(&slot, value, __ATOMIC_RELAXED);
+    if (__atomic_load_n(&slot, __ATOMIC_RELAXED) == emptyRenderSlot) {
+        __atomic_store_n(&slot, value, __ATOMIC_RELAXED);
+    }
 #endif
 }
 
@@ -282,6 +319,13 @@ void CompactBallStore::renderSampledChunks(size_t first, size_t end) {
         for (size_t i = chunk * freeFlightChunkBalls; i < last; ++i) {
             placeInGrid(packedInFlight(i, ticks));
         }
+    }
+}
+
+void CompactBallStore::renderRangeInFlight(size_t begin, size_t end) {
+    const unsigned int ticks = clockTick - freeFlightEpoch;
+    for (size_t i = begin; i < end; ++i) {
+        placeInGrid(packedInFlight(i, ticks));
     }
 }
 

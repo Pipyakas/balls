@@ -61,6 +61,8 @@ if(BALLS_ENABLE_CUDA AND EXISTS "${BALLS_CUDA_SDK_DIR}/include/nvrtc.h")
     add_library(balls_physics_cuda SHARED
         cuda/CudaBackend.cpp
         cuda/CudaDriver.cpp
+        cuda/GrowableDeviceArray.cpp
+        ${BALLS_SOURCE_DIR}/core/common/WorkerPool.cpp
         cuda/CudaPlugin.cpp
         ${BALLS_SOURCE_DIR}/core/common/DynamicLibrary.cpp
         ${BALLS_SOURCE_DIR}/core/common/WorkerPool.cpp

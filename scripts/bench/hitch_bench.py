@@ -19,7 +19,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-BACKENDS = ["scalar", "avx2", "cuda", "cuda-avx2", "vulkan"]
+BACKENDS = ["scalar", "avx2", "cuda", "hybrid", "vulkan"]
 
 
 def call(port, route, **parameters):
@@ -159,7 +159,7 @@ def main():
     parser.add_argument("--port", type=int, default=7781)
     parser.add_argument("--level", default="DA_1000Bricks")
     parser.add_argument("--balls", type=int, default=10_000_000)
-    parser.add_argument("--backend", default="cuda-avx2", help="the backend to measure the other toggles on")
+    parser.add_argument("--backend", default="hybrid", help="the backend to measure the other toggles on")
     parser.add_argument("--settle", type=float, default=1.5, help="seconds to wait after each toggle")
     parser.add_argument("--budget", type=float, default=1000.0 / 30.0,
                         help="longest acceptable frame in ms; the default allows one missed 60 Hz frame")

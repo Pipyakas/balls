@@ -21,6 +21,10 @@ struct PhysicsFrameInput {
     double uiWorkSeconds = 0.0;
     // The size of one visibility slot in board cells, set by how large the UI draws the board.
     float visibilitySlotCells = 0.0f;
+    // Off while the UI draws no board: the backend skips drawing work and no ball words are copied.
+    bool drawing = true;
+    // Physics frames per second: 0 is one per tick, -1 is as fast as the thread can go.
+    int framesPerSecond = 0;
 };
 
 enum class SessionEventKind { BackendSwitched, BackendFailed, BallCollisionsChanged };
@@ -41,7 +45,7 @@ class SessionRunner {
 public:
     using Command = std::function<void(GameSession&)>;
 
-    SessionRunner(GameMode mode, LevelData level, BackendKind backend);
+    SessionRunner(GameMode mode, LevelData level, BackendKind backend, int ticksPerSecond = defaultTicksPerSecond);
     // Does not wait for the physics thread: it finishes its frame, destroys the session and exits on its own.
     ~SessionRunner();
     SessionRunner(const SessionRunner&) = delete;

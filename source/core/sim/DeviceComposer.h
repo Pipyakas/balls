@@ -12,8 +12,6 @@ struct DeviceComposerTuning {
     size_t minimumComposedBalls = 262144;
     size_t minimumBallsToMeasure = 65536;
     size_t minimumRebalanceBalls = 131072;
-    // Off only for measurements that need every part stepping (BALLS_COMPOSER_NO_PARK=1).
-    bool parkLosingParts = true;
 };
 
 // The Hybrid backend: one backend per chosen physical device (the CPU, each GPU), all stepping at the same time on
@@ -65,6 +63,8 @@ public:
     DeviceHitResults deviceHitResults() const override;
     void setVisibilityGrid(int width, int height) override;
     double deviceStepMs() const override;
+    bool acceptsSparseBoardUpdates() const override;
+    void setDrawing(bool drawing) override;
 
     size_t partCount() const { return parts.size(); }
     const std::string& partLabel(size_t part) const { return parts[part].label; }
@@ -72,7 +72,7 @@ public:
     double partStepMs(size_t part) const { return parts[part].lastMs; }
     const PhysicsBackend& partBackend(size_t part) const { return *parts[part].backend; }
     double partShare(size_t part) const { return parts[part].share; }
-    bool partParked(size_t part) const { return parts[part].parked; }
+    bool partOnHost(size_t part) const { return !parts[part].resolvesOnDevice; }
     // Host time this step spent splitting and merging brick hit budgets (0 with fewer than two device parts).
     double brickBudgetMs() const { return lastBudgetMs; }
     // Mean of brickBudgetMs over the steps that resolved hits on two or more device parts.
@@ -87,10 +87,11 @@ protected:
         std::string label;
         size_t memoryCapacity = 0;
         bool resolvesOnDevice = false;
-        bool parked = false;
         double share = 0.0;
         double lastMs = 0.0;
         size_t steppedBalls = 0;
+        size_t windowBalls = 0;
+        double windowMs = 0.0;
         std::vector<BallHit> hits;
         std::vector<int32_t> budget;
     };
@@ -98,11 +99,10 @@ protected:
     std::vector<size_t> targetCounts(size_t total) const;
     void rebalance();
     void updateShares();
-    void parkLosingParts(double wallMs);
-    void restartParkWatch();
     void splitBrickBudgets();
     void mergeDeviceHits();
     void overlay(const BallSnapshot& balls, uint32_t replaceBelow, uint32_t salt);
+    void shareRenderSamples();
     size_t partCapacity(const Part& part) const;
     size_t gridCellCount() const { return static_cast<size_t>(stepGridWidth) * static_cast<size_t>(stepGridHeight); }
 
@@ -110,9 +110,7 @@ protected:
     std::vector<Part> parts;
     size_t deviceParts = 0;
     int shareMeasurements = 0;
-    double wallEwma = 0.0;
-    double soloEwma = 0.0;
-    int losingSteps = 0;
+    int windowSteps = 0;
     // Brick budgets, used when two or more parts resolve hits on the device.
     std::vector<int32_t> brickHits;
     uint32_t budgetEpoch = 0;

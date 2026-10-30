@@ -27,6 +27,9 @@ add_library(balls_core STATIC
     game/AdditionGovernor.cpp
     game/LauncherQueue.cpp
     game/SpawnController.cpp
+    game/SpawnPacer.cpp
+    level/EdgeCaseLevels.cpp
+    sim/EdgeCaseSweep.cpp
     game/GameSession.cpp
     game/SessionRunner.cpp
     game/SessionHost.cpp

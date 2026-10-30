@@ -3,8 +3,11 @@
 #include "sim/PhysicsBackend.h"
 #include "sim/SortSchedule.h"
 #include "cuda/CudaDriver.h"
+#include "cuda/GrowableDeviceArray.h"
+#include "common/WorkerPool.h"
 
 #include <array>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -39,6 +42,8 @@ public:
     BallTally truncate(size_t newCount) override;
     std::string_view faultMessage() const override { return fault; }
     bool resolvesHitsOnDevice() const override { return true; }
+    bool acceptsSparseBoardUpdates() const override { return true; }
+    void setDrawing(bool enabled) override { drawing = enabled; }
     DeviceHitResults deviceHitResults() const override;
     void uploadBrickHits(std::span<const int32_t> hitsLeft) override;
     bool shareRenderBuffer(unsigned int openGlBuffer, size_t capacityBytes) override;
@@ -86,12 +91,16 @@ private:
     void releaseArray(DeviceArray& array);
     void carveBallArraysAfterBoard(size_t boardArrayBytes);
     bool growThroughHost(size_t wanted);
+    bool reserveGrowableArrays();
+    uint32_t* uploadStaging(size_t balls);
+    bool growInPlaceTo(size_t required);
     void ensurePackedCapacity(size_t required);
     void ensureArray(DeviceArray& array, size_t bytes);
     void upload(DeviceArray& array, const void* data, size_t bytes);
     void compactKilledBalls(unsigned int killed);
     void uploadWholeBoard(const BoardUpload& board);
     void applyChangedCellWords(const BoardUpload& board);
+    bool scatterUpdates(std::span<const int32_t> pairs, CUdeviceptr target, DeviceArray& staging);
     void releaseRenderBuffer();
     bool copyIntoRenderBuffer(CUdeviceptr source, size_t elements);
     bool writeGridIntoRenderBuffer();
@@ -138,10 +147,25 @@ private:
     DeviceArray gridPacked;
     DeviceArray cellCursors;
     DeviceArray cellWordUpdates;
+    DeviceArray brickHitUpdates;
+    DeviceArray targetUpdates;
     size_t uploadedCellWords = 0;
     CUdeviceptr sortedPosition = 0;
     CUdeviceptr sortedState = 0;
     size_t sortedCapacity = 0;
+    // Where the driver can map memory onto reserved addresses, the ball and sort arrays grow in place.
+    bool growInPlace = false;
+    bool drawing = true;
+    // Launched balls are encoded into pinned memory and copied without waiting for the step still running on the GPU;
+    // the event marks when the staging memory may be written again.
+    uint32_t* staging = nullptr;
+    std::unique_ptr<WorkerPool> encodePool;
+    size_t stagingBalls = 0;
+    CUevent stagingRead = nullptr;
+    GrowableDeviceArray positionArray;
+    GrowableDeviceArray stateArray;
+    GrowableDeviceArray sortedPositionArray;
+    GrowableDeviceArray sortedStateArray;
     SortSchedule sortSchedule;
     int sortColumns = 1;
     int sortRows = 1;

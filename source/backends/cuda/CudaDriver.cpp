@@ -113,6 +113,15 @@ bool CudaLibrary::loadEntryPoints() {
     driver.resolve("cuEventElapsedTime", functions.eventElapsedTime);
     driver.resolve("cuEventDestroy_v2", functions.eventDestroy);
     driver.resolve("cuDeviceGetAttribute", functions.deviceGetAttribute);
+    driver.resolve("cuMemcpyHtoDAsync_v2", functions.memcpyHostToDeviceAsync);
+    driver.resolve("cuMemAddressReserve", functions.memAddressReserve);
+    driver.resolve("cuMemAddressFree", functions.memAddressFree);
+    driver.resolve("cuMemCreate", functions.memCreate);
+    driver.resolve("cuMemRelease", functions.memRelease);
+    driver.resolve("cuMemMap", functions.memMap);
+    driver.resolve("cuMemUnmap", functions.memUnmap);
+    driver.resolve("cuMemSetAccess", functions.memSetAccess);
+    driver.resolve("cuMemGetAllocationGranularity", functions.memGetAllocationGranularity);
     driver.resolve("cuGraphicsGLRegisterBuffer", functions.graphicsGlRegisterBuffer);
     driver.resolve("cuGraphicsUnregisterResource", functions.graphicsUnregisterResource);
     driver.resolve("cuGraphicsMapResources", functions.graphicsMapResources);

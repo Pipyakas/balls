@@ -306,16 +306,15 @@ uint encodeComponent(float value) {
     return ((uint)quantized) & DIRECTION_MASK;
 }
 
+// Subtract first and refund when the brick had no hits left: exactly the brick's hits are given out, and a launch wave
+// hitting the same few bricks doesn't serialize on compare-and-swap retries.
 bool tryConsumeHit(int brick) {
-    int current = brickHitsLeft[brick];
-    [allow_uav_condition] while (current > 0) {
-        int previous = 0;
-        InterlockedCompareExchange(brickHitsLeft[brick], current, current - 1, previous);
-        if (previous == current) {
-            return true;
-        }
-        current = previous;
+    int previous = 0;
+    InterlockedAdd(brickHitsLeft[brick], -1, previous);
+    if (previous > 0) {
+        return true;
     }
+    InterlockedAdd(brickHitsLeft[brick], 1);
     return false;
 }
 

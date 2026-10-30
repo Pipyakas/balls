@@ -39,7 +39,7 @@ std::string_view ballCollisionsMessage(BallCollisionsChange change);
 
 class GameSession {
 public:
-    GameSession(GameMode mode, LevelData level, BackendKind backend);
+    GameSession(GameMode mode, LevelData level, BackendKind backend, int ticksPerSecond = defaultTicksPerSecond);
     ~GameSession();
     GameSession(const GameSession&) = delete;
     GameSession& operator=(const GameSession&) = delete;
@@ -103,6 +103,7 @@ private:
     GameMode gameMode;
     LevelData levelData;
     BackendKind backendKind;
+    int physicsTicksPerSecond;
     Simulation physicsSimulation;
     AdditionGovernor additionGovernor;
     // Balls still to launch toward the ball limit (the scoring build's Auto ramp and /fill), as many a frame as the
@@ -110,6 +111,7 @@ private:
     BallCount fillRemaining = 0;
     LauncherQueue launcherQueue;
     SpawnController spawnController;
+    int slowFramesWhileProbing = 0;
     SessionState sessionState = SessionState::Ready;
     int selectedSpawnRate = 2;
     int selectedMultiplier = 0;

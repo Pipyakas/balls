@@ -3,6 +3,7 @@
 #include "common/BallCount.h"
 #include "sim/kernels/BallStepCore.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -86,6 +87,10 @@ struct BoardUpload {
     std::span<const int32_t> brickHitsLeft;
     std::span<const int32_t> changedCells;
     bool onlyChangedCells = false;
+    // (index, value) pairs sent instead of the whole array to backends that accept them: the bricks the host hit, and
+    // the target cells a finished target rebuild changed.
+    std::span<const int32_t> brickHitUpdates;
+    std::span<const int32_t> targetUpdates;
 };
 
 struct GpuRoofline {
@@ -107,6 +112,15 @@ struct DeviceHitResults {
 // The visibility grid has one slot per this many ball radii: front ends size it this way, and the machine
 // benchmark sizes it the same, so balls fly freely there exactly as they do in a game.
 inline constexpr float visibilitySlotsPerRadius = 1.6f;
+// GPU backends record each step's kills in a buffer sized for the most a step can make. Bricks with huge hit counts
+// would ask for gigabytes, so the buffer stops here; a kill past it is refunded and the ball bounces, to land a later
+// step.
+inline constexpr size_t maximumKillsPerStep = size_t{1} << 22;
+
+// A slot is never smaller than a pixel: a board bigger than the screen draws at most one ball per pixel.
+inline float visibilitySlotSize(float radiusCells, float cellPixels) {
+    return std::max(radiusCells * visibilitySlotsPerRadius, cellPixels > 0.0f ? 1.0f / cellPixels : 0.0f);
+}
 
 inline int visibilitySlots(float fieldExtent, float slotSize) {
     return static_cast<int>(std::ceil(fieldExtent / (slotSize > 0.0f ? slotSize : 1.0f)));
@@ -149,6 +163,13 @@ public:
     virtual void shareCoresWithGpu() {}
     virtual bool takeCompactTail(size_t, CompactBalls&) { return false; }
     virtual bool addCompact(const CompactBalls&) { return false; }
+    // The share of the visibility grid this backend's balls have to fill. Hybrid draws the CPU's balls over the GPU's
+    // full grid, so the CPU side samples only in proportion to the balls it holds.
+    virtual void setRenderSampleShare(double) {}
+    virtual bool acceptsSparseBoardUpdates() const { return false; }
+    // Off when nothing will draw the balls: backends then skip the visibility grid and render copy entirely, and
+    // balls in free flight cost nothing per frame.
+    virtual void setDrawing(bool) {}
     // Allocates the backend's whole ball-memory budget now, never grows afterwards, and returns the capacity in balls
     // (0 = not supported).
     virtual size_t preallocateBalls() { return 0; }

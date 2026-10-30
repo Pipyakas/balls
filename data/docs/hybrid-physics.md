@@ -1,10 +1,13 @@
-# Hybrid and CUDA+AVX2 split physics
+# Hybrid split physics
 
-Two backends split the balls between devices. `CUDA+AVX2` is the fixed pair described first. `Hybrid` is the
-general device composer: one backend on each device the player picks, described in
-[The device composer](#the-device-composer).
+`Hybrid` (`DeviceComposer`) splits the balls between devices: one backend on each device the player picks, described
+in [The device composer](#the-device-composer). It replaced the fixed `CUDA+AVX2` pair (`HybridBackend`), which was
+removed once the composer matched it on the target PC ([the comparison](#the-composer-against-the-cudaavx2-pair-on-the-scoring-pc)).
+The pair's old names (`CUDA+AVX2`, `cuda-avx2`, and `Hybrid` in a settings or profile file written before the
+composer) now select Hybrid over AVX2 on the CPU and CUDA on the default GPU. The pair's section is kept as history:
+what made its CPU side worth adding still holds for the composer's CPU part.
 
-## CUDA+AVX2
+## History: the CUDA+AVX2 pair
 
 Balls never collide with each other, so the ball set can be split between devices. The `CUDA+AVX2` backend
 (F4, `/backend?kind=cuda-avx2`; called `Hybrid` until the general device composer took that name) keeps most balls on CUDA and a share on the AVX2 backend, steps both at the same
@@ -93,10 +96,14 @@ bytes), so a selection can give it only one backend. `balls_bench --devices` pri
   millisecond, smoothed, starting from a guess (GPU 1, Vulkan 0.8, iGPU 0.2, CPU 0.1). Balls move between parts as
   8-byte records, up to 4M per step, when a part is more than 2% or 131072 balls off its target.
 - Below 262144 balls everything runs on the lead part.
-- A part whose fixed cost per step exceeds what its share saves is parked: when the composed step stays more than
-  3% slower than the lead part alone would be for all balls, for 60 settled steps, the slowest part's balls move
-  away and it stops stepping. On an RTX 3070 laptop this parks the CPU and the iGPU, which otherwise made the
-  composer slower than CUDA alone.
+- Every picked device keeps stepping its share; the composer never drops one on its own. Choosing the devices is the
+  player's (Settings, `--backend`, `/backend?kind=`). It used to park a part it judged to slow the step, judged by
+  extrapolating the lead part's time; on the target PC that parked the CPU on brick-heavy boards where it was
+  helping, holding about CUDA-alone counts, so parking was removed.
+- Board changes reach the parts as sparse brick-hit and target-field updates when at most one part resolves hits on
+  the device; with two or more, each holds its own brick budget, so they take whole boards. The parts follow
+  Settings > Advanced > Draw the board, and each samples the visibility grid in proportion to its share of the
+  balls.
 - Snapshots: each part fills the same visibility grid; part k wins an occupied slot with probability (its balls) /
   (balls of parts 0..k), so every slot shows a ball from a part in proportion to that part's balls.
 - Capacity is the sum of the parts'; a part whose backend reports no limit (Vulkan) is counted at its device memory
@@ -145,7 +152,8 @@ machine benchmark does, and leaves out rendering (the two-GPU desktop has no gam
 | Hybrid Vulkan (RX) + Vulkan (RTX) | 23.5 G | 26.5 G | 138 |
 
 The two GPUs settle at about 58% / 42% (CUDA / RX) with equal step times; the composer adds about 0.1 ms per
-step over its slowest part. The CPU, at a fifteenth of a GPU's throughput, is parked in every set. The brick
+step over its slowest part. The CPU, at a fifteenth of a GPU's throughput, was parked in every set (measured
+while the composer still parked parts). The brick
 budgets cost 0.011-0.015 ms per step.
 
 Two things made the two-GPU split pay. Running a CUDA and a Vulkan benchmark in separate processes at the same time
@@ -159,6 +167,68 @@ growing with the ball count, so the score is the memory a backend can hold. Vulk
 and wins with "no limit"; Hybrid CUDA + Vulkan scores 2.3 B (capped by device memory), CUDA+AVX2 3.1 B
 (including CPU RAM).
 
+### The composer against the CUDA+AVX2 pair on the target PC
+
+i9-14900K with a GTX 1650 (one GPU, so the only set is `AVX2@cpu+CUDA@gpu0`). Edge sweep (`balls_bench
+--edge-cases`, the game's visibility grid, 120 Hz ticks), balls held at 60 FPS. First, the composer as merged:
+
+| Board | CUDA | CUDA+AVX2 | Hybrid AVX2 + CUDA |
+|---|---|---|---|
+| LoneBrick 128 / 512 / 2048 | 117 / 117 / 120 M | 168 / 192 / 195 M | 176 / 186 / 189 M |
+| Tough 128 / 512 / 2048 | 99 / 103 / 111 M | 120 / 169 / 185 M | 97 / 140 / **10** M |
+| Checker 128 / 512 / 2048 | 86 / 96 / 103 M | 90 / 130 / 191 M | 87 / 94 / 123 M |
+| Empty 128 / 512 / 2048 | 369 / 369 / 336 M (memory) | 7.1 / 6.0 / 6.9 B | 6.9 / 6.1 / 6.9 B |
+
+- Free flight and a lone brick: the composer matches the pair within run-to-run noise (about 10%).
+- Boards where most balls hit bricks every tick: the composer falls back to about CUDA alone, while the pair gains
+  20-65%. The pair takes the board's changes as sparse brick-hit and target-field updates
+  (`acceptsSparseBoardUpdates`); the composer does not forward them, so every changed tick re-uploads the whole
+  board. On Tough 2048 (4M bricks, all hit constantly) that upload is the frame, and the composer holds 10M.
+- The composer also does not forward `setDrawing` (Settings > Advanced > Draw the board) or the CPU's render
+  sample share.
+
+`balls_bench --grid` raw steps (1000-brick level, no `Simulation`) rank them the other way: CUDA 7.0-7.5 G
+ball-steps/s, composer 6.6-7.1 G, pair 3.8-4.0 G. Raw steps skip the board updates, launch pacing and drawing the
+game does, so the edge sweep is the one that reflects play.
+
+What closed the gap, in order:
+
+| Change | Effect on the target PC |
+|---|---|
+| Sparse board updates, draw toggle, render sample share | 2048 boards even with the pair (Tough 180-196M against 186-196M) |
+| Windows core parking off on the target PC (a power-plan setting, not code) | less run-to-run noise |
+| Never park a picked device | Tough and Checker 128 off CUDA-alone counts (about 100M) |
+
+After all three, Tough, Checker and LoneBrick at 128 and 512, two rounds with the order of the two swapped: the
+composer held 1758M balls in total against the pair's 1728M. Per board the two were within the run-to-run noise
+(about 15%), the composer ahead on Checker (100-175M against 89-131M) and behind on Tough 512 (146-151M against
+163-167M). Holding a half-share cap on the CPU, as the pair did, changed nothing. The pair was then removed.
+
+### Hit-heavy small boards
+
+The full sweep left Hybrid 19-31% behind the pair on Shelves and Checker 48x48 and Checker 2048x64, where nearly
+every ball hits a brick every tick. Traces at a fixed count (`balls_bench --edge-cases --trace-frames 900 --balls
+60000000 --trace-spawn-to 60000000`, which now prints each tick's sync, step and hit times) showed two causes:
+
+- Shares measured from single steps: the CPU's step time per ball varies threefold there, and its share swung
+  between 4M and 21M of 60M balls from frame to frame, each swing a costly move. Shares now come from 4 summed steps
+  while settling and 16 after; the CPU holds a steady 11-12M.
+- The CPU part's hits handled serially by the host after the step, 1.2-1.6 ms a frame, mostly swap-removing killed
+  balls at random places in the store. Removal now runs on the AVX2 pool, and ordered kill lists are reversed
+  rather than sorted: 0.54-0.62 ms. Letting the AVX2 part resolve its own hits was rejected: beside CUDA it would
+  need per-tick brick budgets, which force whole-board uploads and hurt the large boards.
+
+Frame time with 60M balls (150M on 512x512), target PC, two rounds each:
+
+| Board | CUDA alone | Hybrid before | Hybrid now |
+|---|---|---|---|
+| Shelves 48x48 | 8.84-8.91 ms | 9.63 ms | 7.98 ms |
+| Checker 48x48 | 10.39-10.46 ms | 11.76 ms | 9.78-9.83 ms |
+| Checker 2048x64 | 10.70-10.73 ms | 10.58 ms | 9.72 ms |
+| LoneBrick 512x512 | 15.66-15.72 ms | - | 9.62-9.79 ms |
+| Tough 512x512 | 16.77-16.85 ms | - | 14.78-15.03 ms |
+
+Empty and cleared boards have no hits and never rebalance in free flight, so neither change touches them.
 ## Zen4, ROCm and VulkanMulti
 
 Three more backends can be composer parts.

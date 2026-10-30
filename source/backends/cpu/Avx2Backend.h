@@ -6,6 +6,8 @@
 
 #include <memory>
 
+struct FlightRenderLanes;
+
 class Avx2Backend final : public CpuBackendBase<CompactBallStore> {
 public:
     explicit Avx2Backend(size_t threadCount);
@@ -13,6 +15,9 @@ public:
     std::string_view name() const override { return "AVX2"; }
     void step(const StepParams& params, std::vector<BallHit>& hits) override;
     void setVisibilityGrid(int width, int height) override;
+    void setRenderSampleShare(double share) override { store.renderSampleShare = share; }
+    void setDrawing(bool drawing) override;
+    void removeBalls(std::span<const uint32_t> descendingIndices) override;
     void shareCoresWithGpu() override;
     bool takeCompactTail(size_t count, CompactBalls& balls) override {
         materializeFreeFlight();
@@ -41,6 +46,10 @@ private:
     void stepRange(const StepParams& params, size_t begin, size_t end, std::vector<BallHit>& hits);
     void materializeFreeFlight();
 
+    static void renderSampledChunks(CompactBallStore& store, const FlightRenderLanes& lanes, size_t first,
+                                    size_t end);
     std::unique_ptr<WorkerPool> pool;
+    size_t stepChunkBalls;
+    size_t renderSamplesPerTask;
     std::vector<std::vector<BallHit>> chunkHits;
 };

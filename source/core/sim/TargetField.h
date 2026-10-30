@@ -4,6 +4,8 @@
 
 #include <cstdint>
 #include <future>
+#include <memory>
+#include <span>
 #include <vector>
 
 class TargetField {
@@ -13,7 +15,10 @@ public:
     bool takeFinishedRebuild(const BrickBoard& board);
     void discardPendingRebuilds();
 
-    const std::vector<int32_t>& targetCells() const { return targets; }
+    const std::vector<int32_t>& targetCells() const { return targets ? *targets : noTargets; }
+    // After a background rebuild: whether it changed few enough cells to send only those, as (cell, target) pairs.
+    bool lastRebuildIsSparse() const { return sparse; }
+    std::span<const int32_t> lastRebuildChanges() const { return changes; }
 
 private:
     struct BoardCopy {
@@ -24,11 +29,21 @@ private:
     };
 
     static BoardCopy copyOf(const BrickBoard& board);
+    struct Rebuilt {
+        std::shared_ptr<const std::vector<int32_t>> cells;
+        std::vector<int32_t> changes;
+        bool sparse = false;
+    };
+
     static std::vector<int32_t> compute(const BoardCopy& board, bool parallelColors);
+    static Rebuilt computeChanges(const BoardCopy& board, std::shared_ptr<const std::vector<int32_t>> previous);
     static void floodColor(const BoardCopy& board, int colorIndex, int32_t* colorTargets);
     void launch(BoardCopy board);
 
-    std::vector<int32_t> targets;
-    std::future<std::vector<int32_t>> pending;
+    inline static const std::vector<int32_t> noTargets;
+    std::shared_ptr<const std::vector<int32_t>> targets;
+    std::vector<int32_t> changes;
+    bool sparse = false;
+    std::future<Rebuilt> pending;
     bool rebuildQueued = false;
 };

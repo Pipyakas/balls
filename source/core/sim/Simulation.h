@@ -10,6 +10,10 @@
 #include <random>
 #include <vector>
 
+inline constexpr int defaultTicksPerSecond = GameplayRules{}.ticksPerSecond;
+// A slow frame catches up at most this much game time; past it the game slows down instead of stalling.
+inline constexpr float longestCatchUpSeconds = 4.0f / defaultTicksPerSecond;
+
 // The physics side of GameplayRules, whose defaults it starts from.
 struct SimulationTuning {
     float ballRadius = GameplayRules{}.ballRadius;
@@ -36,7 +40,15 @@ struct SimulationStats {
     int ticksLastFrame = 0;
     BallCount totalBallsSpawned = 0;
     BallCount totalHits = 0;
+    // Where the last tick's time went on the calling thread: sending board changes, the backend step, and applying
+    // brick hits the device resolved and the ones the host resolves (balls of host-reporting backends).
+    double lastSyncMs = 0.0;
+    double lastStepMs = 0.0;
+    double lastDeviceHitsMs = 0.0;
+    double lastHostHitsMs = 0.0;
+    size_t lastHostHits = 0;
 };
+
 
 class Simulation {
 public:
@@ -47,6 +59,7 @@ public:
     static constexpr size_t migrationChunkBalls = size_t{1} << 20;
 
     explicit Simulation(BackendHandle backend, SimulationTuning tuning = {});
+    ~Simulation();
 
     void load(const BrickLayout& layout);
     BackendReplacement replaceBackend(BackendHandle backend, size_t chunkBalls = migrationChunkBalls);
@@ -80,6 +93,8 @@ public:
     StepParams stepParams(int substeps = 1) const;
 
     void setBallCollisions(bool enabled);
+    // Only before balls are added: a held free-flight epoch counts ticks of the old length.
+    void setTicksPerSecond(int ticksPerSecond);
     bool ballCollisionsRequested() const { return ballCollisionsWanted; }
     bool ballCollisionsActive() const { return ballCollisionsWanted && physics->supportsBallCollisions(); }
 
@@ -92,6 +107,8 @@ private:
     SimulationTuning settings;
     BackendHandle physics;
     std::vector<int32_t> uploadedBrickHitsLeft;
+    std::vector<int32_t> hostHitBricks;
+    std::vector<int32_t> brickHitUpdates;
     BrickBoard brickBoard;
     TargetField targetField;
     uint64_t uploadedRevision = ~0ull;

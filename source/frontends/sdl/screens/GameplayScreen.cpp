@@ -73,7 +73,8 @@ void GameplayScreen::loadSession() {
     }
     loadError.clear();
     view.reset();
-    runner = std::make_unique<SessionRunner>(mode, std::move(*level), app.preferredBackend());
+    runner = std::make_unique<SessionRunner>(mode, std::move(*level), app.preferredBackend(),
+                                              app.settings().ticksPerSecond);
     applyDefaultBallLimit();
     app.flow().levelLoaded();
 }
@@ -216,6 +217,8 @@ void GameplayScreen::tickPhysics(const GameplayLayout& layout) {
     input.paused = app.flow().isPaused();
     input.uiWorkSeconds = std::max(lastFrame.cpuMs, lastFrame.gpuMs) / millisecondsPerSecond;
     input.visibilitySlotCells = BallView::slotCells(layout.board, view->ballRadius);
+    input.drawing = app.settings().drawBoard;
+    input.framesPerSecond = app.settings().physicsFramesPerSecond;
     runner->tick(input);
 }
 
@@ -250,6 +253,11 @@ void GameplayScreen::drawHeader(const GameplayLayout& layout) {
 
 void GameplayScreen::drawMainSection(const GameplayLayout& layout) {
     gfx::sceneRect(layout.mainSection, palette::boardBackdrop, mainSectionCornerRadius);
+    if (!app.settings().drawBoard) {
+        ui::drawTextInRect("Board drawing off - physics only (Settings > Advanced)", layout.mainSection, 18.0f,
+                           palette::textMuted, ui::Align::Center);
+        return;
+    }
     drawBoardBackground(*view->board, layout.board);
     gfx::beginClip(layout.boardRect);
     drawBricks(*view->board, layout.board);

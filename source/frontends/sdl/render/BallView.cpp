@@ -14,7 +14,7 @@ constexpr float channelScale = 1.0f / 255.0f;
 }
 
 float BallView::slotCells(const BoardTransform& transform, float radiusCells) {
-    return std::max(radiusCells * visibilitySlotsPerRadius, 1.0f / transform.cellPixels);
+    return visibilitySlotSize(radiusCells, transform.cellPixels);
 }
 
 void BallView::draw(const BallFrame& balls, const BoardTransform& transform, float radiusCells) {

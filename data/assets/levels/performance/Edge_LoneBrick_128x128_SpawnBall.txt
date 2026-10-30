@@ -1,0 +1,9 @@
+[Board]
+Width 7
+Height 4
+
+[Layout]
+Red(10000) Orange(10000) Yellow(10000) Green(10000) Blue(10000) Indigo(250000000) Violet(10000)
+Red(10000) Orange(10000) Yellow(10000) Green(10000) Blue(10000) Indigo(250000000) Violet(10000)
+Red(10000) Orange(10000) Yellow(10000) Green(10000) Blue(10000) Indigo(250000000) Violet(10000)
+Red(10000) Orange(10000) Yellow(10000) Green(10000) Blue(10000) Indigo(250000000) Violet(10000)

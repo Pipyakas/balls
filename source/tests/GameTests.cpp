@@ -4,6 +4,7 @@
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
 
+#include <cmath>
 #include <algorithm>
 #include <chrono>
 #include <filesystem>

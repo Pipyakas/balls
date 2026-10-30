@@ -8,6 +8,23 @@
 
 namespace {
 
+// A GPU backend can fail to build even when available: starting a level right after one held hundreds of millions of
+// balls, the GPU memory is still being given back while the new session builds, and the target PC crashed loading the
+// level into a missing backend. The session then starts on the fastest CPU backend instead.
+BackendHandle firstBackendThatBuilds(BackendKind& kind) {
+    for (const BackendKind candidate : {kind, fastestAvailableCpuBackend(), BackendKind::Scalar}) {
+        if (!isBackendAvailable(candidate)) {
+            continue;
+        }
+        if (BackendHandle handle = createBackend(candidate)) {
+            kind = candidate;
+            return handle;
+        }
+    }
+    kind = BackendKind::Scalar;
+    return createBackend(BackendKind::Scalar);
+}
+
 // Performance auto release keeps this many launchers spawning at once, so every color is on the board together
 // however many balls one launcher holds.
 constexpr size_t concurrentPerformanceReleases = ballColorCount;
@@ -18,19 +35,19 @@ double secondsSince(std::chrono::steady_clock::time_point start) {
 
 }
 
-GameSession::GameSession(GameMode mode, LevelData level, BackendKind backend)
-    : gameMode(mode), levelData(std::move(level)), backendKind(backend),
-      physicsSimulation(createBackend(isBackendAvailable(backend) ? backend : fastestAvailableCpuBackend()),
-                        simulationTuning(levelData.rules)),
+GameSession::GameSession(GameMode mode, LevelData level, BackendKind backend, int ticksPerSecond)
+    : gameMode(mode), levelData(std::move(level)), backendKind(backend), physicsTicksPerSecond(ticksPerSecond),
+      physicsSimulation(firstBackendThatBuilds(backendKind), simulationTuning(levelData.rules)),
       additionGovernor(physicsSimulation.tuning().tickSeconds) {
-    if (!isBackendAvailable(backend)) {
-        backendKind = fastestAvailableCpuBackend();
-    }
     restart();
 }
 
 void GameSession::restart() {
     physicsSimulation.setTuning(simulationTuning(levelData.rules));
+    // The Settings page's physics rate replaces the level's when the player chose one other than the default.
+    if (physicsTicksPerSecond > 0 && physicsTicksPerSecond != defaultTicksPerSecond) {
+        physicsSimulation.setTicksPerSecond(physicsTicksPerSecond);
+    }
     physicsSimulation.load(levelData.bricks);
     launcherQueue.load(levelData.launchers);
     spawnController.clear();

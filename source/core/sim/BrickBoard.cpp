@@ -48,8 +48,13 @@ void BrickBoard::load(const BrickLayout& layout) {
     animatingBricks.clear();
     brickAnimating.assign(brickList.size(), 0);
     bricksToSettle = {};
-    wholeBoardSettlePending = true;
     rebuildNearCounts();
+    // The first settle orders every brick by height, 170 ms on a 4M-brick board; most layouts have nothing that can
+    // rise, so the board only asks for it when some brick has room above.
+    wholeBoardSettlePending = false;
+    for (int index = 0; index < aliveCount && !wholeBoardSettlePending; ++index) {
+        wholeBoardSettlePending = freeRowsAbove(index) > 0;
+    }
     cellChanged.assign(cells.size(), 0);
     dirtyCells.clear();
     ++changeRevision;

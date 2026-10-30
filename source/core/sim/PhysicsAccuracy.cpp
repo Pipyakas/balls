@@ -55,6 +55,9 @@ AccuracyRun runAccuracyScenario(BackendHandle backend, const AccuracyScenario& s
     Simulation simulation(std::move(backend));
     simulation.load(scenario.level);
     const float slotSize = simulation.tuning().ballRadius * visibilitySlotsPerRadius;
+    simulation.backend().setDrawing(scenario.drawing);
+    simulation.setTicksPerSecond(scenario.ticksPerSecond);
+    const int ticksPerFrame = std::max(1, scenario.ticksPerFrame * scenario.ticksPerSecond / defaultTicksPerSecond);
     if (scenario.visibilityGrid) {
         simulation.backend().setVisibilityGrid(
             std::min(visibilitySlots(static_cast<float>(simulation.board().columns()), slotSize), visibilitySlotsCap),
@@ -77,7 +80,7 @@ AccuracyRun runAccuracyScenario(BackendHandle backend, const AccuracyScenario& s
             return run;
         }
         if (frame < scenario.frames) {
-            simulation.tick(scenario.ticksPerFrame);
+            simulation.tick(ticksPerFrame);
         }
     }
     run.finalBalls = simulation.backend().exportBalls();

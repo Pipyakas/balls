@@ -91,6 +91,10 @@ float settingsContentHeight(BackendKind selectedBackend) {
     if (showsDevicePicks(selectedBackend)) {
         height += sectionHeight + devicePickerHeight(devicePickerStyle) + hintGap + hintHeight * 2.0f + blockGap;
     }
+    // Advanced: Draw the board, Physics rate, Physics frames.
+    height += sectionHeight + blockHeight;
+    height += blockHeight;
+    height += blockHeight;
     height += backHeight;
     return height;
 }
@@ -236,6 +240,63 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
                            palette::textMuted, ui::Align::Left);
         cursor += hintHeight * 2.0f + blockGap;
     }
+
+    ui::drawText("Advanced", {innerX, cursor}, sectionSize, palette::textMuted);
+    cursor += sectionHeight;
+    ui::drawText("Draw the board", {innerX, cursor}, sectionSize, palette::text);
+    cursor += sectionHeight;
+    const Rect drawOptions{innerX, cursor, innerWidth, optionHeight};
+    if (ui::button(ui::columnSlice(drawOptions, 0, 2, optionGap), "Off", true, !current.drawBoard) &&
+        current.drawBoard) {
+        edit.settings.drawBoard = false;
+        edit.changed = true;
+    }
+    if (ui::button(ui::columnSlice(drawOptions, 1, 2, optionGap), "On", true, current.drawBoard) &&
+        !current.drawBoard) {
+        edit.settings.drawBoard = true;
+        edit.changed = true;
+    }
+    cursor += optionHeight + hintGap;
+    ui::drawText("Off runs the physics with nothing drawn, to measure it alone.", {innerX, cursor}, hintSize,
+                 palette::textMuted);
+    cursor += hintHeight + blockGap;
+
+    ui::drawText("Physics rate", {innerX, cursor}, sectionSize, palette::text);
+    cursor += sectionHeight;
+    const Rect rateOptions{innerX, cursor, innerWidth, optionHeight};
+    constexpr std::array<std::pair<int, const char*>, 3> rates{{{120, "120 Hz"}, {240, "240 Hz"}, {480, "480 Hz"}}};
+    for (size_t i = 0; i < rates.size(); ++i) {
+        const auto& [rate, label] = rates[i];
+        if (ui::button(ui::columnSlice(rateOptions, static_cast<int>(i), static_cast<int>(rates.size()), optionGap),
+                       label, true, current.ticksPerSecond == rate) &&
+            current.ticksPerSecond != rate) {
+            edit.settings.ticksPerSecond = rate;
+            edit.changed = true;
+        }
+    }
+    cursor += optionHeight + hintGap;
+    ui::drawText("Contacts checked more often; costs that much more. Next level.", {innerX, cursor}, hintSize,
+                 palette::textMuted);
+    cursor += hintHeight + blockGap;
+
+    ui::drawText("Physics frames", {innerX, cursor}, sectionSize, palette::text);
+    cursor += sectionHeight;
+    const Rect frameOptions{innerX, cursor, innerWidth, optionHeight};
+    constexpr std::array<std::pair<int, const char*>, 5> frameRates{
+        {{0, "Per tick"}, {60, "60"}, {120, "120"}, {240, "240"}, {-1, "Uncapped"}}};
+    for (size_t i = 0; i < frameRates.size(); ++i) {
+        const auto& [rate, label] = frameRates[i];
+        if (ui::button(ui::columnSlice(frameOptions, static_cast<int>(i), static_cast<int>(frameRates.size()), optionGap),
+                       label, true, current.physicsFramesPerSecond == rate) &&
+            current.physicsFramesPerSecond != rate) {
+            edit.settings.physicsFramesPerSecond = rate;
+            edit.changed = true;
+        }
+    }
+    cursor += optionHeight + hintGap;
+    ui::drawText("How often physics runs and publishes a frame; the tick stays fixed.", {innerX, cursor}, hintSize,
+                 palette::textMuted);
+    cursor += hintHeight + blockGap;
 
     if (ui::button({innerX, cursor, innerWidth, backHeight}, "Back")) {
         edit.backPressed = true;

@@ -4,6 +4,8 @@
 #include "cpu/SimdVector.h"
 #include "sim/PhysicsBackend.h"
 
+#include <functional>
+#include <vector>
 class WorkerPool;
 
 namespace compact {
@@ -31,6 +33,8 @@ struct CompactBallStore {
     int gridWidth = 0;
     int gridHeight = 0;
     bool gridFilled = false;
+    double renderSampleShare = 1.0;
+    bool drawing = true;
     uint32_t bidderMask = 0;
     uint32_t frameSeed = 0;
     size_t count = 0;
@@ -43,9 +47,14 @@ struct CompactBallStore {
     unsigned int clockTick = 0;
     StepParams flightParams{};
 
+    // Calls move(begin, end) over [0, count), on as many threads as the caller has.
+    using RangeRunner = std::function<void(size_t count, const std::function<void(size_t, size_t)>& move)>;
+
     // Adds as many spawns as memory takes and returns how many that was; a big batch is encoded on the pool.
     size_t add(std::span<const BallSpawn> spawns, WorkerPool* pool = nullptr);
-    void swapRemove(std::span<const uint32_t> descendingIndices);
+    // Fills each removed index below the new count with a surviving ball from the tail. The moves touch random
+    // places in a store of many millions of balls, so with runRanges they are spread over its threads.
+    void swapRemove(std::span<const uint32_t> descendingIndices, const RangeRunner& runRanges = {});
     void clear() {
         resize(0);
         frozen = false;
@@ -62,6 +71,7 @@ struct CompactBallStore {
     static constexpr size_t freeFlightChunkBalls = 256;
     size_t sampledChunkCount() const;
     void renderSampledChunks(size_t first, size_t end);
+    void renderRangeInFlight(size_t begin, size_t end);
     void materializeRange(size_t begin, size_t end);
     size_t preallocate(size_t maxBalls, WorkerPool* pool = nullptr);
     bool isPreallocated() const { return position.isPreallocated(); }
@@ -75,4 +85,8 @@ private:
     BallSpawn decode(size_t index) const;
     uint32_t packedInFlight(size_t index, unsigned int ticks) const;
     void placeInGrid(uint32_t packed);
+    void moveBall(uint32_t from, uint32_t to);
+
+    std::vector<uint32_t> removalHoles;
+    std::vector<uint32_t> removalSources;
 };

@@ -63,6 +63,8 @@ def summarize(samples):
         "balls": samples[-1]["details"]["balls"],
         "fps": mean("fps"),
         "minFps": min(entry["minFps"] for entry in samples),
+        "physicsFps": statistics.fmean(entry["details"]["physicsFps"] for entry in samples),
+        "physicsFrameMs": statistics.fmean(entry["details"]["physicsFrameMs"] for entry in samples),
         "cpuMs": mean("cpuMs"),
         "gpuMs": mean("gpuMs"),
         "presentMs": mean("presentMs"),
@@ -98,8 +100,9 @@ def run(arguments):
                 summary.update({"backend": backend, "multiplier": multiplier})
                 results.append(summary)
                 print(
-                    f"{backend:7} x{multiplier:<5} balls={summary['balls']:>9,}  fps={summary['fps']:6.1f} "
-                    f"min={summary['minFps']:6.1f}  cpu={summary['cpuMs']:6.2f}  gpu={summary['gpuMs']:6.2f}  "
+                    f"{backend:7} x{multiplier:<5} balls={summary['balls']:>9,}  "
+                    f"physics fps={summary['physicsFps']:6.1f} ({summary['physicsFrameMs']:5.2f} ms)  "
+                    f"ui fps={summary['fps']:6.1f} min={summary['minFps']:6.1f}  cpu={summary['cpuMs']:6.2f}  gpu={summary['gpuMs']:6.2f}  "
                     f"physics={summary['physicsMs']:6.2f}  present={summary['presentMs']:6.2f} {summary['fault']}",
                     flush=True,
                 )
