@@ -269,11 +269,7 @@ TArray<TPair<FString, FString>> DebugRows(const FBallsGraphicsSettings& Settings
     const bool bDynamic = Read(TEXT("r.DynamicRes.OperationMode")) > 0.0f;
     const int32 Gi = static_cast<int32>(Read(TEXT("r.DynamicGlobalIlluminationMethod")));
     const int32 Reflections = static_cast<int32>(Read(TEXT("r.ReflectionMethod")));
-    FString GroupLevels;
-    for (const int32 Group : Settings.Groups) {
-        GroupLevels += FString::FromInt(Group);
-    }
-    return {
+    TArray<TPair<FString, FString>> Rows = {
         {TEXT("Preset"), Level ? PresetName(*Level) : FString(TEXT("Custom"))},
         {TEXT("Shader platform"), FString::Printf(TEXT("%s (%s)"),
                                                   *FDataDrivenShaderPlatformInfo::GetName(GMaxRHIShaderPlatform).ToString(),
@@ -290,8 +286,12 @@ TArray<TPair<FString, FString>> DebugRows(const FBallsGraphicsSettings& Settings
                           : Read(TEXT("r.Shadow.Virtual.Enable")) > 0.0f ? FString(TEXT("Virtual"))
                                                                           : FString(TEXT("Shadow maps"))},
         {TEXT("Nanite"), Read(TEXT("r.Nanite")) > 0.0f && UseNanite(GMaxRHIShaderPlatform) ? TEXT("On") : TEXT("Off")},
-        {TEXT("Scalability"), GroupLevels},
+        {TEXT("Scalability"), FString()},
     };
+    for (int32 Index = 0; Index < GroupCount; ++Index) {
+        Rows.Add({Groups[Index].Name, PresetName(Settings.Groups[Index])});
+    }
+    return Rows;
 }
 
 void ApplyToWorld(UWorld* World, const FBallsGraphicsSettings& Settings) {

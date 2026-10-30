@@ -858,7 +858,11 @@ private:
                                                  : FIntPoint::ZeroValue;
             Writer.Heading(TEXT("Graphics"));
             for (const TPair<FString, FString>& Row : BallsGraphics::DebugRows(App->GetGraphics(), ViewportPixels)) {
-                Writer.Row(Row.Key, Row.Value);
+                if (Row.Value.IsEmpty()) {
+                    Writer.Heading(Row.Key);
+                } else {
+                    Writer.Row(Row.Key, Row.Value);
+                }
             }
         }
         DebugContentHeight = Writer.Bottom() + DebugScroll - Area.Top;
