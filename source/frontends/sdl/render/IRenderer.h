@@ -42,6 +42,22 @@ struct BallDrawRequest {
     std::array<std::array<float, 4>, rendererPaletteSize> palette{};
 };
 
+class BrickCellImage;
+
+// The board's bricks drawn from its cell image in one pass. The colors are the seven brick colors, then the same
+// seven as they flash when hit.
+struct CellImageDrawRequest {
+    const BrickCellImage* image = nullptr;
+    float originX = 0.0f;
+    float originY = 0.0f;
+    float cellPixels = 1.0f;
+    float clipX = 0.0f;
+    float clipY = 0.0f;
+    float clipWidth = 0.0f;
+    float clipHeight = 0.0f;
+    std::array<std::array<float, 4>, rendererPaletteSize * 2> palette{};
+};
+
 struct ClearColor {
     float red = 0.0f;
     float green = 0.0f;
@@ -55,6 +71,8 @@ public:
     virtual bool beginFrame() = 0;
     virtual void drawRects(std::span<const RendererRect> rects) = 0;
     virtual void drawBalls(const BallDrawRequest& request) = 0;
+    // False when this renderer has no cell image pass; the caller then draws the bricks as rectangles.
+    virtual bool drawCellImage(const CellImageDrawRequest&) { return false; }
     virtual void endFrame(ClearColor clearColor) = 0;
 
     virtual float viewWidth() const = 0;

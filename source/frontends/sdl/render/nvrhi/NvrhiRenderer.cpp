@@ -1,5 +1,6 @@
 #include "render/IRenderer.h"
 
+#include "sim/BrickCellImage.h"
 #include "sim/PhysicsBackend.h"
 #include "render/nvrhi/GraphicsDevice.h"
 #include "render/nvrhi/ImguiNvrhi.h"
@@ -44,6 +45,17 @@ struct BallUniforms {
 struct RectUniforms {
     float viewportSize[2];
     float unusedPadding[2];
+};
+
+struct CellImageUniforms {
+    float drawRect[4];
+    float boardOrigin[2];
+    float viewportSize[2];
+    float cellPixels;
+    uint32_t columns;
+    uint32_t rows;
+    uint32_t tilesAcross;
+    float palette[rendererPaletteSize * 2][4];
 };
 
 struct VisibilityUniforms {
@@ -98,6 +110,7 @@ public:
     bool beginFrame() override;
     void drawRects(std::span<const RendererRect> rects) override;
     void drawBalls(const BallDrawRequest& request) override;
+    bool drawCellImage(const CellImageDrawRequest& request) override;
     void endFrame(ClearColor clearColor) override;
 
     float viewWidth() const override { return logicalWidth; }
@@ -120,6 +133,7 @@ private:
     void ensureBindingSets();
     void waitForFrameSlot();
     void runBallVisibility();
+    void uploadCellImage(const BrickCellImage& image);
     void dispatch(nvrhi::IComputePipeline* pipeline, nvrhi::IBindingSet* inputs, nvrhi::IBindingSet* outputs,
                   const VisibilityUniforms& uniforms, size_t threads);
     void drawScene(ClearColor clearColor);
@@ -132,6 +146,8 @@ private:
     nvrhi::CommandListHandle commandList;
     nvrhi::CommandListHandle ballUploadList;
     bool ballsUploaded = false;
+    nvrhi::CommandListHandle cellUploadList;
+    bool cellsUploaded = false;
     ImguiNvrhi imgui;
     bool imguiReady = false;
 
@@ -148,8 +164,11 @@ private:
     nvrhi::BindingLayoutHandle computeInputLayout;
     nvrhi::BindingLayoutHandle computeOutputLayout;
     nvrhi::BindingLayoutHandle computeConstantsLayout;
+    nvrhi::BindingLayoutHandle cellStorageLayout;
+    nvrhi::BindingLayoutHandle cellConstantsLayout;
     nvrhi::GraphicsPipelineHandle rectPipeline;
     nvrhi::GraphicsPipelineHandle ballPipeline;
+    nvrhi::GraphicsPipelineHandle cellImagePipeline;
     nvrhi::ComputePipelineHandle clearPipeline;
     nvrhi::ComputePipelineHandle bidPipeline;
     nvrhi::ComputePipelineHandle resolvePipeline;
@@ -158,6 +177,9 @@ private:
     nvrhi::BufferHandle rectConstants;
     nvrhi::BufferHandle ballConstants;
     nvrhi::BufferHandle visibilityConstants;
+    nvrhi::BufferHandle cellConstants;
+    nvrhi::BufferHandle cellBuffer;
+    size_t cellCapacity = 0;
     nvrhi::BufferHandle rectBuffer;
     nvrhi::BufferHandle ballBuffer;
     nvrhi::BufferHandle priorityBuffer;
@@ -183,11 +205,18 @@ private:
     nvrhi::BindingSetHandle resolveOutputSet;
     nvrhi::BindingSetHandle compactOutputSet;
     nvrhi::BindingSetHandle computeConstantsSet;
+    nvrhi::BindingSetHandle cellStorageSet;
+    nvrhi::BindingSetHandle cellConstantsSet;
 
     std::vector<RendererRect> pendingRects;
     BallDrawRequest pendingBalls;
     bool hasBalls = false;
     uint32_t frameSeed = 0;
+    CellImageUniforms pendingCells{};
+    bool hasCellImage = false;
+    // Which board the GPU copy of the cell image holds, and each tile's revision when it was uploaded.
+    uint64_t uploadedLayoutSerial = 0;
+    std::vector<uint64_t> uploadedTileRevisions;
 
     std::array<nvrhi::EventQueryHandle, framesInFlight> frameEvents;
     std::array<nvrhi::TimerQueryHandle, framesInFlight> frameTimers;
@@ -219,13 +248,17 @@ bool NvrhiRenderer::createPipelines(std::string& error) {
                                              nvrhi::BindingLayoutItem::StructuredBuffer_UAV(2)});
     computeConstantsLayout = createSpaceLayout(device, nvrhi::ShaderType::Compute, 2,
                                                {nvrhi::BindingLayoutItem::VolatileConstantBuffer(0)});
+    cellStorageLayout = createSpaceLayout(device, nvrhi::ShaderType::Pixel, 0, {vertexStorage});
+    cellConstantsLayout = createSpaceLayout(device, nvrhi::ShaderType::AllGraphics, 1,
+                                            {nvrhi::BindingLayoutItem::VolatileConstantBuffer(0)});
 
-    auto graphicsPipeline = [&](ShaderProgram vertex, ShaderProgram fragment, bool blended, bool scissored) {
+    auto graphicsPipeline = [&](ShaderProgram vertex, ShaderProgram fragment, bool blended, bool scissored,
+                                nvrhi::IBindingLayout* storage, nvrhi::IBindingLayout* constants) {
         nvrhi::GraphicsPipelineDesc description;
         description.primType = nvrhi::PrimitiveType::TriangleList;
         description.VS = createShader(device, nvrhi::ShaderType::Vertex, vertex);
         description.PS = createShader(device, nvrhi::ShaderType::Pixel, fragment);
-        description.bindingLayouts = {drawStorageLayout, drawConstantsLayout};
+        description.bindingLayouts = {storage, constants};
         description.renderState.rasterState.setCullNone().setScissorEnable(scissored);
         description.renderState.depthStencilState.setDepthTestEnable(false).setDepthWriteEnable(false);
         if (blended) {
@@ -246,13 +279,17 @@ bool NvrhiRenderer::createPipelines(std::string& error) {
         description.bindingLayouts = {computeInputLayout, computeOutputLayout, computeConstantsLayout};
         return description.CS ? device->createComputePipeline(description) : nullptr;
     };
-    rectPipeline = graphicsPipeline(ShaderProgram::RectsVertex, ShaderProgram::RectsFragment, true, false);
-    ballPipeline = graphicsPipeline(ShaderProgram::BallsVertex, ShaderProgram::BallsFragment, false, true);
+    rectPipeline = graphicsPipeline(ShaderProgram::RectsVertex, ShaderProgram::RectsFragment, true, false,
+                                    drawStorageLayout, drawConstantsLayout);
+    ballPipeline = graphicsPipeline(ShaderProgram::BallsVertex, ShaderProgram::BallsFragment, false, true,
+                                    drawStorageLayout, drawConstantsLayout);
+    cellImagePipeline = graphicsPipeline(ShaderProgram::CellImageVertex, ShaderProgram::CellImageFragment, false, true,
+                                         cellStorageLayout, cellConstantsLayout);
     clearPipeline = computePipeline(ShaderProgram::VisibilityClear);
     bidPipeline = computePipeline(ShaderProgram::VisibilityBid);
     resolvePipeline = computePipeline(ShaderProgram::VisibilityResolve);
     compactPipeline = computePipeline(ShaderProgram::VisibilityCompact);
-    if (!rectPipeline || !ballPipeline || !clearPipeline || !bidPipeline || !resolvePipeline || !compactPipeline) {
+    if (!rectPipeline || !ballPipeline || !cellImagePipeline || !clearPipeline || !bidPipeline || !resolvePipeline || !compactPipeline) {
         error = "NVRHI pipeline creation failed";
         return false;
     }
@@ -262,12 +299,15 @@ bool NvrhiRenderer::createPipelines(std::string& error) {
         nvrhi::utils::CreateVolatileConstantBufferDesc(sizeof(BallUniforms), "ball constants", constantVersions));
     visibilityConstants = device->createBuffer(nvrhi::utils::CreateVolatileConstantBufferDesc(
         sizeof(VisibilityUniforms), "visibility constants", constantVersions));
+    cellConstants = device->createBuffer(nvrhi::utils::CreateVolatileConstantBufferDesc(
+        sizeof(CellImageUniforms), "cell image constants", constantVersions));
     return true;
 }
 
 bool NvrhiRenderer::prepare(std::string& error) {
     commandList = device->createCommandList();
     ballUploadList = device->createCommandList();
+    cellUploadList = device->createCommandList();
     for (size_t slot = 0; slot < framesInFlight; ++slot) {
         frameEvents[slot] = device->createEventQuery();
         frameTimers[slot] = device->createTimerQuery();
@@ -282,6 +322,7 @@ bool NvrhiRenderer::prepare(std::string& error) {
     ensureBuffer(winnerBuffer, winnerCapacity, initialBallCapacity * storageWord, storageWord, true, false, "winners");
     ensureBuffer(visibleBuffer, visibleCapacity, initialBallCapacity * storageWord, storageWord, true, false, "visible balls");
     ensureBuffer(argumentBuffer, argumentCapacity, drawArgumentWords * storageWord, storageWord, true, true, "draw arguments");
+    ensureBuffer(cellBuffer, cellCapacity, BrickCellImage::cellsPerTile, storageWord, false, false, "cell image");
     if (!imgui.initialize(device, framebuffer)) {
         error = "ImGui NVRHI pipeline creation failed";
         return false;
@@ -395,6 +436,8 @@ void NvrhiRenderer::ensureBindingSets() {
     resolveOutputSet = outputs(priorityBuffer, winnerBuffer, argumentBuffer);
     compactOutputSet = outputs(visibleBuffer, argumentBuffer, priorityBuffer);
     computeConstantsSet = constants(visibilityConstants, computeConstantsLayout);
+    cellStorageSet = storage(cellBuffer, cellStorageLayout);
+    cellConstantsSet = constants(cellConstants, cellConstantsLayout);
 }
 
 void NvrhiRenderer::waitForFrameSlot() {
@@ -418,6 +461,7 @@ bool NvrhiRenderer::beginFrame() {
     ensureRenderTarget();
     pendingRects.clear();
     hasBalls = false;
+    hasCellImage = false;
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
     return true;
@@ -441,6 +485,72 @@ void NvrhiRenderer::drawBalls(const BallDrawRequest& request) {
     ballUploadList->close();
     pendingBalls.packed = nullptr;
     ballsUploaded = true;
+}
+
+// The image lives in a board snapshot the UI may drop right after this frame, so the tiles that changed since the
+// last upload are copied out now, as the ball words are.
+bool NvrhiRenderer::drawCellImage(const CellImageDrawRequest& request) {
+    if (!request.image || request.image->tileBytes().empty()) {
+        return true;
+    }
+    const BrickCellImage& image = *request.image;
+    uploadCellImage(image);
+    CellImageUniforms& uniforms = pendingCells;
+    const bool clipped = request.clipWidth > 0.0f && request.clipHeight > 0.0f;
+    const float boardRight = request.originX + static_cast<float>(image.columns()) * request.cellPixels;
+    const float boardBottom = request.originY + static_cast<float>(image.rows()) * request.cellPixels;
+    const float left = clipped ? std::max(request.clipX, request.originX) : request.originX;
+    const float top = clipped ? std::max(request.clipY, request.originY) : request.originY;
+    const float right = clipped ? std::min(request.clipX + request.clipWidth, boardRight) : boardRight;
+    const float bottom = clipped ? std::min(request.clipY + request.clipHeight, boardBottom) : boardBottom;
+    hasCellImage = right > left && bottom > top;
+    uniforms.drawRect[0] = left;
+    uniforms.drawRect[1] = top;
+    uniforms.drawRect[2] = right - left;
+    uniforms.drawRect[3] = bottom - top;
+    uniforms.boardOrigin[0] = request.originX;
+    uniforms.boardOrigin[1] = request.originY;
+    uniforms.cellPixels = request.cellPixels;
+    uniforms.columns = static_cast<uint32_t>(image.columns());
+    uniforms.rows = static_cast<uint32_t>(image.rows());
+    uniforms.tilesAcross = static_cast<uint32_t>(image.tilesAcross());
+    for (size_t color = 0; color < request.palette.size(); ++color) {
+        std::copy(request.palette[color].begin(), request.palette[color].end(), uniforms.palette[color]);
+    }
+    return true;
+}
+
+void NvrhiRenderer::uploadCellImage(const BrickCellImage& image) {
+    const std::vector<uint8_t>& bytes = image.tileBytes();
+    const std::vector<uint64_t>& revisions = image.tileRevisions();
+    const bool sameBoard =
+        image.layoutSerial() == uploadedLayoutSerial && revisions.size() == uploadedTileRevisions.size();
+    cellUploadList->open();
+    if (!sameBoard) {
+        ensureBuffer(cellBuffer, cellCapacity, bytes.size(), storageWord, false, false, "cell image");
+        cellUploadList->writeBuffer(cellBuffer, bytes.data(), bytes.size());
+        uploadedLayoutSerial = image.layoutSerial();
+        uploadedTileRevisions = revisions;
+    } else {
+        // Neighbouring changed tiles go up as one copy: each tile is contiguous in the image and in the buffer.
+        size_t tile = 0;
+        while (tile < revisions.size()) {
+            if (revisions[tile] == uploadedTileRevisions[tile]) {
+                ++tile;
+                continue;
+            }
+            const size_t first = tile;
+            while (tile < revisions.size() && revisions[tile] != uploadedTileRevisions[tile]) {
+                uploadedTileRevisions[tile] = revisions[tile];
+                ++tile;
+            }
+            const size_t offset = first * BrickCellImage::cellsPerTile;
+            cellUploadList->writeBuffer(cellBuffer, bytes.data() + offset,
+                                        (tile - first) * BrickCellImage::cellsPerTile, offset);
+        }
+    }
+    cellUploadList->close();
+    cellsUploaded = true;
 }
 
 void NvrhiRenderer::dispatch(nvrhi::IComputePipeline* pipeline, nvrhi::IBindingSet* inputs, nvrhi::IBindingSet* outputs,
@@ -505,6 +615,19 @@ void NvrhiRenderer::drawScene(ClearColor clearColor) {
         commandList->setGraphicsState(state);
         commandList->draw(nvrhi::DrawArguments().setVertexCount(verticesPerQuad).setInstanceCount(
             static_cast<uint32_t>(pendingRects.size())));
+    }
+    if (hasCellImage) {
+        CellImageUniforms& uniforms = pendingCells;
+        uniforms.viewportSize[0] = logicalWidth;
+        uniforms.viewportSize[1] = logicalHeight;
+        commandList->writeBuffer(cellConstants, &uniforms, sizeof(uniforms));
+        nvrhi::GraphicsState state;
+        state.pipeline = cellImagePipeline;
+        state.framebuffer = framebuffer;
+        state.viewport = nvrhi::ViewportState().addViewport(viewport).addScissorRect(nvrhi::Rect(viewport));
+        state.bindings = {cellStorageSet, cellConstantsSet};
+        commandList->setGraphicsState(state);
+        commandList->draw(nvrhi::DrawArguments().setVertexCount(verticesPerQuad));
     }
     if (hasBalls) {
         const BallDrawRequest& request = pendingBalls;
@@ -592,6 +715,10 @@ void NvrhiRenderer::endFrame(ClearColor clearColor) {
     if (ballsUploaded) {
         device->executeCommandList(ballUploadList);
         ballsUploaded = false;
+    }
+    if (cellsUploaded) {
+        device->executeCommandList(cellUploadList);
+        cellsUploaded = false;
     }
     device->executeCommandList(commandList);
     device->setEventQuery(frameEvents[frameSlot], nvrhi::CommandQueue::Graphics);

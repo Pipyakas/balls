@@ -1,6 +1,7 @@
 #include "render/BoardRenderer.h"
 
 #include "render/Palette.h"
+#include "ui/Painter.h"
 #include "ui/MenuModel.h"
 #include "ui/Widgets.h"
 
@@ -25,6 +26,7 @@ constexpr float hitRingThickness = 2.0f;
 constexpr int burstPiecesPerCell = 8;
 constexpr float burstTravelCells = 0.9f;
 constexpr float burstPieceShare = 0.3f;
+constexpr float channelScale = 1.0f / 255.0f;
 
 struct CellEdges {
     bool left;
@@ -143,6 +145,31 @@ void drawBreakBurst(const Brick& brick, const BoardTransform& transform) {
     }
 }
 
+// Cells this small are drawn as plain squares anyway, and a board of them can hold millions of bricks: the renderer
+// draws them in one pass from the board's cell image instead of one rectangle per brick. A rise snaps rather than
+// slides here, a fraction of a few pixels.
+bool drawBrickImage(IRenderer& renderer, const BrickBoard& board, const BoardTransform& transform) {
+    CellImageDrawRequest request;
+    request.image = &board.cellImage();
+    request.originX = transform.origin.x;
+    request.originY = transform.origin.y;
+    request.cellPixels = transform.cellPixels;
+    const Rect clip = gfx::currentClip();
+    request.clipX = clip.x;
+    request.clipY = clip.y;
+    request.clipWidth = clip.width;
+    request.clipHeight = clip.height;
+    for (int color = 0; color < rendererPaletteSize; ++color) {
+        const Color normal = palette::brickColor(ballColorFromIndex(color));
+        const Color flashing = palette::shade(normal, theme::brickHitFlash);
+        request.palette[static_cast<size_t>(color)] = {normal.r * channelScale, normal.g * channelScale,
+                                                       normal.b * channelScale, 1.0f};
+        request.palette[static_cast<size_t>(color + rendererPaletteSize)] = {
+            flashing.r * channelScale, flashing.g * channelScale, flashing.b * channelScale, 1.0f};
+    }
+    return renderer.drawCellImage(request);
+}
+
 }
 
 void drawBoardBackground(const BrickBoard& board, const BoardTransform& transform) {
@@ -153,7 +180,10 @@ void drawBoardBackground(const BrickBoard& board, const BoardTransform& transfor
     gfx::sceneRect(area, palette::boardBackdrop);
 }
 
-void drawBricks(const BrickBoard& board, const BoardTransform& transform) {
+void drawBricks(IRenderer& renderer, const BrickBoard& board, const BoardTransform& transform) {
+    if (transform.cellPixels < minimumBevelPixels && drawBrickImage(renderer, board, transform)) {
+        return;
+    }
     const auto& bricks = board.bricks();
     for (const int index : board.aliveBrickIndices()) {
         const Brick& brick = bricks[static_cast<size_t>(index)];

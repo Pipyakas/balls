@@ -61,6 +61,7 @@ public:
     void applyOrientationHint(LayoutOrientation orientation);
 
     BallView& ballRenderer() { return *balls; }
+    IRenderer& sceneRenderer() { return *renderer; }
     const FrameTimings& frameTimings() const { return timings; }
     float lastFrameSeconds() const { return frameSeconds; }
     BackendKind preferredBackend() const { return backendChoice; }
