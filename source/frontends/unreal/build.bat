@@ -4,15 +4,15 @@ rem   build.bat               the main variant (win64 on Windows)
 rem   build.bat <variant>     one of the variants below
 rem   build.bat --variants    lists them as id;description, which the root build.bat menu reads
 rem   build.bat --setup [variant]   only checks this PC can build it, naming what is missing
-rem The engine fork is expected at UE_ROOT (default D:\Unreal\UnrealEngine); its Linux toolchain at
-rem LINUX_MULTIARCH_ROOT (default D:\UnrealToolchains\v26_clang-20.1.8-rockylinux8). The .uproject pre-build step
-rem builds the core and the physics plugins for the target platform before UAT cooks.
+rem Unreal Engine 5.8 (a stock install or the fork) is expected at UE_ROOT (default D:\Unreal\UnrealEngine); its
+rem Linux toolchain at LINUX_MULTIARCH_ROOT (default D:\UnrealToolchains\v26_clang-20.1.8-rockylinux8). The .uproject
+rem pre-build step builds the core and the physics plugins for the target platform before UAT cooks.
 cd /d "%~dp0"
 
 set "DEFAULT_VARIANT=win64"
 if /i "%~1"=="--variants" (
-    echo win64;Windows - packaged Win64 game ^(needs the engine fork^)
-    echo linux;Linux x86_64 - packaged game cross-compiled on Windows ^(needs the engine fork and its Linux toolchain^)
+    echo win64;Windows - packaged Win64 game ^(needs Unreal Engine 5.8^)
+    echo linux;Linux x86_64 - packaged game cross-compiled on Windows ^(needs Unreal Engine 5.8 and its Linux toolchain^)
     cmd /c exit 0
     goto :eof
 )
@@ -49,7 +49,7 @@ goto :check
 :check
 if not defined UE_ROOT set "UE_ROOT=D:\Unreal\UnrealEngine"
 if not exist "%UE_ROOT%\Engine\Build\BatchFiles\RunUAT.bat" (
-    echo Unreal Engine not found at "%UE_ROOT%". Set UE_ROOT to the engine fork.
+    echo Unreal Engine not found at "%UE_ROOT%". Set UE_ROOT to an Unreal Engine 5.8 install.
     cmd /c exit 1
     goto :eof
 )

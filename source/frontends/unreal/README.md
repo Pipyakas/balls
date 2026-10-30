@@ -45,13 +45,14 @@ D:\Unreal\UnrealEngine\Engine\Binaries\Win64\UnrealEditor.exe "$PWD\source\front
 `source\frontends\unreal\build.bat` cooks, stages and archives the game; the root `build.bat` reaches it as
 `build.bat unreal win64` (or `build.bat --menu`). Variants:
 
-- `win64` stages `dist\win32-ue\`; `run-win32-ue.bat [game args]` builds and launches it.
+- `win64` stages `dist\win32-ue\ColorBlastBalls.exe`.
 - `linux` stage `dist\linux-ue\` for x86_64 Linux, cross-compiled on Windows with Unreal's own toolchain
   (`LINUX_MULTIARCH_ROOT`, default `D:\UnrealToolchains\v26_clang-20.1.8-rockylinux8`). UnrealBuildTool skips the
   `.uproject` pre-build steps for a cross-compiled target, so the script builds the core and the plugins through
   `BuildCoreLinux.bat` itself.
 
-Set `UE_ROOT` if the engine fork is not at `D:\Unreal\UnrealEngine`. The first run compiles the game target and
+Set `UE_ROOT` if the engine is not at `D:\Unreal\UnrealEngine`; a stock Unreal Engine 5.8 install works (checked with
+5.8.4). The first run compiles the game target and
 takes about an hour; later runs are incremental. The script also copies `data/assets` to the packaged game's
 `ColorBlastBalls\assets`, where it looks for levels, and the physics plugins stage next to the executable.
 
