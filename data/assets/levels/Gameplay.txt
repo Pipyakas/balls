@@ -2,6 +2,7 @@
 # a key left out keeps its built-in value. Distances are in board cells, times in seconds.
 
 [Balls]
+# Rule:a brick holds four balls (2x2), so a ball is half a cell across.
 Radius 0.25
 Speed 14
 # After this many bounces off walls and other bricks, a ball heads for the nearest brick of its color (1 to 3).
