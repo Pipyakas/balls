@@ -128,7 +128,9 @@ void captureBalls(Simulation& simulation, float slotCells, FieldSize& field, Bal
 void fillView(GameSession& session, SessionView& view, const SessionView* previous, BoardSnapshots& boards,
               float slotCells, FieldSize& field) {
     describeSessionState(session, view);
+    const Clock::time_point publishStart = Clock::now();
     view.board = boards.publish(session.simulation().board(), previous ? previous->board : nullptr);
+    view.boardPublishMs = std::chrono::duration<double, std::milli>(Clock::now() - publishStart).count();
     captureBalls(session.simulation(), slotCells, field, view.balls);
 }
 

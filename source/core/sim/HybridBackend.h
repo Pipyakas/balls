@@ -23,6 +23,12 @@ public:
     BallTally truncate(size_t newCount) override;
     std::string_view faultMessage() const override;
     bool resolvesHitsOnDevice() const override { return true; }
+    // Both halves take changed cells, target and hit-count changes as lists. Without this the pair was sent every brick's
+    // hit count each tick its CPU half hit something (16.8M counts, 20-50 ms at 4096x4096) and the whole target field
+    // after every rebuild (590 MB, 160 ms).
+    bool acceptsSparseBoardUpdates() const override {
+        return gpu->acceptsSparseBoardUpdates() && cpu->acceptsSparseBoardUpdates();
+    }
     DeviceHitResults deviceHitResults() const override { return gpu->deviceHitResults(); }
     void setVisibilityGrid(int width, int height) override;
     double deviceStepMs() const override { return gpu->deviceStepMs(); }

@@ -225,6 +225,13 @@ StepParams Simulation::stepParams(int substeps) const {
 }
 
 void Simulation::syncBoardIfChanged() {
+    using Clock = std::chrono::steady_clock;
+    const auto milliseconds = [](Clock::time_point from, Clock::time_point to) {
+        return std::chrono::duration<double, std::milli>(to - from).count();
+    };
+    const Clock::time_point fieldStart = Clock::now();
+    statistics.lastTargetFieldMs = 0.0;
+    statistics.lastBoardUploadMs = 0.0;
     const bool rebuilt = targetField.takeFinishedRebuild(brickBoard);
     bool sparseTargets = rebuilt && !targetsUploadPending && targetField.lastRebuildIsSparse() &&
                          physics->acceptsSparseBoardUpdates();
@@ -239,6 +246,7 @@ void Simulation::syncBoardIfChanged() {
             sparseTargets = false;
         }
     }
+    statistics.lastTargetFieldMs = milliseconds(fieldStart, Clock::now());
     const bool onlyChangedCells = uploadedRevision != ~0ull;
     // Hybrid's CPU side reports its hits to the host every tick; on a board of millions of bricks re-sending every
     // brick's count each time cost tens of milliseconds, so only the bricks hit are sent where the backend takes that.
@@ -269,9 +277,11 @@ void Simulation::syncBoardIfChanged() {
                                                : std::span<const int32_t>{};
     const std::span<const int32_t> targetUpdates =
         targetsUploadPending && sparseTargets ? targetField.lastRebuildChanges() : std::span<const int32_t>{};
+    const Clock::time_point uploadStart = Clock::now();
     physics->uploadBoard({brickBoard.columns(), brickBoard.rows(), brickBoard.paddedCells(), brickBoard.brickColors(),
                           targets, brickBoard.nearBrickFlags(), hitsLeft, brickBoard.changedCells(), onlyChangedCells,
                           brickHitUpdates, targetUpdates});
+    statistics.lastBoardUploadMs = milliseconds(uploadStart, Clock::now());
     brickBoard.clearChangedCells();
     targetsUploadPending = false;
     uploadedRevision = brickBoard.revision();

@@ -71,6 +71,8 @@ struct SessionView {
     double physicsFramesPerSecond = 0.0;
     double physicsLongestFrameMs = 0.0;
     long long physicsSlowFrames = 0;
+    // How long bringing the UI's board snapshot up to date took on the physics thread.
+    double boardPublishMs = 0.0;
 };
 
 // Fills everything in a view but the balls from the session as it is now, with its board copied, or shared with the

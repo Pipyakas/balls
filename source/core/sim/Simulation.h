@@ -43,6 +43,9 @@ struct SimulationStats {
     // Where the last tick's time went on the calling thread: sending board changes, the backend step, and applying
     // brick hits the device resolved and the ones the host resolves (balls of host-reporting backends).
     double lastSyncMs = 0.0;
+    // The sync's parts: the target field (taking a finished rebuild, starting the next), and the backend upload.
+    double lastTargetFieldMs = 0.0;
+    double lastBoardUploadMs = 0.0;
     double lastStepMs = 0.0;
     double lastDeviceHitsMs = 0.0;
     double lastHostHitsMs = 0.0;
