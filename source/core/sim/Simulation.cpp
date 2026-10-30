@@ -11,6 +11,30 @@ namespace {
 
 constexpr int maximumScatterAttempts = 8;
 
+// A uniform float in [0, 1) from 24 bits of a hash.
+float unitFromBits(uint64_t bits) {
+    constexpr float unitPerStep = 1.0f / 16777216.0f;
+    return static_cast<float>(bits & 0xFFFFFF) * unitPerStep;
+}
+
+// SplitMix64's finalizer: launch n's random bits are the hash of the call's seed and n, so a launch does not depend
+// on which core generated it, and no generator state is seeded per chunk.
+uint64_t mixBits(uint64_t value) {
+    value = (value ^ (value >> 30)) * 0xBF58476D1CE4E5B9ull;
+    value = (value ^ (value >> 27)) * 0x94D049BB133111EBull;
+    return value ^ (value >> 31);
+}
+
+// Taylor series to x^9 and x^10, which the compiler vectorizes where std::sin and std::cos stay one call per ball.
+// Launch angles stay within +-90 degrees, where both are within 4e-6 (1e-8 at the default 55).
+void launchSinCos(float angle, float& sine, float& cosine) {
+    const float square = angle * angle;
+    sine = angle * (1.0f + square * (-1.0f / 6.0f + square * (1.0f / 120.0f + square * (-1.0f / 5040.0f +
+                                                                                        square * (1.0f / 362880.0f)))));
+    cosine = 1.0f + square * (-0.5f + square * (1.0f / 24.0f + square * (-1.0f / 720.0f + square * (1.0f / 40320.0f +
+                                                                                       square * (-1.0f / 3628800.0f)))));
+}
+
 }
 
 SimulationTuning simulationTuning(const GameplayRules& rules) {
@@ -81,12 +105,12 @@ void Simulation::setBallCollisions(bool enabled) {
     physics->setBallCollisions(enabled);
 }
 
-// Launches are generated a chunk per core, each chunk from its own generator seeded by this call's draw and the
-// chunk's place, so the Auto ramp's millions a frame do not hold up the frame and the balls do not depend on the
-// core count.
+// Launches are generated a chunk per core, each ball from a hash of this call's draw and its place, so the Auto ramp's
+// millions a frame do not hold up the frame and the balls do not depend on the core count.
 void Simulation::launchBalls(BallColor color, BallCount requested) {
     constexpr float degreesToRadians = std::numbers::pi_v<float> / 180.0f;
     constexpr size_t launchChunkBalls = size_t{1} << 12;
+    constexpr uint64_t launchStride = 0x9E3779B97F4A7C15ull;
     const BallCount count = std::min(requested, ballRoom());
     const float halfAngle = settings.launchHalfAngleDegrees * degreesToRadians;
     const float originX = launchX();
@@ -99,16 +123,17 @@ void Simulation::launchBalls(BallColor color, BallCount requested) {
         const size_t batch = static_cast<size_t>(std::min<BallCount>(count - launched, spawnFlushBalls));
         const size_t first = pendingSpawns.size();
         pendingSpawns.resize(first + batch);
+        BallSpawn* const spawns = pendingSpawns.data() + first;
         const uint64_t batchStart = launched;
         parallelChunks(batch, launchChunkBalls, [&](size_t, size_t begin, size_t end) {
-            std::mt19937 chunkRandom(static_cast<uint32_t>(seed ^ ((batchStart + begin) * 0x9E3779B97F4A7C15ull)) ^
-                                     static_cast<uint32_t>(seed >> 32));
-            std::uniform_real_distribution<float> angleDistribution(-halfAngle, halfAngle);
-            std::uniform_real_distribution<float> jitterDistribution(-radius, radius);
             for (size_t i = begin; i < end; ++i) {
-                const float angle = angleDistribution(chunkRandom);
-                pendingSpawns[first + i] = {originX + jitterDistribution(chunkRandom), originY,
-                                            std::sin(angle) * speed, -std::cos(angle) * speed, colorIndex};
+                const uint64_t bits = mixBits(seed + (batchStart + i) * launchStride);
+                const float angle = (2.0f * unitFromBits(bits) - 1.0f) * halfAngle;
+                const float jitter = (2.0f * unitFromBits(bits >> 24) - 1.0f) * radius;
+                float sine = 0.0f;
+                float cosine = 0.0f;
+                launchSinCos(angle, sine, cosine);
+                spawns[i] = {originX + jitter, originY, sine * speed, -cosine * speed, colorIndex};
             }
         });
         launched += batch;
