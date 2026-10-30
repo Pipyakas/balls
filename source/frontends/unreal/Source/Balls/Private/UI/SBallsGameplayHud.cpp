@@ -230,10 +230,14 @@ FLinearColor FpsColor(double Fps) {
 
 class FPanelWriter {
 public:
+    // Scroll moves the rows up by that much; the caller clips them to the area.
     FPanelWriter(FSlateWindowElementList& InOut, int32 InLayer, const FGeometry& InGeometry, const FSlateRect& InArea,
-                 float InLineHeight = 26.0f)
-        : Out(InOut), Layer(InLayer), Geometry(InGeometry), Area(InArea), Cursor(InArea.Top + Padding),
+                 float InLineHeight = 26.0f, float Scroll = 0.0f)
+        : Out(InOut), Layer(InLayer), Geometry(InGeometry), Area(InArea), Cursor(InArea.Top + Padding - Scroll),
           LineHeight(InLineHeight) {}
+
+    // Where the next row would start: the bottom of everything written so far.
+    float Bottom() const { return Cursor + Padding; }
 
     void Heading(const FString& Text) {
         Cursor += 6.0f;
@@ -301,6 +305,18 @@ public:
     }
 
     FVector2D ComputeDesiredSize(float) const override { return FVector2D::ZeroVector; }
+
+    // The debug gadget scrolls under the wheel like the SDL front end's, when its rows are taller than the gadget.
+    FReply OnMouseWheel(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override {
+        const FBallsGameplayLayout Layout = LayoutFor(MyGeometry);
+        const FVector2D Point = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
+        if (Layout.bPortrait || !Layout.RightGadget.ContainsPoint(Point)) {
+            return FReply::Unhandled();
+        }
+        DebugScroll = FMath::Clamp(DebugScroll - MouseEvent.GetWheelDelta() * WheelStep, 0.0f,
+                                   MaximumDebugScroll(Layout.RightGadget));
+        return FReply::Handled();
+    }
 
     FReply OnMouseMove(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override {
         const FVector2D Point = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
@@ -782,7 +798,11 @@ private:
     // Portrait has no room for the three groups, so it shows the 48-unit stats strip instead (see PaintStatsStrip).
      void PaintDebugPanel(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,
                           const SessionView& Session, const FSlateRect& Area) const {
-        FPanelWriter Writer(Out, Layer, Geometry, Area);
+        DebugScroll = FMath::Clamp(DebugScroll, 0.0f, MaximumDebugScroll(Area));
+        const FVector2D TopLeft = Geometry.LocalToAbsolute(FVector2D(Area.Left, Area.Top));
+        const FVector2D BottomRight = Geometry.LocalToAbsolute(FVector2D(Area.Right, Area.Bottom));
+        Out.PushClip(FSlateClippingZone(FSlateRect(TopLeft.X, TopLeft.Y, BottomRight.X, BottomRight.Y)));
+        FPanelWriter Writer(Out, Layer, Geometry, Area, 26.0f, DebugScroll);
         const FrameTimings& Frames = App->GetFrameTimings();
         DebugGadgetOptions Options;
         Options.showBackend = App->GetSettings().advancedSettings;
@@ -828,6 +848,20 @@ private:
                 break;
             }
         }
+        DebugContentHeight = Writer.Bottom() + DebugScroll - Area.Top;
+        Out.PopClip();
+        // A thin bar at the right edge shows how much is scrolled, as SDL's scroll frame does.
+        const float Visible = static_cast<float>(Area.GetSize().Y);
+        if (DebugContentHeight > Visible) {
+            const float BarHeight = Visible * Visible / DebugContentHeight;
+            const float BarTop = Area.Top + (Visible - BarHeight) * DebugScroll / MaximumDebugScroll(Area);
+            DrawBox(Out, Layer + 1, Geometry, FSlateRect(Area.Right - ScrollBarWidth - 2.0f, BarTop, Area.Right - 2.0f, BarTop + BarHeight),
+                    BallsStyle::RoundedBox(ScrollBarWidth * 0.5f), BallsPalette::Linear(BallsPalette::Border));
+        }
+    }
+
+    float MaximumDebugScroll(const FSlateRect& Area) const {
+        return FMath::Max(0.0f, DebugContentHeight - static_cast<float>(Area.GetSize().Y));
     }
 
     void PaintToast(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry) const {
@@ -851,6 +885,11 @@ private:
     FBallsApp* App = nullptr;
     TSharedPtr<FBallsGameplay> Gameplay;
     FVector2D Mouse = FVector2D(-1.0);
+    static constexpr float WheelStep = 40.0f;
+    static constexpr float ScrollBarWidth = 4.0f;
+    // The debug gadget's scroll, and its rows' height as last painted.
+    mutable float DebugScroll = 0.0f;
+    mutable float DebugContentHeight = 0.0f;
     // Portrait launcher row: sideways scroll and the press that may become a tap or a drag.
     float Scroll = 0.0f;
     bool bPressed = false;
