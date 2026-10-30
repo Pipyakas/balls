@@ -45,18 +45,20 @@ D:\Unreal\UnrealEngine\Engine\Binaries\Win64\UnrealEditor.exe "$PWD\source\front
 The Unreal port's own settings page (the design has none), a popup opened from Settings > Graphics settings or from
 the Graphics button in the game's Advanced Settings, so every change shows on the running board:
 
+- **Resolution**: screen resolution 50-100%; dynamic resolution (on by default, drops to 50% to hold the target
+  FPS); target FPS 1 to the display's highest refresh rate (default 60). These settings are kept across presets.
 - **Preset**: Low, Medium, High, Epic, Cinematic. Low is the flat look with nothing optional (the port's default);
   Medium and High add TAA/TSR, screen-space reflections and shadow maps; Epic and Cinematic turn on Lumen GI and
   reflections, virtual shadow maps and Nanite. Changing any row below makes the settings Custom.
-- **Anti-aliasing and resolution**: Off, FXAA, TAA, TAAU, TSR or FSR (only with AMD's FidelityFX FSR plugin
-  installed in the engine); screen resolution 50-100%; dynamic resolution, which drops to 50% to hold 60 FPS.
+- **Anti-aliasing**: Off, FXAA, TAA, TAAU, TSR or FSR (only with AMD's FidelityFX FSR plugin installed in the
+  engine).
 - **UE5 features**: global illumination (Lumen), reflections (screen space or Lumen), shadows (shadow maps or
   virtual), Nanite. A feature the GPU or shader model cannot run is disabled with the reason.
 - **Scalability**: the engine's ten `sg.*` groups, each Low to Cinematic.
 
 The settings are saved per user (`GameUserSettings.ini`, `[Balls] GraphicsSettings`), and the control API's
 `/graphics` takes the same keys: `preset`, `sg.<group>`, `gi`, `reflectionmethod`, `shadowmethod`, `nanite`, `aa`,
-`screen`, `dynamic` (for example `/graphics?preset=epic&aa=taau&screen=67`).
+`screen`, `dynamic`, `fps` (for example `/graphics?preset=epic&aa=taau&screen=67&fps=120`).
 
 Windows builds cook shaders for SM6, which Lumen, Nanite and virtual shadow maps need, and SM5 as the fallback for
 older GPUs and the engine fork. `Content/Balls/NaniteCube.uasset`, the project's only asset, is the engine cube with

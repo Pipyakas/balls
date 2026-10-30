@@ -13,7 +13,6 @@ namespace {
 constexpr int32 GroupCount = FBallsGraphicsSettings::GroupCount;
 constexpr int32 LevelCount = FBallsGraphicsSettings::LevelCount;
 constexpr int32 MinimumDynamicScreenPercentage = 50;
-constexpr float FrameBudgetMs = 1000.0f / 60.0f;
 
 const TCHAR* const PresetNames[LevelCount] = {TEXT("Low"), TEXT("Medium"), TEXT("High"), TEXT("Epic"), TEXT("Cinematic")};
 
@@ -102,7 +101,8 @@ bool FBallsGraphicsSettings::operator==(const FBallsGraphicsSettings& Other) con
     }
     return GlobalIllumination == Other.GlobalIllumination && Reflections == Other.Reflections &&
            Shadows == Other.Shadows && bNanite == Other.bNanite && AntiAliasing == Other.AntiAliasing &&
-           ScreenPercentage == Other.ScreenPercentage && bDynamicResolution == Other.bDynamicResolution;
+           ScreenPercentage == Other.ScreenPercentage && bDynamicResolution == Other.bDynamicResolution &&
+           TargetFps == Other.TargetFps;
 }
 
 namespace BallsGraphics {
@@ -129,11 +129,33 @@ FBallsGraphicsSettings Preset(int32 Level) {
     return Settings;
 }
 
+void ApplyPreset(int32 Level, FBallsGraphicsSettings& Settings) {
+    const FBallsGraphicsSettings PresetSettings = Preset(Level);
+    for (int32 Index = 0; Index < GroupCount; ++Index) {
+        Settings.Groups[Index] = PresetSettings.Groups[Index];
+    }
+    Settings.GlobalIllumination = PresetSettings.GlobalIllumination;
+    Settings.Reflections = PresetSettings.Reflections;
+    Settings.Shadows = PresetSettings.Shadows;
+    Settings.bNanite = PresetSettings.bNanite;
+    Settings.AntiAliasing = PresetSettings.AntiAliasing;
+}
+
 FString PresetName(int32 Level) { return PresetNames[FMath::Clamp(Level, 0, LevelCount - 1)]; }
 
 std::optional<int32> MatchingPreset(const FBallsGraphicsSettings& Settings) {
     for (int32 Level = 0; Level < LevelCount; ++Level) {
-        if (Settings == Preset(Level)) {
+        const FBallsGraphicsSettings P = Preset(Level);
+        bool bMatch = true;
+        for (int32 Index = 0; Index < GroupCount; ++Index) {
+            if (Settings.Groups[Index] != P.Groups[Index]) {
+                bMatch = false;
+                break;
+            }
+        }
+        if (bMatch && Settings.GlobalIllumination == P.GlobalIllumination &&
+            Settings.Reflections == P.Reflections && Settings.Shadows == P.Shadows &&
+            Settings.bNanite == P.bNanite && Settings.AntiAliasing == P.AntiAliasing) {
             return Level;
         }
     }
@@ -142,9 +164,12 @@ std::optional<int32> MatchingPreset(const FBallsGraphicsSettings& Settings) {
 
 FString Describe(const FBallsGraphicsSettings& Settings) {
     const std::optional<int32> Level = MatchingPreset(Settings);
+    const FString Dynamic = Settings.bDynamicResolution
+                                ? FString::Printf(TEXT(" dynamic, %d FPS"), Settings.TargetFps)
+                                : FString();
     return FString::Printf(TEXT("%s - %s, %d%%%s"), Level ? *PresetName(*Level) : TEXT("Custom"),
                            *AntiAliasingName(Settings.AntiAliasing), Settings.ScreenPercentage,
-                           Settings.bDynamicResolution ? TEXT(" dynamic") : TEXT(""));
+                           *Dynamic);
 }
 
 FString GroupName(EBallsScalabilityGroup Group) { return Groups[static_cast<int32>(Group)].Name; }
@@ -153,6 +178,16 @@ FString GlobalIlluminationName(EBallsGlobalIllumination Method) { return GlobalI
 FString ReflectionsName(EBallsReflections Method) { return ReflectionNames[static_cast<int32>(Method)]; }
 FString ShadowsName(EBallsShadows Method) { return ShadowNames[static_cast<int32>(Method)]; }
 TArray<int32> ScreenPercentages() { return {50, 67, 75, 85, 100}; }
+
+int32 MaximumTargetFps() {
+    FScreenResolutionArray Resolutions;
+    int32 MaxRefreshRate = 0;
+    RHIGetAvailableResolutions(Resolutions, true);
+    for (const FScreenResolutionRHI& Resolution : Resolutions) {
+        MaxRefreshRate = FMath::Max(MaxRefreshRate, static_cast<int32>(Resolution.RefreshRate));
+    }
+    return MaxRefreshRate > 0 ? MaxRefreshRate : 240;
+}
 
 FString Unavailable(EBallsAntiAliasing Method) {
     if (Method == EBallsAntiAliasing::FSR && !InstalledFsrCvar()) {
@@ -179,11 +214,12 @@ FString Serialize(const FBallsGraphicsSettings& Settings) {
     for (int32 Index = 0; Index < GroupCount; ++Index) {
         Text += FString::Printf(TEXT("sg.%s=%d;"), Groups[Index].Key, Settings.Groups[Index]);
     }
-    Text += FString::Printf(TEXT("gi=%s;reflectionmethod=%s;shadowmethod=%s;nanite=%d;aa=%s;screen=%d;dynamic=%d"),
+    Text += FString::Printf(TEXT("gi=%s;reflectionmethod=%s;shadowmethod=%s;nanite=%d;aa=%s;screen=%d;dynamic=%d;fps=%d"),
                             *Squashed(GlobalIlluminationName(Settings.GlobalIllumination)),
                             *Squashed(ReflectionsName(Settings.Reflections)), *Squashed(ShadowsName(Settings.Shadows)),
                             Settings.bNanite ? 1 : 0, *Squashed(AntiAliasingName(Settings.AntiAliasing)),
-                            Settings.ScreenPercentage, Settings.bDynamicResolution ? 1 : 0);
+                            Settings.ScreenPercentage, Settings.bDynamicResolution ? 1 : 0,
+                            FMath::Clamp(Settings.TargetFps, 1, MaximumTargetFps()));
     return Text;
 }
 
@@ -199,7 +235,7 @@ FString ParseInto(const FString& Text, FBallsGraphicsSettings& Base) {
             if (!ParseLevel(Value.TrimStartAndEnd(), Level)) {
                 return FString::Printf(TEXT("preset must be low, medium, high, epic or cinematic, not %s"), *Value);
             }
-            Base = Preset(Level);
+            ApplyPreset(Level, Base);
         }
     }
     for (const FString& Pair : Pairs) {
@@ -238,6 +274,11 @@ FString ParseInto(const FString& Text, FBallsGraphicsSettings& Base) {
             }
         } else if (Key == TEXT("dynamic")) {
             bRead = ParseFlag(Value, Base.bDynamicResolution);
+        } else if (Key == TEXT("fps")) {
+            bRead = Value.IsNumeric();
+            if (bRead) {
+                Base.TargetFps = FMath::Clamp(FCString::Atoi(*Value), 1, MaximumTargetFps());
+            }
         } else {
             return FString::Printf(TEXT("unknown graphics key %s"), *Key);
         }
@@ -275,7 +316,8 @@ TArray<TPair<FString, FString>> DebugRows(const FBallsGraphicsSettings& Settings
                                                   *FDataDrivenShaderPlatformInfo::GetName(GMaxRHIShaderPlatform).ToString(),
                                                   *FeatureLevel)},
         {TEXT("Anti-aliasing"), AntiAliasing},
-        {TEXT("Resolution"), bDynamic ? FString::Printf(TEXT("dynamic %d-%.0f%%"), MinimumDynamicScreenPercentage, Percentage)
+        {TEXT("Resolution"), bDynamic ? FString::Printf(TEXT("dynamic %d-%.0f%%, %d FPS target"), MinimumDynamicScreenPercentage,
+                                                        Percentage, Settings.TargetFps)
                                       : FString::Printf(TEXT("%.0f%%"), Percentage)},
         {TEXT("Render size"), FString::Printf(TEXT("%dx%d of %dx%d"), FMath::RoundToInt(ViewportPixels.X * Percentage / 100.0f),
                                               FMath::RoundToInt(ViewportPixels.Y * Percentage / 100.0f), ViewportPixels.X,
@@ -346,7 +388,8 @@ void ApplyToWorld(UWorld* World, const FBallsGraphicsSettings& Settings) {
     Run(FString::Printf(TEXT("r.DynamicRes.OperationMode %d"), Settings.bDynamicResolution ? 2 : 0));
     Run(FString::Printf(TEXT("r.DynamicRes.MinScreenPercentage %d"), MinimumDynamicScreenPercentage));
     Run(FString::Printf(TEXT("r.DynamicRes.MaxScreenPercentage %d"), Settings.ScreenPercentage));
-    Run(FString::Printf(TEXT("r.DynamicRes.FrameTimeBudget %.2f"), FrameBudgetMs));
+    const int32 TargetFps = FMath::Clamp(Settings.TargetFps, 1, MaximumTargetFps());
+    Run(FString::Printf(TEXT("r.DynamicRes.FrameTimeBudget %.2f"), 1000.0f / static_cast<float>(TargetFps)));
     UE_LOG(LogTemp, Display, TEXT("BallsGraphics: %s"), *Serialize(Settings));
 }
 

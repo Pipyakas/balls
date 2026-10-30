@@ -90,6 +90,22 @@ void SBallsGraphicsPage::Construct(const FArguments& InArgs) {
         }
         Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, RowGap)[SNew(SBox).HeightOverride(RowHeight)[Row]];
     };
+    auto AddRowWidget = [&Column](const FString& Label, TSharedRef<SWidget> Widget) {
+        TSharedRef<SHorizontalBox> Row = SNew(SHorizontalBox)
+            + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center)
+            [
+                SNew(SBox).WidthOverride(LabelWidth)
+                [
+                    SNew(STextBlock).Text(FText::FromString(Label)).Font(BallsStyle::Font(OptionLabelSize + 1.0f))
+                    .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Text))
+                ]
+            ]
+            + SHorizontalBox::Slot().FillWidth(1.0f)
+            [
+                Widget
+            ];
+        Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, RowGap)[SNew(SBox).HeightOverride(RowHeight)[Row]];
+    };
     // One choice per value of a settings field, selected while the field holds it.
     auto Choices = []<typename Value>(const TArray<TPair<FString, Value>>& Values, Value FBallsGraphicsSettings::*Field,
                                       TFunction<FString(Value)> Unavailable = nullptr) {
@@ -125,13 +141,34 @@ void SBallsGraphicsPage::Construct(const FArguments& InArgs) {
             }),
             StatusSize, BallsPalette::Accent, BlockGap);
 
+    AddSection(TEXT("Resolution"));
+    {
+        TArray<TPair<FString, int32>> Percentages;
+        for (const int32 Percentage : BallsGraphics::ScreenPercentages()) {
+            Percentages.Add({FString::Printf(TEXT("%d%%"), Percentage), Percentage});
+        }
+        AddRow(TEXT("Screen resolution"), Choices(Percentages, &FBallsGraphicsSettings::ScreenPercentage));
+    }
+    AddRow(TEXT("Dynamic resolution"),
+           Choices(TArray<TPair<FString, bool>>{{TEXT("Off"), false}, {TEXT("On"), true}}, &FBallsGraphicsSettings::bDynamicResolution));
+    AddRowWidget(TEXT("Target FPS"),
+                 BallsWidgets::Stepper([Owner] { return Owner->GetGraphics().TargetFps; },
+                                       [Owner](int32 Value) {
+                                           FBallsGraphicsSettings Next = Owner->GetGraphics();
+                                           Next.TargetFps = Value;
+                                           Owner->SetGraphics(Next);
+                                       },
+                                       1, BallsGraphics::MaximumTargetFps(), RowHeight));
+    Hint(TEXT("These are kept when a preset is picked; dynamic resolution lowers the resolution (down to 50%) whenever a "
+              "frame would miss the target FPS."));
+
     AddSection(TEXT("Preset"));
     {
         TArray<FChoice> Presets;
         for (int32 Level = 0; Level < FBallsGraphicsSettings::LevelCount; ++Level) {
             Presets.Add({BallsGraphics::PresetName(Level),
                          [Level](const FBallsGraphicsSettings& Settings) { return BallsGraphics::MatchingPreset(Settings) == Level; },
-                         [Level](FBallsGraphicsSettings& Settings) { Settings = BallsGraphics::Preset(Level); }});
+                         [Level](FBallsGraphicsSettings& Settings) { BallsGraphics::ApplyPreset(Level, Settings); }});
         }
         AddRow(TEXT("Overall"), MoveTemp(Presets));
     }
@@ -139,7 +176,7 @@ void SBallsGraphicsPage::Construct(const FArguments& InArgs) {
               "reflections and shadows; Epic and Cinematic turn on Lumen, Nanite and virtual shadow maps. Changing any "
               "row below makes the settings Custom."));
 
-    AddSection(TEXT("Anti-aliasing and resolution"));
+    AddSection(TEXT("Anti-aliasing"));
     AddRow(TEXT("Method"), Choices(TArray<TPair<FString, EBallsAntiAliasing>>{
                                        {TEXT("Off"), EBallsAntiAliasing::None},
                                        {TEXT("FXAA"), EBallsAntiAliasing::FXAA},
@@ -152,18 +189,8 @@ void SBallsGraphicsPage::Construct(const FArguments& InArgs) {
                                        return BallsGraphics::Unavailable(Method);
                                    })));
     {
-        TArray<TPair<FString, int32>> Percentages;
-        for (const int32 Percentage : BallsGraphics::ScreenPercentages()) {
-            Percentages.Add({FString::Printf(TEXT("%d%%"), Percentage), Percentage});
-        }
-        AddRow(TEXT("Screen resolution"), Choices(Percentages, &FBallsGraphicsSettings::ScreenPercentage));
-    }
-    AddRow(TEXT("Dynamic resolution"),
-           Choices(TArray<TPair<FString, bool>>{{TEXT("Off"), false}, {TEXT("On"), true}}, &FBallsGraphicsSettings::bDynamicResolution));
-    {
         FString Notes = TEXT("TAAU, TSR and FSR rebuild a full-resolution frame from a lower screen resolution; Off, FXAA "
-                             "and TAA stretch it. Dynamic resolution lowers the resolution, down to 50%, whenever a "
-                             "frame would miss 60 FPS.");
+                             "and TAA stretch it.");
         const FString NoFsr = BallsGraphics::Unavailable(EBallsAntiAliasing::FSR);
         if (!NoFsr.IsEmpty()) {
             Notes += TEXT(" FSR ") + NoFsr + TEXT(".");

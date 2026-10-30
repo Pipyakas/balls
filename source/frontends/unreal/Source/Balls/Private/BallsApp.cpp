@@ -126,6 +126,11 @@ FBallsGraphicsSettings SavedGraphics() {
     if (GConfig && GConfig->GetString(PreferencesSection, GraphicsKey, Saved, GGameUserSettingsIni)) {
         FBallsGraphicsSettings Settings = BallsGraphics::Preset(0);
         if (BallsGraphics::ParseInto(Saved, Settings).IsEmpty()) {
+            // Older saves had dynamic resolution off and no target FPS; give existing users the new defaults.
+            if (!Saved.Contains(TEXT("fps="))) {
+                Settings.bDynamicResolution = true;
+                Settings.TargetFps = 60;
+            }
             return Settings;
         }
     }

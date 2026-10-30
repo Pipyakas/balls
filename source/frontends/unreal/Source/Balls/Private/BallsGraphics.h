@@ -42,7 +42,8 @@ struct FBallsGraphicsSettings {
     bool bNanite = false;
     EBallsAntiAliasing AntiAliasing = EBallsAntiAliasing::None;
     int32 ScreenPercentage = 100;
-    bool bDynamicResolution = false;
+    bool bDynamicResolution = true;
+    int32 TargetFps = 60;
 
     bool operator==(const FBallsGraphicsSettings& Other) const;
 };
@@ -52,6 +53,7 @@ namespace BallsGraphics {
 // Low, Medium, High, Epic, Cinematic: the engine's scalability level for every group, plus the features that
 // level is meant to show.
 FBallsGraphicsSettings Preset(int32 Level);
+void ApplyPreset(int32 Level, FBallsGraphicsSettings& Settings);
 FString PresetName(int32 Level);
 // The preset the settings equal, if any; anything changed after picking one makes them Custom.
 std::optional<int32> MatchingPreset(const FBallsGraphicsSettings& Settings);
@@ -63,6 +65,7 @@ FString GlobalIlluminationName(EBallsGlobalIllumination Method);
 FString ReflectionsName(EBallsReflections Method);
 FString ShadowsName(EBallsShadows Method);
 TArray<int32> ScreenPercentages();
+int32 MaximumTargetFps();
 
 // Why a feature cannot run here (the shader model, a missing plugin), or empty when it can.
 FString Unavailable(EBallsAntiAliasing Method);
@@ -73,7 +76,7 @@ FString UnavailableVirtualShadows();
 // Saved per user in GameUserSettings.ini as one line of key=value pairs, which the control API also takes.
 FString Serialize(const FBallsGraphicsSettings& Settings);
 // Starts from Base and overrides what Text names: "preset=epic", group names ("shadows=2"), "gi", "reflections",
-// "shadowmethod", "nanite", "aa", "screen", "dynamic". Returns an error message for anything it cannot read.
+// "shadowmethod", "nanite", "aa", "screen", "dynamic", "fps". Returns an error message for anything it cannot read.
 FString ParseInto(const FString& Text, FBallsGraphicsSettings& Base);
 
 // The debug gadget's Graphics rows (shown with Advanced Settings open): what the renderer actually runs, read back
