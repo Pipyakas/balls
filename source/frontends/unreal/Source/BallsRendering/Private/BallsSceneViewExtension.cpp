@@ -54,9 +54,37 @@ public:
 IMPLEMENT_GLOBAL_SHADER(FBallsVS, "/Balls/BallsDraw.usf", "MainVS", SF_Vertex);
 IMPLEMENT_GLOBAL_SHADER(FBallsPS, "/Balls/BallsDraw.usf", "MainPS", SF_Pixel);
 
-FMatrix44f BoardToClipMatrix(const FBallsDrawData& Data, const FSceneView& View) {
-    const FMatrix BoardToWorld(FPlane(FVector(Data.AxisX), 0.0), FPlane(FVector(Data.AxisY), 0.0),
-                               FPlane(0.0, 0.0, 0.0, 0.0), FPlane(FVector(Data.Origin), 1.0));
+BEGIN_SHADER_PARAMETER_STRUCT(FBallsCellParameters, )
+    SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, ShadeWords)
+    SHADER_PARAMETER(FMatrix44f, BoardToClip)
+    SHADER_PARAMETER(uint32, Columns)
+    SHADER_PARAMETER(uint32, Rows)
+    SHADER_PARAMETER(uint32, TilesAcross)
+    SHADER_PARAMETER(float, OutputGamma)
+    SHADER_PARAMETER_ARRAY(FVector4f, Palette, [14])
+    RENDER_TARGET_BINDING_SLOTS()
+END_SHADER_PARAMETER_STRUCT()
+
+class FBallsCellsVS final : public FGlobalShader {
+public:
+    DECLARE_GLOBAL_SHADER(FBallsCellsVS);
+    SHADER_USE_PARAMETER_STRUCT(FBallsCellsVS, FGlobalShader);
+    using FParameters = FBallsCellParameters;
+};
+
+class FBallsCellsPS final : public FGlobalShader {
+public:
+    DECLARE_GLOBAL_SHADER(FBallsCellsPS);
+    SHADER_USE_PARAMETER_STRUCT(FBallsCellsPS, FGlobalShader);
+    using FParameters = FBallsCellParameters;
+};
+
+IMPLEMENT_GLOBAL_SHADER(FBallsCellsVS, "/Balls/BallsCells.usf", "MainVS", SF_Vertex);
+IMPLEMENT_GLOBAL_SHADER(FBallsCellsPS, "/Balls/BallsCells.usf", "MainPS", SF_Pixel);
+
+FMatrix44f BoardToClipMatrix(FVector3f Origin, FVector3f AxisX, FVector3f AxisY, const FSceneView& View) {
+    const FMatrix BoardToWorld(FPlane(FVector(AxisX), 0.0), FPlane(FVector(AxisY), 0.0), FPlane(0.0, 0.0, 0.0, 0.0),
+                               FPlane(FVector(Origin), 1.0));
     const FViewMatrices& Matrices = View.ViewMatrices;
     return FMatrix44f(BoardToWorld * Matrices.GetWorldToView() * Matrices.GetViewToClipNoAA());
 }
@@ -88,8 +116,16 @@ FScreenPassTexture FBallsSceneViewExtension::DrawBalls_RenderThread(FRDGBuilder&
         Output.LoadAction = ERenderTargetLoadAction::ELoad;
     }
 
+    const bool bMobile = View.GetFeatureLevel() <= ERHIFeatureLevel::ES3_1;
+    const bool bSrgbTarget = EnumHasAnyFlags(Output.Texture->Desc.Flags, TexCreate_SRGB);
+    const float OutputGamma = bMobile && !bSrgbTarget ? 1.0f / 2.2f : 1.0f;
+    UploadCells_RenderThread(GraphBuilder);
+    if (CellBuffer.IsValid() && bHasCells.load(std::memory_order_relaxed)) {
+        DrawCells_RenderThread(GraphBuilder, View, Output, OutputGamma);
+    }
+
     const TSharedPtr<const FBallsDrawData, ESPMode::ThreadSafe> Data = DrawData;
-    if (!Data.IsValid() || Data->Packed.IsEmpty()) {
+    if (!Data.IsValid() || Data->Packed.IsEmpty() || !bHasBalls.load(std::memory_order_relaxed)) {
         return MoveTemp(Output);
     }
 
@@ -102,15 +138,13 @@ FScreenPassTexture FBallsSceneViewExtension::DrawBalls_RenderThread(FRDGBuilder&
     FBallsDrawParameters* Parameters = GraphBuilder.AllocParameters<FBallsDrawParameters>();
     Parameters->View = View.ViewUniformBuffer;
     Parameters->PackedBalls = GraphBuilder.CreateSRV(PackedBuffer);
-    Parameters->BoardToClip = BoardToClipMatrix(*Data, View);
+    Parameters->BoardToClip = BoardToClipMatrix(Data->Origin, Data->AxisX, Data->AxisY, View);
     Parameters->UnpackScale = Data->UnpackScale;
     Parameters->Radius = Data->Radius;
-    const bool bMobile = View.GetFeatureLevel() <= ERHIFeatureLevel::ES3_1;
-    const bool bSrgbTarget = EnumHasAnyFlags(Output.Texture->Desc.Flags, TexCreate_SRGB);
     // Over a tonemapped image there is no bloom to feed, so the balls only need to read as their palette colors.
     // Desktop uses the frame's brightness, which drops to 1 when the graphics level turns bloom off.
     Parameters->Brightness = bMobile ? 1.0f : Data->Brightness;
-    Parameters->OutputGamma = bMobile && !bSrgbTarget ? 1.0f / 2.2f : 1.0f;
+    Parameters->OutputGamma = OutputGamma;
     Parameters->VertexOnly = CVarBallsVertexOnly.GetValueOnRenderThread() != 0 ? 1.0f : 0.0f;
     for (int32 Index = 0; Index < 8; ++Index) {
         Parameters->Palette[Index] = FVector4f(Data->Palette[Index]);
@@ -152,6 +186,75 @@ FScreenPassTexture FBallsSceneViewExtension::DrawBalls_RenderThread(FRDGBuilder&
     return MoveTemp(Output);
 }
 
+void FBallsSceneViewExtension::UploadCells_RenderThread(FRDGBuilder& GraphBuilder) {
+    for (const TSharedPtr<const FBallsCellImageUpdate, ESPMode::ThreadSafe>& Update : PendingCellUpdates) {
+        // The uploads read straight from the update's bytes, so keep it alive until the graph executes.
+        GraphBuilder.AllocObject<TSharedPtr<const FBallsCellImageUpdate, ESPMode::ThreadSafe>>(Update);
+        if (Update->bReplace) {
+            FRDGBufferRef Image = CreateStructuredBuffer(GraphBuilder, TEXT("Balls.CellImage"), sizeof(uint32),
+                                                         Update->TotalBytes / sizeof(uint32), Update->Bytes.GetData(),
+                                                         Update->TotalBytes, ERDGInitialDataFlags::NoCopy);
+            CellBuffer = GraphBuilder.ConvertToExternalBuffer(Image);
+            continue;
+        }
+        if (!CellBuffer.IsValid() || Update->Runs.IsEmpty()) {
+            continue;
+        }
+        FRDGBufferRef Image = GraphBuilder.RegisterExternalBuffer(CellBuffer);
+        FRDGBufferRef Changes = CreateStructuredBuffer(GraphBuilder, TEXT("Balls.CellImageChanges"), sizeof(uint32),
+                                                       Update->Bytes.Num() / sizeof(uint32), Update->Bytes.GetData(),
+                                                       Update->Bytes.Num(), ERDGInitialDataFlags::NoCopy);
+        uint64 Source = 0;
+        for (const FBallsCellImageUpdate::FRun& Run : Update->Runs) {
+            AddCopyBufferPass(GraphBuilder, Image, Run.Offset, Changes, Source, Run.Size);
+            Source += Run.Size;
+        }
+    }
+    PendingCellUpdates.Reset();
+}
+
+void FBallsSceneViewExtension::DrawCells_RenderThread(FRDGBuilder& GraphBuilder, const FSceneView& View,
+                                                      const FScreenPassRenderTarget& Output, float OutputGamma) {
+    const FBallsCellDrawData& Draw = CellDraw;
+    if (Draw.Columns <= 0 || Draw.Rows <= 0) {
+        return;
+    }
+    FBallsCellParameters* Parameters = GraphBuilder.AllocParameters<FBallsCellParameters>();
+    Parameters->ShadeWords = GraphBuilder.CreateSRV(GraphBuilder.RegisterExternalBuffer(CellBuffer));
+    Parameters->BoardToClip = BoardToClipMatrix(Draw.Origin, Draw.AxisX, Draw.AxisY, View);
+    Parameters->Columns = static_cast<uint32>(Draw.Columns);
+    Parameters->Rows = static_cast<uint32>(Draw.Rows);
+    Parameters->TilesAcross = static_cast<uint32>(Draw.TilesAcross);
+    Parameters->OutputGamma = OutputGamma;
+    for (int32 Index = 0; Index < 14; ++Index) {
+        Parameters->Palette[Index] = FVector4f(Draw.Palette[Index]);
+    }
+    Parameters->RenderTargets[0] = Output.GetRenderTargetBinding();
+
+    const FGlobalShaderMap* ShaderMap = GetGlobalShaderMap(View.GetFeatureLevel());
+    TShaderMapRef<FBallsCellsVS> VertexShader(ShaderMap);
+    TShaderMapRef<FBallsCellsPS> PixelShader(ShaderMap);
+    const FIntRect Viewport = Output.ViewRect;
+    GraphBuilder.AddPass(
+        RDG_EVENT_NAME("BallsCells %dx%d", Draw.Columns, Draw.Rows), Parameters, ERDGPassFlags::Raster,
+        [Parameters, VertexShader, PixelShader, Viewport](FRHICommandList& RHICmdList) {
+            RHICmdList.SetViewport(Viewport.Min.X, Viewport.Min.Y, 0.0f, Viewport.Max.X, Viewport.Max.Y, 1.0f);
+            FGraphicsPipelineStateInitializer Pipeline;
+            RHICmdList.ApplyCachedRenderTargets(Pipeline);
+            Pipeline.BlendState = TStaticBlendState<>::GetRHI();
+            Pipeline.RasterizerState = TStaticRasterizerState<FM_Solid, CM_None>::GetRHI();
+            Pipeline.DepthStencilState = TStaticDepthStencilState<false, CF_Always>::GetRHI();
+            Pipeline.BoundShaderState.VertexDeclarationRHI = GEmptyVertexDeclaration.VertexDeclarationRHI;
+            Pipeline.BoundShaderState.VertexShaderRHI = VertexShader.GetVertexShader();
+            Pipeline.BoundShaderState.PixelShaderRHI = PixelShader.GetPixelShader();
+            Pipeline.PrimitiveType = PT_TriangleList;
+            SetGraphicsPipelineState(RHICmdList, Pipeline, 0);
+            SetShaderParameters(RHICmdList, VertexShader, VertexShader.GetVertexShader(), *Parameters);
+            SetShaderParameters(RHICmdList, PixelShader, PixelShader.GetPixelShader(), *Parameters);
+            RHICmdList.DrawPrimitive(0, 2, 1);
+        });
+}
+
 FBallsRenderer::FBallsRenderer() : Extension(FSceneViewExtensions::NewExtension<FBallsSceneViewExtension>()) {}
 
 FBallsRenderer::~FBallsRenderer() { Clear(); }
@@ -164,6 +267,22 @@ void FBallsRenderer::Submit(FBallsDrawData&& Data) {
     ([Extension = Extension, Frame = MoveTemp(Frame)](FRHICommandListImmediate&) mutable {
         Extension->SetDrawData_RenderThread(MoveTemp(Frame));
     });
+}
+
+void FBallsRenderer::SubmitCells(FBallsCellImageUpdate&& Update, const FBallsCellDrawData& Draw) {
+    Extension->SetHasCells(true);
+    TSharedPtr<const FBallsCellImageUpdate, ESPMode::ThreadSafe> Shared =
+        MakeShared<FBallsCellImageUpdate, ESPMode::ThreadSafe>(MoveTemp(Update));
+    ENQUEUE_RENDER_COMMAND(BallsCellsSubmit)
+    ([Extension = Extension, Shared = MoveTemp(Shared), Draw](FRHICommandListImmediate&) mutable {
+        Extension->QueueCells_RenderThread(MoveTemp(Shared), Draw);
+    });
+}
+
+void FBallsRenderer::ClearCells() {
+    Extension->SetHasCells(false);
+    ENQUEUE_RENDER_COMMAND(BallsCellsClear)
+    ([Extension = Extension](FRHICommandListImmediate&) { Extension->ClearCells_RenderThread(); });
 }
 
 void FBallsRenderer::Clear() {

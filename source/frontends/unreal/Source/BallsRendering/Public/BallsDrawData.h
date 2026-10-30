@@ -17,3 +17,30 @@ struct FBallsDrawData {
     FVector3f AxisY = FVector3f::ZeroVector;
     TStaticArray<FLinearColor, 8> Palette;
 };
+
+// The tiles of the core's cell image that changed since the last update, copied out on the game thread: the board
+// snapshot they come from may be gone by the time the render thread uploads them.
+struct FBallsCellImageUpdate {
+    struct FRun {
+        uint32 Offset = 0;
+        uint32 Size = 0;
+    };
+    // Replaces the whole image (a new board): Bytes holds every tile and Runs is empty.
+    bool bReplace = false;
+    uint32 TotalBytes = 0;
+    // Otherwise the changed runs of tiles back to back, each written at its Offset in the image.
+    TArray<uint8> Bytes;
+    TArray<FRun> Runs;
+};
+
+// How to draw the cell image: board size, the board plane in the world (as FBallsDrawData) and the seven brick
+// colors followed by the same seven as they flash when hit.
+struct FBallsCellDrawData {
+    int32 Columns = 0;
+    int32 Rows = 0;
+    int32 TilesAcross = 0;
+    FVector3f Origin = FVector3f::ZeroVector;
+    FVector3f AxisX = FVector3f::ZeroVector;
+    FVector3f AxisY = FVector3f::ZeroVector;
+    TStaticArray<FLinearColor, 14> Palette;
+};

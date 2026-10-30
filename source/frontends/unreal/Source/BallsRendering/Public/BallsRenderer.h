@@ -13,6 +13,8 @@ public:
 
     void Submit(FBallsDrawData&& Data);
     void Clear();
+    void SubmitCells(FBallsCellImageUpdate&& Update, const FBallsCellDrawData& Draw);
+    void ClearCells();
 
 private:
     TSharedPtr<FBallsSceneViewExtension, ESPMode::ThreadSafe> Extension;

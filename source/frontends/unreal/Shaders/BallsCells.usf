@@ -1,0 +1,44 @@
+#include "/Engine/Private/Common.ush"
+
+// The bricks of a board too fine for one mesh instance per brick: one quad over the board, each pixel looking up the
+// cell under it in the core's tile-major cell image (BrickCellImage), as the SDL front end does.
+StructuredBuffer<uint> ShadeWords;
+float4x4 BoardToClip;
+uint Columns;
+uint Rows;
+uint TilesAcross;
+float OutputGamma;
+float4 Palette[14];
+
+static const uint TileSize = 64u;
+static const uint CellsPerTile = TileSize * TileSize;
+static const uint FlashBit = 0x80u;
+static const uint ColorCount = 7u;
+
+static const float2 QuadCorners[6] = {
+    float2(0.0, 0.0), float2(1.0, 0.0), float2(1.0, 1.0),
+    float2(0.0, 0.0), float2(1.0, 1.0), float2(0.0, 1.0),
+};
+
+void MainVS(uint VertexId : SV_VertexID, out float4 OutPosition : SV_POSITION, out float2 OutCell : TEXCOORD0)
+{
+    const float2 Board = QuadCorners[VertexId] * float2(Columns, Rows);
+    OutPosition = mul(float4(Board, 0.0, 1.0), BoardToClip);
+    OutCell = Board;
+}
+
+void MainPS(float4 SvPosition : SV_POSITION, float2 Cell : TEXCOORD0, out float4 OutColor : SV_Target0)
+{
+    const uint Column = min((uint)Cell.x, Columns - 1u);
+    const uint Row = min((uint)Cell.y, Rows - 1u);
+    const uint Tile = (Row / TileSize) * TilesAcross + Column / TileSize;
+    const uint Index = Tile * CellsPerTile + (Row % TileSize) * TileSize + Column % TileSize;
+    const uint Shade = (ShadeWords[Index >> 2u] >> ((Index & 3u) * 8u)) & 0xFFu;
+    if (Shade == 0u)
+    {
+        discard;
+    }
+    const uint Color = (Shade & ~FlashBit) - 1u;
+    const float3 Linear = Palette[(Shade & FlashBit) != 0u ? Color + ColorCount : Color].rgb;
+    OutColor = float4(OutputGamma == 1.0 ? Linear : pow(saturate(Linear), OutputGamma), 1.0);
+}

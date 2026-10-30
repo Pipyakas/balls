@@ -1,6 +1,7 @@
 #include "UI/SBallsGameplayHud.h"
 
 #include "BallsApp.h"
+#include "BallsBoardView.h"
 #include "BallsGameplay.h"
 #include "BallsPalette.h"
 #include "BallsText.h"
@@ -609,6 +610,11 @@ private:
 
     void PaintBrickLabels(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry, const BrickBoard& Board,
                           const FBallsGameplayLayout& Layout) const {
+        // The board view draws these cells from the cell image, as the SDL front end does, which has no labels: and
+        // walking millions of bricks here only to skip each one cost 60 ms a frame on a 2048x2048 board.
+        if (Layout.CellSize * Geometry.Scale < BallsBoardView::CellImageBelowPixels) {
+            return;
+        }
         for (const Brick& Piece : Board.bricks()) {
             if (!Piece.isAlive() || Piece.maxHits <= 1 || Piece.cells.empty()) {
                 continue;
