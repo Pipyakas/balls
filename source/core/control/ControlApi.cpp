@@ -259,6 +259,7 @@ std::string controlGameJson(ControlGame& game) {
         "\"physicsMs\":{:.3f},\"kernelMs\":{:.3f},\"ticks\":{},\"spawnRate\":{},\"multiplier\":{},"
         "\"ballLimit\":{},\"elapsed\":{:.2f},\"physicsFps\":{:.1f},\"physicsFrameMs\":{:.3f},"
         "\"physicsLongestFrameMs\":{:.3f},\"physicsSlowFrames\":{},"
+        "\"syncMs\":{:.3f},\"stepMs\":{:.3f},\"deviceHitsMs\":{:.3f},\"hostHitsMs\":{:.3f},\"publishMs\":{:.3f},\"targetFieldMs\":{:.3f},\"boardUploadMs\":{:.3f},"
         "\"ballsByColor\":{{{}}},\"launchers\":[{}]}}",
         gameModeName(game.gameMode()), jsonEscape(game.levelName()), levelDiskNotice(game.diskState()),
         stateNames[static_cast<int>(view->state)], game.isPaused(), backendKindName(view->backend),
@@ -268,7 +269,8 @@ std::string controlGameJson(ControlGame& game) {
         stats.lastFramePhysicsMs, view->deviceStepMs, stats.ticksLastFrame, spawnRateOptions[view->spawnRateIndex],
         ballMultiplierOptions[view->ballMultiplierIndex], view->ballLimit, view->elapsedSeconds,
         view->physicsFramesPerSecond, view->physicsFrameMs, view->physicsLongestFrameMs, view->physicsSlowFrames,
-        ballsByColor, launcherColumns);
+        stats.lastSyncMs, stats.lastStepMs, stats.lastDeviceHitsMs, stats.lastHostHitsMs, view->boardPublishMs,
+        stats.lastTargetFieldMs, stats.lastBoardUploadMs, ballsByColor, launcherColumns);
 }
 
 std::optional<ControlResponse> handleControlRequest(ControlHost& host, const ControlRequest& request) {

@@ -260,3 +260,47 @@ TEST_CASE("a cell image spanning several tiles moves only the revision of the ti
     }
     EXPECT(image.shadeAt(columns - 1, rows - 1) == (3 | BrickCellImage::flashBit));
 }
+
+namespace {
+
+bool sameForView(const BrickBoard& follower, const BrickBoard& live) {
+    bool same = follower.paddedCells() == live.paddedCells() && follower.aliveBrickIndices() == live.aliveBrickIndices() &&
+                follower.animatingBrickIndices() == live.animatingBrickIndices() &&
+                follower.cellImage().tileBytes() == live.cellImage().tileBytes() &&
+                follower.remainingHitsByColor() == live.remainingHitsByColor() &&
+                follower.aliveBrickCount() == live.aliveBrickCount() && follower.revision() == live.revision();
+    for (size_t index = 0; same && index < live.bricks().size(); ++index) {
+        const Brick& a = follower.bricks()[index];
+        const Brick& b = live.bricks()[index];
+        same = a.hitsLeft == b.hitsLeft && a.hitFlash == b.hitFlash && a.riseOffset == b.riseOffset &&
+               a.breakBurst == b.breakBurst && a.cells.size() == b.cells.size() &&
+               std::equal(a.cells.begin(), a.cells.end(), b.cells.begin(),
+                          [](const BrickCell& x, const BrickCell& y) { return x.column == y.column && x.row == y.row; });
+    }
+    return same;
+}
+
+}
+
+TEST_CASE("a snapshot that follows the live board's change log matches a full copy after hits, rises and flashes") {
+    std::mt19937 random(23u);
+    BrickBoard live;
+    live.load(randomLayout(random));
+    BrickBoard first;
+    BrickBoard second;
+    const int brickCount = static_cast<int>(live.bricks().size());
+    std::uniform_int_distribution<int> pick(0, brickCount - 1);
+    for (int round = 0; round < brickCount * 3; ++round) {
+        live.applyHit(pick(random));
+        live.settleColumns();
+        live.animate(brickHitFlashSeconds * 0.3f);
+        BrickBoard& follower = round % 3 == 0 ? second : first;
+        follower.catchUpWith(live);
+        live.trimChangeLog(std::min(first.followedPosition(), second.followedPosition()));
+        EXPECT(sameForView(follower, live));
+    }
+    first.catchUpWith(live);
+    second.catchUpWith(live);
+    EXPECT(sameForView(first, live));
+    EXPECT(sameForView(second, live));
+}

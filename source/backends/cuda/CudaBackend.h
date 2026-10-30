@@ -89,6 +89,9 @@ private:
     bool allocateFixedBallArrays(size_t ballCapacity);
     static size_t boardBytes(const BoardUpload& board);
     void releaseArray(DeviceArray& array);
+    void uploadTargets(std::span<const int32_t> targets);
+    void releaseTargets();
+    CUdeviceptr targetPointer() const;
     void carveBallArraysAfterBoard(size_t boardArrayBytes);
     bool growThroughHost(size_t wanted);
     bool reserveGrowableArrays();
@@ -135,9 +138,11 @@ private:
     bool fixedCapacity = false;
     // The capacity preallocateBalls carved; a board too big for the reserve may hold the arrays below it for a while.
     size_t preallocatedCapacity = 0;
-    DeviceArray paddedCells;
-    DeviceArray brickColors;
     DeviceArray targetCells;
+    // The target field takes seven words per cell, 2.4 GB on an 8192x8192 board: past half the free device memory it
+    // lives in pinned host memory the kernels read over the bus instead (only a retargeting bounce reads it).
+    void* hostTargetCells = nullptr;
+    size_t hostTargetBytes = 0;
     DeviceArray cellWords;
     DeviceArray brickHitsLeft;
     DeviceArray killedIndices;

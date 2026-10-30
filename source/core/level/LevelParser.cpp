@@ -3,12 +3,15 @@
 #include "level/GameplayRules.h"
 #include "level/SectionText.h"
 
+#include <algorithm>
+#include <array>
 #include <charconv>
 #include <format>
 #include <fstream>
 #include <map>
 #include <sstream>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -17,6 +20,13 @@ constexpr std::string_view boardSection = "Board";
 constexpr std::string_view layoutSection = "Layout";
 constexpr std::string_view brickTypesSection = "BrickTypes";
 constexpr std::string_view emptySlotToken = "Empty";
+// Brick ids up to this many times the number of types, plus the floor, are checked with a flag per id.
+constexpr size_t denseIdSlack = 4;
+constexpr size_t denseIdFloor = 1 << 16;
+// The simulation indexes the target field (one entry per padded cell and color) and every padded cell with 32-bit
+// integers, and the GPU packs a brick's index into 28 bits of a cell word: boards past these would overflow them.
+constexpr uint64_t mostTargetFieldEntries = 0x7FFFFFFF;
+constexpr size_t mostBricks = size_t{1} << 28;
 
 using BoardValues = std::map<std::string, int, std::less<>>;
 
@@ -35,7 +45,8 @@ Result<BoardValues> parseBoardSection(const SectionMap& sections) {
         return Error{"missing [Board] section"};
     }
     BoardValues values;
-    for (const auto& tokens : it->second) {
+    for (const std::string_view line : it->second) {
+        const std::vector<std::string_view> tokens = splitTokens(line);
         if (tokens.size() != 2) {
             return Error{"[Board] lines must be '<Key> <Value>'"};
         }
@@ -43,7 +54,7 @@ Result<BoardValues> parseBoardSection(const SectionMap& sections) {
         if (!value) {
             return Error{std::format("[Board] {}: {}", tokens[0], value.error())};
         }
-        values[tokens[0]] = *value;
+        values[std::string(tokens[0])] = *value;
     }
     return values;
 }
@@ -60,7 +71,7 @@ Result<int> requirePositive(const BoardValues& values,
     return it->second;
 }
 
-const std::vector<std::vector<std::string>>* findSection(const SectionMap& sections, std::string_view name) {
+const std::vector<std::string_view>* findSection(const SectionMap& sections, std::string_view name) {
     const auto it = sections.find(name);
     return it == sections.end() ? nullptr : &it->second;
 }
@@ -104,6 +115,11 @@ Result<BrickLayout> parseBrickLayout(std::string_view text) {
     if (layout.playableHeight < layout.height) {
         return Error{"PlayableHeight must be at least Height"};
     }
+    const uint64_t paddedCells = (static_cast<uint64_t>(layout.width) + 2) * (static_cast<uint64_t>(layout.playableHeight) + 2);
+    if (paddedCells * ballColorCount > mostTargetFieldEntries) {
+        return Error{std::format("the board is too large: {}x{} cells, at most {} cells including the open rows",
+                                 layout.width, layout.playableHeight, mostTargetFieldEntries / ballColorCount)};
+    }
 
     const auto* rows = findSection(sections, layoutSection);
     if (!rows || static_cast<int>(rows->size()) != layout.height) {
@@ -111,20 +127,26 @@ Result<BrickLayout> parseBrickLayout(std::string_view text) {
     }
     layout.cellIds.reserve(static_cast<size_t>(layout.width) * layout.height);
     for (int row = 0; row < layout.height; ++row) {
-        const auto& tokens = (*rows)[row];
-        if (static_cast<int>(tokens.size()) != layout.width) {
-            return Error{std::format("[Layout] row {} must have {} cells", row, layout.width)};
-        }
-        for (const auto& token : tokens) {
+        const size_t rowStart = layout.cellIds.size();
+        std::string badToken;
+        forEachToken((*rows)[row], [&](std::string_view token) {
             if (token == emptySlotToken || token == ".") {
                 layout.cellIds.push_back(emptyBrickId);
-                continue;
+                return true;
             }
             auto id = parseInt(token);
             if (!id) {
-                return Error{std::format("[Layout] row {}: {}", row, id.error())};
+                badToken = id.error();
+                return false;
             }
             layout.cellIds.push_back(*id < 0 ? emptyBrickId : *id);
+            return true;
+        });
+        if (!badToken.empty()) {
+            return Error{std::format("[Layout] row {}: {}", row, badToken)};
+        }
+        if (layout.cellIds.size() - rowStart != static_cast<size_t>(layout.width)) {
+            return Error{std::format("[Layout] row {} must have {} cells", row, layout.width)};
         }
     }
 
@@ -132,10 +154,20 @@ Result<BrickLayout> parseBrickLayout(std::string_view text) {
     if (!typeLines) {
         return Error{"missing [BrickTypes] section"};
     }
-    std::unordered_set<int> typeIds;
-    typeIds.reserve(typeLines->size());
-    for (const auto& tokens : *typeLines) {
-        if (tokens.size() != 3) {
+    if (typeLines->size() > mostBricks) {
+        return Error{std::format("too many bricks: {}, at most {}", typeLines->size(), mostBricks)};
+    }
+    layout.types.reserve(typeLines->size());
+    for (const std::string_view line : *typeLines) {
+        std::array<std::string_view, 3> tokens;
+        size_t count = 0;
+        forEachToken(line, [&](std::string_view token) {
+            if (count < tokens.size()) {
+                tokens[count] = token;
+            }
+            return ++count <= tokens.size();
+        });
+        if (count != tokens.size()) {
             return Error{"[BrickTypes] lines must be '<Id> <Color> <Hits>'"};
         }
         auto id = parseInt(tokens[0]);
@@ -144,10 +176,36 @@ Result<BrickLayout> parseBrickLayout(std::string_view text) {
         if (!id || !color || !hits || *hits <= 0) {
             return Error{std::format("[BrickTypes] invalid line '{} {} {}'", tokens[0], tokens[1], tokens[2])};
         }
-        if (!typeIds.insert(*id).second) {
-            return Error{std::format("[BrickTypes] duplicate id {}", *id)};
-        }
         layout.types.push_back({*id, *color, *hits});
+    }
+    // Ids are almost always 0..N-1, so a flag per id finds duplicates and unknown ids without hashing 67M of them.
+    int largestId = -1;
+    bool negativeId = false;
+    for (const BrickType& type : layout.types) {
+        largestId = std::max(largestId, type.id);
+        negativeId = negativeId || type.id < 0;
+    }
+    const bool dense = !negativeId && static_cast<size_t>(largestId) < layout.types.size() * denseIdSlack + denseIdFloor;
+    if (dense) {
+        std::vector<uint8_t> known(static_cast<size_t>(largestId) + 1, 0);
+        for (const BrickType& type : layout.types) {
+            if (std::exchange(known[static_cast<size_t>(type.id)], 1) != 0) {
+                return Error{std::format("[BrickTypes] duplicate id {}", type.id)};
+            }
+        }
+        for (int& id : layout.cellIds) {
+            if (id != emptyBrickId && (id > largestId || !known[static_cast<size_t>(id)])) {
+                id = emptyBrickId;
+            }
+        }
+        return layout;
+    }
+    std::unordered_set<int> typeIds;
+    typeIds.reserve(layout.types.size());
+    for (const BrickType& type : layout.types) {
+        if (!typeIds.insert(type.id).second) {
+            return Error{std::format("[BrickTypes] duplicate id {}", type.id)};
+        }
     }
     for (int& id : layout.cellIds) {
         if (id != emptyBrickId && !typeIds.contains(id)) {
@@ -177,7 +235,7 @@ Result<LauncherLayout> parseLauncherLayout(std::string_view text) {
         return Error{"missing [Layout] section"};
     }
     for (size_t row = 0; row < rows->size(); ++row) {
-        const auto& tokens = (*rows)[row];
+        const std::vector<std::string_view> tokens = splitTokens((*rows)[row]);
         if (static_cast<int>(tokens.size()) != layout.columns) {
             return Error{std::format("[Layout] row {} must have {} launchers", row, layout.columns)};
         }
@@ -197,9 +255,14 @@ Result<std::string> readTextFile(const std::filesystem::path& path) {
     if (!file) {
         return Error{std::format("cannot open {}", path.string())};
     }
-    std::ostringstream content;
-    content << file.rdbuf();
-    return content.str();
+    file.seekg(0, std::ios::end);
+    const std::streamoff size = file.tellg();
+    file.seekg(0, std::ios::beg);
+    std::string content(static_cast<size_t>(std::max<std::streamoff>(size, 0)), '\0');
+    if (!content.empty() && !file.read(content.data(), static_cast<std::streamsize>(content.size()))) {
+        return Error{std::format("cannot read {}", path.string())};
+    }
+    return content;
 }
 
 Result<LevelData> loadLevel(const LevelFiles& files) {

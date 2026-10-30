@@ -105,3 +105,9 @@ TEST_CASE("parser reports malformed input") {
     EXPECT(!parseLauncherLayout("[Board]\nWidth 1\nHeight 1\n[Layout]\nPink(3)\n").hasValue());
     EXPECT(!parseLauncherLayout("[Board]\nWidth 1\nHeight 1\n[Layout]\nRed(0)\n").hasValue());
 }
+
+TEST_CASE("a board too large for the simulation's 32-bit cell indexes is refused with a message") {
+    const auto layout = parseBrickLayout("[Board]\nWidth 20000\nHeight 20000\nPlayableHeight 25000\n[Layout]\n");
+    EXPECT(!layout.hasValue());
+    EXPECT(layout.error().find("too large") != std::string::npos);
+}

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "game/BoardSnapshots.h"
 #include "game/GameMode.h"
 #include "game/GameSession.h"
 #include "game/LauncherQueue.h"
@@ -70,10 +71,13 @@ struct SessionView {
     double physicsFramesPerSecond = 0.0;
     double physicsLongestFrameMs = 0.0;
     long long physicsSlowFrames = 0;
+    // How long bringing the UI's board snapshot up to date took on the physics thread.
+    double boardPublishMs = 0.0;
 };
 
 // Fills everything in a view but the balls from the session as it is now, with its board copied, or shared with the
 // previous view when it has not changed. The physics
 // thread builds its views this way; a front end that ticks the session on its game thread uses it to read the session
 // the same way, for the control API's state.
-void describeSession(const GameSession& session, SessionView& view, const SessionView* previous = nullptr);
+void describeSession(const GameSession& session, SessionView& view, const SessionView* previous = nullptr,
+                     BoardSnapshots* boards = nullptr);

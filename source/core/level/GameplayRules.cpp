@@ -36,7 +36,8 @@ Result<bool> readRule(const SectionMap& sections, RuleKey where, Number& target)
     if (section == sections.end()) {
         return false;
     }
-    for (const std::vector<std::string>& tokens : section->second) {
+    for (const std::string_view line : section->second) {
+        const std::vector<std::string_view> tokens = splitTokens(line);
         if (tokens.empty() || tokens.front() != where.key) {
             continue;
         }

@@ -64,7 +64,7 @@ std::vector<SessionEvent> SessionHost::takeEvents() { return std::exchange(event
 
 void SessionHost::refreshView() {
     auto view = std::make_shared<SessionView>();
-    describeSession(*session, *view, latest.get());
+    describeSession(*session, *view, latest.get(), &boards);
     view->physicsFrameMs = rate.lastFrameMs();
     view->physicsFramesPerSecond = rate.framesPerSecond();
     latest = std::move(view);

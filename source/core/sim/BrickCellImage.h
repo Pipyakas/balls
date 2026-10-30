@@ -17,6 +17,8 @@ public:
 
     void reset(int columnCount, int rowCount);
     void set(int column, int row, uint8_t shade);
+    // Brings this copy level with the image it was copied from: only the tiles whose revision moved.
+    void catchUpWith(const BrickCellImage& source);
     uint8_t shadeAt(int column, int row) const { return shades[indexOf(column, row)]; }
 
     static uint8_t brickShade(int colorIndex, bool flashing) {

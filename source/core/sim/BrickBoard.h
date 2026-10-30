@@ -3,6 +3,7 @@
 #include "level/LevelData.h"
 #include "sim/BrickCellImage.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <functional>
 #include <queue>
@@ -18,12 +19,87 @@ struct BrickCell {
     int row = 0;
 };
 
+// A brick's cells. Nearly every brick is one cell, which is kept inline: a std::vector per brick made an 8192x8192
+// board 67M heap allocations (most of its 55 s load), 32 more bytes a brick, and slowed every copy of the board.
+class BrickCells {
+public:
+    BrickCells() = default;
+    BrickCells(const BrickCells& other) { append(other); }
+    BrickCells(BrickCells&& other) noexcept { take(other); }
+    BrickCells& operator=(const BrickCells& other) {
+        if (this != &other) {
+            cellCount = 0;
+            append(other);
+        }
+        return *this;
+    }
+    BrickCells& operator=(BrickCells&& other) noexcept {
+        if (this != &other) {
+            delete[] spilled;
+            spilled = nullptr;
+            spilledCapacity = 0;
+            take(other);
+        }
+        return *this;
+    }
+    ~BrickCells() { delete[] spilled; }
+
+    void push_back(BrickCell cell) {
+        if (!spilled && cellCount == 0) {
+            single = cell;
+            cellCount = 1;
+            return;
+        }
+        if (!spilled || cellCount == spilledCapacity) {
+            grow(cellCount * 2 + firstSpill);
+        }
+        spilled[cellCount++] = cell;
+    }
+    size_t size() const { return cellCount; }
+    bool empty() const { return cellCount == 0; }
+    BrickCell* begin() { return spilled ? spilled : &single; }
+    BrickCell* end() { return begin() + cellCount; }
+    const BrickCell* begin() const { return spilled ? spilled : &single; }
+    const BrickCell* end() const { return begin() + cellCount; }
+    BrickCell& front() { return *begin(); }
+    const BrickCell& front() const { return *begin(); }
+    BrickCell& operator[](size_t index) { return begin()[index]; }
+    const BrickCell& operator[](size_t index) const { return begin()[index]; }
+
+private:
+    static constexpr uint32_t firstSpill = 4;
+
+    void grow(uint32_t capacity) {
+        BrickCell* larger = new BrickCell[capacity];
+        std::copy(begin(), end(), larger);
+        delete[] spilled;
+        spilled = larger;
+        spilledCapacity = capacity;
+    }
+    void append(const BrickCells& other) {
+        for (const BrickCell& cell : other) {
+            push_back(cell);
+        }
+    }
+    void take(BrickCells& other) {
+        single = other.single;
+        spilled = std::exchange(other.spilled, nullptr);
+        cellCount = std::exchange(other.cellCount, 0);
+        spilledCapacity = std::exchange(other.spilledCapacity, 0);
+    }
+
+    BrickCell single{};
+    BrickCell* spilled = nullptr;
+    uint32_t cellCount = 0;
+    uint32_t spilledCapacity = 0;
+};
+
 struct Brick {
     int sourceId = emptyBrickId;
     BallColor color = BallColor::Red;
     int maxHits = 1;
     int hitsLeft = 1;
-    std::vector<BrickCell> cells;
+    BrickCells cells;
     float riseOffset = 0.0f;
     float hitFlash = 0.0f;
     // Counts down from brickBreakBurstSeconds once the brick breaks, while its pieces fly apart.
@@ -65,6 +141,15 @@ public:
     const std::vector<int>& animatingBrickIndices() const { return animatingBricks; }
     const BrickCellImage& cellImage() const { return image; }
 
+    // Snapshots for the UI. Copying a board of millions of bricks every physics frame took 0.2 s at 2048x2048 and
+    // 2 s at 4096x4096, so the live board can log which bricks and cells change, and a copy that follows it replays
+    // only those. The log is off until a follower asks for it; trimming drops what every follower already has.
+    void catchUpWith(const BrickBoard& live);
+    void trimChangeLog(uint64_t keepFrom) const;
+    uint64_t changeLogEnd() const { return changeLogBase + changeLog.size(); }
+    uint64_t followedPosition() const { return followed; }
+    uint64_t layoutSerial() const { return image.layoutSerial(); }
+
 private:
     int freeRowsAbove(int brickIndex) const;
     bool raiseFully(int brickIndex);
@@ -75,6 +160,9 @@ private:
     uint8_t shadeOf(int brickIndex) const;
     void reshadeBrick(int brickIndex);
     void markCellChanged(int index);
+    enum class LoggedChange : uint32_t { Brick = 0, Cell = 1, Death = 2 };
+    void logChange(LoggedChange kind, int index);
+    void copyForView(const BrickBoard& live);
     void rebuildNearCounts();
     int lowestRowInColumn(int brickIndex, int column) const;
     void queueFirstBrickBelow(int column, int row);
@@ -100,4 +188,11 @@ private:
     std::vector<uint8_t> brickAnimating;
     uint64_t changeRevision = 0;
     BrickCellImage image;
+    // Entries are (kind << changeKindShift) | index, starting at absolute position changeLogBase. Mutable so that a
+    // const board can be asked to start logging or to drop what its followers have.
+    mutable std::vector<uint32_t> changeLog;
+    mutable uint64_t changeLogBase = 0;
+    mutable bool logging = false;
+    uint64_t followed = 0;
+    bool following = false;
 };

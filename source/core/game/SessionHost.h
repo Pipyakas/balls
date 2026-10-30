@@ -42,6 +42,7 @@ private:
     std::unique_ptr<GameSession> session;
     std::unique_ptr<SessionRunner> runner;
     std::shared_ptr<const SessionView> latest;
+    BoardSnapshots boards;
     std::vector<SessionEvent> events;
     // On the game thread a physics frame is a tick that stepped the session.
     PhysicsRate rate;

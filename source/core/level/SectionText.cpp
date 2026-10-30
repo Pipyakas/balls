@@ -1,19 +1,8 @@
 #include "level/SectionText.h"
 
 #include <algorithm>
-#include <sstream>
 
 namespace {
-
-std::vector<std::string> splitWhitespace(std::string_view line) {
-    std::vector<std::string> tokens;
-    std::istringstream stream{std::string(line)};
-    std::string token;
-    while (stream >> token) {
-        tokens.push_back(token);
-    }
-    return tokens;
-}
 
 std::string_view trim(std::string_view text) {
     const auto first = text.find_first_not_of(" \t\r\n");
@@ -26,9 +15,18 @@ std::string_view trim(std::string_view text) {
 
 }
 
+std::vector<std::string_view> splitTokens(std::string_view line) {
+    std::vector<std::string_view> tokens;
+    forEachToken(line, [&](std::string_view token) {
+        tokens.push_back(token);
+        return true;
+    });
+    return tokens;
+}
+
 SectionMap splitSections(std::string_view text) {
     SectionMap sections;
-    std::string current;
+    std::vector<std::string_view>* current = &sections[""];
     size_t lineStart = 0;
     while (lineStart <= text.size()) {
         const size_t lineEnd = std::min(text.find('\n', lineStart), text.size());
@@ -38,11 +36,10 @@ SectionMap splitSections(std::string_view text) {
             continue;
         }
         if (line.front() == '[' && line.back() == ']') {
-            current = std::string(trim(line.substr(1, line.size() - 2)));
-            sections[current];
+            current = &sections[std::string(trim(line.substr(1, line.size() - 2)))];
             continue;
         }
-        sections[current].push_back(splitWhitespace(line));
+        current->push_back(line);
     }
     return sections;
 }

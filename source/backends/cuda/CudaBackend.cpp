@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <thread>
 #include <utility>
 
@@ -214,14 +215,16 @@ CudaBackend::~CudaBackend() {
         balls.position = balls.state = sortedPosition = sortedState = 0;
     }
     for (CUdeviceptr pointer :
-         {balls.position, balls.state, balls.packed, paddedCells.pointer,
-          brickColors.pointer, targetCells.pointer, cellWords.pointer, brickHitsLeft.pointer, killedIndices.pointer, holes.pointer,
+         {balls.position, balls.state, balls.packed, targetCells.pointer, cellWords.pointer, brickHitsLeft.pointer, killedIndices.pointer, holes.pointer,
           counters.pointer, gridSlots.pointer, gridPacked.pointer, cellCursors.pointer, cellWordUpdates.pointer,
           brickHitUpdates.pointer, targetUpdates.pointer,
           sortedPosition, sortedState}) {
         if (pointer) {
             api.memFree(pointer);
         }
+    }
+    if (hostTargetCells) {
+        api.memFreeHost(hostTargetCells);
     }
 }
 
@@ -364,16 +367,54 @@ size_t CudaBackend::preallocateBalls() {
     return capacity;
 }
 
-// Bytes the board's own arrays take: cells (padded cells, cell words, targets, near-brick flags), bricks (colors,
-// hits left) and one tick's kill records.
+// Bytes the board's own arrays take: cells (a cell word and a target per color), bricks (hits left) and one tick's
+// kill records.
 size_t CudaBackend::boardBytes(const BoardUpload& board) {
     BallCount totalHits = 0;
     for (const int32_t hits : board.brickHitsLeft) {
         totalHits += static_cast<BallCount>(std::max(hits, 0));
     }
     const size_t killed = static_cast<size_t>(std::clamp<BallCount>(totalHits, minimumKilledCapacity, maximumKilledCapacity));
-    return board.paddedCells.size() * 4 * sizeof(int32_t) + board.brickColors.size() * 2 * sizeof(int32_t) +
+    return board.paddedCells.size() * (1 + ballColorCount) * sizeof(int32_t) + board.brickColors.size() * sizeof(int32_t) +
            killed * (killedRecordWords + 1) * sizeof(uint32_t);
+}
+
+void CudaBackend::uploadTargets(std::span<const int32_t> targets) {
+    const size_t bytes = targets.size_bytes();
+    if (hostTargetCells && hostTargetBytes >= bytes) {
+        std::memcpy(hostTargetCells, targets.data(), bytes);
+        return;
+    }
+    if (!hostTargetCells && targetCells.bytes >= bytes) {
+        upload(targetCells, targets.data(), bytes);
+        return;
+    }
+    releaseTargets();
+    size_t freeBytes = 0;
+    size_t totalBytes = 0;
+    const bool queried = driver.api().memGetInfo(&freeBytes, &totalBytes) == CUDA_SUCCESS;
+    if (!queried || bytes <= freeBytes / 2) {
+        upload(targetCells, targets.data(), bytes);
+        return;
+    }
+    if (succeeded(driver.api().memAllocHost(&hostTargetCells, bytes), "cuMemAllocHost targets")) {
+        hostTargetBytes = bytes;
+        std::memcpy(hostTargetCells, targets.data(), bytes);
+    }
+}
+
+void CudaBackend::releaseTargets() {
+    releaseArray(targetCells);
+    if (hostTargetCells) {
+        driver.api().memFreeHost(hostTargetCells);
+        hostTargetCells = nullptr;
+        hostTargetBytes = 0;
+    }
+}
+
+// Pinned host memory is mapped at the same address on the device (unified addressing on every 64-bit platform).
+CUdeviceptr CudaBackend::targetPointer() const {
+    return hostTargetCells ? reinterpret_cast<CUdeviceptr>(hostTargetCells) : targetCells.pointer;
 }
 
 void CudaBackend::releaseArray(DeviceArray& array) {
@@ -599,11 +640,9 @@ void CudaBackend::uploadBoard(const BoardUpload& board) {
                          (capacity != preallocatedCapacity || boardArrayBytes > boardBytesInReserve);
     if (recarve) {
         freeBallArrays();
-        for (DeviceArray* array : {&paddedCells, &brickColors, &cellWords}) {
-            releaseArray(*array);
-        }
+        releaseArray(cellWords);
         if (!board.targetCells.empty()) {
-            releaseArray(targetCells);
+            releaseTargets();
         }
         if (!board.brickHitsLeft.empty()) {
             for (DeviceArray* array : {&brickHitsLeft, &killedIndices, &holes}) {
@@ -617,9 +656,9 @@ void CudaBackend::uploadBoard(const BoardUpload& board) {
         applyChangedCellWords(board);
     }
     if (!board.targetCells.empty()) {
-        upload(targetCells, board.targetCells.data(), board.targetCells.size_bytes());
+        uploadTargets(board.targetCells);
     }
-    scatterUpdates(board.targetUpdates, targetCells.pointer, targetUpdates);
+    scatterUpdates(board.targetUpdates, targetPointer(), targetUpdates);
     if (!board.brickHitsLeft.empty()) {
         uploadBrickHits(board.brickHitsLeft);
     }
@@ -662,10 +701,6 @@ void CudaBackend::applyChangedCellWords(const BoardUpload& board) {
 }
 
 void CudaBackend::uploadWholeBoard(const BoardUpload& board) {
-    upload(paddedCells, board.paddedCells.data(), board.paddedCells.size_bytes());
-    std::vector<int32_t> colors(board.brickColors.begin(), board.brickColors.end());
-    colors.push_back(-1);
-    upload(brickColors, colors.data(), colors.size() * sizeof(int32_t));
     const std::vector<int32_t> words = buildCellWords(board);
     upload(cellWords, words.data(), words.size() * sizeof(int32_t));
     uploadedCellWords = words.size();
@@ -891,7 +926,7 @@ void CudaBackend::step(const StepParams& params, std::vector<BallHit>&) {
         return;
     }
     CUdeviceptr cellWordsPointer = cellWords.pointer;
-    CUdeviceptr targetCellsPointer = targetCells.pointer;
+    CUdeviceptr targetCellsPointer = targetPointer();
     int ballCountArgument = static_cast<int>(count);
     StepParams stepArgument = params;
     CUdeviceptr hitsLeftPointer = brickHitsLeft.pointer;
