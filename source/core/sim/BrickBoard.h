@@ -1,6 +1,7 @@
 #pragma once
 
 #include "level/LevelData.h"
+#include "sim/BrickCellImage.h"
 
 #include <cstdint>
 #include <functional>
@@ -62,6 +63,7 @@ public:
     bool isAnimating() const { return !animatingBricks.empty(); }
     // The bricks, alive or just broken, whose hit flash, break burst or rise is still running.
     const std::vector<int>& animatingBrickIndices() const { return animatingBricks; }
+    const BrickCellImage& cellImage() const { return image; }
 
 private:
     int freeRowsAbove(int brickIndex) const;
@@ -70,6 +72,8 @@ private:
     void markDead(int brickIndex);
     void placeBrick(int brickIndex, int32_t value);
     void setCell(int index, int32_t value);
+    uint8_t shadeOf(int brickIndex) const;
+    void reshadeBrick(int brickIndex);
     void markCellChanged(int index);
     void rebuildNearCounts();
     int lowestRowInColumn(int brickIndex, int column) const;
@@ -95,4 +99,5 @@ private:
     std::vector<int> animatingBricks;
     std::vector<uint8_t> brickAnimating;
     uint64_t changeRevision = 0;
+    BrickCellImage image;
 };

@@ -17,6 +17,7 @@ void BrickBoard::load(const BrickLayout& layout) {
     brickList.clear();
     colors.clear();
     remainingHits = {};
+    image.reset(columnCount, rowCount);
 
     std::unordered_map<int, int> brickIndexById;
     const auto typesById = layout.typesById();
@@ -36,6 +37,7 @@ void BrickBoard::load(const BrickLayout& layout) {
             }
             brickList[it->second].cells.push_back({column, row});
             cells[paddedIndex(column, row)] = it->second;
+            image.set(column, row, shadeOf(it->second));
         }
     }
     aliveCount = static_cast<int>(brickList.size());
@@ -102,11 +104,12 @@ void BrickBoard::setCell(int index, int32_t value) {
     }
     cells[static_cast<size_t>(index)] = value;
     markCellChanged(index);
+    const int width = paddedWidth();
+    image.set(index % width - 1, index / width - 1, value == emptyCell ? BrickCellImage::emptyShade : shadeOf(value));
     if ((previous == emptyCell) == (value == emptyCell)) {
         return;
     }
     const int delta = value == emptyCell ? -1 : 1;
-    const int width = paddedWidth();
     for (const int near : {index - width - 1, index - width, index - width + 1, index - 1, index, index + 1,
                            index + width - 1, index + width, index + width + 1}) {
         const int count = nearCounts[static_cast<size_t>(near)] += delta;
@@ -125,9 +128,13 @@ bool BrickBoard::applyHit(int brickIndex) {
     }
     --brick.hitsLeft;
     --remainingHits[toIndex(brick.color)];
+    const bool wasFlashing = brick.hitFlash > 0.0f;
     brick.hitFlash = brickHitFlashSeconds;
     startAnimating(brickIndex);
     if (brick.isAlive()) {
+        if (!wasFlashing) {
+            reshadeBrick(brickIndex);
+        }
         return true;
     }
     brick.breakBurst = brickBreakBurstSeconds;
@@ -154,6 +161,18 @@ std::vector<int32_t> BrickBoard::hitsLeftPerBrick() const {
         hits.push_back(brick.hitsLeft);
     }
     return hits;
+}
+
+uint8_t BrickBoard::shadeOf(int brickIndex) const {
+    return BrickCellImage::brickShade(colors[static_cast<size_t>(brickIndex)],
+                                      brickList[static_cast<size_t>(brickIndex)].hitFlash > 0.0f);
+}
+
+void BrickBoard::reshadeBrick(int brickIndex) {
+    const uint8_t shade = shadeOf(brickIndex);
+    for (const BrickCell& cell : brickList[static_cast<size_t>(brickIndex)].cells) {
+        image.set(cell.column, cell.row, shade);
+    }
 }
 
 void BrickBoard::placeBrick(int brickIndex, int32_t value) {
@@ -276,7 +295,11 @@ void BrickBoard::animate(float deltaTime) {
     for (const int index : animatingBricks) {
         Brick& brick = brickList[static_cast<size_t>(index)];
         brick.riseOffset = std::max(0.0f, brick.riseOffset - riseSpeedCellsPerSecond * deltaTime);
+        const bool wasFlashing = brick.hitFlash > 0.0f;
         brick.hitFlash = std::max(0.0f, brick.hitFlash - deltaTime);
+        if (wasFlashing && brick.hitFlash == 0.0f && brick.isAlive()) {
+            reshadeBrick(index);
+        }
         brick.breakBurst = std::max(0.0f, brick.breakBurst - deltaTime);
         if (brick.riseOffset > 0.0f || brick.hitFlash > 0.0f || brick.breakBurst > 0.0f) {
             animatingBricks[kept++] = index;

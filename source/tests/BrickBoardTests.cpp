@@ -195,3 +195,68 @@ TEST_CASE("a broken brick keeps animating for its break burst, then stops") {
     board.animate(brickBreakBurstSeconds);
     EXPECT(!board.isAnimating());
 }
+
+namespace {
+
+uint8_t expectedShade(const BrickBoard& board, int column, int row) {
+    const int brick = board.brickAt(column, row);
+    if (brick == emptyCell) {
+        return BrickCellImage::emptyShade;
+    }
+    return BrickCellImage::brickShade(board.brickColors()[static_cast<size_t>(brick)],
+                                      board.bricks()[static_cast<size_t>(brick)].hitFlash > 0.0f);
+}
+
+}
+
+TEST_CASE("the cell image follows hits, flashes and rises, and its tile revisions name every change") {
+    std::mt19937 random(11u);
+    BrickBoard board;
+    board.load(randomLayout(random));
+    const BrickCellImage& image = board.cellImage();
+    std::vector<uint8_t> mirror = image.tileBytes();
+    std::vector<uint64_t> seen = image.tileRevisions();
+    const int brickCount = static_cast<int>(board.bricks().size());
+    std::uniform_int_distribution<int> pick(0, brickCount - 1);
+    for (int round = 0; round < brickCount * 3; ++round) {
+        board.applyHit(pick(random));
+        board.settleColumns();
+        board.animate(brickHitFlashSeconds * 0.4f);
+        for (size_t tile = 0; tile < seen.size(); ++tile) {
+            if (image.tileRevisions()[tile] != seen[tile]) {
+                seen[tile] = image.tileRevisions()[tile];
+                const auto start = image.tileBytes().begin() + static_cast<std::ptrdiff_t>(tile * BrickCellImage::cellsPerTile);
+                std::copy(start, start + static_cast<std::ptrdiff_t>(BrickCellImage::cellsPerTile),
+                          mirror.begin() + static_cast<std::ptrdiff_t>(tile * BrickCellImage::cellsPerTile));
+            }
+        }
+        EXPECT(mirror == image.tileBytes());
+        for (int row = 0; row < board.rows(); ++row) {
+            for (int column = 0; column < board.columns(); ++column) {
+                EXPECT(image.shadeAt(column, row) == expectedShade(board, column, row));
+            }
+        }
+    }
+}
+
+TEST_CASE("a cell image spanning several tiles moves only the revision of the tile it changes") {
+    constexpr int columns = BrickCellImage::tileSize * 2 + 3;
+    constexpr int rows = BrickCellImage::tileSize + 5;
+    BrickCellImage image;
+    image.reset(columns, rows);
+    EXPECT(image.tilesAcross() == 3);
+    EXPECT(image.tilesDown() == 2);
+    std::vector<uint8_t> seenIndex(image.tileBytes().size(), 0);
+    for (int row = 0; row < rows; ++row) {
+        for (int column = 0; column < columns; ++column) {
+            EXPECT(++seenIndex[image.indexOf(column, row)] == 1);
+        }
+    }
+    const std::vector<uint64_t> before = image.tileRevisions();
+    image.set(columns - 1, rows - 1, BrickCellImage::brickShade(2, true));
+    const size_t changedTile = static_cast<size_t>(image.tilesAcross()) * image.tilesDown() - 1;
+    for (size_t tile = 0; tile < before.size(); ++tile) {
+        EXPECT((image.tileRevisions()[tile] != before[tile]) == (tile == changedTile));
+    }
+    EXPECT(image.shadeAt(columns - 1, rows - 1) == (3 | BrickCellImage::flashBit));
+}
