@@ -29,7 +29,6 @@ BEGIN_SHADER_PARAMETER_STRUCT(FBallsDrawParameters, )
     SHADER_PARAMETER(float, Radius)
     SHADER_PARAMETER(float, Brightness)
     // 1 when drawing into HDR scene color (pre-exposed, linear); 0 over the tonemapped image.
-    SHADER_PARAMETER(float, SceneReferred)
     // Exponent applied to the output; 1/2.2 when drawing into a non-sRGB display-referred target.
     SHADER_PARAMETER(float, OutputGamma)
     // Profiling switch: every quad goes off-screen, so the pass measures vertex work alone.
@@ -108,7 +107,6 @@ FScreenPassTexture FBallsSceneViewExtension::DrawBalls_RenderThread(FRDGBuilder&
     Parameters->Radius = Data->Radius;
     const bool bMobile = View.GetFeatureLevel() <= ERHIFeatureLevel::ES3_1;
     const bool bSrgbTarget = EnumHasAnyFlags(Output.Texture->Desc.Flags, TexCreate_SRGB);
-    Parameters->SceneReferred = bMobile ? 0.0f : 1.0f;
     // Over a tonemapped image there is no bloom to feed, so the balls only need to read as their palette colors.
     // Desktop uses the frame's brightness, which drops to 1 when the graphics level turns bloom off.
     Parameters->Brightness = bMobile ? 1.0f : Data->Brightness;
