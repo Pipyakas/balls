@@ -7,7 +7,7 @@
 // The rules every level plays by. They are read from Gameplay.txt in the levels folder, beside normal/ and
 // performance/, so they can be tuned without a rebuild; a key the file leaves out keeps the value below.
 struct GameplayRules {
-    float ballRadius = 0.2f;
+    float ballRadius = 0.25f;
     float ballSpeed = 14.0f;
     int ticksPerSecond = 120;
     int maxTicksPerFrame = 4;

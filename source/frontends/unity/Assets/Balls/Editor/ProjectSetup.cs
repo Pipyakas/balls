@@ -287,7 +287,7 @@ namespace Balls.Editor
             }
             if (shaderName == "Balls/Procedural")
             {
-                material.SetFloat("_Radius", 0.2f);
+                material.SetFloat("_Radius", 0.25f);
             }
             EditorUtility.SetDirty(material);
             return material;

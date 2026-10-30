@@ -16,7 +16,7 @@ namespace Balls.App
         [Header("Rendering")]
         [SerializeField] private Material ballMaterial;
         [SerializeField] private Material quadMaterial;
-        [SerializeField] private float ballRadius = 0.2f;
+        [SerializeField] private float ballRadius = 0.25f;
 
         [Header("Headless verification")]
         [SerializeField] private string levelName = "DA_FirstLevel";

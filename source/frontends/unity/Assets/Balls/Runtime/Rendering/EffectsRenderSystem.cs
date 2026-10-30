@@ -24,7 +24,7 @@ namespace Balls.Rendering
         private const int FragmentCount = 8;
         private const float FragmentSpeed = 2.4f;
         private const float FragmentHalfSize = 0.1f;
-        private const float BallRadius = 0.2f;
+        private const float BallRadius = 0.25f;
         private const int MaxEffects = 6000;
         private const float LaunchMarkerSize = 0.6f;
         private const float LaunchMarkerGrey = 0.44f;

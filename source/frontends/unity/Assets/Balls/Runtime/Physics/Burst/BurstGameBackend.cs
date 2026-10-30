@@ -31,7 +31,7 @@ namespace Balls.Physics.Burst
         public const float NormalModeSpawnRate = 60.0f;
         public const float TickSeconds = 1.0f / 120.0f;
         public const int MaxTicksPerFrame = 4;
-        public const float BallRadius = 0.2f;
+        public const float BallRadius = 0.25f;
         public const float BallSpeed = 14.0f;
         public const int RetargetBounceThreshold = 3;
         public const float LaunchHalfAngleDegrees = 55.0f;
