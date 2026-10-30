@@ -855,7 +855,7 @@ struct FBallsApp::FControlBridge final : ControlHost {
     }
 };
 
-TArray<FString> FBallsApp::OwnControlPaths() { return {TEXT("/cvar"), TEXT("/graphics")}; }
+TArray<FString> FBallsApp::OwnControlPaths() { return {TEXT("/cvar"), TEXT("/graphics"), TEXT("/profilegpu")}; }
 
 void FBallsApp::HandleControl(const FString& Path, const TMap<FString, FString>& Query, FString& OutBody,
                               int32& OutCode) {
@@ -892,6 +892,11 @@ std::optional<ControlResponse> FBallsApp::HandleOwnControl(const ControlRequest&
         Variable->Set(*Value, ECVF_SetByCode);
         return ControlResponse::ok(std::format("{{\"ok\":true,\"name\":\"{}\",\"value\":{}}}",
                                                jsonEscape(TCHAR_TO_UTF8(*CvarName)), Variable->GetInt()));
+    }
+    if (Path == TEXT("/profilegpu")) {
+        // Measurement hook: the engine's per-pass GPU timings of the next frame, written to the log (LogRHI).
+        GEngine->Exec(World, TEXT("ProfileGPU"));
+        return ControlResponse::ok();
     }
     if (Path == TEXT("/graphics")) {
         // Every query parameter is a graphics key (preset, sg.<group>, gi, reflectionmethod, shadowmethod, nanite,
