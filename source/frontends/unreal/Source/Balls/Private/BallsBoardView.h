@@ -6,7 +6,17 @@
 #include "CoreMinimal.h"
 #include "UObject/StrongObjectPtr.h"
 
+#include <vector>
+
 struct FBallsGraphicsSettings;
+
+namespace BallsBoardView {
+
+// Below this many pixels per cell the bricks are plain squares in the SDL front end too, and a board of them can hold
+// millions: they are drawn from the core's cell image in one pass, and no brick is large enough for a label.
+inline constexpr float CellImageBelowPixels = 4.0f;
+
+}
 
 class ACameraActor;
 class AActor;
@@ -67,6 +77,9 @@ private:
                                      TArray<FTransform>& OutTransforms);
     // Backdrop, outside field and walls depend only on the board size, not on its bricks.
     void UpdateStaticScene(const BrickBoard& Board);
+    // Boards this fine are drawn from the core's cell image in one pass instead of one instance per brick cell.
+    void ShowCellImage(bool bShow);
+    void SubmitCellImage(const BrickBoard& Board);
     void FrameCamera(const BrickBoard& Board, const FBallsGameplayLayout& Layout, FVector2D ViewportSize);
 
     UWorld* World = nullptr;
@@ -90,4 +103,8 @@ private:
     double LastBrickRebuild = 0.0;
     bool bBricksAnimating = false;
     bool bVisible = false;
+    bool bShowingCells = false;
+    // Which board the render thread's copy of the cell image holds, and each tile's revision when it was sent.
+    uint64 SentCellSerial = 0;
+    std::vector<uint64_t> SentTileRevisions;
 };

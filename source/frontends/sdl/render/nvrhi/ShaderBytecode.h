@@ -11,6 +11,8 @@ enum class ShaderProgram {
     VisibilityBid,
     VisibilityResolve,
     VisibilityCompact,
+    CellImageVertex,
+    CellImageFragment,
     ImguiVertex,
     ImguiFragment,
 };

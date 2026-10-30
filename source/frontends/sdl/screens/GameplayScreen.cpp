@@ -260,7 +260,7 @@ void GameplayScreen::drawMainSection(const GameplayLayout& layout) {
     }
     drawBoardBackground(*view->board, layout.board);
     gfx::beginClip(layout.boardRect);
-    drawBricks(*view->board, layout.board);
+    drawBricks(app.sceneRenderer(), *view->board, layout.board);
     drawLaunchPoint({view->launchX, view->launchY}, layout.board);
     app.ballRenderer().draw(view->balls, layout.board, view->ballRadius);
     drawBrickEffects(*view->board, layout.board, view->ballRadius);

@@ -30,6 +30,10 @@ ShaderBlobs blobsFor(ShaderProgram program) {
         return {visibilityResolveSpirv, visibilityResolveDxil, "computeMain"};
     case ShaderProgram::VisibilityCompact:
         return {visibilityCompactSpirv, visibilityCompactDxil, "computeMain"};
+    case ShaderProgram::CellImageVertex:
+        return {cellImageVertexSpirv, cellImageVertexDxil, "vertexMain"};
+    case ShaderProgram::CellImageFragment:
+        return {cellImageFragmentSpirv, cellImageFragmentDxil, "fragmentMain"};
     case ShaderProgram::ImguiVertex:
         return {imguiVertexSpirv, imguiVertexDxil, "vertexMain"};
     case ShaderProgram::ImguiFragment:

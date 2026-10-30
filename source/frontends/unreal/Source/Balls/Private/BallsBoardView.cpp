@@ -40,6 +40,7 @@ const TCHAR* CubePath = TEXT("/Engine/BasicShapes/Cube.Cube");
 const TCHAR* NaniteCubePath = TEXT("/Game/Balls/NaniteCube.NaniteCube");
 const TCHAR* ShapeMaterialPath = TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial");
 
+using BallsBoardView::CellImageBelowPixels;
 using BallsBoardView::CellWorldSize;
 
 UMaterialInstanceDynamic* MakeColoredMaterial(UObject* Outer, FColor Color, float Roughness) {
@@ -217,6 +218,7 @@ void FBallsBoardView::Hide() {
     if (bVisible) {
         BoardActor->SetActorHiddenInGame(true);
         BallRenderer.Clear();
+        ShowCellImage(false);
         BuiltRevision = ~0ull;
         BuiltColumns = -1;
         BuiltRows = -1;
@@ -274,6 +276,18 @@ void FBallsBoardView::Update(const BrickBoard& Board, const FBallsGameplayLayout
     }
 
     const double Now = FPlatformTime::Seconds();
+    const bool bCellImage = Layout.CellSize * DpiScale < CellImageBelowPixels;
+    ShowCellImage(bCellImage);
+    if (bCellImage) {
+        if (Board.columns() != BuiltColumns || Board.rows() != BuiltRows) {
+            UpdateStaticScene(Board);
+            BuiltColumns = Board.columns();
+            BuiltRows = Board.rows();
+        }
+        SubmitCellImage(Board);
+        FrameCamera(Board, Layout, ViewportSize);
+        return;
+    }
     const bool bLayoutChanged = Board.columns() != BuiltColumns || Board.rows() != BuiltRows ||
                                 static_cast<int32>(Board.bricks().size()) != BuiltBrickCount;
     if (bLayoutChanged) {
@@ -432,6 +446,78 @@ void FBallsBoardView::UpdateDirtyBricks(const BrickBoard& Board) {
             BrickMeshes[Color]->MarkRenderStateDirty();
         }
     }
+}
+
+void FBallsBoardView::ShowCellImage(bool bShow) {
+    if (bShow == bShowingCells) {
+        return;
+    }
+    bShowingCells = bShow;
+    for (TStrongObjectPtr<UInstancedStaticMeshComponent>& Mesh : BrickMeshes) {
+        // Millions of hidden instances would still cost memory and scene updates, so they are dropped, and rebuilt
+        // when the cells grow large enough for meshes again.
+        Mesh->ClearInstances();
+        Mesh->SetVisibility(!bShow);
+    }
+    CachedBricks.Empty();
+    BuiltBrickCount = -1;
+    BuiltRevision = ~0ull;
+    if (!bShow) {
+        BallRenderer.ClearCells();
+        SentCellSerial = 0;
+        SentTileRevisions.clear();
+    }
+}
+
+void FBallsBoardView::SubmitCellImage(const BrickBoard& Board) {
+    const BrickCellImage& Image = Board.cellImage();
+    const std::vector<uint8_t>& Bytes = Image.tileBytes();
+    const std::vector<uint64_t>& Revisions = Image.tileRevisions();
+    if (Bytes.empty()) {
+        return;
+    }
+    FBallsCellImageUpdate Update;
+    if (Image.layoutSerial() != SentCellSerial || Revisions.size() != SentTileRevisions.size()) {
+        Update.bReplace = true;
+        Update.TotalBytes = static_cast<uint32>(Bytes.size());
+        Update.Bytes.Append(Bytes.data(), static_cast<int32>(Bytes.size()));
+        SentCellSerial = Image.layoutSerial();
+        SentTileRevisions = Revisions;
+    } else {
+        // Neighbouring changed tiles go as one run: each tile is contiguous in the image.
+        size_t Tile = 0;
+        while (Tile < Revisions.size()) {
+            if (Revisions[Tile] == SentTileRevisions[Tile]) {
+                ++Tile;
+                continue;
+            }
+            const size_t First = Tile;
+            while (Tile < Revisions.size() && Revisions[Tile] != SentTileRevisions[Tile]) {
+                SentTileRevisions[Tile] = Revisions[Tile];
+                ++Tile;
+            }
+            const size_t Offset = First * BrickCellImage::cellsPerTile;
+            const size_t Size = (Tile - First) * BrickCellImage::cellsPerTile;
+            Update.Runs.Add({static_cast<uint32>(Offset), static_cast<uint32>(Size)});
+            Update.Bytes.Append(Bytes.data() + Offset, static_cast<int32>(Size));
+        }
+        if (Update.Runs.IsEmpty()) {
+            return;
+        }
+    }
+    FBallsCellDrawData Draw;
+    Draw.Columns = Image.columns();
+    Draw.Rows = Image.rows();
+    Draw.TilesAcross = Image.tilesAcross();
+    Draw.Origin = FVector3f(BoardToWorld(0.0, 0.0, 0.0));
+    Draw.AxisX = FVector3f(CellWorldSize, 0.0f, 0.0f);
+    Draw.AxisY = FVector3f(0.0f, 0.0f, -CellWorldSize);
+    for (int32 Color = 0; Color < ballColorCount; ++Color) {
+        const FColor Normal = BallsPalette::Brick(ballColorFromIndex(Color));
+        Draw.Palette[Color] = BallsPalette::Linear(Normal);
+        Draw.Palette[Color + ballColorCount] = BallsPalette::Linear(BallsPalette::Shade(Normal, theme::brickHitFlash));
+    }
+    BallRenderer.SubmitCells(MoveTemp(Update), Draw);
 }
 
 void FBallsBoardView::UpdateStaticScene(const BrickBoard& Board) {

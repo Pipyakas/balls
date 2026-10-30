@@ -18,6 +18,8 @@ SHADERS = [
     ("visibilityBid", "BallVisibility.hlsl", "computeMain", "cs_6_0", ["BID_PASS"]),
     ("visibilityResolve", "BallVisibility.hlsl", "computeMain", "cs_6_0", ["RESOLVE_PASS"]),
     ("visibilityCompact", "BallVisibility.hlsl", "computeMain", "cs_6_0", ["COMPACT_PASS"]),
+    ("cellImageVertex", "CellImage.hlsl", "vertexMain", "vs_6_0", []),
+    ("cellImageFragment", "CellImage.hlsl", "fragmentMain", "ps_6_0", []),
     ("imguiVertex", "Imgui.hlsl", "vertexMain", "vs_6_0", []),
     ("imguiFragment", "Imgui.hlsl", "fragmentMain", "ps_6_0", []),
 ]
