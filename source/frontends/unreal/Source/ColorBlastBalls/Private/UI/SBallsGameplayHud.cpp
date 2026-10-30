@@ -1317,17 +1317,18 @@ TSharedRef<SWidget> SBallsGameplayHud::MakeOverlay() {
         .Visibility_Lambda([Game, this] {
             return Game->GetView() && (App->GetScreenFlow().overlay() != FlowOverlay::None) ? EVisibility::Visible : EVisibility::Collapsed;
         })
+        .Padding(16.0f)
         [
-            SNew(SBox)
-            .WidthOverride(OverlayWidth)
+            SNew(SWidgetSwitcher)
+            .WidgetIndex_Lambda([this] { return App->GetScreenFlow().overlay() == FlowOverlay::Settings ? 1 : 0; })
+            + SWidgetSwitcher::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
             [
-                SNew(SBorder)
-                .BorderImage(BallsStyle::Panel())
-                .Padding(30.0f, 24.0f)
+                SNew(SBox)
+                .WidthOverride(OverlayWidth)
                 [
-                    SNew(SWidgetSwitcher)
-                    .WidgetIndex_Lambda([this] { return App->GetScreenFlow().overlay() == FlowOverlay::Settings ? 1 : 0; })
-                    + SWidgetSwitcher::Slot()
+                    SNew(SBorder)
+                    .BorderImage(BallsStyle::Panel())
+                    .Padding(30.0f, 24.0f)
                     [
                     SNew(SVerticalBox)
                     + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.0f, 0.0f, 0.0f, 24.0f)
@@ -1346,29 +1347,11 @@ TSharedRef<SWidget> SBallsGameplayHud::MakeOverlay() {
                         OverlayButtons
                     ]
                     ]
-                    + SWidgetSwitcher::Slot()
-                    [
-                        SNew(SVerticalBox)
-                        + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.0f, 0.0f, 0.0f, 12.0f)
-                        [
-                            SNew(STextBlock)
-                            .Text(LabelText(TEXT("Settings")))
-                            .Font(BallsStyle::Font(44.0f, true))
-                            .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Text))
-                        ]
-                        + SVerticalBox::Slot().FillHeight(1.0f)
-                        [
-                            SNew(SBox).MaxDesiredHeight(520.0f)[SNew(SBallsSettingsPanel).App(Owner).bAllowBenchmark(false)]
-                        ]
-                        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 0.0f)
-                        [
-                            SNew(SBox).HeightOverride(OverlayButtonHeight)
-                            [
-                                BallsWidgets::Button(LabelText(TEXT("Back")), [this] { App->ActivateFlow(FlowAction::Back); }, 26.0f)
-                            ]
-                        ]
-                    ]
                 ]
+            ]
+            + SWidgetSwitcher::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
+            [
+                SNew(SBallsSettingsPanel).App(Owner).bAllowBenchmark(false)
             ]
         ];
 }
