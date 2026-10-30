@@ -87,6 +87,14 @@ if /i "%VARIANT%"=="win64" (
         powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0..\..\..\scripts\FetchCudaSdk.ps1"
         if errorlevel 1 echo CUDA SDK fetch failed - building with CPU backends only.
     )
+    rem BallsCore.Build.cs stages the physics plugins only if they exist when UnrealBuildTool reads it, which is
+    rem before the .uproject pre-build step builds them, so a fresh clone would package a game without them.
+    call "%~dp0BuildCore.bat"
+    if errorlevel 1 (
+        echo The core failed to build.
+        cmd /c exit 1
+        goto :eof
+    )
 )
 
 call "%UE_ROOT%\Engine\Build\BatchFiles\RunUAT.bat" BuildCookRun ^
