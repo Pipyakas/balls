@@ -16,6 +16,10 @@ FSlateFontInfo Font(float Size, bool bBold = false);
 const FButtonStyle& Button();
 // The selected option of a choice: accent fill.
 const FButtonStyle& SelectedButton();
+// A collapsing header: no fill until hovered, then the control hover and pressed fills.
+const FButtonStyle& HeaderButton();
+// A dropdown row: no fills of its own (the row paints them).
+const FButtonStyle& DropdownButton();
 // White box meant to be tinted; Radius is nonzero only for decorative balls (UI is square).
 const FSlateBrush* RoundedBox(float Radius);
 const FSlateBrush* Panel();

@@ -9,6 +9,8 @@
 #include "Rendering/DrawElements.h"
 #include "UI/BallsStyle.h"
 #include "UI/SBallsMenus.h"
+#include "Framework/Application/SlateApplication.h"
+#include "Widgets/Input/SButton.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SWidgetSwitcher.h"
 #include "Widgets/Layout/SBox.h"
@@ -23,15 +25,17 @@ namespace {
 
 constexpr float ControlRowHeight = 44.0f;
 constexpr float ControlGap = 10.0f;
-// The Physics group under the launchers in Normal mode: a label and one 36-high row per backend.
-constexpr float PhysicsRowHeight = 36.0f;
-constexpr float PhysicsRowGap = 6.0f;
-constexpr float PhysicsLabelHeight = 28.0f;
-constexpr float PhysicsGroupPadding = 14.0f;
-float PhysicsGroupHeight() {
-    return PhysicsLabelHeight + static_cast<float>(selectableBackends().size()) * (PhysicsRowHeight + PhysicsRowGap) +
-           PhysicsGroupPadding;
-}
+// The SDL front end's control gadget: a 14 inset, Normal mode's 320-high launcher area, group labels 26 high and
+// groups 14 apart, and the 40-high Advanced Settings header.
+constexpr float GadgetInset = 14.0f;
+constexpr float LauncherAreaHeight = 320.0f;
+constexpr float GroupLabelHeight = 26.0f;
+constexpr float GroupGap = 14.0f;
+constexpr float AdvancedHeaderHeight = 40.0f;
+// SDL's button label: 0.45 of the row height, at most 26.
+constexpr float ControlLabelSize = ControlRowHeight * 0.45f;
+// The device name's share of a Devices row; its backend buttons split the rest.
+constexpr float DeviceLabelShare = 0.3f;
 constexpr float OverlayWidth = 420.0f;
 constexpr float OverlayButtonHeight = 60.0f;
 constexpr int32 MaximumOverlayButtons = 4;
@@ -227,7 +231,7 @@ FLinearColor FpsColor(double Fps) {
 class FPanelWriter {
 public:
     FPanelWriter(FSlateWindowElementList& InOut, int32 InLayer, const FGeometry& InGeometry, const FSlateRect& InArea,
-                 float InLineHeight = 34.0f)
+                 float InLineHeight = 26.0f)
         : Out(InOut), Layer(InLayer), Geometry(InGeometry), Area(InArea), Cursor(InArea.Top + Padding),
           LineHeight(InLineHeight) {}
 
@@ -242,6 +246,7 @@ public:
     void Row(const FString& Label, const FString& Value, FLinearColor ValueColor = BallsPalette::Linear(BallsPalette::Text)) {
         DrawText(Out, Layer, Geometry, Label, FVector2D(Area.Left + Padding, Cursor), BallsStyle::Font(LabelSize),
                  BallsPalette::Linear(BallsPalette::TextMuted));
+        Cursor += LabelHeight;
         // Long values (the GPU name) are cut to fit the gadget, with a "~" like the header title.
         FString Shown = Value;
         const FSlateFontInfo ValueFont = BallsStyle::Font(ValueSize);
@@ -249,16 +254,15 @@ public:
         while (Shown.Len() > 4 && BallsStyle::Measure(Shown, ValueFont).X > Room) {
             Shown = Shown.Left(Shown.Len() - 2) + TEXT("~");
         }
-        DrawText(Out, Layer, Geometry, Shown, FVector2D(Area.Left + Padding, Cursor + LabelSize + 1.0f), ValueFont,
-                 ValueColor);
-        Cursor += LabelSize + ValueSize + 8.0f;
+        DrawText(Out, Layer, Geometry, Shown, FVector2D(Area.Left + Padding, Cursor), ValueFont, ValueColor);
+        Cursor += LineHeight;
     }
 
     void ColorRow(int32 ColorIndex, const FString& Value) {
         constexpr float Swatch = 14.0f;
         const float SwatchTop = Cursor + (TextSize - Swatch) * 0.5f + 2.0f;
         DrawBox(Out, Layer, Geometry, FSlateRect(Area.Left + Padding, SwatchTop, Area.Left + Padding + Swatch, SwatchTop + Swatch),
-                BallsStyle::RoundedBox(0.0f), BallsPalette::Linear(BallsPalette::Ball(ColorIndex)));
+                BallsStyle::RoundedBox(Swatch * 0.5f), BallsPalette::Linear(BallsPalette::Ball(ColorIndex)));
         DrawText(Out, Layer, Geometry, BallsText::FromUtf8(ballColorName(ballColorFromIndex(ColorIndex))),
                  FVector2D(Area.Left + Padding + Swatch + 8.0f, Cursor), BallsStyle::Font(TextSize),
                  BallsPalette::Linear(BallsPalette::TextMuted));
@@ -268,10 +272,12 @@ public:
     }
 
 private:
+    // The SDL front end's DebugPanel sizes.
     static constexpr float TextSize = 20.0f;
-    static constexpr float LabelSize = 15.0f;
-    static constexpr float ValueSize = 18.0f;
-    static constexpr float Padding = 12.0f;
+    static constexpr float LabelSize = 16.0f;
+    static constexpr float LabelHeight = 22.0f;
+    static constexpr float ValueSize = 20.0f;
+    static constexpr float Padding = 16.0f;
 
     FSlateWindowElementList& Out;
     int32 Layer;
@@ -316,11 +322,18 @@ public:
     void OnMouseLeave(const FPointerEvent& MouseEvent) override { Mouse = FVector2D(-1.0); }
 
     FReply OnMouseButtonDown(const FGeometry& MyGeometry, const FPointerEvent& MouseEvent) override {
-        if (!Gameplay->GetView() || Gameplay->GetMode() != GameMode::Normal || MouseEvent.GetEffectingButton() != EKeys::LeftMouseButton) {
+        if (!Gameplay->GetView() || MouseEvent.GetEffectingButton() != EKeys::LeftMouseButton) {
             return FReply::Unhandled();
         }
         const FVector2D Point = MyGeometry.AbsoluteToLocal(MouseEvent.GetScreenSpacePosition());
         const FBallsGameplayLayout Layout = LayoutFor(MyGeometry);
+        if (Layout.Header.ContainsPoint(Point)) {
+            App->ActivateFlow(FlowAction::TogglePause);
+            return FReply::Handled();
+        }
+        if (Gameplay->GetMode() != GameMode::Normal) {
+            return FReply::Unhandled();
+        }
         if (Layout.bPortrait) {
             // Launchers fire on release so a drag can scroll the row first. Only one touch drives the row; a
             // second finger must not pick another launcher.
@@ -436,38 +449,52 @@ public:
     }
 
 private:
-    // "<Normal|Performance> - <level name>" (22) with the Pause button at the right edge, and the map notice in
-    // accent when the file changed on disk. The same header sits at the top of the left gadget in landscape and of
-    // the top gadget in portrait; only its height differs (56 and 44).
+    // The whole header is the Pause / Resume control, as in the SDL front end: it names the action only while hovered
+    // or pressed, so the rest of the time "<Normal|Performance> - <level name>" (22) has the full width, with the map
+    // notice in accent when the file changed on disk. The same header sits at the top of the left gadget in landscape
+    // and of the top gadget in portrait; only its height differs (56 and 44).
     void PaintHeaderTitle(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,
                           const FBallsGameplayLayout& Layout) const {
-        FString Title = BallsText::FromUtf8(App->GetScreenFlow().gameTitle());
-        const FSlateFontInfo TitleFont = BallsStyle::Font(22.0f);
-        const float TitleRoom = Layout.Header.GetSize().X - 16.0f - 96.0f - 20.0f;
-        while (Title.Len() > 4 && BallsStyle::Measure(Title, TitleFont).X > TitleRoom) {
-            Title = Title.Left(Title.Len() - 2) + TEXT("~");
+        constexpr float TitleInset = 14.0f;
+        const FSlateRect& Header = Layout.Header;
+        const bool bHovered = Header.ContainsPoint(Mouse);
+        if (bHovered) {
+            const bool bPressedNow = FSlateApplication::Get().GetPressedMouseButtons().Contains(EKeys::LeftMouseButton);
+            DrawBox(Out, Layer, Geometry, Header, BallsStyle::RoundedBox(0.0f),
+                    BallsPalette::Linear(bPressedNow ? BallsPalette::ControlPressed : BallsPalette::ControlHover));
+            DrawTextInRect(Out, Layer + 1, Geometry, App->GetScreenFlow().isPaused() ? TEXT("Resume") : TEXT("Pause"),
+                           Header, BallsStyle::Font(22.0f), BallsPalette::Linear(BallsPalette::TextStrong));
+        } else {
+            FString Title = BallsText::FromUtf8(App->GetScreenFlow().gameTitle());
+            const FString Notice = MapNoticeText();
+            const FSlateFontInfo TitleFont = BallsStyle::Font(Notice.IsEmpty() ? 22.0f : 18.0f);
+            const float TitleRoom = Header.GetSize().X - 2.0f * TitleInset;
+            while (Title.Len() > 4 && BallsStyle::Measure(Title, TitleFont).X > TitleRoom) {
+                Title = Title.Left(Title.Len() - 2) + TEXT("~");
+            }
+            const float LineHeight = static_cast<float>(BallsStyle::Measure(TEXT("M"), TitleFont).Y);
+            DrawText(Out, Layer, Geometry, Title,
+                     FVector2D(Header.Left + TitleInset,
+                               Notice.IsEmpty() ? Header.GetCenter().Y - LineHeight * 0.5f : Header.Top + 4.0f),
+                     TitleFont, BallsPalette::Linear(BallsPalette::Text));
+            if (!Notice.IsEmpty()) {
+                DrawText(Out, Layer, Geometry, Notice, FVector2D(Header.Left + TitleInset, Header.GetCenter().Y + 2.0f),
+                         BallsStyle::Font(15.0f), BallsPalette::Linear(BallsPalette::Accent));
+            }
         }
-        const FString Notice = MapNoticeText();
-        DrawText(Out, Layer, Geometry, Title,
-                 FVector2D(Layout.Header.Left + 16.0f,
-                           Notice.IsEmpty() ? Layout.Header.GetCenter().Y - 13.0f : Layout.Header.Top + 4.0f),
-                 TitleFont, BallsPalette::Linear(BallsPalette::Text));
-        if (!Notice.IsEmpty()) {
-            DrawText(Out, Layer, Geometry, Notice, FVector2D(Layout.Header.Left + 16.0f, Layout.Header.Top + 31.0f),
-                     BallsStyle::Font(15.0f), BallsPalette::Linear(BallsPalette::Accent));
-        }
-        DrawBox(Out, Layer, Geometry,
-                FSlateRect(Layout.Header.Left, Layout.Header.Bottom - 1.0f, Layout.Header.Right, Layout.Header.Bottom),
+        DrawBox(Out, Layer, Geometry, FSlateRect(Header.Left, Header.Bottom - 1.0f, Header.Right, Header.Bottom),
                 BallsStyle::RoundedBox(0.0f), BallsPalette::Linear(BallsPalette::Border));
     }
 
-    // Landscape Normal mode keeps the bottom of the gadget for the Physics group.
+    // Landscape Normal mode: the launchers fill a fixed area at the top of the gadget, with Advanced Settings under
+    // it, as in the SDL front end.
     FSlateRect LauncherArea(const FBallsGameplayLayout& Layout) const {
-        FSlateRect Area = Shrink(Layout.InteractionSection, 12.0f);
-        if (!Layout.bPortrait) {
-            Area.Bottom = FMath::Max(Area.Top + 1.0f, Area.Bottom - PhysicsGroupHeight());
+        if (Layout.bPortrait) {
+            return Shrink(Layout.InteractionSection, 12.0f);
         }
-        return Area;
+        const FSlateRect Inner = Shrink(Layout.InteractionSection, GadgetInset);
+        return Shrink(FSlateRect(Inner.Left, Inner.Top, Inner.Right, FMath::Min(Inner.Bottom, Inner.Top + LauncherAreaHeight)),
+                      12.0f);
     }
 
     FString MapNoticeText() const { return BallsText::FromUtf8(App->GetScreenFlow().diskNotice()); }
@@ -758,14 +785,15 @@ private:
         FPanelWriter Writer(Out, Layer, Geometry, Area);
         const FrameTimings& Frames = App->GetFrameTimings();
         DebugGadgetOptions Options;
-        Options.showBackend = true;
+        Options.showBackend = App->GetSettings().advancedSettings;
         Options.renderer = TCHAR_TO_UTF8(*FString::Printf(TEXT("Unreal / %s / %s"),
                                                           GDynamicRHI ? GDynamicRHI->GetName() : TEXT("RHI"),
                                                           *GRHIAdapterName));
         const FrameSample& Sample = Frames.average();
         Options.portRows = {
             {"Work FPS", TCHAR_TO_UTF8(*FString::Printf(TEXT("%.0f"), Frames.workFramesPerSecond()))},
-            {"Min work FPS (1s)", TCHAR_TO_UTF8(*FString::Printf(TEXT("%.0f"), Frames.worstWorkFpsLastSecond()))},
+            {"Min work FPS", TCHAR_TO_UTF8(*FString::Printf(TEXT("%.0f"), Frames.worstWorkFpsLastSecond()))},
+            {"Shown FPS", TCHAR_TO_UTF8(*FString::Printf(TEXT("%.0f"), Frames.shownFramesPerSecond()))},
             {"CPU", TCHAR_TO_UTF8(*FString::Printf(TEXT("%.2f ms"), Sample.cpuMs))},
             {"Present", TCHAR_TO_UTF8(*FString::Printf(TEXT("%.2f ms"), Sample.presentMs))}};
         const std::vector<DebugRow> Rows = debugGadgetRows(Session, Frames, Options);
@@ -874,34 +902,22 @@ void SBallsGameplayHud::Construct(const FArguments& InArgs) {
                            : EVisibility::Collapsed;
             })
             + SCanvas::Slot()
-            .Position_Lambda([this] {
-                const FSlateRect Header = CurrentLayout().Header;
-                return FVector2D(Header.Right - 108.0f, Header.GetCenter().Y - 20.0f);
-            })
-            .Size(FVector2D(96.0f, 40.0f))
-            [
-                BallsWidgets::Button(TAttribute<FText>::CreateLambda([this] {
-                                         return LabelText(App->GetScreenFlow().isPaused() ? TEXT("Resume") : TEXT("Pause"));
-                                     }),
-                                     [this] { App->ActivateFlow(FlowAction::TogglePause); }, 20.0f)
-            ]
-            + SCanvas::Slot()
-            .Position_Lambda([this] { return Shrink(CurrentLayout().InteractionSection, 14.0f).GetTopLeft(); })
-            .Size_Lambda([this] { return Shrink(CurrentLayout().InteractionSection, 14.0f).GetSize(); })
+            .Position_Lambda([this] { return Shrink(CurrentLayout().InteractionSection, GadgetInset).GetTopLeft(); })
+            .Size_Lambda([this] { return Shrink(CurrentLayout().InteractionSection, GadgetInset).GetSize(); })
             [
                 Gameplay->GetMode() == GameMode::Performance ? MakePerformanceControls() : SNullWidget::NullWidget
             ]
             + SCanvas::Slot()
             .Position_Lambda([this] {
-                const FSlateRect Area = CurrentLayout().InteractionSection;
-                return FVector2D(Area.Left + PhysicsGroupPadding, Area.Bottom - PhysicsGroupHeight());
+                const FSlateRect Inner = Shrink(CurrentLayout().InteractionSection, GadgetInset);
+                return FVector2D(Inner.Left, Inner.Top + LauncherAreaHeight + GroupGap);
             })
             .Size_Lambda([this] {
-                const FSlateRect Area = CurrentLayout().InteractionSection;
-                return FVector2D(Area.GetSize().X - 2.0f * PhysicsGroupPadding, PhysicsGroupHeight() - PhysicsGroupPadding);
+                const FSlateRect Inner = Shrink(CurrentLayout().InteractionSection, GadgetInset);
+                return FVector2D(Inner.GetSize().X, FMath::Max(0.0f, Inner.GetSize().Y - LauncherAreaHeight - GroupGap));
             })
             [
-                MakeNormalPhysicsGroup()
+                MakeNormalAdvancedSettings()
             ]
         ]
         + SOverlay::Slot()
@@ -921,64 +937,256 @@ void SBallsGameplayHud::Construct(const FArguments& InArgs) {
     ];
 }
 
-// Normal mode: under the launchers, the same backend list as Performance mode. It starts on the Settings default
-// and switches this game only.
-TSharedRef<SWidget> SBallsGameplayHud::MakeNormalPhysicsGroup() {
+// Normal mode: under the launchers, the collapsible Advanced Settings section (landscape only; portrait keeps the
+// compact launcher row and Performance mode has it in its own column).
+TSharedRef<SWidget> SBallsGameplayHud::MakeNormalAdvancedSettings() {
     TSharedPtr<FBallsGameplay> Game = Gameplay;
-    TSharedRef<SVerticalBox> Column = SNew(SVerticalBox);
-    Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 4.0f)
-    [
-        SNew(STextBlock)
-        .Text(LabelText(TEXT("Physics")))
-        .Font(BallsStyle::Font(20.0f))
-        .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
-    ];
-    auto NormalBackendRows = [Game]() {
-        if (const SessionView* V = Game->GetView()) {
-            return gameplayBackendRows(*V);
-        }
-        return std::vector<BackendRow>{};
-    };
-    // The rows the core offers: Scalar only when nothing faster loads, and no CUDA+AVX2 (Hybrid covers it).
-    for (const BackendKind Kind : selectableBackends()) {
-        Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, PhysicsRowGap)
-        [
-            SNew(SBox).HeightOverride(PhysicsRowHeight)
-            [
-                BallsWidgets::Button(
-                    TAttribute<FText>::CreateLambda([NormalBackendRows, Kind] {
-                        for (const BackendRow& Row : NormalBackendRows()) {
-                            if (Row.kind == Kind) {
-                                return LabelText(BallsText::FromUtf8(Row.option.label));
-                            }
-                        }
-                        return LabelText(BallsText::FromUtf8(backendKindName(Kind)));
-                    }),
-                    [Game, Kind] { Game->SwitchBackend(Kind); }, 18.0f,
-                    TAttribute<bool>::CreateLambda([NormalBackendRows, Kind] {
-                        for (const BackendRow& Row : NormalBackendRows()) {
-                            if (Row.kind == Kind) {
-                                return Row.option.enabled;
-                            }
-                        }
-                        return isBackendAvailable(Kind);
-                    }),
-                    TAttribute<bool>::CreateLambda([NormalBackendRows, Kind] {
-                        for (const BackendRow& Row : NormalBackendRows()) {
-                            if (Row.kind == Kind) {
-                                return Row.option.selected;
-                            }
-                        }
-                        return false;
-                    }))
-            ]
-        ];
-    }
-    // Landscape Normal mode only; portrait keeps the compact launcher row and Performance has its own column.
     return SNew(SBox).Visibility_Lambda([this, Game] {
         return Game->GetMode() == GameMode::Normal && !CurrentLayout().bPortrait ? EVisibility::SelfHitTestInvisible
                                                                                   : EVisibility::Collapsed;
-    })[Column];
+    })[SNew(SScrollBox) + SScrollBox::Slot()[MakeAdvancedSettings(false)]];
+}
+
+// The SDL front end's Advanced Settings: a 40-high header with a chevron, closed by default and remembered in the
+// settings, over the game's Physics list, Ball collisions and the Hybrid device picks. Performance mode orders them
+// Physics, Devices, then the port's own rows (Unreal's Graphics quality), with Ball collisions last; Normal mode
+// Physics, Ball collisions, Devices.
+TSharedRef<SWidget> SBallsGameplayHud::MakeAdvancedSettings(bool bPerformance) {
+    TSharedPtr<FBallsGameplay> Game = Gameplay;
+    FBallsApp* Owner = App;
+    auto IsOpen = [Owner] { return Owner->GetSettings().advancedSettings; };
+    auto ShownBackend = [Game]() {
+        const SessionView* View = Game->GetView();
+        return View ? View->pendingBackend.value_or(View->backend) : BackendKind::Scalar;
+    };
+
+    TSharedRef<SVerticalBox> Section = SNew(SVerticalBox);
+    TSharedPtr<SButton> HeaderButton;
+    // Filled in once the button exists; the chevron and label read it to turn accent while hovered.
+    TSharedRef<TWeakPtr<SButton>> WeakHeader = MakeShared<TWeakPtr<SButton>>();
+    auto HeaderColor = [WeakHeader] {
+        const TSharedPtr<SButton> Button = WeakHeader->Pin();
+        return BallsPalette::Linear(Button && Button->IsHovered() ? BallsPalette::Accent : BallsPalette::Text);
+    };
+    Section->AddSlot().AutoHeight()
+    [
+        SNew(SBorder)
+        .BorderImage(BallsStyle::White())
+        .BorderBackgroundColor(BallsPalette::Linear(BallsPalette::Border))
+        .Padding(FMargin(0.0f, 1.0f, 0.0f, 0.0f))
+        [
+            SNew(SBox).HeightOverride(AdvancedHeaderHeight - 1.0f)
+            [
+                SAssignNew(HeaderButton, SButton)
+                .ButtonStyle(&BallsStyle::HeaderButton())
+                .ContentPadding(FMargin(4.0f, 0.0f))
+                .VAlign(VAlign_Center)
+                .OnClicked_Lambda([Owner] {
+                    Settings Next = Owner->GetSettings();
+                    Next.advancedSettings = !Next.advancedSettings;
+                    Owner->UpdateSettings(Next);
+                    return FReply::Handled();
+                })
+                [
+                    SNew(SHorizontalBox)
+                    + SHorizontalBox::Slot().AutoWidth().VAlign(VAlign_Center).Padding(0.0f, 0.0f, 10.0f, 0.0f)
+                    [
+                        BallsWidgets::Chevron(TAttribute<BallsWidgets::EChevron>::CreateLambda([IsOpen] {
+                                                  return IsOpen() ? BallsWidgets::EChevron::Down : BallsWidgets::EChevron::Right;
+                                              }),
+                                              TAttribute<FLinearColor>::CreateLambda(HeaderColor))
+                    ]
+                    + SHorizontalBox::Slot().FillWidth(1.0f).VAlign(VAlign_Center)
+                    [
+                        SNew(STextBlock)
+                        .Text(LabelText(BallsText::FromUtf8(menuText::advancedSettingsLabel)))
+                        .Font(BallsStyle::Font(20.0f))
+                        .ColorAndOpacity_Lambda([HeaderColor] { return FSlateColor(HeaderColor()); })
+                    ]
+                ]
+            ]
+        ]
+    ];
+
+    *WeakHeader = HeaderButton;
+    TSharedRef<SVerticalBox> Content = SNew(SVerticalBox);
+    Content->SetVisibility(TAttribute<EVisibility>::CreateLambda(
+        [IsOpen] { return IsOpen() ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed; }));
+    Section->AddSlot().AutoHeight().Padding(0.0f, GroupGap, 0.0f, 0.0f)[Content];
+
+    // A group: its muted 20 label, 26 high, then the rows ControlGap apart, then GroupGap to the next group.
+    auto AddGroup = [&Content](const FString& Label, TAttribute<EVisibility> Visibility = EVisibility::SelfHitTestInvisible) {
+        TSharedRef<SVerticalBox> Rows = SNew(SVerticalBox);
+        Content->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, GroupGap)
+        [
+            SNew(SVerticalBox)
+            .Visibility(Visibility)
+            + SVerticalBox::Slot().AutoHeight()
+            [
+                SNew(SBox).HeightOverride(GroupLabelHeight).VAlign(VAlign_Top)
+                [
+                    SNew(STextBlock)
+                    .Text(LabelText(Label))
+                    .Font(BallsStyle::Font(20.0f))
+                    .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
+                ]
+            ]
+            + SVerticalBox::Slot().AutoHeight()[Rows]
+        ];
+        return Rows;
+    };
+    auto AddRow = [](const TSharedRef<SVerticalBox>& Rows, TSharedRef<SWidget> Widget) {
+        Rows->AddSlot().AutoHeight().Padding(0.0f, Rows->NumSlots() == 0 ? 0.0f : ControlGap, 0.0f, 0.0f)
+        [
+            SNew(SBox).HeightOverride(ControlRowHeight)[Widget]
+        ];
+    };
+
+    auto AddPhysics = [&] {
+        const TSharedRef<SVerticalBox> Rows = AddGroup(BallsText::FromUtf8(menuText::physicsHeading));
+        auto RowsNow = [Game]() {
+            const SessionView* View = Game->GetView();
+            return View ? gameplayBackendRows(*View) : std::vector<BackendRow>{};
+        };
+        // The rows the core offers: Scalar only when nothing faster loads, and no CUDA+AVX2 (Hybrid covers it).
+        for (const BackendKind Kind : selectableBackends()) {
+            auto Find = [RowsNow, Kind]() -> std::optional<UiOption> {
+                for (const BackendRow& Row : RowsNow()) {
+                    if (Row.kind == Kind) {
+                        return Row.option;
+                    }
+                }
+                return std::nullopt;
+            };
+            AddRow(Rows, BallsWidgets::Button(
+                             TAttribute<FText>::CreateLambda([Find, Kind] {
+                                 const std::optional<UiOption> Option = Find();
+                                 return LabelText(BallsText::FromUtf8(Option ? Option->label : std::string(backendKindName(Kind))));
+                             }),
+                             [Game, Kind] { Game->SwitchBackend(Kind); }, ControlLabelSize,
+                             TAttribute<bool>::CreateLambda([Find, Kind] {
+                                 const std::optional<UiOption> Option = Find();
+                                 return Option ? Option->enabled : isBackendAvailable(Kind);
+                             }),
+                             TAttribute<bool>::CreateLambda([Find] {
+                                 const std::optional<UiOption> Option = Find();
+                                 return Option && Option->selected;
+                             })));
+        }
+    };
+
+    auto AddCollisions = [&] {
+        const TSharedRef<SVerticalBox> Rows = AddGroup(BallsText::FromUtf8(menuText::ballCollisionsLabel));
+        auto Choice = [Owner]() { return ballCollisionsChoice(Owner->GetSettings().ballCollisions); };
+        auto SetCollisions = [Owner](bool bOn) {
+            Settings Next = Owner->GetSettings();
+            Next.ballCollisions = bOn;
+            Owner->UpdateSettings(Next);
+        };
+        AddRow(Rows, SNew(SHorizontalBox)
+                         + SHorizontalBox::Slot().FillWidth(1.0f).Padding(0.0f, 0.0f, ControlGap * 0.5f, 0.0f)
+                         [
+                             BallsWidgets::Button(LabelText(TEXT("Off")), [SetCollisions] { SetCollisions(false); },
+                                                  ControlLabelSize, true,
+                                                  TAttribute<bool>::CreateLambda([Choice] { return Choice().options[0].selected; }))
+                         ]
+                         + SHorizontalBox::Slot().FillWidth(1.0f).Padding(ControlGap * 0.5f, 0.0f, 0.0f, 0.0f)
+                         [
+                             BallsWidgets::Button(LabelText(TEXT("On")), [SetCollisions] { SetCollisions(true); },
+                                                  ControlLabelSize,
+                                                  TAttribute<bool>::CreateLambda([Choice] { return Choice().options[1].enabled; }),
+                                                  TAttribute<bool>::CreateLambda([Choice] { return Choice().options[1].selected; }))
+                         ]);
+        Rows->AddSlot().AutoHeight().Padding(0.0f, ControlGap, 0.0f, 0.0f)
+        [
+            SNew(STextBlock)
+            .Text_Lambda([Choice] { return LabelText(BallsText::FromUtf8(Choice().hint)); })
+            .Font(BallsStyle::Font(15.0f))
+            .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
+            .AutoWrapText(true)
+        ];
+    };
+
+    // Changing a device's backend switches this game to the kind the picks make (Hybrid, or one backend).
+    auto AddDevices = [&] {
+        const TSharedRef<SVerticalBox> Rows =
+            AddGroup(BallsText::FromUtf8(menuText::devicesLabel), TAttribute<EVisibility>::CreateLambda([ShownBackend] {
+                         return showsDevicePicks(ShownBackend()) ? EVisibility::SelfHitTestInvisible : EVisibility::Collapsed;
+                     }));
+        auto DeviceRowsNow = [ShownBackend]() { return devicePickRows(displayedPicks(ShownBackend())); };
+        const std::vector<DevicePickRow> Initial = DeviceRowsNow();
+        for (size_t DeviceIndex = 0; DeviceIndex < Initial.size(); ++DeviceIndex) {
+            auto OptionAt = [DeviceRowsNow, DeviceIndex](size_t OptionIndex) -> std::optional<UiOption> {
+                const std::vector<DevicePickRow> Now = DeviceRowsNow();
+                if (DeviceIndex >= Now.size() || OptionIndex >= Now[DeviceIndex].options.size()) {
+                    return std::nullopt;
+                }
+                return Now[DeviceIndex].options[OptionIndex];
+            };
+            TSharedRef<SHorizontalBox> Row = SNew(SHorizontalBox);
+            Row->AddSlot().FillWidth(DeviceLabelShare).VAlign(VAlign_Center).Padding(0.0f, 0.0f, ControlGap, 0.0f)
+            [
+                SNew(STextBlock)
+                .Text_Lambda([DeviceRowsNow, DeviceIndex] {
+                    const std::vector<DevicePickRow> Now = DeviceRowsNow();
+                    return DeviceIndex < Now.size() ? LabelText(BallsText::FromUtf8(Now[DeviceIndex].label)) : FText::GetEmpty();
+                })
+                .Font(BallsStyle::Font(18.0f))
+                .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Text))
+            ];
+            const size_t OptionCount = Initial[DeviceIndex].options.size();
+            for (size_t OptionIndex = 0; OptionIndex < OptionCount; ++OptionIndex) {
+                Row->AddSlot().FillWidth((1.0f - DeviceLabelShare) / static_cast<float>(OptionCount))
+                    .Padding(OptionIndex == 0 ? 0.0f : ControlGap * 0.5f, 0.0f, 0.0f, 0.0f)
+                [
+                    BallsWidgets::Button(
+                        TAttribute<FText>::CreateLambda([OptionAt, OptionIndex] {
+                            const std::optional<UiOption> Option = OptionAt(OptionIndex);
+                            return Option ? LabelText(BallsText::FromUtf8(Option->label)) : FText::GetEmpty();
+                        }),
+                        [Game, ShownBackend, DeviceRowsNow, DeviceIndex, OptionIndex] {
+                            const std::optional<std::vector<BackendPick>> Next =
+                                pickDeviceOption(displayedPicks(ShownBackend()), DeviceRowsNow(), DeviceIndex, OptionIndex);
+                            if (!Next) {
+                                return;
+                            }
+                            setBackendPicks(*Next);
+                            refreshBackendStatuses();
+                            Game->SwitchBackend(kindForPicks(*Next));
+                        },
+                        18.0f,
+                        TAttribute<bool>::CreateLambda([OptionAt, OptionIndex] {
+                            const std::optional<UiOption> Option = OptionAt(OptionIndex);
+                            return Option && Option->enabled;
+                        }),
+                        TAttribute<bool>::CreateLambda([OptionAt, OptionIndex] {
+                            const std::optional<UiOption> Option = OptionAt(OptionIndex);
+                            return Option && Option->selected;
+                        }))
+                ];
+            }
+            AddRow(Rows, Row);
+        }
+    };
+
+    AddPhysics();
+    if (bPerformance) {
+        AddDevices();
+        // The Unreal port's own lever, where SDL lists its render and compute GPUs: the post chain (bloom, TAA,
+        // auto-exposure, screen percentage) is what keeps this front end off the SDL frame time.
+        const TSharedRef<SVerticalBox> Rows = AddGroup(TEXT("Graphics"));
+        for (const EBallsGraphics Level : BallsGraphics::All()) {
+            AddRow(Rows, BallsWidgets::Button(
+                             LabelText(BallsGraphics::Name(Level)), [Owner, Level] { Owner->SetGraphicsQuality(Level); },
+                             ControlLabelSize, true,
+                             TAttribute<bool>::CreateLambda([Owner, Level] { return Owner->GetGraphicsQuality() == Level; })));
+        }
+        AddCollisions();
+    } else {
+        AddCollisions();
+        AddDevices();
+    }
+    return Section;
 }
 
 TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
@@ -989,16 +1197,19 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
     // One vertical column that scrolls; rows are ControlRowHeight high and ControlGap apart.
     TSharedRef<SVerticalBox> Column = SNew(SVerticalBox);
     auto AddLabel = [&Column](const TCHAR* Label) {
-        Column->AddSlot().AutoHeight().Padding(0.0f, ControlGap, 0.0f, 4.0f)
+        Column->AddSlot().AutoHeight()
         [
-            SNew(STextBlock)
-            .Text(FText::FromString(Label))
-            .Font(BallsStyle::Font(20.0f))
-            .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
+            SNew(SBox).HeightOverride(GroupLabelHeight).VAlign(VAlign_Top)
+            [
+                SNew(STextBlock)
+                .Text(FText::FromString(Label))
+                .Font(BallsStyle::Font(20.0f))
+                .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
+            ]
         ];
     };
     auto AddRow = [&Column](TSharedRef<SWidget> Content, bool bSized = true) {
-        Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap * 0.6f)
+        Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, GroupGap)
         [
             bSized ? StaticCastSharedRef<SWidget>(SNew(SBox).HeightOverride(ControlRowHeight)[Content]) : Content
         ];
@@ -1013,8 +1224,7 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
             }
             return LabelText(BallsText::FromUtf8(releaseButton(*Current).label));
         }),
-        // The full design label is the longest string in the gadget; 16 keeps it inside the 310-wide panel.
-        [Game] { Game->StartAutoRelease(); }, 16.0f,
+        [Game] { Game->StartAutoRelease(); }, ControlLabelSize,
         TAttribute<bool>::CreateLambda([Session] {
             const SessionView* Current = Session();
             return Current && releaseButton(*Current).enabled;
@@ -1063,80 +1273,7 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
                    }
                }),
            false);
-    AddLabel(TEXT("Physics"));
-    auto BackendRowsNow = [Session]() {
-        if (const SessionView* Current = Session()) {
-            return gameplayBackendRows(*Current);
-        }
-        return std::vector<BackendRow>{};
-    };
-    // The rows the core offers: Scalar only when nothing faster loads, and no CUDA+AVX2 (Hybrid covers it).
-    for (const BackendKind Kind : selectableBackends()) {
-        AddRow(BallsWidgets::Button(
-            TAttribute<FText>::CreateLambda([BackendRowsNow, Kind] {
-                const std::vector<BackendRow> Rows = BackendRowsNow();
-                for (const BackendRow& Row : Rows) {
-                    if (Row.kind == Kind) {
-                        return LabelText(BallsText::FromUtf8(Row.option.label));
-                    }
-                }
-                return LabelText(BallsText::FromUtf8(backendKindName(Kind)));
-            }),
-            [Game, Kind] { Game->SwitchBackend(Kind); }, 18.0f,
-            TAttribute<bool>::CreateLambda([BackendRowsNow, Kind] {
-                const std::vector<BackendRow> Rows = BackendRowsNow();
-                for (const BackendRow& Row : Rows) {
-                    if (Row.kind == Kind) {
-                        return Row.option.enabled;
-                    }
-                }
-                return isBackendAvailable(Kind);
-            }),
-            TAttribute<bool>::CreateLambda([BackendRowsNow, Kind] {
-                const std::vector<BackendRow> Rows = BackendRowsNow();
-                for (const BackendRow& Row : Rows) {
-                    if (Row.kind == Kind) {
-                        return Row.option.selected;
-                    }
-                }
-                return false;
-            })));
-        // Unavailable reason as the muted detail.
-        Column->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap * 0.6f)
-        [
-            SNew(STextBlock)
-            .Text_Lambda([BackendRowsNow, Kind] {
-                const std::vector<BackendRow> Rows = BackendRowsNow();
-                for (const BackendRow& Row : Rows) {
-                    if (Row.kind == Kind && !Row.option.enabled && !Row.option.detail.empty()) {
-                        return LabelText(BallsText::FromUtf8(Row.option.detail));
-                    }
-                }
-                return LabelText(FString());
-            })
-            .Font(BallsStyle::Font(15.0f))
-            .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
-            .AutoWrapText(true)
-            .Visibility_Lambda([BackendRowsNow, Kind] {
-                const std::vector<BackendRow> Rows = BackendRowsNow();
-                for (const BackendRow& Row : Rows) {
-                    if (Row.kind == Kind && !Row.option.enabled && !Row.option.detail.empty()) {
-                        return EVisibility::Visible;
-                    }
-                }
-                return EVisibility::Collapsed;
-            })
-        ];
-    }
-
-    // The Unreal port's own lever: the post chain (bloom, TAA, auto-exposure, screen percentage) is what keeps this
-    // frontend off the SDL frame time, so the level can be changed while watching the debug gadget.
-    AddLabel(TEXT("Graphics"));
-    for (const EBallsGraphics Level : BallsGraphics::All()) {
-        AddRow(BallsWidgets::Button(
-            LabelText(BallsGraphics::Name(Level)), [Owner, Level] { Owner->SetGraphicsQuality(Level); }, 18.0f, true,
-            TAttribute<bool>::CreateLambda([Owner, Level] { return Owner->GetGraphicsQuality() == Level; })));
-    }
+    Column->AddSlot().AutoHeight()[MakeAdvancedSettings(true)];
     return SNew(SScrollBox) + SScrollBox::Slot()[Column];
 }
 
@@ -1180,17 +1317,18 @@ TSharedRef<SWidget> SBallsGameplayHud::MakeOverlay() {
         .Visibility_Lambda([Game, this] {
             return Game->GetView() && (App->GetScreenFlow().overlay() != FlowOverlay::None) ? EVisibility::Visible : EVisibility::Collapsed;
         })
+        .Padding(16.0f)
         [
-            SNew(SBox)
-            .WidthOverride(OverlayWidth)
+            SNew(SWidgetSwitcher)
+            .WidgetIndex_Lambda([this] { return App->GetScreenFlow().overlay() == FlowOverlay::Settings ? 1 : 0; })
+            + SWidgetSwitcher::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
             [
-                SNew(SBorder)
-                .BorderImage(BallsStyle::Panel())
-                .Padding(30.0f, 24.0f)
+                SNew(SBox)
+                .WidthOverride(OverlayWidth)
                 [
-                    SNew(SWidgetSwitcher)
-                    .WidgetIndex_Lambda([this] { return App->GetScreenFlow().overlay() == FlowOverlay::Settings ? 1 : 0; })
-                    + SWidgetSwitcher::Slot()
+                    SNew(SBorder)
+                    .BorderImage(BallsStyle::Panel())
+                    .Padding(30.0f, 24.0f)
                     [
                     SNew(SVerticalBox)
                     + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.0f, 0.0f, 0.0f, 24.0f)
@@ -1209,29 +1347,11 @@ TSharedRef<SWidget> SBallsGameplayHud::MakeOverlay() {
                         OverlayButtons
                     ]
                     ]
-                    + SWidgetSwitcher::Slot()
-                    [
-                        SNew(SVerticalBox)
-                        + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.0f, 0.0f, 0.0f, 12.0f)
-                        [
-                            SNew(STextBlock)
-                            .Text(LabelText(TEXT("Settings")))
-                            .Font(BallsStyle::Font(44.0f, true))
-                            .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Text))
-                        ]
-                        + SVerticalBox::Slot().FillHeight(1.0f)
-                        [
-                            SNew(SBox).MaxDesiredHeight(520.0f)[SNew(SBallsSettingsPanel).App(Owner).bAllowBenchmark(false)]
-                        ]
-                        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 0.0f)
-                        [
-                            SNew(SBox).HeightOverride(OverlayButtonHeight)
-                            [
-                                BallsWidgets::Button(LabelText(TEXT("Back")), [this] { App->ActivateFlow(FlowAction::Back); }, 26.0f)
-                            ]
-                        ]
-                    ]
                 ]
+            ]
+            + SWidgetSwitcher::Slot().HAlign(HAlign_Center).VAlign(VAlign_Center)
+            [
+                SNew(SBallsSettingsPanel).App(Owner).bAllowBenchmark(false)
             ]
         ];
 }

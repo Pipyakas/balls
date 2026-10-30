@@ -10,8 +10,8 @@ class FBallsApp;
 struct FBallsToast;
 struct FKey;
 
-// One level being played: owns the core session (on the game thread, or on the core's physics thread with
-// -BallsPhysicsThread=1), hot reload and the pause/toast state. Everything else reads the session's latest view.
+// One level being played: owns the core session (on the core's physics thread, or on the game thread with
+// -BallsPhysicsThread=0), hot reload and the pause/toast state. Everything else reads the session's latest view.
 // Port of frontends/raylib/screens/GameplayScreen without the drawing.
 class FBallsGameplay : public ControlGame {
 public:

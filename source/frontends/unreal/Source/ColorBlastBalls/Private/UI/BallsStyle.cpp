@@ -14,6 +14,9 @@ namespace BallsStyle {
 
 namespace {
 
+// IBM Plex Mono's ascent plus descent, in ems.
+constexpr float LineHeightPerEm = 1.3f;
+
 // Fonts live in the asset directory next to the levels: the repository's data/assets when it exists, else the
 // packaged project's assets folder.
 FString FontFile(const TCHAR* Name) {
@@ -42,15 +45,17 @@ FSlateFontInfo Font(float Size, bool bBold) {
     // The HUD asks for a font for every label and every brick, every frame. Building one stats the file twice and
     // looks up the engine's font cache, so each (points, weight) is built once.
     static TMap<int32, FSlateFontInfo> Cache;
-    const int32 Points = FMath::Max(1, FMath::RoundToInt(Size * 0.75f));
+    // The SDL sizes are ImGui's: the line height (ascent plus descent, 1.3 em in IBM Plex Mono) in pixels. Slate
+    // sizes the em in points at 96 DPI, so the same number would draw the text 1.3 times larger.
+    const float Points = FMath::Max(1.0f, FMath::RoundToFloat(Size * 0.75f / LineHeightPerEm * 4.0f) / 4.0f);
     const bool bStrong = bBold && Size >= StrongTextMinimumSize;
-    const int32 Key = Points * 4 + (bStrong ? 2 : 0) + (bBold ? 1 : 0);
+    const int32 Key = FMath::RoundToInt(Points * 4.0f) * 4 + (bStrong ? 2 : 0) + (bBold ? 1 : 0);
     if (const FSlateFontInfo* Found = Cache.Find(Key)) {
         return *Found;
     }
     static const FString Regular = FontFile(TEXT("IBMPlexMono-Regular.ttf"));
     static const FString Strong = FontFile(TEXT("IBMPlexMono-SemiBold.ttf"));
-    // Slate font sizes are points at 96 DPI; the SDL sizes are pixels. Like SDL, only large text uses SemiBold.
+    // Like SDL, only large text uses SemiBold.
     const FString& File = bStrong ? Strong : Regular;
     const FSlateFontInfo Built = IFileManager::Get().FileExists(*File)
                                      ? FSlateFontInfo(CompositeFont(File), Points)
@@ -75,6 +80,36 @@ const FButtonStyle& Button() {
         Result.SetDisabledForeground(BallsPalette::Linear(BallsPalette::TextDim));
         Result.SetNormalPadding(FMargin(8.0f, 4.0f));
         Result.SetPressedPadding(FMargin(8.0f, 4.0f));
+        return Result;
+    }();
+    return Style;
+}
+
+const FButtonStyle& HeaderButton() {
+    static const FButtonStyle Style = [] {
+        auto Fill = [](const FColor& Color) { return FSlateRoundedBoxBrush(BallsPalette::Linear(Color), 0.0f); };
+        FButtonStyle Result;
+        Result.SetNormal(FSlateNoResource());
+        Result.SetHovered(Fill(BallsPalette::ControlHover));
+        Result.SetPressed(Fill(BallsPalette::ControlPressed));
+        Result.SetDisabled(FSlateNoResource());
+        Result.SetNormalPadding(FMargin(0.0f));
+        Result.SetPressedPadding(FMargin(0.0f));
+        return Result;
+    }();
+    return Style;
+}
+
+const FButtonStyle& DropdownButton() {
+    // The dropdown row paints its own fills and border, which follow the open state as well as the hover.
+    static const FButtonStyle Style = [] {
+        FButtonStyle Result;
+        Result.SetNormal(FSlateNoResource());
+        Result.SetHovered(FSlateNoResource());
+        Result.SetPressed(FSlateNoResource());
+        Result.SetDisabled(FSlateNoResource());
+        Result.SetNormalPadding(FMargin(0.0f));
+        Result.SetPressedPadding(FMargin(0.0f));
         return Result;
     }();
     return Style;

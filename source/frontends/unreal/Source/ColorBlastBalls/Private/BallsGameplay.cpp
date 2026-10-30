@@ -11,10 +11,10 @@
 
 namespace {
 
-// -BallsPhysicsThread=1 runs the session on the core's physics thread (SessionRunner), as the SDL front end does;
-// 0 keeps it on the game thread, inside the frame.
+// The session runs on the core's physics thread (SessionRunner) by default, as the SDL front end does, so physics
+// keeps its own pace whatever the frame rate; -BallsPhysicsThread=0 keeps it on the game thread, inside the frame.
 SessionThreading ThreadingFromCommandLine() {
-    int32 Value = 0;
+    int32 Value = 1;
     FParse::Value(FCommandLine::Get(), TEXT("BallsPhysicsThread="), Value);
     return Value != 0 ? SessionThreading::PhysicsThread : SessionThreading::UiThread;
 }

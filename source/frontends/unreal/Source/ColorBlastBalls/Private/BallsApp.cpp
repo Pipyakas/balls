@@ -35,6 +35,7 @@
 #include "UI/SBallsGameplayHud.h"
 #include "UI/SBallsMapEditor.h"
 #include "UI/SBallsMenus.h"
+#include "Widgets/SOverlay.h"
 #include "UI/SBallsRoot.h"
 
 #include <format>
@@ -328,7 +329,16 @@ void FBallsApp::SetScreen(EScreen Screen, TSharedRef<SWidget> Content) {
         Gameplay.Reset();
         BoardView->Hide();
     }
-    Root->SetScreen(Content);
+    if (Screen == EScreen::Gameplay) {
+        Root->SetScreen(Content);
+        return;
+    }
+    Root->SetScreen(SNew(SOverlay)
+                    + SOverlay::Slot()[Content]
+                    + SOverlay::Slot().HAlign(HAlign_Left).VAlign(VAlign_Bottom).Padding(16.0f, 0.0f, 0.0f, 6.0f)
+                    [
+                        BallsWidgets::FrameTimingsStrip(Frames)
+                    ]);
 }
 
 void FBallsApp::ProcessFlowRequests() {

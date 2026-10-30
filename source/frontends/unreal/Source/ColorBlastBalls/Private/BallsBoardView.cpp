@@ -32,6 +32,8 @@ constexpr float VisibilitySlotPerRadius = 1.6f;
 constexpr uint32 EmptyRenderSlot = 0xFFFFFFFFu;
 // The most balls one frame uploads and draws; a grid snapshot is far smaller, this only bounds an ungridded one.
 constexpr size_t MaximumDrawnBalls = 4'000'000;
+// The manual exposure (EV) that shows the lit bricks as bright as the SDL front end's flat ones.
+constexpr float ManualExposureBias = 13.0f;
 const TCHAR* CubePath = TEXT("/Engine/BasicShapes/Cube.Cube");
 const TCHAR* ShapeMaterialPath = TEXT("/Engine/BasicShapes/BasicShapeMaterial.BasicShapeMaterial");
 
@@ -98,14 +100,12 @@ void FBallsBoardView::SpawnScene() {
     CameraComponent->PostProcessSettings.BloomIntensity = 0.9f;
     CameraComponent->PostProcessSettings.bOverride_VignetteIntensity = true;
     CameraComponent->PostProcessSettings.VignetteIntensity = 0.25f;
+    // A fixed exposure, as the SDL front end's flat colors: an auto exposure follows what is on the board, so the
+    // bricks darkened as balls filled it and the balls blew out on an empty one.
     CameraComponent->PostProcessSettings.bOverride_AutoExposureMethod = true;
-    CameraComponent->PostProcessSettings.AutoExposureMethod = AEM_Histogram;
-    CameraComponent->PostProcessSettings.bOverride_AutoExposureMinBrightness = true;
-    CameraComponent->PostProcessSettings.AutoExposureMinBrightness = 0.01f;
-    CameraComponent->PostProcessSettings.bOverride_AutoExposureMaxBrightness = true;
-    CameraComponent->PostProcessSettings.AutoExposureMaxBrightness = 8.0f;
+    CameraComponent->PostProcessSettings.AutoExposureMethod = AEM_Manual;
     CameraComponent->PostProcessSettings.bOverride_AutoExposureBias = true;
-    CameraComponent->PostProcessSettings.AutoExposureBias = 0.0f;
+    CameraComponent->PostProcessSettings.AutoExposureBias = ManualExposureBias;
     CameraComponent->PostProcessBlendWeight = 1.0f;
     Camera.Reset(CameraActor);
     SceneActors.Emplace(CameraActor);
@@ -197,8 +197,6 @@ void FBallsBoardView::ApplyGraphics(EBallsGraphics Quality) {
     Post.BloomIntensity = Quality == EBallsGraphics::High ? 0.9f : Quality == EBallsGraphics::Balanced ? 0.5f : 0.0f;
     Post.bOverride_VignetteIntensity = true;
     Post.VignetteIntensity = Quality == EBallsGraphics::High ? 0.25f : Quality == EBallsGraphics::Balanced ? 0.15f : 0.0f;
-    // Auto-exposure stays on the histogram at every level: a manual exposure blacked the frame out, and the pass is
-    // only a fraction of what the anti-aliasing and screen-percentage switches save.
 }
 
 void FBallsBoardView::Hide() {

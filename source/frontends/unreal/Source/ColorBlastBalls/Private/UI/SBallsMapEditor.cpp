@@ -19,7 +19,18 @@
 
 namespace {
 
+// The SDL front end's editor panels: content 12 in from the sides and 8 from the top, controls 38 high and 8 apart,
+// section titles 30 high after a 6 gap.
 constexpr float PanelPadding = 12.0f;
+constexpr float PanelTopPadding = 8.0f;
+constexpr float ControlHeight = 38.0f;
+constexpr float ControlGap = 8.0f;
+constexpr float TitleHeight = 30.0f;
+constexpr float TitleGap = 6.0f;
+constexpr float SwatchHeight = 34.0f;
+constexpr int SwatchColumns = 4;
+// SDL's button label: 0.45 of the control height.
+constexpr float ControlLabelSize = ControlHeight * 0.45f;
 
 void DrawBox(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry, const FSlateRect& Rect,
              const FSlateBrush* Brush, const FLinearColor& Tint) {
@@ -50,18 +61,33 @@ FSlateRect CellRect(const FSlateRect& Grid, float Cell, int Column, int Row) {
     return FSlateRect(Left, Top, Left + Cell, Top + Cell);
 }
 
-TSharedRef<STextBlock> Title(const FString& Text) {
-    return SNew(STextBlock)
-        .Text(FText::FromString(Text))
-        .Font(BallsStyle::Font(22.0f, true))
-        .ColorAndOpacity(FSlateColor(BallsPalette::Linear(BallsPalette::Accent)));
+TSharedRef<SWidget> Title(const FString& Text) {
+    return SNew(SBox)
+        .HeightOverride(TitleHeight)
+        .VAlign(VAlign_Top)
+        [
+            SNew(STextBlock)
+            .Text(FText::FromString(Text))
+            .Font(BallsStyle::Font(22.0f))
+            .ColorAndOpacity(FSlateColor(BallsPalette::Linear(BallsPalette::Accent)))
+        ];
 }
 
-TSharedRef<STextBlock> Body(const FString& Text) {
-    return SNew(STextBlock)
-        .Text(FText::FromString(Text))
-        .Font(BallsStyle::Font(18.0f))
-        .ColorAndOpacity(FSlateColor(BallsPalette::Linear(BallsPalette::TextMuted)));
+// One 22-high muted line, as the SDL editor's mouse hints.
+TSharedRef<SWidget> Body(const FString& Text) {
+    return SNew(SBox)
+        .HeightOverride(22.0f)
+        .VAlign(VAlign_Center)
+        [
+            SNew(STextBlock)
+            .Text(FText::FromString(Text))
+            .Font(BallsStyle::Font(16.0f))
+            .ColorAndOpacity(FSlateColor(BallsPalette::Linear(BallsPalette::TextMuted)))
+        ];
+}
+
+TSharedRef<SWidget> Sized(TSharedRef<SWidget> Content, float Height = ControlHeight) {
+    return SNew(SBox).HeightOverride(Height)[Content];
 }
 
 const FButtonStyle* SwatchStyle(BallColor Color) {
@@ -87,27 +113,38 @@ int32 StepSize() { return FSlateApplication::Get().GetModifierKeys().IsShiftDown
 
 TSharedRef<SWidget> Stepper(const FString& Label, int32 Min, int32 Max, TFunction<int32()> Get,
                             TFunction<void(int32)> Set) {
+    constexpr float LabelShare = 0.45f;
     TSharedRef<SHorizontalBox> Row = SNew(SHorizontalBox);
-    Row->AddSlot().FillWidth(1.0f).VAlign(VAlign_Center)
+    Row->AddSlot().FillWidth(LabelShare).VAlign(VAlign_Center)
     [
-        Body(Label)
+        SNew(STextBlock)
+        .Text(FText::FromString(Label))
+        .Font(BallsStyle::Font(ControlHeight * 0.5f))
+        .ColorAndOpacity(FSlateColor(BallsPalette::Linear(BallsPalette::TextMuted)))
     ];
-    Row->AddSlot().AutoWidth().VAlign(VAlign_Center)
+    Row->AddSlot().AutoWidth()
     [
-        BallsWidgets::Button(FText::FromString(TEXT("-")), [Get, Set, Min] { Set(FMath::Max(Min, Get() - StepSize())); }, 16.0f)
+        SNew(SBox).WidthOverride(ControlHeight)
+        [
+            BallsWidgets::Button(FText::FromString(TEXT("-")), [Get, Set, Min] { Set(FMath::Max(Min, Get() - StepSize())); },
+                                 ControlLabelSize)
+        ]
     ];
-    Row->AddSlot().AutoWidth().VAlign(VAlign_Center).Padding(6.0f, 0.0f)
+    Row->AddSlot().FillWidth(1.0f - LabelShare).VAlign(VAlign_Center)
     [
         SNew(STextBlock)
         .Text_Lambda([Get] { return FText::FromString(FString::FromInt(Get())); })
-        .Font(BallsStyle::Font(18.0f))
+        .Font(BallsStyle::Font(ControlHeight * 0.5f))
         .ColorAndOpacity(FSlateColor(BallsPalette::Linear(BallsPalette::Text)))
         .Justification(ETextJustify::Center)
-        .MinDesiredWidth(46.0f)
     ];
-    Row->AddSlot().AutoWidth().VAlign(VAlign_Center)
+    Row->AddSlot().AutoWidth()
     [
-        BallsWidgets::Button(FText::FromString(TEXT("+")), [Get, Set, Max] { Set(FMath::Min(Max, Get() + StepSize())); }, 16.0f)
+        SNew(SBox).WidthOverride(ControlHeight)
+        [
+            BallsWidgets::Button(FText::FromString(TEXT("+")), [Get, Set, Max] { Set(FMath::Min(Max, Get() + StepSize())); },
+                                 ControlLabelSize)
+        ]
     ];
     return Row;
 }
@@ -119,7 +156,7 @@ TSharedRef<SWidget> DarkPanel(TSharedRef<SWidget> Content, float Width) {
             SNew(SBorder)
             .BorderImage(BallsStyle::White())
             .BorderBackgroundColor(FSlateColor(BallsPalette::Linear(BallsPalette::Panel)))
-            .Padding(PanelPadding)
+            .Padding(FMargin(PanelPadding, PanelTopPadding, PanelPadding, PanelPadding))
             [
                 Content
             ]
@@ -490,67 +527,68 @@ TSharedRef<SWidget> SBallsMapEditor::MakeToolPanel() {
     };
 
     TSharedRef<SVerticalBox> Box = SNew(SVerticalBox);
-    Box->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, TitleGap, 0.0f, 0.0f)
     [
         Title(TEXT("Tool"))
     ];
     for (const EditorToolButton& Button : EditorSession::toolButtons()) {
         const EditorTool Tool = Button.tool;
-        Box->AddSlot().AutoHeight().Padding(0.0f, 3.0f)
+        Box->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap)
         [
-            BallsWidgets::Button(FText::FromString(BallsText::FromUtf8(Button.label)), [E, Tool] { E->SetTool(Tool); },
-                                 20.0f, true, SelectedTool(Tool))
+            Sized(BallsWidgets::Button(FText::FromString(BallsText::FromUtf8(Button.label)), [E, Tool] { E->SetTool(Tool); },
+                                       ControlLabelSize, true, SelectedTool(Tool)))
         ];
     }
 
-    Box->AddSlot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 6.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, TitleGap, 0.0f, 0.0f)
     [
         Title(TEXT("Color (1-7)"))
     ];
     for (int Row = 0; Row < 2; ++Row) {
         TSharedRef<SHorizontalBox> Swatches = SNew(SHorizontalBox);
-        for (int Index = Row * 4; Index < FMath::Min(ballColorCount, Row * 4 + 4); ++Index) {
+        for (int Column = 0; Column < SwatchColumns; ++Column) {
+            const int Index = Row * SwatchColumns + Column;
+            const FMargin Gap(Column == 0 ? 0.0f : ControlGap * 0.5f, 0.0f, Column + 1 == SwatchColumns ? 0.0f : ControlGap * 0.5f, 0.0f);
+            if (Index >= ballColorCount) {
+                Swatches->AddSlot().FillWidth(1.0f).Padding(Gap)[SNullWidget::NullWidget];
+                continue;
+            }
             const BallColor Color = ballColorFromIndex(Index);
-            Swatches->AddSlot().AutoWidth().Padding(0.0f, 0.0f, 6.0f, 6.0f)
+            Swatches->AddSlot().FillWidth(1.0f).Padding(Gap)
             [
-                SNew(SBox)
-                .WidthOverride(46.0f)
-                .HeightOverride(34.0f)
+                SNew(SBorder)
+                .BorderImage(BallsStyle::White())
+                .BorderBackgroundColor(TAttribute<FSlateColor>::CreateLambda([E, Color] {
+                    return E->BrushColor() == Color ? FSlateColor(BallsPalette::Linear(BallsPalette::TextStrong))
+                                                    : FSlateColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
+                }))
+                .Padding(2.0f)
                 [
-                    SNew(SBorder)
-                    .BorderImage(BallsStyle::White())
-                    .BorderBackgroundColor(TAttribute<FSlateColor>::CreateLambda([E, Color] {
-                        return E->BrushColor() == Color ? FSlateColor(BallsPalette::Linear(BallsPalette::Text))
-                                                        : FSlateColor(FLinearColor(0.0f, 0.0f, 0.0f, 0.0f));
-                    }))
-                    .Padding(2.0f)
-                    [
-                        SNew(SButton)
-                        .ButtonStyle(SwatchStyle(Color))
-                        .ContentPadding(FMargin(0.0f))
-                        .OnClicked_Lambda([E, Color] {
-                            E->SetBrushColor(Color);
-                            return FReply::Handled();
-                        })
-                    ]
+                    SNew(SButton)
+                    .ButtonStyle(SwatchStyle(Color))
+                    .ContentPadding(FMargin(0.0f))
+                    .OnClicked_Lambda([E, Color] {
+                        E->SetBrushColor(Color);
+                        return FReply::Handled();
+                    })
                 ]
             ];
         }
-        Box->AddSlot().AutoHeight()
+        Box->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap)
         [
-            Swatches
+            Sized(Swatches, SwatchHeight)
         ];
     }
 
-    Box->AddSlot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 6.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, TitleGap, 0.0f, 0.0f)
     [
         Title(TEXT("Brick"))
     ];
-    Box->AddSlot().AutoHeight().Padding(0.0f, 2.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap)
     [
-        Stepper(TEXT("Hits"), 1, editorMaximumHits, [E] { return E->BrushHits(); }, [E](int32 Value) { E->SetBrushHits(Value); })
+        Sized(Stepper(TEXT("Hits"), 1, editorMaximumHits, [E] { return E->BrushHits(); }, [E](int32 Value) { E->SetBrushHits(Value); }))
     ];
-    Box->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap)
     [
         SNew(STextBlock)
         .Text_Lambda([E] {
@@ -560,20 +598,20 @@ TSharedRef<SWidget> SBallsMapEditor::MakeToolPanel() {
         .ColorAndOpacity(FSlateColor(BallsPalette::Linear(BallsPalette::TextMuted)))
     ];
 
-    Box->AddSlot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 6.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, TitleGap, 0.0f, 0.0f)
     [
         Title(TEXT("Launcher"))
     ];
-    Box->AddSlot().AutoHeight().Padding(0.0f, 2.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap)
     [
-        Stepper(TEXT("Balls"), 1, editorMaximumLauncherBalls, [E] { return E->LauncherBalls(); },
-                [E](int32 Value) { E->SetLauncherBalls(Value); })
+        Sized(Stepper(TEXT("Balls"), 1, editorMaximumLauncherBalls, [E] { return E->LauncherBalls(); },
+                [E](int32 Value) { E->SetLauncherBalls(Value); }))
     ];
-    Box->AddSlot().AutoHeight().Padding(0.0f, 2.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap)
     [
         Body(TEXT("L-click set, R-click clear"))
     ];
-    Box->AddSlot().AutoHeight().Padding(0.0f, 2.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap)
     [
         Body(TEXT("Shift+R-click delete row"))
     ];
@@ -584,7 +622,7 @@ TSharedRef<SWidget> SBallsMapEditor::MakePropertyPanel() {
     TSharedPtr<FBallsMapEditor> E = Editor;
     TSharedRef<SVerticalBox> Box = SNew(SVerticalBox);
 
-    Box->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, 6.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, TitleGap, 0.0f, 0.0f)
     [
         Title(TEXT("Level"))
     ];
@@ -601,62 +639,62 @@ TSharedRef<SWidget> SBallsMapEditor::MakePropertyPanel() {
             E->SetLevelName(std::string(Converted.Get(), Converted.Length()));
         })
     ];
-    Box->AddSlot().AutoHeight().Padding(0.0f, 6.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap)
     [
-        SNew(SHorizontalBox)
+        Sized(SNew(SHorizontalBox)
         + SHorizontalBox::Slot().FillWidth(1.0f).Padding(0.0f, 0.0f, 4.0f, 0.0f)
         [
-            BallsWidgets::Button(FText::FromString(TEXT("Normal")), [E] { E->SetMode(GameMode::Normal); }, 18.0f, true,
+            BallsWidgets::Button(FText::FromString(TEXT("Normal")), [E] { E->SetMode(GameMode::Normal); }, ControlLabelSize, true,
                                  TAttribute<bool>::CreateLambda([E] { return E->Mode() == GameMode::Normal; }))
         ]
         + SHorizontalBox::Slot().FillWidth(1.0f).Padding(4.0f, 0.0f, 0.0f, 0.0f)
         [
-            BallsWidgets::Button(FText::FromString(TEXT("Perf")), [E] { E->SetMode(GameMode::Performance); }, 18.0f,
+            BallsWidgets::Button(FText::FromString(TEXT("Perf")), [E] { E->SetMode(GameMode::Performance); }, ControlLabelSize,
                                  true,
                                  TAttribute<bool>::CreateLambda([E] { return E->Mode() == GameMode::Performance; }))
-        ]
+        ])
     ];
 
-    Box->AddSlot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 6.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, TitleGap, 0.0f, 0.0f)
     [
         Title(TEXT("Board"))
     ];
-    Box->AddSlot().AutoHeight().Padding(0.0f, 2.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap)
     [
-        Stepper(TEXT("Width"), 1, editorMaximumBoardSize, [E] { return E->Level().bricks.width; },
-                [E](int32 Value) { E->SetBoardWidth(Value); })
+        Sized(Stepper(TEXT("Width"), 1, editorMaximumBoardSize, [E] { return E->Level().bricks.width; },
+                [E](int32 Value) { E->SetBoardWidth(Value); }))
     ];
-    Box->AddSlot().AutoHeight().Padding(0.0f, 2.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap)
     [
-        Stepper(TEXT("Brick rows"), 1, editorMaximumBoardSize, [E] { return E->Level().bricks.height; },
-                [E](int32 Value) { E->SetBrickRows(Value); })
+        Sized(Stepper(TEXT("Brick rows"), 1, editorMaximumBoardSize, [E] { return E->Level().bricks.height; },
+                [E](int32 Value) { E->SetBrickRows(Value); }))
     ];
-    Box->AddSlot().AutoHeight().Padding(0.0f, 2.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap)
     [
-        Stepper(TEXT("Total rows"), 1, editorMaximumTotalRows, [E] { return E->Level().bricks.playableHeight; },
-                [E](int32 Value) { E->SetPlayableRows(Value); })
+        Sized(Stepper(TEXT("Total rows"), 1, editorMaximumTotalRows, [E] { return E->Level().bricks.playableHeight; },
+                [E](int32 Value) { E->SetPlayableRows(Value); }))
     ];
 
-    Box->AddSlot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 6.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, TitleGap, 0.0f, 0.0f)
     [
         Title(TEXT("Launchers"))
     ];
-    Box->AddSlot().AutoHeight().Padding(0.0f, 2.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap)
     [
-        Stepper(TEXT("Columns"), 1, editorMaximumLauncherColumns, [E] { return E->Level().launchers.columns; },
-                [E](int32 Value) { E->SetLauncherColumns(Value); })
+        Sized(Stepper(TEXT("Columns"), 1, editorMaximumLauncherColumns, [E] { return E->Level().launchers.columns; },
+                [E](int32 Value) { E->SetLauncherColumns(Value); }))
     ];
-    Box->AddSlot().AutoHeight().Padding(0.0f, 2.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap)
     [
-        Stepper(TEXT("Visible rows"), 1, editorMaximumVisibleRows, [E] { return E->Level().launchers.visibleRows; },
-                [E](int32 Value) { E->SetVisibleRows(Value); })
+        Sized(Stepper(TEXT("Visible rows"), 1, editorMaximumVisibleRows, [E] { return E->Level().launchers.visibleRows; },
+                [E](int32 Value) { E->SetVisibleRows(Value); }))
     ];
-    Box->AddSlot().AutoHeight().Padding(0.0f, 6.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap)
     [
-        BallsWidgets::Button(FText::FromString(TEXT("Auto-fill to match bricks")), [E] { E->AutoFillLaunchers(); }, 18.0f)
+        Sized(BallsWidgets::Button(FText::FromString(TEXT("Auto-fill to match bricks")), [E] { E->AutoFillLaunchers(); }, ControlLabelSize))
     ];
 
-    Box->AddSlot().AutoHeight().Padding(0.0f, 14.0f, 0.0f, 6.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, TitleGap, 0.0f, 0.0f)
     [
         Title(TEXT("Validation"))
     ];
@@ -685,43 +723,54 @@ TSharedRef<SWidget> SBallsMapEditor::MakePropertyPanel() {
         }))
     ];
 
-    Box->AddSlot().AutoHeight().Padding(0.0f, 16.0f, 0.0f, 0.0f)
+    // Undo / Redo, Save, Save & Play and Back stay at the bottom of the panel, under the part that scrolls.
+    const TSharedRef<SVerticalBox> Scrolling = Box;
+    Box = SNew(SVerticalBox);
+    Box->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap)
     [
-        SNew(SHorizontalBox)
+        Sized(SNew(SHorizontalBox)
         + SHorizontalBox::Slot().FillWidth(1.0f).Padding(0.0f, 0.0f, 4.0f, 0.0f)
         [
-            BallsWidgets::Button(FText::FromString(TEXT("Undo")), [E] { E->Undo(); }, 18.0f,
+            BallsWidgets::Button(FText::FromString(TEXT("Undo")), [E] { E->Undo(); }, ControlLabelSize,
                                  TAttribute<bool>::CreateLambda([E] { return E->CanUndo(); }))
         ]
         + SHorizontalBox::Slot().FillWidth(1.0f).Padding(4.0f, 0.0f, 0.0f, 0.0f)
         [
-            BallsWidgets::Button(FText::FromString(TEXT("Redo")), [E] { E->Redo(); }, 18.0f,
+            BallsWidgets::Button(FText::FromString(TEXT("Redo")), [E] { E->Redo(); }, ControlLabelSize,
                                  TAttribute<bool>::CreateLambda([E] { return E->CanRedo(); }))
-        ]
+        ])
     ];
-    Box->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap)
     [
-        BallsWidgets::Button(TAttribute<FText>::CreateLambda([E] {
+        Sized(BallsWidgets::Button(TAttribute<FText>::CreateLambda([E] {
                                  return FText::FromString(BallsText::FromUtf8(E->SaveLabel()));
                              }),
-                             [E] { E->Save(); }, 18.0f)
+                             [E] { E->Save(); }, ControlLabelSize))
     ];
-    Box->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap)
     [
-        BallsWidgets::Button(FText::FromString(TEXT("Save & Play")), [E] { E->SaveAndPlay(); }, 18.0f,
-                             TAttribute<bool>::CreateLambda([E] { return E->Validation().isPlayable(); }))
+        Sized(BallsWidgets::Button(FText::FromString(TEXT("Save & Play")), [E] { E->SaveAndPlay(); }, ControlLabelSize,
+                             TAttribute<bool>::CreateLambda([E] { return E->Validation().isPlayable(); })))
     ];
-    Box->AddSlot().AutoHeight().Padding(0.0f, 4.0f)
+    Box->AddSlot().AutoHeight().Padding(0.0f, 0.0f, 0.0f, ControlGap)
     [
-        BallsWidgets::Button(TAttribute<FText>::CreateLambda([E] {
+        Sized(BallsWidgets::Button(TAttribute<FText>::CreateLambda([E] {
                                  return FText::FromString(BallsText::FromUtf8(E->BackLabel()));
                              }),
-                             [E] { E->Back(); }, 18.0f)
+                             [E] { E->Back(); }, ControlLabelSize))
     ];
 
     return DarkPanel(
-        SNew(SScrollBox)
-        + SScrollBox::Slot()
+        SNew(SVerticalBox)
+        + SVerticalBox::Slot().FillHeight(1.0f)
+        [
+            SNew(SScrollBox)
+            + SScrollBox::Slot()
+            [
+                Scrolling
+            ]
+        ]
+        + SVerticalBox::Slot().AutoHeight().Padding(0.0f, ControlGap, 0.0f, 0.0f)
         [
             Box
         ],

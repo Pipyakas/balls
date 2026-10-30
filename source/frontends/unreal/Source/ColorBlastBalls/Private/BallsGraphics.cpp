@@ -41,7 +41,6 @@ const TCHAR* const CheapPostProcess[] = {
     TEXT("r.Tonemapper.Quality 0"),
     TEXT("r.Tonemapper.Sharpen 0"),
     TEXT("r.Tonemapper.GrainQuantization 0"),
-    TEXT("r.EyeAdaptationQuality 0"),
     TEXT("r.DepthOfFieldQuality 0"),
     TEXT("r.AmbientOcclusionLevels 0"),
     TEXT("r.AmbientOcclusionStaticFraction 0"),
@@ -91,10 +90,6 @@ void ApplyToWorld(UWorld* World, EBallsGraphics Quality) {
     Run(FString::Printf(TEXT("r.DefaultFeature.Bloom %d"), Profile.bBloom ? 1 : 0));
     Run(FString::Printf(TEXT("r.BloomQuality %d"), Profile.bBloom ? 4 : 0));
     Run(TEXT("r.MotionBlurQuality 0"));
-    // Auto-exposure still runs the histogram at High; below it the cheap path keeps the frame's exposure steady
-    // without a full-screen luminance reduction.
-    Run(FString::Printf(TEXT("r.EyeAdaptationQuality %d"), Quality == EBallsGraphics::High ? 3 : 0));
-
     if (Quality == EBallsGraphics::Minimum) {
         // Performance mode: everything optional off, lowest scalability step, and a filtered-free upscale.
         for (const TCHAR* Command : LowestScalability) {
@@ -103,6 +98,9 @@ void ApplyToWorld(UWorld* World, EBallsGraphics Quality) {
         for (const TCHAR* Command : CheapPostProcess) {
             Run(Command);
         }
+        // Auto-exposure stays on, after the sweep since the lowest post-process step turns it off: without it the
+        // fixed exposure draws the lit bricks nearly black.
+        Run(TEXT("r.EyeAdaptationQuality 2"));
     } else {
         // Leaving Minimum must undo the sweep, or the low scalability step sticks.
         for (const TCHAR* Command : LowestScalability) {
