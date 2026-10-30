@@ -55,18 +55,22 @@ std::optional<std::string> ControlRequest::text(std::string_view key) const {
     return it == query.end() ? std::nullopt : std::optional<std::string>(it->second);
 }
 
-std::optional<int> ControlRequest::integer(std::string_view key) const {
-    const auto value = text(key);
+template <typename Number>
+std::optional<Number> parseNumber(const std::optional<std::string>& value) {
     if (!value) {
         return std::nullopt;
     }
-    int result = 0;
+    Number result = 0;
     const auto [end, error] = std::from_chars(value->data(), value->data() + value->size(), result);
     if (error != std::errc{} || end != value->data() + value->size()) {
         return std::nullopt;
     }
     return result;
 }
+
+std::optional<int> ControlRequest::integer(std::string_view key) const { return parseNumber<int>(text(key)); }
+
+std::optional<uint64_t> ControlRequest::count(std::string_view key) const { return parseNumber<uint64_t>(text(key)); }
 
 ControlResponse ControlResponse::error(int status, std::string_view message) {
     return {status, std::format("{{\"ok\":false,\"error\":\"{}\"}}", jsonEscape(message))};

@@ -161,8 +161,16 @@ std::optional<ControlResponse> handleGameRoute(ControlGame& game, const ControlR
         return done;
     }
     if (path == "/fill") {
-        const auto count = static_cast<BallCount>(std::max(request.integer("count").value_or(0), 0));
-        game.post([count](GameSession& session) { session.fillWithBalls(count); });
+        // Without a count, /fill is Auto: up to the backend's capacity, the most balls this machine holds.
+        if (!request.text("count")) {
+            game.post([](GameSession& session) { session.fillToBallLimit(); });
+            return done;
+        }
+        const std::optional<uint64_t> count = request.count("count");
+        if (!count) {
+            return ControlResponse::error(400, "count must be a whole number of balls");
+        }
+        game.post([count = static_cast<BallCount>(*count)](GameSession& session) { session.fillWithBalls(count); });
         return done;
     }
     if (path == "/limit") {

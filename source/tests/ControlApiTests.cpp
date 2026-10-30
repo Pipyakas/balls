@@ -99,6 +99,8 @@ TEST_CASE("control targets are URL-decoded into a path and parameters") {
     EXPECT(request.text("x") == "a b");
     EXPECT(request.text("flag") == "");
     EXPECT(!request.integer("mode").has_value());
+    EXPECT(parseControlTarget("/fill?count=7100000000").count("count") == 7'100'000'000u);
+    EXPECT(!parseControlTarget("/fill?count=-1").count("count").has_value());
 }
 
 TEST_CASE("the control API plays a level and drives the session") {

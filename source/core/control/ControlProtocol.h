@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <map>
 #include <optional>
 #include <string>
@@ -12,6 +13,8 @@ struct ControlRequest {
 
     std::optional<std::string> text(std::string_view key) const;
     std::optional<int> integer(std::string_view key) const;
+    // Ball counts pass 2^31 (the target PC holds about 7.1B), so they are read as 64-bit.
+    std::optional<uint64_t> count(std::string_view key) const;
 };
 
 struct ControlResponse {
