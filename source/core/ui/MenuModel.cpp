@@ -64,6 +64,29 @@ public:
 
 } // namespace
 
+std::string brickHitLabel(int64_t hitsLeft) {
+    constexpr int64_t wholeBelow = 10'000;
+    if (hitsLeft < wholeBelow) {
+        return std::to_string(hitsLeft);
+    }
+    constexpr std::array<std::pair<double, std::string_view>, 3> units{{{1e9, "B"}, {1e6, "M"}, {1e3, "K"}}};
+    for (const auto& [scale, suffix] : units) {
+        const double value = static_cast<double>(hitsLeft) / scale;
+        if (value >= 1.0) {
+            const int decimals = value >= 100.0 ? 0 : value >= 10.0 ? 1 : 2;
+            std::string text = std::format("{:.{}f}", value, decimals);
+            if (text.find('.') != std::string::npos) {
+                text.erase(text.find_last_not_of('0') + 1);
+                if (text.back() == '.') {
+                    text.pop_back();
+                }
+            }
+            return text + std::string(suffix);
+        }
+    }
+    return std::to_string(hitsLeft);
+}
+
 std::string groupedCount(BallCount value) {
     std::string digits = std::to_string(value);
     for (int insertAt = static_cast<int>(digits.size()) - 3; insertAt > 0; insertAt -= 3) {

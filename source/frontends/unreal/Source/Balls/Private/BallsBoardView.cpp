@@ -218,7 +218,43 @@ void FBallsBoardView::Hide() {
         BoardActor->SetActorHiddenInGame(true);
         BallRenderer.Clear();
         BuiltRevision = ~0ull;
+        BuiltColumns = -1;
+        BuiltRows = -1;
+        BuiltBrickCount = -1;
+        CachedBricks.Empty();
         bVisible = false;
+    }
+}
+
+FBallsBoardView::FBrickSignature FBallsBoardView::MakeSignature(const Brick& Piece) {
+    int32 RowSum = 0;
+    for (const BrickCell& Cell : Piece.cells) {
+        RowSum += Cell.row;
+    }
+    return {Piece.isAlive(), Piece.hitFlash, Piece.riseOffset, RowSum};
+}
+
+void FBallsBoardView::BuildBrickTransforms(const BrickBoard& Board, int32 BrickIndex, const Brick& Piece,
+                                           TArray<FTransform>& OutTransforms) {
+    OutTransforms.Reset();
+    OutTransforms.Reserve(Piece.cells.size());
+    if (Piece.isAlive()) {
+        const double Front = BrickFlashPopCells * Piece.hitFlash;
+        const double Back = -BrickDepthCells;
+        for (const BrickCell& Cell : Piece.cells) {
+            const FCellEdges Edges = OpenEdges(Board, BrickIndex, Cell);
+            const double Left = Cell.column + (Edges.bLeft ? CellInset : 0.0);
+            const double Right = Cell.column + 1.0 - (Edges.bRight ? CellInset : 0.0);
+            const double Top = Cell.row + Piece.riseOffset + (Edges.bTop ? CellInset : 0.0);
+            const double Bottom = Cell.row + 1.0 + Piece.riseOffset - (Edges.bBottom ? CellInset : 0.0);
+            const FVector Center = BoardToWorld((Left + Right) * 0.5, (Top + Bottom) * 0.5, (Front + Back) * 0.5);
+            OutTransforms.Emplace(FQuat::Identity, Center,
+                                  FVector(Right - Left, Front - Back, Bottom - Top));
+        }
+    } else {
+        for (size_t CellIndex = 0; CellIndex < Piece.cells.size(); ++CellIndex) {
+            OutTransforms.Emplace(FQuat::Identity, FVector::ZeroVector, FVector::ZeroVector);
+        }
     }
 }
 
@@ -236,20 +272,30 @@ void FBallsBoardView::Update(const BrickBoard& Board, const FBallsGameplayLayout
         BoardActor->SetActorHiddenInGame(false);
         bVisible = true;
     }
-    // A rebuild recreates every instance buffer, so an animation (hit flash, rising bricks) steps at 30 Hz instead
-    // of every frame; a changed board still rebuilds at once.
+
     const double Now = FPlatformTime::Seconds();
-    const bool bRevisionChanged = Board.revision() != BuiltRevision;
-    if (bRevisionChanged || (bBricksAnimating && Now - LastBrickRebuild >= BrickAnimationInterval)) {
+    const bool bLayoutChanged = Board.columns() != BuiltColumns || Board.rows() != BuiltRows ||
+                                static_cast<int32>(Board.bricks().size()) != BuiltBrickCount;
+    if (bLayoutChanged) {
+        if (Board.columns() != BuiltColumns || Board.rows() != BuiltRows) {
+            UpdateStaticScene(Board);
+            BuiltColumns = Board.columns();
+            BuiltRows = Board.rows();
+        }
+        BuiltBrickCount = static_cast<int32>(Board.bricks().size());
         RebuildBricks(Board);
         BuiltRevision = Board.revision();
         LastBrickRebuild = Now;
+    } else {
+        const bool bRevisionChanged = Board.revision() != BuiltRevision;
+        // Incremental updates touch only dirty bricks, so we update every frame without a 30 Hz throttle.
+        if (bRevisionChanged || bBricksAnimating) {
+            UpdateDirtyBricks(Board);
+            BuiltRevision = Board.revision();
+            LastBrickRebuild = Now;
+        }
     }
-    if (Board.columns() != BuiltColumns || Board.rows() != BuiltRows) {
-        UpdateStaticScene(Board);
-        BuiltColumns = Board.columns();
-        BuiltRows = Board.rows();
-    }
+
     FrameCamera(Board, Layout, ViewportSize);
 }
 
@@ -257,25 +303,25 @@ void FBallsBoardView::RebuildBricks(const BrickBoard& Board) {
     TArray<FTransform> Instances[ballColorCount];
     bBricksAnimating = false;
     const std::vector<Brick>& Bricks = Board.bricks();
-    for (int32 Index = 0; Index < static_cast<int32>(Bricks.size()); ++Index) {
+    const int32 BrickCount = static_cast<int32>(Bricks.size());
+    CachedBricks.Empty(BrickCount);
+    CachedBricks.SetNum(BrickCount);
+
+    TArray<FTransform> CellTransforms;
+    for (int32 Index = 0; Index < BrickCount; ++Index) {
         const Brick& Piece = Bricks[Index];
-        if (!Piece.isAlive()) {
-            continue;
+        const int32 Color = toIndex(Piece.color);
+        const int32 FirstInstance = Instances[Color].Num();
+        const int32 CellCount = static_cast<int32>(Piece.cells.size());
+        CachedBricks[Index] = FCachedBrick{Color, FirstInstance, CellCount, MakeSignature(Piece)};
+
+        if (Piece.isAlive()) {
+            bBricksAnimating |= Piece.riseOffset != 0.0f || Piece.hitFlash > 0.0f;
         }
-        bBricksAnimating |= Piece.riseOffset != 0.0f || Piece.hitFlash > 0.0f;
-        const double Front = BrickFlashPopCells * Piece.hitFlash;
-        const double Back = -BrickDepthCells;
-        for (const BrickCell& Cell : Piece.cells) {
-            const FCellEdges Edges = OpenEdges(Board, Index, Cell);
-            const double Left = Cell.column + (Edges.bLeft ? CellInset : 0.0);
-            const double Right = Cell.column + 1.0 - (Edges.bRight ? CellInset : 0.0);
-            const double Top = Cell.row + Piece.riseOffset + (Edges.bTop ? CellInset : 0.0);
-            const double Bottom = Cell.row + 1.0 + Piece.riseOffset - (Edges.bBottom ? CellInset : 0.0);
-            const FVector Center = BoardToWorld((Left + Right) * 0.5, (Top + Bottom) * 0.5, (Front + Back) * 0.5);
-            Instances[toIndex(Piece.color)].Emplace(FQuat::Identity, Center,
-                                                     FVector(Right - Left, Front - Back, Bottom - Top));
-        }
+        BuildBrickTransforms(Board, Index, Piece, CellTransforms);
+        Instances[Color].Append(CellTransforms);
     }
+
     int32 TotalInstances = 0;
     for (int32 Color = 0; Color < ballColorCount; ++Color) {
         UInstancedStaticMeshComponent* Mesh = BrickMeshes[Color].Get();
@@ -295,11 +341,96 @@ void FBallsBoardView::RebuildBricks(const BrickBoard& Board) {
         UE_LOG(LogTemp, Verbose,
                TEXT("BallsBoardView: revision %llu, %d bricks, %d instances; mesh %s, material %s, visible %d, "
                     "actor hidden %d, bounds %s"),
-               static_cast<unsigned long long>(Board.revision()), static_cast<int32>(Bricks.size()), TotalInstances,
+               static_cast<unsigned long long>(Board.revision()), BrickCount, TotalInstances,
                First->GetStaticMesh() ? TEXT("ok") : TEXT("null"),
                First->GetMaterial(0) ? TEXT("ok") : TEXT("null"), First->IsVisible(), BoardActor->IsHidden(),
                *Bounds.ToString());
         bLoggedBricks = true;
+    }
+}
+
+void FBallsBoardView::UpdateDirtyBricks(const BrickBoard& Board) {
+    const std::vector<Brick>& Bricks = Board.bricks();
+    const int32 BrickCount = static_cast<int32>(Bricks.size());
+    if (BrickCount != CachedBricks.Num()) {
+        RebuildBricks(Board);
+        return;
+    }
+
+    bBricksAnimating = false;
+    TBitArray<> DirtyFlags(false, BrickCount);
+    TArray<int32> DirtyBrickIndices;
+    DirtyBrickIndices.Reserve(64);
+
+    for (int32 Index = 0; Index < BrickCount; ++Index) {
+        const Brick& Piece = Bricks[Index];
+        if (Piece.isAlive()) {
+            bBricksAnimating |= Piece.riseOffset != 0.0f || Piece.hitFlash > 0.0f;
+        }
+
+        const FBrickSignature CurrentSig = MakeSignature(Piece);
+        const FCachedBrick& Cached = CachedBricks[Index];
+
+        if (CurrentSig != Cached.Signature) {
+            if (!DirtyFlags[Index]) {
+                DirtyFlags[Index] = true;
+                DirtyBrickIndices.Add(Index);
+            }
+
+            // When a brick dies, also recompute its neighbours (the bricks at the 4 cells adjacent
+            // to each of its cells, via Board.brickAt(column, row)), since OpenEdges insets depend on neighbours.
+            if (Cached.Signature.bAlive && !CurrentSig.bAlive) {
+                for (const BrickCell& Cell : Piece.cells) {
+                    const int32 NeighborCoords[4][2] = {
+                        {Cell.column - 1, Cell.row},
+                        {Cell.column + 1, Cell.row},
+                        {Cell.column, Cell.row - 1},
+                        {Cell.column, Cell.row + 1}
+                    };
+                    for (const auto& [Col, Row] : NeighborCoords) {
+                        if (Col >= 0 && Col < Board.columns() && Row >= 0 && Row < Board.rows()) {
+                            const int32 NeighborIndex = Board.brickAt(Col, Row);
+                            if (NeighborIndex >= 0 && NeighborIndex < BrickCount && NeighborIndex != Index) {
+                                if (!DirtyFlags[NeighborIndex]) {
+                                    DirtyFlags[NeighborIndex] = true;
+                                    DirtyBrickIndices.Add(NeighborIndex);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (DirtyBrickIndices.IsEmpty()) {
+        return;
+    }
+
+    bool bMeshDirty[ballColorCount] = {false};
+    TArray<FTransform> CellTransforms;
+
+    for (int32 Index : DirtyBrickIndices) {
+        const Brick& Piece = Bricks[Index];
+        FCachedBrick& Cached = CachedBricks[Index];
+        Cached.Signature = MakeSignature(Piece);
+
+        BuildBrickTransforms(Board, Index, Piece, CellTransforms);
+        if (!CellTransforms.IsEmpty()) {
+            UInstancedStaticMeshComponent* Mesh = BrickMeshes[Cached.Color].Get();
+            if (CellTransforms.Num() == 1) {
+                Mesh->UpdateInstanceTransform(Cached.FirstInstance, CellTransforms[0], false, false);
+            } else {
+                Mesh->BatchUpdateInstancesTransforms(Cached.FirstInstance, CellTransforms, false, false);
+            }
+            bMeshDirty[Cached.Color] = true;
+        }
+    }
+
+    for (int32 Color = 0; Color < ballColorCount; ++Color) {
+        if (bMeshDirty[Color]) {
+            BrickMeshes[Color]->MarkRenderStateDirty();
+        }
     }
 }
 
@@ -386,7 +517,7 @@ void FBallsBoardView::FrameCamera(const BrickBoard& Board, const FBallsGameplayL
 // slots (the same trick the SDL frontend uses).
 float FBallsBoardView::VisibilitySlotCells(float BallRadius, const FBallsGameplayLayout& Layout, float DpiScale) {
     const float CellPixels = Layout.CellSize * DpiScale;
-    return FMath::Max(BallRadius * VisibilitySlotPerRadius, 1.0f / FMath::Max(CellPixels, 1.0f));
+    return visibilitySlotSize(BallRadius, CellPixels);
 }
 
 void FBallsBoardView::SubmitBalls(Simulation& Sim, const FBallsGameplayLayout& Layout, float DpiScale) {

@@ -89,4 +89,7 @@ private:
     FBallsApp* App = nullptr;
     GameMode Mode = GameMode::Normal;
     TSharedPtr<SScrollBox> List;
+    // The rows last built (names and highlights): the folder is polled twice a second, and rebuilding unchanged rows
+    // made the list blink and lose its hover each time.
+    std::string BuiltRows;
 };

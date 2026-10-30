@@ -1,4 +1,6 @@
 #include "render/IRenderer.h"
+
+#include "sim/PhysicsBackend.h"
 #include "render/nvrhi/GraphicsDevice.h"
 #include "render/nvrhi/ImguiNvrhi.h"
 #include "render/nvrhi/ShaderBytecode.h"
@@ -454,7 +456,7 @@ void NvrhiRenderer::dispatch(nvrhi::IComputePipeline* pipeline, nvrhi::IBindingS
 void NvrhiRenderer::runBallVisibility() {
     const BallDrawRequest& request = pendingBalls;
     const float slotSize =
-        std::max(request.radiusCells * request.slotsPerRadius, 1.0f / std::max(request.cellPixels, 1.0f));
+        visibilitySlotSize(request.radiusCells, request.cellPixels);
     const uint32_t gridWidth = std::max<uint32_t>(static_cast<uint32_t>(std::ceil(request.fieldWidth / slotSize)), 1);
     const uint32_t gridHeight = std::max<uint32_t>(static_cast<uint32_t>(std::ceil(request.fieldHeight / slotSize)), 1);
     const size_t gridCells = static_cast<size_t>(gridWidth) * gridHeight;

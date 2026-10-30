@@ -56,6 +56,8 @@ inline constexpr std::string_view allLaunchersReleased = "All launchers released
 
 // "1,234,567".
 std::string groupedCount(BallCount value);
+// A brick's hits left as its label: whole below 10,000, then three significant digits with K, M or B ("12.4K").
+std::string brickHitLabel(int64_t hitsLeft);
 
 // Settings panel.
 std::vector<UiOption> orientationOptions(LayoutOrientation current);

@@ -37,8 +37,34 @@ public:
     void ApplyGraphics(const FBallsGraphicsSettings& Settings);
 
 private:
+    struct FBrickSignature {
+        bool bAlive = false;
+        float HitFlash = 0.0f;
+        float RiseOffset = 0.0f;
+        int32 RowSum = 0;
+
+        bool operator==(const FBrickSignature& Other) const {
+            return bAlive == Other.bAlive && HitFlash == Other.HitFlash &&
+                   RiseOffset == Other.RiseOffset && RowSum == Other.RowSum;
+        }
+        bool operator!=(const FBrickSignature& Other) const {
+            return !(*this == Other);
+        }
+    };
+
+    struct FCachedBrick {
+        int32 Color = 0;
+        int32 FirstInstance = 0;
+        int32 CellCount = 0;
+        FBrickSignature Signature;
+    };
+
     void SpawnScene();
     void RebuildBricks(const BrickBoard& Board);
+    void UpdateDirtyBricks(const BrickBoard& Board);
+    static FBrickSignature MakeSignature(const Brick& Piece);
+    static void BuildBrickTransforms(const BrickBoard& Board, int32 BrickIndex, const Brick& Piece,
+                                     TArray<FTransform>& OutTransforms);
     // Backdrop, outside field and walls depend only on the board size, not on its bricks.
     void UpdateStaticScene(const BrickBoard& Board);
     void FrameCamera(const BrickBoard& Board, const FBallsGameplayLayout& Layout, FVector2D ViewportSize);
@@ -55,10 +81,12 @@ private:
     TArray<TStrongObjectPtr<UInstancedStaticMeshComponent>> BrickMeshes;
     TArray<TStrongObjectPtr<AActor>> SceneActors;
     FBallsRenderer BallRenderer;
+    TArray<FCachedBrick> CachedBricks;
     float BallBrightness = 2.2f;
     uint64 BuiltRevision = ~0ull;
     int BuiltColumns = -1;
     int BuiltRows = -1;
+    int BuiltBrickCount = -1;
     double LastBrickRebuild = 0.0;
     bool bBricksAnimating = false;
     bool bVisible = false;

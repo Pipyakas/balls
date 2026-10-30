@@ -4,6 +4,7 @@
 #include "Engine/World.h"
 #include "HAL/IConsoleManager.h"
 #include "DataDrivenShaderPlatformInfo.h"
+#include "DynamicResolutionState.h"
 #include "RHI.h"
 #include "RHIStrings.h"
 #include "RenderUtils.h"
@@ -320,6 +321,15 @@ TArray<TPair<FString, FString>> DebugRows(const FBallsGraphicsSettings& Settings
     const bool bDynamic = Read(TEXT("r.DynamicRes.OperationMode")) > 0.0f;
     const int32 Gi = static_cast<int32>(Read(TEXT("r.DynamicGlobalIlluminationMethod")));
     const int32 Reflections = static_cast<int32>(Read(TEXT("r.ReflectionMethod")));
+    // With dynamic resolution the frame is drawn at whatever fraction the engine chose this frame, not at the setting.
+    float RenderPercentage = Percentage;
+    if (bDynamic && GEngine) {
+        FDynamicResolutionStateInfos Infos;
+        GEngine->GetDynamicResolutionCurrentStateInfos(Infos);
+        if (Infos.Status == EDynamicResolutionStatus::Enabled || Infos.Status == EDynamicResolutionStatus::DebugForceEnabled) {
+            RenderPercentage = Infos.ResolutionFractionApproximations[GDynamicPrimaryResolutionFraction] * 100.0f;
+        }
+    }
     TArray<TPair<FString, FString>> Rows = {
         {TEXT("Preset"), Level ? PresetName(*Level) : FString(TEXT("Custom"))},
         {TEXT("Shader platform"), FString::Printf(TEXT("%s (%s)"),
@@ -329,9 +339,10 @@ TArray<TPair<FString, FString>> DebugRows(const FBallsGraphicsSettings& Settings
         {TEXT("Resolution"), bDynamic ? FString::Printf(TEXT("dynamic %d-%.0f%%, %d FPS target"), MinimumDynamicScreenPercentage,
                                                         Percentage, Settings.TargetFps)
                                       : FString::Printf(TEXT("%.0f%%"), Percentage)},
-        {TEXT("Render size"), FString::Printf(TEXT("%dx%d of %dx%d"), FMath::RoundToInt(ViewportPixels.X * Percentage / 100.0f),
-                                              FMath::RoundToInt(ViewportPixels.Y * Percentage / 100.0f), ViewportPixels.X,
-                                              ViewportPixels.Y)},
+        {TEXT("Render size"), FString::Printf(TEXT("%dx%d of %dx%d (%.0f%%)"),
+                                              FMath::RoundToInt(ViewportPixels.X * RenderPercentage / 100.0f),
+                                              FMath::RoundToInt(ViewportPixels.Y * RenderPercentage / 100.0f),
+                                              ViewportPixels.X, ViewportPixels.Y, RenderPercentage)},
         {TEXT("Global illumination"), Gi == 1 ? TEXT("Lumen") : Gi == 2 ? TEXT("Screen space") : TEXT("Off")},
         {TEXT("Reflections"), Reflections == 1 ? TEXT("Lumen") : Reflections == 2 ? TEXT("Screen space") : TEXT("Off")},
         {TEXT("Shadows"), Settings.Shadows == EBallsShadows::Off ? FString(TEXT("Off"))
