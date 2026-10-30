@@ -570,6 +570,9 @@ void runRawStep(const BrickLayout& layout, BackendKind kind, size_t ballCount, i
     std::printf("%-7s collisions=%d balls=%9zu  %8.3f ms/tick  %8.1f M ball-steps/s  %s/tick=%zu\n",
                 targetLabel(kind).c_str(), collisions ? 1 : 0, ballCount, msPerTick,
                 ballStepsPerSecond / 1e6, resolvesOnDevice ? "kills" : "hits", eventTotal / static_cast<size_t>(ticks));
+    if (!backend.faultMessage().empty()) {
+        std::printf("   fault: %.*s\n", static_cast<int>(backend.faultMessage().size()), backend.faultMessage().data());
+    }
     if (const auto* composer = dynamic_cast<const DeviceComposer*>(&backend)) {
         printComposerParts(*composer);
     }
