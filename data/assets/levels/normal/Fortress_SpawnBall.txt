@@ -1,0 +1,11 @@
+[Board]
+Width 3
+Height 3
+
+[Layout]
+Red(6) Orange(6) Yellow(6)
+Green(6) Blue(6) Indigo(6)
+Violet(6) Red(6) Orange(6)
+Yellow(6) Green(5) Blue(6)
+Indigo(4) Violet(4) Red(2)
+Orange(2) Blue(1) Empty

@@ -1,0 +1,7 @@
+[Board]
+Width 3
+Height 2
+
+[Layout]
+Red(5) Green(5) Blue(4)
+Blue(5) Red(5) Green(4)

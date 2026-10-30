@@ -5,12 +5,16 @@
 
 #include <filesystem>
 #include <fstream>
+#include <string_view>
 
 namespace {
 
 using namespace std::chrono_literals;
 
-// Two copies of the bundled Normal levels and one Performance level in a scratch folder per test.
+constexpr std::string_view sampleLevelPrefix = "DA_";
+
+// Copies of the samples' two Normal levels and one Performance level in a scratch folder per test, so the
+// tests don't change when levels are added.
 struct FlowFolders {
     std::filesystem::path root;
     std::filesystem::path normal;
@@ -24,7 +28,9 @@ struct FlowFolders {
         std::filesystem::create_directories(performance);
         const std::filesystem::path assets = std::filesystem::path(BALLS_ASSET_DIR) / "levels";
         for (const auto& entry : std::filesystem::directory_iterator(assets / "normal")) {
-            std::filesystem::copy_file(entry.path(), normal / entry.path().filename());
+            if (entry.path().filename().string().starts_with(sampleLevelPrefix)) {
+                std::filesystem::copy_file(entry.path(), normal / entry.path().filename());
+            }
         }
         const LevelFiles firstPerformance = findLevels(assets / "performance").front();
         std::filesystem::copy_file(firstPerformance.bricksPath, performance / firstPerformance.bricksPath.filename());

@@ -47,6 +47,23 @@ TEST_CASE("the Unlimited level holds more balls than any machine's capacity, eve
     EXPECT(total > largestCapacity);
 }
 
+TEST_CASE("the team's Normal levels release exactly one ball per brick hit from 3 launcher columns") {
+    constexpr int launcherColumns = 3;
+    for (const char* name : {"Warmup", "Pillars", "Stalactites", "Fortress"}) {
+        auto level = loadLevel(levelFilesFor(normalLevels, name));
+        EXPECT(level.hasValue());
+        EXPECT(level->launchers.columns == launcherColumns);
+        const ColorTally hits = countBrickHitsByColor(level->bricks);
+        const ColorTally balls = countBallsByColor(level->launchers);
+        int colors = 0;
+        for (int color = 0; color < ballColorCount; ++color) {
+            EXPECT(balls[color] == hits[color]);
+            colors += hits[color] > 0 ? 1 : 0;
+        }
+        EXPECT(colors >= 3);
+    }
+}
+
 TEST_CASE("multi-cell bricks share one id") {
     auto level = loadLevel(levelFilesFor(normalLevels, "DA_49Bricks"));
     EXPECT(level.hasValue());
