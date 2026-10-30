@@ -1244,7 +1244,9 @@ TSharedRef<SWidget> SBallsGameplayHud::MakeAdvancedSettings(bool bPerformance) {
                          }),
                          [Owner] { Owner->ShowGraphicsPage(true); }, ControlLabelSize));
     };
-    AddPhysics();
+    if (backendChoiceOffered()) {
+        AddPhysics();
+    }
     if (bPerformance) {
         AddDevices();
         AddGraphics();

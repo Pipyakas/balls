@@ -492,7 +492,9 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
     columnCursors = {headerY + advancedHeaderHeight + groupGap, headerY + advancedHeaderHeight + groupGap};
     if (advancedOpen) {
         const float backendHeight = (controlRowHeight + controlGap) * selectableBackends().size() - controlGap;
-        drawBackendList(group("Physics", backendHeight), view->backend);
+        if (backendChoiceOffered()) {
+            drawBackendList(group("Physics", backendHeight), view->backend);
+        }
         if (showsDevicePicks(shownBackend())) {
             drawDevicePicker(group("Devices", devicePickerHeight(gameplayDevicePicker)));
         }
@@ -522,8 +524,11 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
 float GameplayScreen::normalContentHeight() const {
     const float launcherHeight = 320.0f;
     const float advancedHeight = app.settings().advancedSettings
-                                     ? groupGap + groupLabelHeight +
-                                           (controlRowHeight + controlGap) * selectableBackends().size() - controlGap +
+                                     ? (backendChoiceOffered()
+                                            ? groupGap + groupLabelHeight +
+                                                  (controlRowHeight + controlGap) * selectableBackends().size() -
+                                                  controlGap
+                                            : 0.0f) +
                                            (showsDevicePicks(shownBackend())
                                                 ? groupGap + groupLabelHeight + devicePickerHeight(gameplayDevicePicker)
                                                 : 0.0f) +
@@ -602,11 +607,13 @@ void GameplayScreen::drawNormalControls(Rect area) {
     }
     cursor += advancedHeaderHeight + groupGap;
     if (advancedOpen) {
-        ui::drawText("Physics", {inner.x, cursor}, 20.0f, palette::textMuted);
-        cursor += groupLabelHeight;
-        const float backendHeight = (controlRowHeight + controlGap) * selectableBackends().size() - controlGap;
-        drawBackendList({inner.x, cursor, width, backendHeight}, view->backend);
-        cursor += backendHeight + groupGap;
+        if (backendChoiceOffered()) {
+            ui::drawText("Physics", {inner.x, cursor}, 20.0f, palette::textMuted);
+            cursor += groupLabelHeight;
+            const float backendHeight = (controlRowHeight + controlGap) * selectableBackends().size() - controlGap;
+            drawBackendList({inner.x, cursor, width, backendHeight}, view->backend);
+            cursor += backendHeight + groupGap;
+        }
         if (ballCollisionsOffered()) {
             ui::drawText("Ball collisions", {inner.x, cursor}, 20.0f, palette::textMuted);
             cursor += groupLabelHeight;

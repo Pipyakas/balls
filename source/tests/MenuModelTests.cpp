@@ -102,6 +102,10 @@ TEST_CASE("ball collisions offer Off and On with the game's hint") {
     EXPECT(ballCollisionsOffered() == isBackendSelectable(BackendKind::Scalar));
 }
 
+TEST_CASE("backendChoiceOffered matches the number of selectable backends") {
+    EXPECT(backendChoiceOffered() == (selectableBackends().size() > 1));
+}
+
 TEST_CASE("the debug gadget shows the game's rows and hides backend rows while Advanced Settings is closed") {
     SessionView view;
     view.mode = GameMode::Performance;

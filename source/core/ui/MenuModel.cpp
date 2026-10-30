@@ -183,6 +183,8 @@ std::vector<BackendRow> gameplayBackendRows(const SessionView& view) {
 
 bool ballCollisionsOffered() { return isBackendSelectable(BackendKind::Scalar); }
 
+bool backendChoiceOffered() { return selectableBackends().size() > 1; }
+
 BallCollisionsChoice ballCollisionsChoice(bool requested) {
     const bool possible = isBackendSelectable(BackendKind::Scalar);
     BallCollisionsChoice choice{{{"Off", true, !requested}, {"On", possible, requested}}};
