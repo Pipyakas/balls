@@ -5,7 +5,7 @@ Shader "Balls/Procedural"
 {
     Properties
     {
-        _Radius ("Ball radius (cells)", Float) = 0.2
+        _Radius ("Ball radius (cells)", Float) = 0.25
     }
 
     SubShader

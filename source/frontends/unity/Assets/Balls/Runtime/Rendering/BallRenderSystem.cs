@@ -17,7 +17,7 @@ namespace Balls.Rendering
     public partial class BallRenderSystem : SystemBase
     {
         // One ball radius in cells, matching SimulationTuning::ballRadius in the core.
-        private const float BallRadius = 0.2f;
+        private const float BallRadius = 0.25f;
 
         private GraphicsBuffer instances;
         private GraphicsBuffer args;

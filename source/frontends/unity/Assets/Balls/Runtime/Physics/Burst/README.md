@@ -63,7 +63,7 @@ Step parameters are constructed in C++ by `Simulation::stepParams(int substeps)`
 | Field Name | C++ Type | C# Type | Source Value / Calculation in `Simulation.cpp` | Semantic Meaning |
 |---|---|---|---|---|
 | `deltaTime` | `float` | `float` | `settings.tickSeconds` (default: `1.0f / 120.0f`) | Duration of one physics simulation tick in seconds. |
-| `radius` | `float` | `float` | `settings.ballRadius` (default: `0.2f`) | Ball collision radius in grid cell units. |
+| `radius` | `float` | `float` | `settings.ballRadius` (default: `0.25f`) | Ball collision radius in grid cell units. |
 | `speed` | `float` | `float` | `settings.ballSpeed` (default: `14.0f`) | Constant ball speed in grid cell units per second. |
 | `fieldWidth` | `float` | `float` | `static_cast<float>(brickBoard.columns())` | Width of the playable board in cell units. |
 | `fieldHeight` | `float` | `float` | `static_cast<float>(brickBoard.rows())` | Height of the playable board in cell units. |

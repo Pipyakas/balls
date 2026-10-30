@@ -33,7 +33,7 @@ struct BallDrawRequest {
     float originX = 0.0f;
     float originY = 0.0f;
     float cellPixels = 1.0f;
-    float radiusCells = 0.2f;
+    float radiusCells = 0.25f;
     float slotsPerRadius = 1.6f;
     float clipX = 0.0f;
     float clipY = 0.0f;

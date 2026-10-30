@@ -61,7 +61,7 @@ struct SessionView {
     std::shared_ptr<const BrickBoard> board;
     float launchX = 0.0f;
     float launchY = 0.0f;
-    float ballRadius = 0.2f;
+    float ballRadius = 0.25f;
     BallFrame balls;
 
     // How long the physics thread took for its last frame, and how many frames it completed per second. With the
