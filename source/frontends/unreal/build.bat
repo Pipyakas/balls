@@ -4,7 +4,7 @@ rem   build.bat               the main variant (win64 on Windows)
 rem   build.bat <variant>     one of the variants below
 rem   build.bat --variants    lists them as id;description, which the root build.bat menu reads
 rem   build.bat --setup [variant]   only checks this PC can build it, naming what is missing
-rem Unreal Engine 5.8 (a stock install or the fork) is expected at UE_ROOT (default D:\Unreal\UnrealEngine); its
+rem Unreal Engine 5.8 (a stock install or the fork) is taken from UE_ROOT, else found by FindUnrealEngine.ps1; its
 rem Linux toolchain at LINUX_MULTIARCH_ROOT (default D:\UnrealToolchains\v26_clang-20.1.8-rockylinux8). The .uproject
 rem pre-build step builds the core and the physics plugins for the target platform before UAT cooks.
 cd /d "%~dp0"
@@ -47,7 +47,16 @@ set "LAUNCHER=Balls.sh"
 goto :check
 
 :check
-if not defined UE_ROOT set "UE_ROOT=D:\Unreal\UnrealEngine"
+rem Printed at the end, so it is made absolute: a path with ..\ in it does not open from every tool.
+for %%I in ("%DIST_DIR%") do set "DIST_DIR=%%~fI"
+if not defined UE_ROOT (
+    for /f "usebackq delims=" %%R in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0FindUnrealEngine.ps1"`) do set "UE_ROOT=%%R"
+)
+if not defined UE_ROOT (
+    echo Unreal Engine 5.8 not found. Set UE_ROOT to its folder, the one that contains Engine\.
+    cmd /c exit 1
+    goto :eof
+)
 if not exist "%UE_ROOT%\Engine\Build\BatchFiles\RunUAT.bat" (
     echo Unreal Engine not found at "%UE_ROOT%". Set UE_ROOT to an Unreal Engine 5.8 install.
     cmd /c exit 1

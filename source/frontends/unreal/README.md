@@ -51,7 +51,9 @@ D:\Unreal\UnrealEngine\Engine\Binaries\Win64\UnrealEditor.exe "$PWD\source\front
   `.uproject` pre-build steps for a cross-compiled target, so the script builds the core and the plugins through
   `BuildCoreLinux.bat` itself.
 
-Set `UE_ROOT` if the engine is not at `D:\Unreal\UnrealEngine`; a stock Unreal Engine 5.8 install works (checked with
+Without `UE_ROOT`, the script finds a 5.8 engine at `D:\Unreal\UnrealEngine`, in the launcher's registered
+installs and source builds, or at `UE_5.8`, `Unreal\UE_5.8` or `Program Files\Epic Games\UE_5.8` on any drive;
+set `UE_ROOT` for an engine anywhere else. A stock Unreal Engine 5.8 install works (checked with
 5.8.4). The first run compiles the game target and
 takes about an hour; later runs are incremental. The script also copies `data/assets` to the packaged game's
 `Balls\assets`, where it looks for levels, and the physics plugins stage next to the executable.
