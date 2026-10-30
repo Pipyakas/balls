@@ -77,6 +77,6 @@ build.bat, build.sh   the one build entry point for every front end and platform
 ## Git workflow
 
 - `main` is the only trunk. Side work goes on `feature/*`, `fix/*`, `perf/*`, `refactor/*`, `build/*` or `docs/*`
-  branches, merged into `main` with `--no-ff`. There is no `develop` branch.
+  branches, merged into `main` with `--no-ff`.
 - Commit titles use `feat` / `fix` / `perf` / `refactor` / `build` / `docs` / `test` / `chore` with a scope, for
   example `fix(physics): ...`, and one logical change per commit.
