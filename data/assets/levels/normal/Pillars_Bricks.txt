@@ -1,0 +1,42 @@
+[Board]
+Width 8
+Height 6
+PlayableHeight 16
+
+[Layout]
+0 0 0 1 2 3 3 3
+4 5 5 1 2 6 6 7
+4 8 9 10 11 12 13 7
+14 8 15 10 11 16 13 17
+14 18 18 19 20 21 21 17
+22 23 24 -1 -1 25 26 27
+
+[BrickTypes]
+0 Red 3
+1 Yellow 2
+2 Green 2
+3 Violet 3
+4 Green 2
+5 Red 2
+6 Yellow 2
+7 Red 2
+8 Violet 2
+9 Yellow 1
+10 Red 2
+11 Violet 2
+12 Green 1
+13 Yellow 2
+14 Violet 2
+15 Green 1
+16 Red 1
+17 Green 2
+18 Yellow 2
+19 Green 1
+20 Yellow 1
+21 Violet 2
+22 Red 1
+23 Green 1
+24 Violet 1
+25 Yellow 1
+26 Red 1
+27 Violet 1
