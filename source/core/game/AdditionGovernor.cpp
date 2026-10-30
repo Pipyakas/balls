@@ -7,7 +7,7 @@ namespace {
 
 constexpr double targetFramesPerSecond = 60.0;
 // The share of 1/60 s the physics frame plans to use; the rest absorbs a frame that costs more than the last one.
-constexpr double freeFlightBudgetShare = 0.75;
+constexpr double freeFlightBudgetShare = 0.85;
 constexpr double steppingBudgetShare = 0.5;
 // Below this many balls a step is mostly fixed cost, so its per-ball cost is taken over at least this many.
 constexpr BallCount smallestScaledBalls = 1 << 16;

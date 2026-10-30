@@ -13,7 +13,11 @@ public:
     void setBallsPerSecond(float rate) { ballsPerSecond = rate; }
     // Interleaved streams share each frame's balls instead of emptying one launcher before the next.
     void setInterleaved(bool enabled) { interleaved = enabled; }
-    void update(float deltaTime, Simulation& simulation, BallCount capacityLeft);
+    // The balls this frame may release: the spawn rate's share of deltaTime, or at the unlimited rate all of
+    // capacityLeft, which the caller bounds by what fits the frame.
+    BallCount accrue(float deltaTime, BallCount capacityLeft);
+    // Releases up to count of them from the queued streams and returns how many it released.
+    BallCount release(Simulation& simulation, BallCount count);
     void clear();
 
     BallCount pendingBalls() const { return pending; }
