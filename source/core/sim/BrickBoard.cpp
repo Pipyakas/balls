@@ -7,6 +7,9 @@ namespace {
 
 constexpr float riseSpeedCellsPerSecond = 10.0f;
 constexpr int32_t emptyCell = -1;
+// Brick ids up to this many times the number of types, plus the floor, are looked up in arrays.
+constexpr size_t denseIdSlack = 4;
+constexpr size_t denseIdFloor = 1 << 16;
 constexpr uint32_t changeKindShift = 30;
 constexpr uint32_t changeIndexMask = (1u << changeKindShift) - 1;
 // Past this many unread entries the log is dropped; a follower that far behind copies the whole board instead.
@@ -23,25 +26,63 @@ void BrickBoard::load(const BrickLayout& layout) {
     remainingHits = {};
     image.reset(columnCount, rowCount);
 
-    std::unordered_map<int, int> brickIndexById;
-    const auto typesById = layout.typesById();
+    // Brick ids are almost always 0..N-1: then a brick's index and type are looked up in arrays, not in hash maps
+    // of tens of millions of entries.
+    int largestId = -1;
+    bool negativeId = false;
+    for (const BrickType& type : layout.types) {
+        largestId = std::max(largestId, type.id);
+        negativeId = negativeId || type.id < 0;
+    }
+    const bool denseIds =
+        !negativeId && static_cast<size_t>(largestId) < layout.types.size() * denseIdSlack + denseIdFloor;
+    std::vector<const BrickType*> typeById;
+    std::vector<int> indexById;
+    std::unordered_map<int, const BrickType*> sparseTypes;
+    std::unordered_map<int, int> sparseIndices;
+    if (denseIds) {
+        typeById.assign(static_cast<size_t>(largestId) + 1, nullptr);
+        indexById.assign(static_cast<size_t>(largestId) + 1, emptyCell);
+        for (const BrickType& type : layout.types) {
+            if (!typeById[static_cast<size_t>(type.id)]) {
+                typeById[static_cast<size_t>(type.id)] = &type;
+            }
+        }
+    } else {
+        sparseTypes = layout.typesById();
+    }
+    const auto typeOf = [&](int id) -> const BrickType* {
+        if (id == emptyBrickId) {
+            return nullptr;
+        }
+        if (denseIds) {
+            return id >= 0 && id <= largestId ? typeById[static_cast<size_t>(id)] : nullptr;
+        }
+        const auto entry = sparseTypes.find(id);
+        return entry == sparseTypes.end() ? nullptr : entry->second;
+    };
+    const auto indexSlot = [&](int id) -> int& {
+        return denseIds ? indexById[static_cast<size_t>(id)] : sparseIndices.try_emplace(id, emptyCell).first->second;
+    };
+    brickList.reserve(layout.types.size());
+    colors.reserve(layout.types.size());
     for (int row = 0; row < layout.height; ++row) {
         for (int column = 0; column < layout.width; ++column) {
             const int id = layout.cellId(column, row);
-            const auto typeEntry = id == emptyBrickId ? typesById.end() : typesById.find(id);
-            if (typeEntry == typesById.end()) {
+            const BrickType* type = typeOf(id);
+            if (!type) {
                 continue;
             }
-            const BrickType* type = typeEntry->second;
-            auto [it, inserted] = brickIndexById.try_emplace(id, static_cast<int>(brickList.size()));
-            if (inserted) {
+            int& index = indexSlot(id);
+            if (index == emptyCell) {
+                index = static_cast<int>(brickList.size());
                 brickList.push_back({id, type->color, type->hits, type->hits, {}, 0.0f, 0.0f});
                 colors.push_back(toIndex(type->color));
                 remainingHits[toIndex(type->color)] += type->hits;
             }
-            brickList[it->second].cells.push_back({column, row});
-            cells[paddedIndex(column, row)] = it->second;
-            image.set(column, row, shadeOf(it->second));
+            brickList[static_cast<size_t>(index)].cells.push_back({column, row});
+            cells[paddedIndex(column, row)] = index;
+            image.set(column, row, shadeOf(index));
         }
     }
     aliveCount = static_cast<int>(brickList.size());
