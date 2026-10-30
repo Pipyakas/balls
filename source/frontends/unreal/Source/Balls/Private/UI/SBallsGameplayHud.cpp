@@ -46,6 +46,8 @@ constexpr float LauncherGapShare = 0.18f;
 constexpr float MaximumLauncherSize = 110.0f;
 constexpr float BackRowFade = 0.55f;
 constexpr float MinimumLabelPixels = 9.0f;
+// The most of a brick's width its label may take.
+constexpr float LabelWidthShare = 0.9f;
 // A touch that moves further than this (Slate units) scrolls the launcher row instead of picking a launcher.
 constexpr float DragThreshold = 8.0f;
 
@@ -613,11 +615,17 @@ private:
             }
             const FSlateRect Bounds = BrickLabelArea(Piece, Layout);
             const FVector2D BoundsSize = Bounds.GetSize();
-            const float LabelSize = static_cast<float>(FMath::Min(BoundsSize.X, BoundsSize.Y)) * 0.55f;
+            const FString Label = BallsText::FromUtf8(brickHitLabel(Piece.hitsLeft));
+            // The label shrinks to fit the brick's width, as in the SDL front end, and is left out once that makes
+            // it unreadable.
+            float LabelSize = static_cast<float>(FMath::Min(BoundsSize.X, BoundsSize.Y)) * 0.55f;
+            const float LabelWidth = static_cast<float>(BallsStyle::Measure(Label, BallsStyle::Font(LabelSize, true)).X);
+            if (LabelWidth > BoundsSize.X * LabelWidthShare) {
+                LabelSize *= static_cast<float>(BoundsSize.X) * LabelWidthShare / LabelWidth;
+            }
             if (LabelSize < MinimumLabelPixels) {
                 continue;
             }
-            const FString Label = FString::FromInt(Piece.hitsLeft);
             const FSlateFontInfo Font = BallsStyle::Font(LabelSize, true);
             DrawTextInRect(Out, Layer, Geometry, Label, Bounds.OffsetBy(FVector2D(1.5)), Font,
                            BallsPalette::Linear(BallsPalette::Shade(BallsPalette::Brick(Piece.color), 0.4f)));

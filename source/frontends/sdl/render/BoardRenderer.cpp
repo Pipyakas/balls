@@ -1,6 +1,7 @@
 #include "render/BoardRenderer.h"
 
 #include "render/Palette.h"
+#include "ui/MenuModel.h"
 #include "ui/Widgets.h"
 
 #include <algorithm>
@@ -13,6 +14,8 @@ namespace {
 constexpr float cellInset = 0.06f;
 constexpr float bevelShare = 0.16f;
 constexpr float minimumLabelPixels = 9.0f;
+// The most of a brick's width its label may take.
+constexpr float labelWidthShare = 0.9f;
 constexpr float minimumBevelPixels = 4.0f;
 constexpr float boardFrameWidth = 1.0f;
 // A hit's ring spreads to this many ball radii while the ball shrinks away.
@@ -174,11 +177,16 @@ void drawBricks(const BrickBoard& board, const BoardTransform& transform) {
             continue;
         }
         const Rect bounds = labelArea(brick, transform);
-        const float labelSize = std::min(bounds.width, bounds.height) * 0.55f;
+        const std::string label = brickHitLabel(brick.hitsLeft);
+        // The label shrinks to fit the brick's width, and is left out once that makes it unreadable.
+        float labelSize = std::min(bounds.width, bounds.height) * 0.55f;
+        const float labelWidth = ui::measureText(label, labelSize).x;
+        if (labelWidth > bounds.width * labelWidthShare) {
+            labelSize *= bounds.width * labelWidthShare / labelWidth;
+        }
         if (labelSize < minimumLabelPixels) {
             continue;
         }
-        const std::string label = std::to_string(brick.hitsLeft);
         ui::drawTextInRect(label, {bounds.x + 1.5f, bounds.y + 1.5f, bounds.width, bounds.height}, labelSize,
                            palette::shade(color, 0.4f));
         ui::drawTextInRect(label, bounds, labelSize, palette::textStrong);

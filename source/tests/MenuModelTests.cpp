@@ -150,3 +150,11 @@ TEST_CASE("gameplay toasts read the same everywhere") {
     EXPECT(groupedCount(1000) == "1,000");
     EXPECT(groupedCount(999) == "999");
 }
+
+TEST_CASE("brick labels shorten counts past 9,999 to three significant digits") {
+    EXPECT(brickHitLabel(9999) == "9999");
+    EXPECT(brickHitLabel(12'400) == "12.4K");
+    EXPECT(brickHitLabel(107'142'857) == "107M");
+    EXPECT(brickHitLabel(7'500'009'375) == "7.5B");
+    EXPECT(brickHitLabel(2'000'000) == "2M");
+}
