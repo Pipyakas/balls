@@ -59,7 +59,7 @@ void GameplayScreen::refreshSettings() {
     if (!runner) {
         return;
     }
-    runner->setBallCollisions(app.settings().ballCollisions);
+    runner->setBallCollisions(ballCollisionsOffered() && app.settings().ballCollisions);
 }
 
 void GameplayScreen::loadSession() {
@@ -506,11 +506,13 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
                             true);
         }
         // Last, across both columns: a testing aid outside the game rules.
-        const float collisionsY = std::max(columnCursors[0], columnCursors[1]);
-        ui::drawText("Ball collisions", {inner.x, collisionsY}, 20.0f, palette::textMuted);
-        drawBallCollisions({inner.x, collisionsY + groupLabelHeight, contentWidth, collisionsGroupHeight});
-        const float collisionsEnd = collisionsY + groupLabelHeight + collisionsGroupHeight + groupGap;
-        columnCursors = {collisionsEnd, collisionsEnd};
+        if (ballCollisionsOffered()) {
+            const float collisionsY = std::max(columnCursors[0], columnCursors[1]);
+            ui::drawText("Ball collisions", {inner.x, collisionsY}, 20.0f, palette::textMuted);
+            drawBallCollisions({inner.x, collisionsY + groupLabelHeight, contentWidth, collisionsGroupHeight});
+            const float collisionsEnd = collisionsY + groupLabelHeight + collisionsGroupHeight + groupGap;
+            columnCursors = {collisionsEnd, collisionsEnd};
+        }
     }
     performanceControlsHeight = std::max(columnCursors[0], columnCursors[1]) - top - groupGap;
     ui::scrollHints(inner, controlsScroll, performanceControlsHeight, palette::panel);
@@ -525,7 +527,8 @@ float GameplayScreen::normalContentHeight() const {
                                            (showsDevicePicks(shownBackend())
                                                 ? groupGap + groupLabelHeight + devicePickerHeight(gameplayDevicePicker)
                                                 : 0.0f) +
-                                           groupGap + groupLabelHeight + collisionsGroupHeight
+                                           (ballCollisionsOffered() ? groupGap + groupLabelHeight + collisionsGroupHeight
+                                                                    : 0.0f)
                                      : 0.0f;
     return launcherHeight + groupGap + advancedHeaderHeight + advancedHeight;
 }
@@ -604,10 +607,12 @@ void GameplayScreen::drawNormalControls(Rect area) {
         const float backendHeight = (controlRowHeight + controlGap) * selectableBackends().size() - controlGap;
         drawBackendList({inner.x, cursor, width, backendHeight}, view->backend);
         cursor += backendHeight + groupGap;
-        ui::drawText("Ball collisions", {inner.x, cursor}, 20.0f, palette::textMuted);
-        cursor += groupLabelHeight;
-        drawBallCollisions({inner.x, cursor, width, collisionsGroupHeight});
-        cursor += collisionsGroupHeight + groupGap;
+        if (ballCollisionsOffered()) {
+            ui::drawText("Ball collisions", {inner.x, cursor}, 20.0f, palette::textMuted);
+            cursor += groupLabelHeight;
+            drawBallCollisions({inner.x, cursor, width, collisionsGroupHeight});
+            cursor += collisionsGroupHeight + groupGap;
+        }
         if (showsDevicePicks(shownBackend())) {
             ui::drawText(std::string(menuText::devicesLabel), {inner.x, cursor}, 20.0f, palette::textMuted);
             cursor += groupLabelHeight;

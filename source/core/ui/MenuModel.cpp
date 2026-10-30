@@ -181,6 +181,8 @@ std::vector<BackendRow> gameplayBackendRows(const SessionView& view) {
     return rows;
 }
 
+bool ballCollisionsOffered() { return isBackendSelectable(BackendKind::Scalar); }
+
 BallCollisionsChoice ballCollisionsChoice(bool requested) {
     const bool possible = isBackendSelectable(BackendKind::Scalar);
     BallCollisionsChoice choice{{{"Off", true, !requested}, {"On", possible, requested}}};
@@ -224,10 +226,12 @@ std::vector<DebugRow> debugGadgetRows(const SessionView& view, const FrameTiming
                                                                   hybrid->totalBalls, 1))));
             rows.value("CPU / GPU step", std::format("{:.2f} / {:.2f} ms", hybrid->cpuStepMs, hybrid->gpuStepMs));
         }
-        const bool unsupported = view.collisionsRequested && !view.collisionsActive;
-        rows.value("Ball collisions",
-                   view.collisionsRequested ? (view.collisionsActive ? "On" : "On (unsupported)") : "Off",
-                   unsupported ? UiTone::Danger : UiTone::Normal);
+        if (ballCollisionsOffered()) {
+            const bool unsupported = view.collisionsRequested && !view.collisionsActive;
+            rows.value("Ball collisions",
+                       view.collisionsRequested ? (view.collisionsActive ? "On" : "On (unsupported)") : "Off",
+                       unsupported ? UiTone::Danger : UiTone::Normal);
+        }
     }
 
     rows.heading("Objects");

@@ -99,6 +99,7 @@ TEST_CASE("ball collisions offer Off and On with the game's hint") {
     EXPECT(choice.options[0].selected);
     EXPECT(choice.hint.rfind("Testing only - the game rules have balls pass through each other.", 0) == 0);
     EXPECT(choice.options[1].enabled == isBackendSelectable(BackendKind::Scalar));
+    EXPECT(ballCollisionsOffered() == isBackendSelectable(BackendKind::Scalar));
 }
 
 TEST_CASE("the debug gadget shows the game's rows and hides backend rows while Advanced Settings is closed") {
@@ -130,8 +131,12 @@ TEST_CASE("the debug gadget shows the game's rows and hides backend rows while A
     const std::vector<DebugRow> shown = debugGadgetRows(view, frames, open);
     EXPECT(findRow(shown, "Backend") != nullptr);
     EXPECT(findRow(shown, "Renderer")->value == "WebGPU / Vulkan / GPU");
-    EXPECT(findRow(shown, "Ball collisions")->value == "On (unsupported)");
-    EXPECT(findRow(shown, "Ball collisions")->tone == UiTone::Danger);
+    if (ballCollisionsOffered()) {
+        EXPECT(findRow(shown, "Ball collisions")->value == "On (unsupported)");
+        EXPECT(findRow(shown, "Ball collisions")->tone == UiTone::Danger);
+    } else {
+        EXPECT(findRow(shown, "Ball collisions") == nullptr);
+    }
     EXPECT(findRow(shown, "Fell back to CPU")->tone == UiTone::Danger);
 }
 

@@ -759,9 +759,11 @@ private:
         if (const FString Detail = CachedBackendDetail(Session.backend); !Detail.IsEmpty()) {
             Writer.Row(TEXT("Device"), Detail);
         }
-        Writer.Row(TEXT("Ball collisions"), !Session.collisionsRequested ? FString(TEXT("Off"))
-                                            : Session.collisionsActive    ? FString(TEXT("On"))
-                                                                            : FString(TEXT("On (unsupported)")));
+        if (ballCollisionsOffered()) {
+            Writer.Row(TEXT("Ball collisions"), !Session.collisionsRequested ? FString(TEXT("Off"))
+                                                : Session.collisionsActive    ? FString(TEXT("On"))
+                                                                                : FString(TEXT("On (unsupported)")));
+        }
     }
 
     void WriteObjects(FPanelWriter& Writer, const SessionView& Session) const {
@@ -1134,6 +1136,9 @@ TSharedRef<SWidget> SBallsGameplayHud::MakeAdvancedSettings(bool bPerformance) {
     };
 
     auto AddCollisions = [&] {
+        if (!ballCollisionsOffered()) {
+            return;
+        }
         const TSharedRef<SVerticalBox> Rows = AddGroup(BallsText::FromUtf8(menuText::ballCollisionsLabel));
         auto Choice = [Owner]() { return ballCollisionsChoice(Owner->GetSettings().ballCollisions); };
         auto SetCollisions = [Owner](bool bOn) {
