@@ -228,6 +228,26 @@ TSharedRef<SWidget> Chevron(TAttribute<EChevron> Direction, TAttribute<FLinearCo
     return SNew(SBallsChevron).Direction(MoveTemp(Direction)).Color(MoveTemp(Color));
 }
 
+TSharedRef<SWidget> FrameTimingsStrip(const FrameTimings& Timings) {
+    const FrameTimings* Source = &Timings;
+    return SNew(SBorder)
+        .Visibility(EVisibility::HitTestInvisible)
+        .BorderImage(BallsStyle::White())
+        .BorderBackgroundColor(BallsPalette::Linear(BallsPalette::BoardBackdrop, 0.85f))
+        .Padding(FMargin(10.0f, 4.0f))
+        [
+            SNew(STextBlock)
+            .Text_Lambda([Source] {
+                const FrameSample& Sample = Source->average();
+                return FText::FromString(FString::Printf(TEXT("%.0f fps (%.0f shown)   cpu %.2f   gpu %.2f   present %.2f ms"),
+                                                         Source->framesPerSecond(), Source->shownFramesPerSecond(),
+                                                         Sample.cpuMs, Sample.gpuMs, Sample.presentMs));
+            })
+            .Font(BallsStyle::Font(18.0f))
+            .ColorAndOpacity(BallsPalette::Linear(BallsPalette::TextMuted))
+        ];
+}
+
 TSharedRef<SWidget> Stepper(TFunction<int32()> GetValue, TFunction<void(int32)> OnChange, int32 Minimum, int32 Maximum,
                             float ControlHeight, float FontSize) {
     auto Step = [GetValue, OnChange, Minimum, Maximum](int32 Direction) {
