@@ -1,6 +1,9 @@
 @echo off
-rem Builds balls_core.lib with the settings Unreal links against (/MD runtime, no LTO).
+rem Builds balls_core.lib with the settings Unreal links against (/MD runtime, no whole-program optimization).
+rem The profile is the scoring one unless BALLS_PROFILE=extended is set; BallsCore.Build.cs reads the same variable,
+rem so the game module sees the same BALLS_FIXED_TARGET as the core it links.
 setlocal EnableExtensions
+if not defined BALLS_PROFILE set "BALLS_PROFILE=scoring"
 set "REPO=%~dp0..\..\.."
 set "OUT=%REPO%\build\win32-ue"
 set "LOCK=%TEMP%\balls_core_win64.lock"
@@ -20,7 +23,8 @@ goto acquire
 
 :locked
 rem Always configure: the core's options changed (BALLS_FRONTEND replaced BALLS_BUILD_GAME), and re-running is cheap.
-cmake -S "%REPO%" -B "%OUT%" -DBALLS_FRONTEND=none -DBALLS_STATIC_CRT=OFF -DBALLS_LTO=OFF
+cmake -S "%REPO%" -B "%OUT%" -DBALLS_FRONTEND=none -DBALLS_PROFILE=%BALLS_PROFILE% -DBALLS_STATIC_CRT=OFF ^
+    -DBALLS_WHOLE_PROGRAM_OPTIMIZATION=OFF
 if errorlevel 1 goto failed
 rem balls_core is the static library; the physics plugins (CPU, CUDA) are DLLs the core loads at run time.
 cmake --build "%OUT%" --config Release --target balls_core balls_physics_plugins --parallel 1

@@ -24,7 +24,7 @@ goto acquire
 if not exist "%OUT%\CMakeCache.txt" (
     cmake -S "%REPO%" -B "%OUT%" -G Ninja -DCMAKE_MAKE_PROGRAM="%NINJA%" ^
         -DCMAKE_TOOLCHAIN_FILE="%~dp0LinuxToolchain.cmake" -DCMAKE_BUILD_TYPE=Release ^
-        -DBALLS_FRONTEND=none -DBALLS_ENABLE_CUDA=OFF -DBALLS_LTO=OFF -DBALLS_BUILD_TOOLS=OFF
+        -DBALLS_FRONTEND=none -DBALLS_PROFILE=extended -DBALLS_ENABLE_CUDA=OFF -DBALLS_LTO=OFF -DBALLS_BUILD_TOOLS=OFF
     if errorlevel 1 goto failed
 )
 cmake --build "%OUT%" --target balls_core balls_physics_plugins --parallel

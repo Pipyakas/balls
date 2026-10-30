@@ -14,16 +14,34 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-set(BALLS_PROFILE "all" CACHE STRING "Target profile to build: all or scoring")
-set_property(CACHE BALLS_PROFILE PROPERTY STRINGS all scoring)
+# The scoring profile builds only what the target PC (i9-14900K, GTX 1650 sm_75) runs: the CUDA+AVX2 pair, AVX2 code
+# throughout, and every ball allocated up front. It is the default wherever it can build (x86-64 Windows and Linux).
+# "extended" adds everything else: the other backends and CUDA architectures, the backend menu and machine benchmark,
+# and the Unity plugin. It is the default where scoring cannot build (Android, macOS, the web, ARM).
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|amd64|x86_64)$" AND NOT ANDROID AND NOT APPLE AND NOT EMSCRIPTEN)
+    set(BALLS_DEFAULT_PROFILE scoring)
+else()
+    set(BALLS_DEFAULT_PROFILE extended)
+endif()
+set(BALLS_PROFILE "${BALLS_DEFAULT_PROFILE}" CACHE STRING "Target profile to build: scoring or extended")
+set_property(CACHE BALLS_PROFILE PROPERTY STRINGS scoring extended)
+# Build trees configured before the rename keep the extended profile's old name in their cache.
+if(BALLS_PROFILE STREQUAL "all")
+    set(BALLS_PROFILE extended CACHE STRING "Target profile to build: scoring or extended" FORCE)
+endif()
+if(NOT BALLS_PROFILE MATCHES "^(scoring|extended)$")
+    message(FATAL_ERROR "BALLS_PROFILE must be scoring or extended, not \"${BALLS_PROFILE}\"")
+endif()
 
-# The scoring profile builds only what the target PC (i9-14900K, GTX 1650 sm_75) runs: the CUDA+AVX2 pair, with
-# every ball allocated up front. "all" is the extended build with every backend and front-end feature.
 if(BALLS_PROFILE STREQUAL "scoring")
     set(BALLS_ENABLE_ROCM OFF CACHE BOOL "ROCm backend disabled in scoring profile" FORCE)
     set(BALLS_ENABLE_CUDA ON CACHE BOOL "CUDA backend required in scoring profile" FORCE)
     set(BALLS_BUILD_UNITY_PLUGIN OFF CACHE BOOL "No Unity plugin in scoring profile" FORCE)
-    set(BALLS_WHOLE_PROGRAM_OPTIMIZATION ON CACHE BOOL "Whole-program optimization enabled in scoring profile" FORCE)
+    # Not forced: the Unreal front end links balls_core into its own executable with its own linker settings, so its
+    # core build turns this off.
+    if(NOT DEFINED BALLS_WHOLE_PROGRAM_OPTIMIZATION)
+        set(BALLS_WHOLE_PROGRAM_OPTIMIZATION ON CACHE BOOL "Enable whole-program optimization (/GL /LTCG)")
+    endif()
 endif()
 
 set(BALLS_FRONTEND "sdl" CACHE STRING "Game front end to build: sdl or none")

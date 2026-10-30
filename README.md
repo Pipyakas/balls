@@ -56,11 +56,14 @@ compiler pieces) and internet access on first configure (SDL 3.2.30, Dear ImGui 
 picks the renderer (default: `nvrhi` on desktop, `webgpu` on Android). With NVRHI, every platform runs Vulkan by default;
 `--api d3d12` switches Windows to Direct3D 12.
 
-`-DBALLS_PROFILE=scoring` builds for the target PC only (i9-14900K, GTX 1650): AVX2 code throughout, sm_75
-CUDA kernels, and the CUDA+AVX2 pair as the one physics backend, with no backend menu or machine benchmark. The pair
+`-DBALLS_PROFILE=scoring`, the default on x86-64 Windows and Linux, builds for the target PC only
+(i9-14900K, GTX 1650): AVX2 code throughout, sm_75 CUDA kernels, and the CUDA+AVX2 pair as the one physics backend,
+with no backend menu or machine benchmark. The pair
 allocates its whole memory budget once per process (free VRAM less 512 MB, available RAM less the usual margin), so
-balls never grow, copy or page-fault during play. Auto is that capacity, with no probe, and ramping up to it keeps every physics frame within 1/60 s. The default, `all`, is the extended build with every backend; set
-`BALLS_PREALLOCATE=1` there to try the same up-front allocation on the pair.
+balls never grow, copy or page-fault during play. Auto is that capacity, with no probe, and ramping up to it keeps every physics frame within 1/60 s. `-DBALLS_PROFILE=extended` has everything else: every
+backend and CUDA architecture, the backend menu, the machine benchmark and the Unity plugin. It is the default where the
+scoring profile cannot build (Android, macOS, the web, ARM); set `BALLS_PREALLOCATE=1` there to try the same up-front
+allocation on the pair.
 To try the scoring build on another NVIDIA GPU, set `-DBALLS_SCORING_CUDA_SM` to its architecture (86 for an RTX 30
 series); the default, 75, is the target PC's GTX 1650.
 
@@ -116,7 +119,7 @@ The tests, benchmarks and tools below use the Windows CMake tree directly:
 
 ```powershell
 pwsh scripts/FetchCudaSdk.ps1
-cmake -S . -B build/win32 -G "Visual Studio 17 2022" -A x64
+cmake -S . -B build/win32 -G "Visual Studio 17 2022" -A x64 -DBALLS_PROFILE=extended
 cmake --build build/win32 --config Release --parallel
 build/win32/bin/Release/balls.exe
 ```

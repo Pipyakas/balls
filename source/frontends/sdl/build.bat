@@ -26,7 +26,7 @@ if not defined BALLS_NO_PAUSE echo %CMDCMDLINE% | find /i "%~f0" >nul && set "WA
 set "SETUP_ONLY="
 if /i "%~1"=="--setup" (set "SETUP_ONLY=1" & shift /1)
 set "RENDERER="
-set "PROFILE=all"
+set "PROFILE=extended"
 set "VARIANT=%~1"
 if not defined VARIANT set "VARIANT=win32-scoring"
 rem The submission build keeps the short dist\win32-sdl folder that the docs and scripts use.
