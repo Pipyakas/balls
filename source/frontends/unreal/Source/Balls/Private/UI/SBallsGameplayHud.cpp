@@ -615,10 +615,14 @@ private:
             }
             const FSlateRect Bounds = BrickLabelArea(Piece, Layout);
             const FVector2D BoundsSize = Bounds.GetSize();
-            const FString Label = BallsText::FromUtf8(brickHitLabel(Piece.hitsLeft));
             // The label shrinks to fit the brick's width, as in the SDL front end, and is left out once that makes
-            // it unreadable.
+            // it unreadable. A brick too small for any label is skipped before its text is measured: large boards
+            // have hundreds of thousands of them.
             float LabelSize = static_cast<float>(FMath::Min(BoundsSize.X, BoundsSize.Y)) * 0.55f;
+            if (LabelSize < MinimumLabelPixels) {
+                continue;
+            }
+            const FString Label = BallsText::FromUtf8(brickHitLabel(Piece.hitsLeft));
             const float LabelWidth = static_cast<float>(BallsStyle::Measure(Label, BallsStyle::Font(LabelSize, true)).X);
             if (LabelWidth > BoundsSize.X * LabelWidthShare) {
                 LabelSize *= static_cast<float>(BoundsSize.X) * LabelWidthShare / LabelWidth;

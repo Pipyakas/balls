@@ -177,9 +177,12 @@ void drawBricks(const BrickBoard& board, const BoardTransform& transform) {
             continue;
         }
         const Rect bounds = labelArea(brick, transform);
-        const std::string label = brickHitLabel(brick.hitsLeft);
         // The label shrinks to fit the brick's width, and is left out once that makes it unreadable.
         float labelSize = std::min(bounds.width, bounds.height) * 0.55f;
+        if (labelSize < minimumLabelPixels) {
+            continue;
+        }
+        const std::string label = brickHitLabel(brick.hitsLeft);
         const float labelWidth = ui::measureText(label, labelSize).x;
         if (labelWidth > bounds.width * labelWidthShare) {
             labelSize *= bounds.width * labelWidthShare / labelWidth;
