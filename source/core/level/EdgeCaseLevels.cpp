@@ -143,8 +143,8 @@ BrickLayout generateEdgeLayout(EdgeLayout layout, EdgeBoardSize size) {
 // colour's launchers carry its hit total.
 LevelData generateEdgeLevel(EdgeLayout layout, EdgeBoardSize size) {
     LevelData level;
-    level.name = edgeCaseName(layout, size);
     level.bricks = generateEdgeLayout(layout, size);
+    level.name = levelNameWithBrickCount(edgeCaseName(layout, size), countPlacedBricks(level.bricks));
     std::array<long long, ballColorCount> toughBricks{};
     for (const BrickType& type : level.bricks.types) {
         toughBricks[toIndex(type.color)] += type.hits == toughBrickHits ? 1 : 0;

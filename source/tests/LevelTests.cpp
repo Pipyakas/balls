@@ -36,9 +36,23 @@ TEST_CASE("sample levels parse with matching ball and hit totals") {
     }
 }
 
+TEST_CASE("every shipped level but the samples' names its brick count") {
+    for (const auto& directory : {normalLevels, performanceLevels}) {
+        for (const auto& files : findLevels(directory)) {
+            if (files.name.starts_with("DA_")) {
+                continue;
+            }
+            auto level = loadLevel(files);
+            EXPECT(level.hasValue());
+            const std::string suffix = levelNameWithBrickCount("", countPlacedBricks(level->bricks));
+            EXPECT(files.name.ends_with(suffix));
+        }
+    }
+}
+
 TEST_CASE("the Unlimited level holds more balls than any machine's capacity, even at x1") {
     constexpr BallCount largestCapacity = BallCount{10'000'000'000};
-    auto level = loadLevel(levelFilesFor(performanceLevels, "Unlimited"));
+    auto level = loadLevel(levelFilesFor(performanceLevels, "Unlimited_921Bricks"));
     EXPECT(level.hasValue());
     BallCount total = 0;
     for (const int balls : countBallsByColor(level->launchers)) {
@@ -49,7 +63,7 @@ TEST_CASE("the Unlimited level holds more balls than any machine's capacity, eve
 
 TEST_CASE("the team's Normal levels release exactly one ball per brick hit from 3 launcher columns") {
     constexpr int launcherColumns = 3;
-    for (const char* name : {"Warmup", "Pillars", "Stalactites", "Fortress"}) {
+    for (const char* name : {"Warmup_24Bricks", "Pillars_28Bricks", "Stalactites_33Bricks", "Fortress_43Bricks"}) {
         auto level = loadLevel(levelFilesFor(normalLevels, name));
         EXPECT(level.hasValue());
         EXPECT(level->launchers.columns == launcherColumns);
