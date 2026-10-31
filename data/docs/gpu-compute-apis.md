@@ -10,7 +10,8 @@ any D3D11/D3D12/Vulkan GPU.
   words, two balls per thread, device-side hit consumption with compare-exchange, and the three sort passes
   (count, scan, fused step-and-scatter into a second buffer).
 - One source compiles to DXBC with FXC (`cs_5_0`, for D3D11) and to DXIL and SPIR-V with DXC
-  (`CompileBallStep.py` writes `generated/BallStepBlobs.h`).
+  (`scripts/CompileBallStep.py` writes `source/tools/gpucompute/generated/BallStepBlobs.h`; the generated
+  SPIR-V blobs and `BallStepVariants.cpp` are also compiled into the Vulkan physics plugin `balls_physics_vulkan`).
 - CUDA ranks balls inside a cell with `__match_any_sync`. D3D11 has no wave operations, so every API ranks
   with a group-shared `InterlockedAdd` instead.
 - `balls_gpucompute` checks itself: after the run it reads the balls back and verifies that every color's
@@ -34,9 +35,10 @@ adaptive sort has settled (`balls_insncount --mode timeline`).
   wait-for-idle sleeps on the 15.6 ms Windows timer, so a frame that waits on the GPU loses a tick there.
 - Sorting every 16 ticks is slightly slower than every 8 on all three APIs.
 
-So a Vulkan compute backend would carry nearly all of CUDA's throughput to any vendor's GPU. The remaining
-gap on the empty board is the price of bounds-checked structured buffers and compiler differences, not
-the algorithm.
+This port was subsequently implemented as the `Vulkan` and `VulkanMulti` physics backends
+(`source/backends/vulkan/` in `balls_physics_vulkan`), bringing CUDA-comparable throughput to non-NVIDIA
+GPUs. The remaining gap on the empty board is the price of bounds-checked structured buffers and compiler
+differences, not the algorithm.
 
 ## Tuning that is not tied to the 1650
 
@@ -53,9 +55,10 @@ or measures on the running GPU:
   instruction cache. With `[loop]` on the processing loop it wins on both boards and every API. CUDA's nvcc
   build was already at its best with two, so CUDA keeps two.
 - **CUDA on pre-Turing GPUs.** The PTX was `compute_75` only, because `__match_any_sync` needs sm_70. The
-  build now also emits `compute_60` PTX that ranks balls inside a cell with a shared-memory `atomicAdd`, and
-  the driver picks a variant by compute capability. Forced onto the 1650, the fallback passes the tests
-  and is 2.3% slower (9.67 vs 9.45 ms per tick).
+  build added a fallback PTX variant (initially `compute_60`, later moved down to `compute_50` for Maxwell)
+  that ranks balls inside a cell with a shared-memory `atomicAdd`, and the driver picks a variant by
+  compute capability. Forced onto the 1650, the fallback passes the tests and is 2.3% slower (9.67 vs
+  9.45 ms per tick).
 - **SASS for every shipped architecture.** PTX from NVRTC 12.9 is ISA 8.8, which only a CUDA 12.9 driver can
   JIT. The plugin now also embeds cubins for sm_50, 60, 70, 75, 80, 86 and 89, which load on any R527+ driver
   through CUDA minor-version compatibility, and the fallback PTX moved down to `compute_50` for Maxwell. The
@@ -80,7 +83,7 @@ build/win32/bin/Release/balls_gpucompute --dir data/assets/levels/performance --
 
 ## Per-profile variants and sweeping
 
-Compute profiles allow tuning kernel launch dimensions and memory parameters (such as `threadsPerGroup`, `ballsPerThread`, `countThreads`, `countItems`, `sortThreads`, and `sortItems`) for different GPU architectures (e.g. wave32 vs wave64). Profiles are defined in `source/core/gpu/BallStepProfiles.def` and compiled by `CompileBallStep.py`.
+Compute profiles allow tuning kernel launch dimensions and memory parameters (such as `threadsPerGroup`, `ballsPerThread`, `countThreads`, `countItems`, `sortThreads`, and `sortItems`) for different GPU architectures (e.g. wave32 vs wave64). Profiles are defined in `source/core/gpu/BallStepProfiles.def` and compiled by `scripts/CompileBallStep.py`.
 
 The compiled shader arrays follow the blob naming scheme:
 `ballStep_<profile>_<Pass><Api>`
@@ -95,7 +98,7 @@ The benchmark harness `balls_gpucompute` supports adapter querying and profile s
 - `--profile <name>`: selects a precompiled profile variant from `BallStepProfiles.def` by name.
 - `--profile-numbers a,b,c,d,e,f`: sets the profile parameters `(threadsPerGroup, ballsPerThread, countThreads, countItems, sortThreads, sortItems)` explicitly at runtime.
 
-`scripts/Sweep.py` automates exploring candidate configurations, compiling individual shader variants with `CompileBallStep.py`, benchmarking each with `balls_gpucompute`, and ranking results by kernel execution time:
+`scripts/Sweep.py` automates exploring candidate configurations, compiling individual shader variants with `scripts/CompileBallStep.py`, benchmarking each with `balls_gpucompute`, and ranking results by kernel execution time:
 
 ```
 python -I scripts/Sweep.py --bench build/win32/bin/Release/balls_gpucompute --api vulkan --gpu auto --balls 1000000 --ticks 100

@@ -1,7 +1,7 @@
 # Unreal Engine front end
 
-A UE 5.8 front end for the same core as the raylib build. It is code-only: there are no `.uasset` files. The
-game runs on the engine's empty `/Engine/Maps/Entry` map, and `ABallsGameMode` spawns everything else.
+A UE 5.8 front end for the same core as the SDL build. It has one asset (`Content/Balls/NaniteCube.uasset` for Nanite
+bricks); the game runs on the engine's empty `/Engine/Maps/Entry` map, and `ABallsGameMode` spawns everything else.
 
 - **Board.** Bricks are instanced cubes (one instanced mesh per color) lit by a key light and a fill light. The
   camera looks straight at the board and is framed so the board fills the middle column at full height.
@@ -22,7 +22,8 @@ game runs on the engine's empty `/Engine/Maps/Entry` map, and `ABallsGameMode` s
 Build with a stock Unreal Engine 5.8 install (5.8.4 from the Epic launcher, at `D:\Unreal\UE_5.8` on the dev
 PCs). The engine fork at `D:\Unreal\UnrealEngine` still works but is no longer the default: as a source engine it
 compiles the whole engine into every worktree's game target (about 1,100 actions and 14-21 GB each), where a stock
-install links it prebuilt. The `.uproject` pre-build step runs `BuildCore.bat`, which
+install links it prebuilt. The Target.cs files set `WindowsPlatform.CompilerVersion = "Latest"` so the game builds with
+the newest MSVC installed to match `balls_core.lib`. The `.uproject` pre-build step runs `BuildCore.bat`, which
 builds `balls_core.lib` and the physics plugin DLLs (CPU, CUDA) into `build/win32-ue/` with `/MD` and no LTO. For
 the CUDA backend, run `pwsh scripts/FetchCudaSdk.ps1` once first. The core loads the plugin DLLs at run time:
 packaged builds stage them beside the executable, and the editor finds them in `build/win32-ue/bin/Release`.
@@ -130,11 +131,12 @@ adb push Binaries/Android/main.1.com.colorblastballs.game.obb /sdcard/Android/ob
 The fork's current DXC/SM6 path fails to compile many engine global shaders (bindless-by-default plus the WIP UEX
 merge in `ShaderFormatD3D`). This project therefore:
 
-- targets `PCD3D_SM5` (`Config/DefaultEngine.ini`);
+- targets `PCD3D_SM6` with `PCD3D_SM5` fallback and `r.AreShaderErrorsFatal=0` (`Config/DefaultEngine.ini`);
 - disables SM6 bindless (`Config/Windows/WindowsEngine.ini`);
-- passes `-Wno-macro-redefined` on Android (`Source/Balls.Target.cs`), because the fork's
+- passes `-Wno-macro-redefined -Wno-logical-op-parentheses` on Android and Linux (`Source/Balls.Target.cs`), because the fork's
   `Misc/Build.h` defaults its UEX/XFSDK macros to 0 while `Renderer`/`RenderCore`/`Engine` define them to 1;
   MSVC only warns, clang under `-Werror` fails;
+- sets `WindowsPlatform.CompilerVersion = "Latest"` (`Source/Balls.Target.cs`, `Source/BallsEditor.Target.cs`) so Win64 builds match the core's STL;
 - drops the XFSDK "Callisto" skin-shading includes from `Engine/Shaders/Private/ShadingModels.ush` and
   `PostProcessSubsurfaceCommon.ush` (and the matching define in `Engine.Build.cs`), because this engine tree
   carries no `XFSDK_Shader_Works` plugin and the cook otherwise dies with "Can't map virtual shader source

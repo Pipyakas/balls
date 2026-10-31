@@ -7,18 +7,21 @@ the player picks and splits the balls between all of them.
 
 ## Plugins
 
-Physics backends are DLL plugins loaded from next to the executable, so physics work only
-rebuilds its plugin, not the core or a front end:
+Single-device backends are shared library plugins loaded from next to the executable (`balls_physics_cpu`,
+`balls_physics_cuda`, `balls_physics_vulkan`, and `balls_physics_rocm`), while the composite backends
+(`CUDA+AVX2` and `Hybrid`) are built directly into `balls_core`. Physics plugin work only rebuilds its
+plugin, not the core or a front end:
 
 ```powershell
 cmake --build build/win32 --config Release --target balls_physics_cuda
 ```
 
-Every time a backend is selected the game loads a fresh shadow copy of its DLL from
+On Windows, every time a backend is selected the game loads a fresh shadow copy of its DLL from
 `%TEMP%\balls\physics-plugins`, so a plugin can be rebuilt while the game runs and
-picked up by selecting the backend again (or `/backend?kind=cuda` on the control API). Plugins only see
-`source/core/sim/PhysicsBackend.h` and `source/core/sim/kernels/BallStepCore.h`. The build uses the shared MSVC
-runtime and copies its DLLs next to the executable.
+picked up by selecting the backend again (or `/backend?kind=cuda` on the control API); Linux and macOS load
+the libraries directly. Plugins implement `source/core/sim/PhysicsBackend.h` and see
+`source/core/sim/kernels/BallStepCore.h`. The build uses the shared MSVC runtime and copies its DLLs next
+to the executable.
 
 ## Devices and Hybrid
 
@@ -38,9 +41,21 @@ balls_bench.exe --grid --balls 32000000 --backend "cuda,cuda+avx2,cuda@gpu0+vulk
 The same text works in `/backend?kind=` and is what Settings saves. `--backend hybrid` composes the best backend
 on the CPU and every discrete GPU.
 
+## Profiles and defaults
+
+The codebase builds under two profiles (`BALLS_PROFILE` in CMake):
+
+- **Scoring build** (`BALLS_PROFILE=scoring`, default on x86-64 Windows and Linux): builds only what the target PC
+  runs (CUDA and AVX2, defining `BALLS_FIXED_TARGET=1`; Vulkan, ROCm and Zen4 are not built). It starts the fixed
+  `CUDA+AVX2` pair preallocated (`chooseStartupBackend`) and offers nothing else in menus (`selectableBackends`).
+- **Extended build** (`BALLS_PROFILE=extended`, default elsewhere): builds all backends. It defaults to `Hybrid`
+  (`DeviceComposer`), hides the `CUDA+AVX2` pair from menus, and shows `Hybrid` in its place (`offeredBackend`).
+
 ## Measurements
 
 - [hybrid-physics.md](hybrid-physics.md): how CUDA+AVX2 and Hybrid split the balls, and their results.
+- [scoring-pc.md](scoring-pc.md): how the scoring build preallocates memory for the CUDA+AVX2 pair and tunes the
+  step for the target PC.
 - [cuda-limits.md](cuda-limits.md): the CUDA step kernel at the GTX 1650's limits: DRAM bandwidth on an empty
   board (93.7% of copy bandwidth), and on the brick level DRAM bandwidth and the 82 W board power limit.
 - [gpu-compute-apis.md](gpu-compute-apis.md): the step kernel and cell sort as HLSL through D3D11, D3D12 and

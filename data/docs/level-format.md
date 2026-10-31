@@ -63,7 +63,8 @@ until the ball limit stops it.
 | Performance | `Billion_7Bricks` | Maps from outside the team: one row of 7 bricks, 7 columns wide, under a billion balls |
 | Performance | `Why_11162Bricks`, `Feelgoodman_11357Bricks`, `IDontFeelSoGoodNow_11727Bricks` | 128x128 image maps of single bricks, with thousands of launchers (`PlayableHeight 160` added to the first two, which left it out) |
 | Performance | `Milo_2779Bricks` | A 64x64 image map |
+| Performance | Edge boards (`Edge_*`, 30 levels) | The ten edge-case layouts (Cage, Checker, Columns, Empty, LoneBrick, Monochrome, Shelves, Solid, Sparse, Tough) at 16x16, 48x48 and 128x128: see [edge cases](edge-cases.md) |
 
 Every level in Normal mode releases exactly as many balls of a color as its bricks of that color take hits. The
 Performance stress levels launch every color from launchers of 2,147,483,647 balls, so release stops only at the
-ball limit. `scripts/levels/GenerateStressLevels.py` writes them.
+ball limit. `scripts/levels/GenerateStressLevels.py` writes the stress levels; `balls_bench --write-edge-levels` writes the edge boards.

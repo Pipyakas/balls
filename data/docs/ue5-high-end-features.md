@@ -1,24 +1,24 @@
 # UE5 high-end rendering features for Balls
 
-Research note for the Unreal front end at `frontends/unreal`.  
-Engine reference: `D:\Unreal\UnrealEngine` (UE 5.8.4).  
-Scope: read-only analysis. No source or config changes were made.
+Research note for the Unreal front end at `source/frontends/unreal`.  
+Engine reference: stock Unreal Engine 5.8.4 (e.g. `D:\Unreal\UE_5.8`, fallback `D:\Unreal\UnrealEngine`).  
+Scope: read-only analysis and implemented high-end configuration.
 
 ## Baseline (current project)
 
 | Item | Current value | Source |
 |---|---|---|
 | Map | `/Engine/Maps/Entry`, code-spawned scene | `Config/DefaultEngine.ini` |
-| Desktop shader format | `PCD3D_SM5` only | `Config/DefaultEngine.ini`, `Config/Windows/WindowsEngine.ini` |
+| Desktop shader format | `PCD3D_SM6` and `PCD3D_SM5` fallback | `Config/DefaultEngine.ini`, `Config/Windows/WindowsEngine.ini` |
 | Android shader platform | `VULKAN_ES3_1_ANDROID` (`bBuildForES31=True`) | `Config/DefaultEngine.ini` |
 | Renderer | AutoExposure off, MotionBlur off, Bloom on, TAA (`r.AntiAliasingMethod=2`) | `Config/DefaultEngine.ini` |
-| GI | None (`r.DynamicGlobalIlluminationMethod=0`) | `Config/DefaultEngine.ini` |
-| Reflections | None (`r.ReflectionMethod=0`) | `Config/DefaultEngine.ini` |
-| Shadows | VSM off (`r.Shadow.Virtual.Enable=0`); runtime directional lights are `Movable` and cast no shadows | `Config/DefaultEngine.ini`, `Source/.../BallsBoardView.cpp` |
-| Nanite | Not enabled | `Config/DefaultEngine.ini` |
-| Scene | Runtime-spawned `ACameraActor`, two `ADirectionalLight`s, ~200-cell instanced-cube backdrop, one ISM per brick color using `/Engine/BasicShapes/Cube` + `BasicShapeMaterial` MIDs, custom RDG ball pass after motion blur | `Source/.../BallsBoardView.cpp`, `Source/BallsRendering/...` |
+| GI | None (`r.DynamicGlobalIlluminationMethod=0`) default; Lumen selectable at runtime | `Config/DefaultEngine.ini`, `Source/Balls/Private/BallsGraphics.cpp` |
+| Reflections | None (`r.ReflectionMethod=0`) default; Screen space or Lumen selectable at runtime | `Config/DefaultEngine.ini`, `Source/Balls/Private/BallsGraphics.cpp` |
+| Shadows | VSM off (`r.Shadow.Virtual.Enable=0`) default; key light casts shadows when enabled (Shadow maps or Virtual) | `Config/DefaultEngine.ini`, `Source/Balls/Private/BallsBoardView.cpp`, `Source/Balls/Private/BallsGraphics.cpp` |
+| Nanite | Project enabled (`r.Nanite.ProjectEnabled=True`); runtime toggleable | `Config/DefaultEngine.ini`, `Source/Balls/Private/BallsGraphics.cpp` |
+| Scene | Runtime-spawned `ACameraActor`, two `ADirectionalLight`s, ~200-cell instanced-cube backdrop, one ISM per brick color using `/Game/Balls/NaniteCube` (falling back to `/Engine/BasicShapes/Cube`) + `BasicShapeMaterial` MIDs, custom RDG ball pass after motion blur | `Source/Balls/Private/BallsBoardView.cpp`, `Source/BallsRendering/...` |
 
-Important constraint: the fork's DXC/SM6 global-shader path is currently broken, so the project deliberately targets `PCD3D_SM5`. Stock UE 5.8.4 can build SM6. Lumen, Nanite, and VSM on desktop require SM6 or a Vulkan-SM5 path; see the platform gates below.
+Important constraint: the project defaults to stock Unreal Engine 5.8.4 (linking prebuilt engine modules and cleanly building SM6). On desktop, `Config/DefaultEngine.ini` targets `PCD3D_SM6` alongside `PCD3D_SM5` as fallback. For the engine fork, `Config/Windows/WindowsEngine.ini` disables SM6 bindless and `r.AreShaderErrorsFatal=0` bypasses unused global shader compile errors. Lumen, Nanite, and VSM on desktop require SM6 or a Vulkan-SM5 path; see the platform gates below.
 
 ## 1. Lumen (GI + reflections)
 
@@ -46,7 +46,7 @@ Degradation: if enabled in config on ES3.1, the renderer falls back to no Lumen 
 
 ### Config keys / code changes
 
-In `frontends/unreal/Config/DefaultEngine.ini`:
+In `source/frontends/unreal/Config/DefaultEngine.ini`:
 
 ```ini
 [/Script/Engine.RendererSettings]
@@ -55,7 +55,7 @@ r.ReflectionMethod=1
 r.GenerateMeshDistanceFields=True
 ```
 
-On the fork, this also requires moving the desktop target from `PCD3D_SM5` to `PCD3D_SM6` in `Config/DefaultEngine.ini` and removing or relaxing `Config/Windows/WindowsEngine.ini`:
+The project configures `PCD3D_SM6` on desktop with `PCD3D_SM5` as fallback. For the fork, `Config/Windows/WindowsEngine.ini` disables bindless:
 
 ```ini
 [ShaderPlatformConfig PCD3D_SM6]
@@ -64,7 +64,7 @@ bEnableNaniteBindlessShading=False
 bEnableNaniteBindlessRasterization=False
 ```
 
-Recommended exploration path: use a stock UE 5.8.4 build for SM6, because the fork's DXC path currently fails global shaders.
+The project defaults to stock Unreal Engine 5.8.4, which builds SM6 cleanly. Runtime selection is implemented in the game's Graphics settings page and via `-BallsGraphics` or `-BallsHighEnd` (Epic preset).
 
 Optional runtime command for an already-SM6 build:
 
@@ -85,10 +85,10 @@ Worth a desktop-only opt-in if the goal is to showcase UE5 GI/reflections. Not u
 
 ### Requirements
 
-- Project setting: `r.Nanite.ProjectEnabled=1` (`bNanite=True` in `URendererSettings`). This is read-only at runtime and requires a restart/cook.
+- Project setting: `r.Nanite.ProjectEnabled=1` (`bNanite=True` in `URendererSettings`). This is read-only at runtime and requires a restart/cook (enabled in `Config/DefaultEngine.ini`).
 - Platform support: `DoesPlatformSupportNanite()` must be true (`bSupportsNanite` in the platform's data-driven ini).
-- Assets: meshes must have Nanite enabled. This project is code-only and uses `/Engine/BasicShapes/Cube`, which does not carry Nanite data. To actually see Nanite, a Nanite-enabled static mesh asset must be introduced.
-- ISMs: Nanite works through instanced/static mesh components, but every instance uses the same Nanite mesh. The current colored-brick ISMs would need a Nanite-capable cube mesh.
+- Assets: meshes must have Nanite enabled. The project includes `Content/Balls/NaniteCube.uasset` (the engine basic cube with Nanite enabled; recreated via `Scripts/MakeNaniteCube.py`).
+- ISMs: Nanite works through instanced/static mesh components; `BallsBoardView.cpp` loads `NaniteCube.uasset` for the brick ISMs (falling back to `/Engine/BasicShapes/Cube` if absent).
 - Scene fit: Nanite's value is high triangle counts and automatic LODs. This scene is ~200 low-poly cubes; Nanite adds fixed overhead with no visual benefit.
 
 ### Android (Vulkan ES3.1)
@@ -102,7 +102,7 @@ Not supported. `VULKAN_ES3_1_ANDROID` has no `bSupportsNanite=true`. It is suppo
 r.Nanite.ProjectEnabled=True
 ```
 
-Also remove the SM5-only desktop restriction and use SM6, as with Lumen. No `BallsBoardView.cpp` change is required for Nanite itself, but the mesh source would have to change from `/Engine/BasicShapes/Cube` to a Nanite-enabled mesh.
+`Config/DefaultEngine.ini` targets `PCD3D_SM6` and sets `r.Nanite.ProjectEnabled=True`. `BallsBoardView.cpp` uses `NaniteCube.uasset`, and `BallsGraphics.cpp` controls `r.Nanite` at runtime based on user presets.
 
 ### Cost
 
@@ -120,8 +120,8 @@ Not worth enabling in this project unless the goal is specifically to test Nanit
 - Project setting: `r.Shadow.Virtual.ProjectEnabled=1` (read-only).
 - Platform support: `DoesPlatformSupportVirtualShadowMaps()` requires both `DoesPlatformSupportNanite()` and, for non-Nanite objects, `r.Shadow.Virtual.NonNanite.ProjectEnabled=1`.
 - Rendering path: deferred shading. VSM is not supported with forward shading.
-- Lighting: a shadow-casting light. The current key light is `Movable` but explicitly calls `SetCastShadows(false)`; VSM would require changing that to `true`.
-- Asset/mesh fit: VSM is most efficient with Nanite geometry. The current bricks are non-Nanite ISMs, so it falls back to the non-Nanite VSM path.
+- Lighting: a shadow-casting light. `BallsBoardView.cpp` dynamically sets `KeyLight->GetLightComponent()->SetCastShadows(Settings.Shadows != EBallsShadows::Off)`.
+- Asset/mesh fit: VSM operates with `NaniteCube.uasset` when Nanite is enabled, or falls back to the non-Nanite VSM path.
 
 ### Android (Vulkan ES3.1)
 
@@ -136,10 +136,10 @@ r.Shadow.Virtual.ProjectEnabled=1
 r.Shadow.Virtual.NonNanite.ProjectEnabled=1
 ```
 
-Scene change in `Source/Balls/Private/BallsBoardView.cpp` (for exploration only):
+Implemented in `Source/Balls/Private/BallsBoardView.cpp` (`ApplyGraphics`):
 
 ```cpp
-KeyLight->GetLightComponent()->SetCastShadows(true);
+KeyLight->GetLightComponent()->SetCastShadows(Settings.Shadows != EBallsShadows::Off);
 ```
 
 The backdrop is directly behind the bricks, so shadows will add streaks; this is a visual tradeoff, not just a performance one.
@@ -179,7 +179,7 @@ Runtime toggle:
 -ExecCmds="r.AntiAliasingMethod 4"
 ```
 
-No code change is strictly required, but if `-BallsHighEnd` is implemented, `BallsGameMode`/`BallsApp` could parse it and apply this cvar at startup.
+Implemented: `-BallsHighEnd` and `-BallsGraphics` are parsed in `BallsApp.cpp`, and `BallsGraphics.cpp` applies `r.AntiAliasingMethod 4` for TSR under the High, Epic, and Cinematic presets.
 
 ### Cost
 
@@ -248,15 +248,15 @@ Recommended as an optional desktop and (carefully tested) mobile feature. It is 
 
 2. Runtime-spawned ISMs:
    - Lumen can use them, but distance-field generation and surface-cache updates are less predictable than for cooked static meshes.
-   - Nanite and VSM are not meaningful without Nanite-enabled mesh assets.
+   - Nanite and VSM use `Content/Balls/NaniteCube.uasset` for the brick mesh.
 
-3. Fork SM5 limitation:
-   - `PCD3D_SM5` disables Lumen, Nanite, and VSM on Windows because the platform gate requires SM6 or a Vulkan-SM5/Metal-SM5 path.
-   - Exploring those three features requires an SM6 build. Use stock UE 5.8.4 or fix the fork's DXC path first.
+3. Fork SM6 configuration:
+   - Stock UE 5.8.4 is the default engine and compiles SM6 shaders cleanly.
+   - For the engine fork, `PCD3D_SM6` is enabled with bindless disabled in `Config/Windows/WindowsEngine.ini` and `r.AreShaderErrorsFatal=0` in `Config/DefaultEngine.ini` to bypass unused global shader errors.
 
-4. Shadows are intentionally disabled:
-   - VSM only matters if `SetCastShadows(true)` is added to the key light.
-   - The backdrop sits directly behind the bricks, so enabling shadows changes the art style.
+4. Shadows:
+   - Key light cast shadows is dynamically controlled by `BallsBoardView.cpp` based on graphics settings (`Settings.Shadows != EBallsShadows::Off`).
+   - The backdrop sits directly behind the bricks, so enabling shadows adds streaks on higher presets.
 
 ## Recommended design
 
@@ -284,21 +284,24 @@ Recommended exploration priority for this scene:
 4. VSM (only if shadows are desired; requires deferred + Nanite platform support).
 5. Nanite (not useful until high-poly Nanite meshes are added).
 
-## Suggested implementation notes (not applied)
+## Implemented graphics system notes
 
-- Parse `-BallsHighEnd` in `Source/Balls/Private/BallsGameMode.cpp` or `BallsApp`, then apply:
-  - `r.AntiAliasingMethod=4`
-  - `r.DynamicRes.OperationMode=2`
-  - optionally `r.DynamicGlobalIlluminationMethod=1; r.ReflectionMethod=1`
-- Keep `r.Nanite.ProjectEnabled` and `r.Shadow.Virtual.ProjectEnabled` in `DefaultEngine.ini`, not runtime, because they are read-only.
-- Add `Config/Android/AndroidEngine.ini` only if Android-specific DRS opt-in is desired.
+- Parsed in `Source/Balls/Private/BallsApp.cpp` (`-BallsHighEnd` and `-BallsGraphics=<preset>`) and managed via `BallsGraphics.cpp` / `SBallsGraphicsPage.cpp`:
+  - `r.AntiAliasingMethod` (TAA, TSR, etc.)
+  - `r.DynamicRes.OperationMode` and `r.DynamicRes.FrameTimeBudget`
+  - `r.DynamicGlobalIlluminationMethod` and `r.ReflectionMethod` (Lumen)
+  - `r.Shadow.Virtual.Enable` and key light shadow casting
+  - `r.Nanite`
+- Project defaults in `Config/DefaultEngine.ini` enable `r.Nanite.ProjectEnabled=True` and `r.GenerateMeshDistanceFields=True` so runtime switches take effect without restarting.
 
 ## Source references
 
-- `frontends/unreal/Config/DefaultEngine.ini`
-- `frontends/unreal/Config/Windows/WindowsEngine.ini`
-- `frontends/unreal/Source/Balls/Private/BallsBoardView.cpp`
-- `frontends/unreal/Source/BallsRendering/Private/BallsSceneViewExtension.cpp`
+- `source/frontends/unreal/Config/DefaultEngine.ini`
+- `source/frontends/unreal/Config/Windows/WindowsEngine.ini`
+- `source/frontends/unreal/Source/Balls/Private/BallsBoardView.cpp`
+- `source/frontends/unreal/Source/Balls/Private/BallsGraphics.cpp`
+- `source/frontends/unreal/Source/Balls/Private/UI/SBallsGraphicsPage.cpp`
+- `source/frontends/unreal/Source/BallsRendering/Private/BallsSceneViewExtension.cpp`
 - `Engine/Config/Android/DataDrivenPlatformInfo.ini`
 - `Engine/Config/Windows/DataDrivenPlatformInfo.ini`
 - `Engine/Source/Runtime/RHI/Private/DataDrivenShaderPlatformInfo.cpp`

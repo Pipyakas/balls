@@ -22,25 +22,25 @@ Every function, constant, and struct from [`source/core/sim/kernels/BallStepCore
 | `emptyRenderSlot` | 52 | `BallStep.emptyRenderSlot = 0xFFFFFFFFu` | Sentinel for empty render buffer slots |
 | `packRenderCoordinate(float, float)` | 54–58 | `BallStep.packRenderCoordinate(float, float)` | Clamps and scales coordinate float to 14-bit unsigned int |
 | `packBallForRender(...)` | 60–63 | `BallStep.packBallForRender(...)` | Packs (x, y, color) into a single 32-bit word: bits 0–13 x, 14–27 y, 28–31 color |
-| `renderPackScale(float)` | `PhysicsBackend.h:73` | `BallStep.renderPackScale(float)` | Computes quantization scale factor `16383.0f / fieldExtent` |
+| `renderPackScale(float)` | `PhysicsBackend.h:129` | `BallStep.renderPackScale(float)` | Computes quantization scale factor `16383.0f / fieldExtent` |
 | `clampFloat(float, float, float)` | 65–67 | `BallStep.clampFloat(float, float, float)` | Scalar float clamping helper |
 | `paddedCellIndex(int, int, int)` | 69–71 | `BallStep.paddedCellIndex(int, int, int)` | Converts `(col, row)` to row-major index in 1-cell padded grid |
-| `pushOutOfCell(...)` | 73–95 | `BallStep.pushOutOfCell(...)` | Pushes ball out of a cell boundary and calculates exit normal |
-| `retargetTowardNearestBrick(...)` | 98–123 | `BallStep.retargetTowardNearestBrick(...)` | Retargets velocity vector toward target brick cell on bounce threshold |
-| `reflectVelocity(...)` | 125–130 | `BallStep.reflectVelocity(...)` | Reflects 2D velocity against collision normal |
-| `resolveEmbeddedContact(...)` | 134–145 | `BallStep.resolveEmbeddedContact(...)` | Pushes embedded ball out of cell, reflects velocity, and retargets if threshold reached |
-| `stepBall(...)` | 148–251 | `BallStep.stepBall(...)` | Advances ball for deltaTime, resolves wall bounces, and checks 4 candidate brick cells |
-| `stepBallSubsteps(...)` | 254–263 | `BallStep.stepBallSubsteps(...)` | Steps ball across `params.substeps` substeps; terminates on first hit |
-| `freeFlightPhaseUnits` | 269 | `BallStep.freeFlightPhaseUnits = 4294967296.0f` | Fixed-point scale for 32-bit phase (`2^32`) |
-| `freeFlightPhaseHalf` | 270 | `BallStep.freeFlightPhaseHalf = 0x80000000u` | Half-period bit boundary for reflection direction determination |
-| `freeFlightSpan(float, float)` | 272–275 | `BallStep.freeFlightSpan(float, float)` | Usable travel distance between bounding walls `(extent - 2 * radius)` |
-| `freeFlightPhase(...)` | 277–284 | `BallStep.freeFlightPhase(...)` | Unfolds triangle wave position and velocity into 32-bit phase |
-| `freeFlightAdvance(...)` | 286–289 | `BallStep.freeFlightAdvance(...)` | Computes per-tick 32-bit phase advance for a given velocity |
-| `foldFreeFlightPhase(...)` | 292–299 | `BallStep.foldFreeFlightPhase(...)` | Folds 32-bit phase back into physical coordinate and direction |
-| `freeFlightWallCrossings(...)` | 302–307 | `BallStep.freeFlightWallCrossings(...)` | Calculates number of half-periods crossed via 64-bit integer shift |
-| `struct FreeFlightPosition` | 309–315 | `struct FreeFlightPosition` | Position, velocity, and wall crossings after free-flight travel |
-| `flyFreely(...)` | 318–334 | `BallStep.flyFreely(...)` | Evaluates closed-form ball state after flying freely for `ticks` |
-| `flyFreelyBackwards(...)` | 338–344 | `BallStep.flyFreelyBackwards(...)` | Calculates initial ball state from a future state flying backwards |
+| `pushOutOfCell(...)` | 73–104 | `BallStep.pushOutOfCell(...)` | Pushes ball out of a cell boundary and calculates exit normal |
+| `retargetTowardNearestBrick(...)` | 159–189 | `BallStep.retargetTowardNearestBrick(...)` | Retargets velocity vector toward target brick cell on bounce threshold |
+| `reflectVelocity(...)` | 191–196 | `BallStep.reflectVelocity(...)` | Reflects 2D velocity against collision normal |
+| `resolveEmbeddedContact(...)` | 200–211 | `BallStep.resolveEmbeddedContact(...)` | Pushes embedded ball out of cell, reflects velocity, and retargets if threshold reached |
+| `stepBall(...)` | 214–317 | `BallStep.stepBall(...)` | Advances ball for deltaTime, resolves wall bounces, and checks 4 candidate brick cells |
+| `stepBallSubsteps(...)` | 320–329 | `BallStep.stepBallSubsteps(...)` | Steps ball across `params.substeps` substeps; terminates on first hit |
+| `freeFlightPhaseUnits` | 335 | `BallStep.freeFlightPhaseUnits = 4294967296.0f` | Fixed-point scale for 32-bit phase (`2^32`) |
+| `freeFlightPhaseHalf` | 336 | `BallStep.freeFlightPhaseHalf = 0x80000000u` | Half-period bit boundary for reflection direction determination |
+| `freeFlightSpan(float, float)` | 338–341 | `BallStep.freeFlightSpan(float, float)` | Usable travel distance between bounding walls `(extent - 2 * radius)` |
+| `freeFlightPhase(...)` | 343–350 | `BallStep.freeFlightPhase(...)` | Unfolds triangle wave position and velocity into 32-bit phase |
+| `freeFlightAdvance(...)` | 352–355 | `BallStep.freeFlightAdvance(...)` | Computes per-tick 32-bit phase advance for a given velocity |
+| `foldFreeFlightPhase(...)` | 358–365 | `BallStep.foldFreeFlightPhase(...)` | Folds 32-bit phase back into physical coordinate and direction |
+| `freeFlightWallCrossings(...)` | 368–373 | `BallStep.freeFlightWallCrossings(...)` | Calculates number of half-periods crossed via 64-bit integer shift |
+| `struct FreeFlightPosition` | 375–381 | `struct FreeFlightPosition` | Position, velocity, and wall crossings after free-flight travel |
+| `flyFreely(...)` | 384–400 | `BallStep.flyFreely(...)` | Evaluates closed-form ball state after flying freely for `ticks` |
+| `flyFreelyBackwards(...)` | 404–410 | `BallStep.flyFreelyBackwards(...)` | Calculates initial ball state from a future state flying backwards |
 
 ---
 
@@ -58,7 +58,7 @@ Every function, constant, and struct from [`source/core/sim/kernels/BallStepCore
 
 ## 3. StepParams Mapping
 
-Step parameters are constructed in C++ by `Simulation::stepParams(int substeps)` (`source/core/sim/Simulation.cpp:113-126`). Below is the exact field mapping:
+Step parameters are constructed in C++ by `Simulation::stepParams(int substeps)` (`source/core/sim/Simulation.cpp:212-226`). Below is the exact field mapping:
 
 | Field Name | C++ Type | C# Type | Source Value / Calculation in `Simulation.cpp` | Semantic Meaning |
 |---|---|---|---|---|
@@ -105,9 +105,9 @@ Step parameters are constructed in C++ by `Simulation::stepParams(int substeps)`
 
 ## 5. Burst & Compiler Safety Notes
 
-- **Zero Managed Allocations**: All three code files use only unmanaged structs, `NativeArray`, `NativeSlice`, `NativeQueue.ParallelWriter`, and `Unity.Mathematics` primitives. No LINQ, no `class` references inside jobs, and no `UnityEngine.Object` types are present.
+- **Zero Managed Allocations**: The core stepping code files use only unmanaged structs, `NativeArray`, `NativeSlice`, `NativeQueue.ParallelWriter`, and `Unity.Mathematics` primitives. No LINQ, no `class` references inside jobs, and no `UnityEngine.Object` types are present.
 - **Assembly Integration**: All files reside under `Assets/Balls/Runtime/Physics/Burst` within the existing `Balls.Runtime` assembly definition (`Balls.Runtime.asmdef`), which already references `Unity.Burst`, `Unity.Collections`, and `Unity.Mathematics` with `allowUnsafeCode: true`.
-- **Burst Compilation**: Both jobs are decorated with `[BurstCompile(FloatMode = FloatMode.Fast, FloatPrecision = FloatPrecision.Standard, CompileSynchronously = true)]`.
+- **Burst Compilation**: All three jobs (`BurstBallStepJob`, `BurstFreeFlightJob`, `BurstPackBallsJob`) are decorated with `[BurstCompile(FloatMode = FloatMode.Fast, FloatPrecision = FloatPrecision.Standard, CompileSynchronously = true)]`.
 - **Potential Compilation Caveats for Composer**:
   - `NativeQueue<T>.ParallelWriter`: Supported in all versions of `com.unity.collections` (1.x and 2.x).
   - `NativeArray<T>.Copy`: Standard in `Unity.Collections`.
