@@ -5,12 +5,15 @@
 namespace {
 
 LayoutOrientation ForcedOrientation = LayoutOrientation::Auto;
+WideScreenAnchor WideScreen = WideScreenAnchor::ScreenEdges;
 constexpr float PortraitAspect = 9.0f / 16.0f;
 constexpr float LandscapeAspect = 16.0f / 10.0f;
 
 // The part of the screen the layout may use: the whole screen for Auto, else a centered frame of the forced shape.
 FSlateRect LayoutFrame(float ScreenWidth, float ScreenHeight) {
-    if (ForcedOrientation == LayoutOrientation::Auto) {
+    const bool bLandscapeScreen = ScreenWidth >= ScreenHeight;
+    if (ForcedOrientation == LayoutOrientation::Auto ||
+        (ForcedOrientation == LayoutOrientation::Landscape && bLandscapeScreen)) {
         return FSlateRect(0.0f, 0.0f, ScreenWidth, ScreenHeight);
     }
     const float Aspect = ForcedOrientation == LayoutOrientation::Portrait ? PortraitAspect : LandscapeAspect;
@@ -41,6 +44,8 @@ FMargin SafeMargin(float DpiScale) {
 
 void SetLayoutOrientation(LayoutOrientation Orientation) { ForcedOrientation = Orientation; }
 
+void SetWideScreenAnchor(WideScreenAnchor Anchor) { WideScreen = Anchor; }
+
 float PortraitLauncherSize(float PanelWidth) {
     constexpr float Share = 0.19f;
     return FMath::Clamp(PanelWidth * Share, 120.0f, 240.0f);
@@ -62,7 +67,7 @@ FBallsGameplayLayout ComputeGameplayLayout(FVector2D ScreenSize, int32 BoardColu
     const float Width = FMath::Max(1.0f, Frame.GetSize().X - Safe.Left - Safe.Right);
     const float Height = FMath::Max(1.0f, Frame.GetSize().Y - Safe.Top - Safe.Bottom);
     const CoreGameplayLayout Core =
-        computeCoreGameplayLayout(Width, Height, BoardColumns, BoardRows, ForcedOrientation, LauncherRows);
+        computeCoreGameplayLayout(Width, Height, BoardColumns, BoardRows, ForcedOrientation, LauncherRows, WideScreen);
     const auto Shift = [OriginX, OriginY](const LayoutRect& Rect) {
         return FSlateRect(OriginX + Rect.x, OriginY + Rect.y, OriginX + Rect.x + Rect.width,
                           OriginY + Rect.y + Rect.height);

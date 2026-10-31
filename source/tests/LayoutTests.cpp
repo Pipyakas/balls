@@ -283,3 +283,19 @@ TEST_CASE("every window shape is filled edge to edge, with the board centred in 
         }
     }
 }
+
+TEST_CASE("centred wide screens keep the gameplay screen a 16:9 group in the middle") {
+    constexpr float outerMargin = 16.0f;
+    const CoreGameplayLayout centred =
+        computeCoreGameplayLayout(3440.0f, 1440.0f, 7, 14, LayoutOrientation::Landscape, 0, WideScreenAnchor::Centered);
+    const float groupWidth = centred.rightGadget.x + centred.rightGadget.width - centred.leftGadget.x;
+    EXPECT(near(groupWidth, 1440.0f * 16.0f / 9.0f - outerMargin * 2.0f));
+    EXPECT(near(centred.leftGadget.x, (3440.0f - groupWidth) * 0.5f));
+    const CoreGameplayLayout edges =
+        computeCoreGameplayLayout(3440.0f, 1440.0f, 7, 14, LayoutOrientation::Landscape, 0, WideScreenAnchor::ScreenEdges);
+    EXPECT(near(edges.leftGadget.x, outerMargin));
+    EXPECT(near(edges.cellSize, centred.cellSize));
+    const CoreGameplayLayout narrow =
+        computeCoreGameplayLayout(1920.0f, 1080.0f, 7, 14, LayoutOrientation::Landscape, 0, WideScreenAnchor::Centered);
+    EXPECT(near(narrow.leftGadget.x, outerMargin));
+}

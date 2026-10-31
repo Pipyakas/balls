@@ -8,6 +8,9 @@
 #include <string_view>
 
 enum class LayoutOrientation { Auto, Landscape, Portrait };
+// A landscape window wider than 16:9 either spreads the gameplay screen to its edges, the board's section taking the
+// extra width, or keeps the screen a centred 16:9 group with dark bands at both sides.
+enum class WideScreenAnchor { ScreenEdges, Centered };
 
 // The target PC has a landscape monitor, so the scoring build has no Layout choice: the game always lays out in
 // landscape, and the window keeps the size it was given. A saved layout is kept in the file but not used.
@@ -28,6 +31,7 @@ struct Settings {
     // Ball-vs-ball collisions are a testing aid only: the game rules have balls pass through each other.
     bool ballCollisions = false;
     LayoutOrientation layout = LayoutOrientation::Auto;
+    WideScreenAnchor wideScreen = WideScreenAnchor::ScreenEdges;
     bool vsync = false;
     // Off skips drawing the board and its balls, so the physics can be measured on its own.
     bool drawBoard = true;
@@ -52,6 +56,8 @@ struct Settings {
 
 std::string_view orientationName(LayoutOrientation orientation);
 std::optional<LayoutOrientation> parseOrientation(std::string_view name);
+std::string_view wideScreenAnchorName(WideScreenAnchor anchor);
+std::optional<WideScreenAnchor> parseWideScreenAnchor(std::string_view name);
 
 std::string normalizeRendererName(std::string_view renderer);
 std::string normalizeGraphicsApiName(std::string_view api);

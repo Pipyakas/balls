@@ -38,3 +38,11 @@ TEST_CASE("settings ignore unknown keys and keep defaults for bad values") {
     EXPECT(parsed.renderer == "webgpu");
     EXPECT(parsed.graphicsApi == "d3d12");
 }
+
+TEST_CASE("wide screens default to the screen edges and keep a centred choice across a save") {
+    EXPECT(Settings{}.wideScreen == WideScreenAnchor::ScreenEdges);
+    Settings centred;
+    centred.wideScreen = WideScreenAnchor::Centered;
+    EXPECT(parseSettings(serializeSettings(centred)).wideScreen == WideScreenAnchor::Centered);
+    EXPECT(parseSettings("wideScreen=sideways\n").wideScreen == WideScreenAnchor::ScreenEdges);
+}

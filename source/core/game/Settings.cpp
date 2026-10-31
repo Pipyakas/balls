@@ -13,6 +13,9 @@ namespace {
 
 constexpr std::string_view collisionsKey = "ballCollisions";
 constexpr std::string_view layoutKey = "layout";
+constexpr std::string_view wideScreenKey = "wideScreen";
+constexpr std::string_view screenEdgesName = "edges";
+constexpr std::string_view centeredName = "centered";
 constexpr std::string_view vsyncKey = "vsync";
 constexpr std::string_view drawBoardKey = "drawBoard";
 constexpr std::string_view ticksPerSecondKey = "physicsRate";
@@ -56,6 +59,21 @@ std::optional<bool> parseFlag(std::string_view value) {
 
 } // namespace
 
+std::string_view wideScreenAnchorName(WideScreenAnchor anchor) {
+    return anchor == WideScreenAnchor::Centered ? centeredName : screenEdgesName;
+}
+
+std::optional<WideScreenAnchor> parseWideScreenAnchor(std::string_view name) {
+    const std::string lower = lowercase(name);
+    if (lower == screenEdgesName) {
+        return WideScreenAnchor::ScreenEdges;
+    }
+    if (lower == centeredName || lower == "centred") {
+        return WideScreenAnchor::Centered;
+    }
+    return std::nullopt;
+}
+
 std::string_view orientationName(LayoutOrientation orientation) {
     for (const auto& [value, name] : orientationNames) {
         if (value == orientation) {
@@ -97,9 +115,10 @@ std::string normalizeGraphicsApiName(std::string_view api) {
 }
 
 std::string serializeSettings(const Settings& settings) {
-    return std::format("{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n",
+    return std::format("{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n",
                        collisionsKey, settings.ballCollisions ? "on" : "off",
                        layoutKey, orientationName(settings.layout),
+                       wideScreenKey, wideScreenAnchorName(settings.wideScreen),
                        vsyncKey, settings.vsync ? "on" : "off",
                        drawBoardKey, settings.drawBoard ? "on" : "off",
                        ticksPerSecondKey, settings.ticksPerSecond,
@@ -128,6 +147,8 @@ Settings parseSettings(std::string_view text) {
             settings.ballCollisions = parseFlag(value).value_or(settings.ballCollisions);
         } else if (key == layoutKey) {
             settings.layout = parseOrientation(value).value_or(settings.layout);
+        } else if (key == wideScreenKey) {
+            settings.wideScreen = parseWideScreenAnchor(value).value_or(settings.wideScreen);
         } else if (key == vsyncKey) {
             settings.vsync = parseFlag(value).value_or(settings.vsync);
         } else if (key == drawBoardKey) {

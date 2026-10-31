@@ -29,7 +29,7 @@ GameplayLayout computeGameplayLayout(Vec2 screenSize, int boardColumns, int boar
 }
 
 GameplayLayout computeGameplayLayout(Vec2 screenSize, int boardColumns, int boardRows,
-                                     LayoutOrientation orientation, int launcherRows) {
+                                     LayoutOrientation orientation, int launcherRows, WideScreenAnchor wideScreen) {
     return convertLayout(computeCoreGameplayLayout(screenSize.x, screenSize.y, boardColumns, boardRows,
-                                                   orientation, launcherRows));
+                                                   orientation, launcherRows, wideScreen));
 }

@@ -50,7 +50,7 @@ LayoutOrientation resolveOrientation(LayoutOrientation setting, float width, flo
 
 CoreGameplayLayout computeCoreGameplayLayout(float frameWidth, float frameHeight, int boardColumns,
                                              int boardRows, LayoutOrientation orientation,
-                                             int launcherRows) {
+                                             int launcherRows, WideScreenAnchor wideScreen) {
     const int columns = std::max(boardColumns, 1);
     const int rows = std::max(boardRows, 1);
     CoreGameplayLayout layout;
@@ -68,8 +68,11 @@ CoreGameplayLayout computeCoreGameplayLayout(float frameWidth, float frameHeight
         const float minimumGroupWidth = landscapeGadgetWidth * 2.0f + gadgetGap * 2.0f + frameBoardWidth;
         // The board keeps its size; the room it leaves goes to the gadgets until the group reaches 16:9, so
         // ultrawide windows don't stretch them across. Any room past that widens the board's section, which always
-        // fills its column: no window shape leaves empty bands beside or above the gadgets and the board.
-        const float groupWidth = std::max(frameWidth - outerMargin * 2.0f, minimumGroupWidth);
+        // fills its column, unless the player keeps wide screens to a centred 16:9 group.
+        const float groupFrame = wideScreen == WideScreenAnchor::Centered
+                                     ? std::min(frameWidth, frameHeight * widestLandscapeAspect)
+                                     : frameWidth;
+        const float groupWidth = std::max(groupFrame - outerMargin * 2.0f, minimumGroupWidth);
         const float widestGadgetGroup = std::min(groupWidth, frameHeight * widestLandscapeAspect - outerMargin * 2.0f);
         const float gadgetGrowth = std::max(0.0f, widestGadgetGroup - minimumGroupWidth) * 0.5f;
         const float gadgetWidth = landscapeGadgetWidth + gadgetGrowth;

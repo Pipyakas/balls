@@ -93,6 +93,11 @@ std::vector<UiOption> orientationOptions(LayoutOrientation current) {
             {"Portrait", true, current == LayoutOrientation::Portrait}};
 }
 
+std::vector<UiOption> wideScreenOptions(WideScreenAnchor current) {
+    return {{"Screen edges", true, current == WideScreenAnchor::ScreenEdges},
+            {"Centered 16:9", true, current == WideScreenAnchor::Centered}};
+}
+
 std::vector<UiOption> offOnOptions(bool on) { return {{"Off", true, !on}, {"On", true, on}}; }
 
 std::vector<BackendRow> defaultBackendRows(BackendKind preferred, std::span<const CandidateResult> scores) {
