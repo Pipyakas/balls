@@ -40,6 +40,17 @@ void DrawBox(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometr
                                Brush, ESlateDrawEffect::None, Tint);
 }
 
+// An empty cell or slot is an outline, as in the SDL editor, so the grid reads as cells rather than one grey block.
+void StrokeRect(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry, const FSlateRect& Rect,
+                float Thickness, const FLinearColor& Color) {
+    DrawBox(Out, Layer, Geometry, FSlateRect(Rect.Left, Rect.Top, Rect.Right, Rect.Top + Thickness), BallsStyle::White(), Color);
+    DrawBox(Out, Layer, Geometry, FSlateRect(Rect.Left, Rect.Bottom - Thickness, Rect.Right, Rect.Bottom), BallsStyle::White(),
+            Color);
+    DrawBox(Out, Layer, Geometry, FSlateRect(Rect.Left, Rect.Top, Rect.Left + Thickness, Rect.Bottom), BallsStyle::White(), Color);
+    DrawBox(Out, Layer, Geometry, FSlateRect(Rect.Right - Thickness, Rect.Top, Rect.Right, Rect.Bottom), BallsStyle::White(),
+            Color);
+}
+
 void DrawTextAt(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry, const FString& Text,
                 const FVector2D& Position, const FSlateFontInfo& Font, const FLinearColor& Color) {
     const FVector2D Size = BallsStyle::Measure(Text, Font);
@@ -293,8 +304,8 @@ public:
                                        BallsPalette::Linear(BallsPalette::Text));
                     }
                 } else {
-                    DrawBox(OutDrawElements, LayerId + 2, AllottedGeometry, Rect, BallsStyle::White(),
-                            BallsPalette::Linear(BallsPalette::Border));
+                    StrokeRect(OutDrawElements, LayerId + 2, AllottedGeometry, Rect, 1.0f,
+                               BallsPalette::Linear(BallsPalette::Border));
                 }
                 if (Hovered.X == Column && Hovered.Y == Row) {
                     DrawBox(OutDrawElements, LayerId + 5, AllottedGeometry, Rect, BallsStyle::White(),
@@ -417,8 +428,8 @@ public:
                                    BallsText::CompactCount(Slot->ballCount), Rect, BallsStyle::Font(FMath::Max(10.0f, Cell * 0.36f), true),
                                    BallsPalette::Linear(BallsPalette::Text));
                 } else {
-                    DrawBox(OutDrawElements, LayerId + 1, AllottedGeometry, Rect, BallsStyle::White(),
-                            BallsPalette::Linear(BallsPalette::Border));
+                    StrokeRect(OutDrawElements, LayerId + 1, AllottedGeometry, Rect, 1.0f,
+                               BallsPalette::Linear(bExists ? BallsPalette::TextDim : BallsPalette::Border));
                 }
                 if (Row == Launchers.visibleRows - 1) {
                     DrawBox(OutDrawElements, LayerId + 2, AllottedGeometry,
