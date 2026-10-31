@@ -4,6 +4,7 @@ Each level is a pair of files in `data/assets/levels/normal` or `data/assets/lev
 
 - `<Name>_Bricks.txt`
   - `[Board] Width / Height / PlayableHeight`: brick rows, plus total rows including the empty play space.
+    Without `PlayableHeight` the board gets a quarter of its brick rows as open space below them, at least 7 rows.
   - `[Layout]`: a grid of brick ids. Cells that share an id form one multi-cell brick. `-1` marks an empty cell.
   - `[BrickTypes]`: one `id Color hits` line per brick.
 - `<Name>_SpawnBall.txt`

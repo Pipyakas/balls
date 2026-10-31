@@ -111,3 +111,14 @@ TEST_CASE("a board too large for the simulation's 32-bit cell indexes is refused
     EXPECT(!layout.hasValue());
     EXPECT(layout.error().find("too large") != std::string::npos);
 }
+
+TEST_CASE("a board without PlayableHeight gets open rows below its bricks") {
+    const auto small = parseBrickLayout("[Board]\nWidth 1\nHeight 2\n[Layout]\n0\n0\n[BrickTypes]\n0 Red 1\n");
+    EXPECT(small.hasValue() && small->playableHeight == 9);
+    std::string tall = "[Board]\nWidth 1\nHeight 128\n[Layout]\n";
+    for (int row = 0; row < 128; ++row) {
+        tall += "-1\n";
+    }
+    const auto large = parseBrickLayout(tall + "[BrickTypes]\n");
+    EXPECT(large.hasValue() && large->playableHeight == 160);
+}

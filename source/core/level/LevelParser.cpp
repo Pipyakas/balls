@@ -27,6 +27,10 @@ constexpr size_t denseIdFloor = 1 << 16;
 // integers, and the GPU packs a brick's index into 28 bits of a cell word: boards past these would overflow them.
 constexpr uint64_t mostTargetFieldEntries = 0x7FFFFFFF;
 constexpr size_t mostBricks = size_t{1} << 28;
+// A board that leaves PlayableHeight out gets this much open space below its bricks: a quarter of the brick rows, and
+// at least the sample DA_49Bricks gap.
+constexpr int minimumDefaultOpenRows = 7;
+constexpr int defaultOpenRowsDivisor = 4;
 
 using BoardValues = std::map<std::string, int, std::less<>>;
 
@@ -104,13 +108,21 @@ Result<BrickLayout> parseBrickLayout(std::string_view text) {
         return Error{board.error()};
     }
     BrickLayout layout;
-    for (auto [key, target] : {std::pair{"Width", &layout.width}, std::pair{"Height", &layout.height},
-                               std::pair{"PlayableHeight", &layout.playableHeight}}) {
+    for (auto [key, target] : {std::pair{"Width", &layout.width}, std::pair{"Height", &layout.height}}) {
         auto value = requirePositive(*board, key);
         if (!value) {
             return Error{value.error()};
         }
         *target = *value;
+    }
+    if (board->contains("PlayableHeight")) {
+        auto value = requirePositive(*board, "PlayableHeight");
+        if (!value) {
+            return Error{value.error()};
+        }
+        layout.playableHeight = *value;
+    } else {
+        layout.playableHeight = layout.height + std::max(minimumDefaultOpenRows, layout.height / defaultOpenRowsDivisor);
     }
     if (layout.playableHeight < layout.height) {
         return Error{"PlayableHeight must be at least Height"};
