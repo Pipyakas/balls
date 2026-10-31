@@ -113,9 +113,16 @@ def tail(path, lines=15):
         return ""
 
 
-def logic_stage(root, out, report):
+def logic_stage(root, out, report, prebuilt):
     build = root / "build" / "verify"
     started = time.time()
+    if prebuilt:
+        present = all((build / "bin" / "Release" / name).exists() for name in ("balls_tests.exe", "balls_bench.exe"))
+        report.add(Check("logic", "prebuilt balls_tests and balls_bench present", present,
+                         "" if present else f"nothing in {build / 'bin' / 'Release'}"))
+        if present:
+            run_logic_binaries(root, build / "bin" / "Release", out, report)
+        return
     if run(["cmake", "-S", str(root), "-B", str(build), "-G", "Visual Studio 17 2022", "-A", "x64",
             "-DBALLS_FRONTEND=none", "-DBALLS_BUILD_TOOLS=ON"], root, out / "logic-configure.log") != 0:
         report.add(Check("logic", "configure", False, tail(out / "logic-configure.log"), seconds=time.time() - started))
@@ -126,7 +133,10 @@ def logic_stage(root, out, report):
                      "" if code == 0 else tail(out / "logic-build.log"), seconds=time.time() - started))
     if code != 0:
         return
-    binaries = build / "bin" / "Release"
+    run_logic_binaries(root, build / "bin" / "Release", out, report)
+
+
+def run_logic_binaries(root, binaries, out, report):
     started = time.time()
     code = run([str(binaries / "balls_tests.exe")], binaries, out / "logic-tests.log")
     lines = tail(out / "logic-tests.log", 400).splitlines()
@@ -144,8 +154,9 @@ def logic_stage(root, out, report):
 class Game:
     """One front end started with its control server, driven over HTTP."""
 
-    def __init__(self, frontend, executable, out):
+    def __init__(self, frontend, executable, out, headless=False):
         self.frontend = frontend
+        self.headless = headless
         self.executable = executable
         self.out = out
         self.port = CONTROL_PORT[frontend]
@@ -155,9 +166,13 @@ class Game:
     def start(self):
         if self.frontend == "sdl":
             arguments = ["--size", str(SCREEN_WIDTH), str(SCREEN_HEIGHT), "--control-port", str(self.port)]
+            if self.headless:
+                arguments.insert(0, "--hidden")
         else:
             arguments = [f"-BallsControlPort={self.port}", "-windowed", f"-ResX={SCREEN_WIDTH}",
                          f"-ResY={SCREEN_HEIGHT}", "-nosound"]
+            if self.headless:
+                arguments += ["-RenderOffscreen", "-ForceRes"]
         log = open(self.out / f"{self.frontend}-game.log", "w", encoding="utf-8", errors="replace")
         self.process = subprocess.Popen([str(self.executable), *arguments], cwd=self.executable.parent, stdout=log,
                                         stderr=subprocess.STDOUT)
@@ -458,7 +473,9 @@ def frontend_paths(root, frontend):
         dist = root / "dist" / "win32-sdl"
         candidates = [checkout_levels, dist / "assets" / "levels"]
         return dist / "balls.exe", [folder for folder in candidates if (folder / "performance").is_dir()]
-    candidates = [checkout_levels, root / "dist" / "win32-ue" / "assets" / "levels"]
+    # A packaged Unreal game reads the checkout's data/assets when its build path exists, else the assets staged
+    # beside it in Balls/assets.
+    candidates = [checkout_levels, root / "dist" / "win32-ue" / "Balls" / "assets" / "levels"]
     return root / "dist" / "win32-ue" / "Balls.exe", [folder for folder in candidates if (folder / "performance").is_dir()]
 
 
@@ -468,8 +485,13 @@ def main():
     parser.add_argument("--stages", nargs="+", default=["logic", "sdl", "ue"], choices=["logic", "sdl", "ue"])
     parser.add_argument("--out", default=None, help="report folder (default <root>/build/verify-report)")
     parser.add_argument("--quick", action="store_true", help="one Normal and one Performance level per front end")
+    parser.add_argument("--prebuilt", action="store_true",
+                        help="run the logic stage from build/verify/bin/Release as copied, without building")
+    parser.add_argument("--headless", action="store_true",
+                        help="no visible window (SDL hidden, Unreal offscreen): for a session without a desktop, such as SSH")
     arguments = parser.parse_args()
-    root = Path(arguments.root).resolve()
+    # Not resolved: on a subst drive that maps the build's own path, resolving would name the backing folder instead.
+    root = Path(arguments.root).absolute()
     out = Path(arguments.out).resolve() if arguments.out else root / "build" / "verify-report"
     shutil.rmtree(out, ignore_errors=True)
     out.mkdir(parents=True)
@@ -477,13 +499,14 @@ def main():
     try:
         for stage in arguments.stages:
             if stage == "logic":
-                logic_stage(root, out, report)
+                logic_stage(root, out, report, arguments.prebuilt)
                 continue
             executable, level_folders = frontend_paths(root, stage)
             if not executable.exists() or not level_folders:
                 report.add(Check(stage, "build present", False, f"{executable} or its levels are missing; build it first"))
                 continue
-            UiPass(Game(stage, executable, out), level_folders[0], level_folders, report, arguments.quick).run()
+            UiPass(Game(stage, executable, out, arguments.headless), level_folders[0], level_folders, report,
+                   arguments.quick).run()
     finally:
         report.write()
     failed = report.failed()
