@@ -135,7 +135,8 @@ def logic_stage(root, out, report):
     report.add(Check("logic", "balls_tests", code == 0 and not failures,
                      totals + ("; " + "; ".join(failures[:5]) if failures else ""), seconds=time.time() - started))
     started = time.time()
-    code = run([str(binaries / "balls_bench.exe"), "--accuracy"], binaries, out / "logic-accuracy.log")
+    # The bench names its levels relative to the checkout root.
+    code = run([str(binaries / "balls_bench.exe"), "--accuracy"], root, out / "logic-accuracy.log")
     report.add(Check("logic", "physics accuracy against the reference backend", code == 0,
                      tail(out / "logic-accuracy.log", 3).replace("\n", " | "), seconds=time.time() - started))
 
