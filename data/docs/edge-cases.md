@@ -126,7 +126,7 @@ then; the device composer that now carries the name matches it ([hybrid-physics.
 
 Target PC, `balls_bench --edge-cases --sizes all --layouts all --backend avx2@cpu+cuda@gpu0`: Hybrid with AVX2 on
 the CPU and CUDA on the GTX 1650 picked, every picked device always stepping, Windows core parking off. "28 Oct" is
-the first sweep after the CUDA+AVX2 pair was removed; "now" (29 Oct) adds shares measured over windows of steps and
+the first sweep of the Hybrid device composer; "now" (29 Oct) adds shares measured over windows of steps and
 parallel removal of hit balls (see [hybrid-physics.md](hybrid-physics.md#hit-heavy-small-boards)). The CUDA and
 pair columns are the earlier sweep above, taken with core parking on; single runs of the small boards vary by up to
 about 15%.

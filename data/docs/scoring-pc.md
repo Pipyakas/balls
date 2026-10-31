@@ -89,7 +89,7 @@ first CPU version. Requantising positions every tick uses a hashed dither, so ro
   made 150 ms steps.
 - **Cell sort.** Balls are sorted by board cell inside the step kernel (count, scan, then a fused step-and-sort).
   Unsorted, nearly every warp held a ball near a brick and ran the slow path at a fraction of its lanes. `SortSchedule`
-  tries sorting never, every 8 or every 16 ticks and keeps the cheapest.
+  tries sorting every 8, 16 or 32 ticks and keeps the cheapest.
   - At 60M balls, a brick-level step went from 15.5 to 9.76 ms.
   - Warp-instructions per tick fell from 850M to 403M, which also helps under the power cap.
 - **Compaction on the device.** Two kernels fill the holes left by dead balls with balls from the tail, with no host

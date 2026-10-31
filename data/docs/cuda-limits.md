@@ -72,7 +72,7 @@ Coherence lasts a while because balls move about 0.23 cells per tick:
 | every 16 ticks | 9.85 ms |
 | every 32 ticks | 10.8 ms |
 
-Sorting only costs time on an empty board, so the backend picks the interval itself. It trials {never, 8, 16} for
+Sorting only costs time on an empty board, so the backend picks the interval itself. It trials {8, 16, 32} for
 32 measured ticks each, keeps the cheapest GPU time per ball, and re-trials every 1200 ticks. Over 400 ticks
 (trials included) the brick level drops from 16.8 ms to 10.2 ms (-39%), and the empty board stays at memory speed
 (7.0 ms incl. trials vs 6.5 ms). The in-game capacity probe at 60 FPS went from 130.0M to 140.9M balls.

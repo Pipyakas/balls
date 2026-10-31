@@ -1,9 +1,10 @@
 # Free flight: balls that only meet walls are not stepped
 
-In Performance mode the capacity probe adds balls until the frame rate drops. With millions of balls the board is
+In Performance mode the game fills balls up to the backend's capacity (Auto). With millions of balls the board is
 cleared within the first second, and from then on nothing can change a ball's path except the four walls. Stepping
 those balls every tick read and wrote every ball, so the ball count at 60 FPS was set by memory bandwidth
-(about 150M on the GTX 1650, 262M with the CUDA+AVX2 split, since replaced by Hybrid, on the i9-14900K).
+(about 150M on the GTX 1650, 262M with the CUDA+AVX2 pair on the i9-14900K; the extended build defaults to
+Hybrid, while the scoring build keeps the pair).
 
 ## The closed form
 
@@ -29,7 +30,7 @@ phase, so the compact 8-byte ball stores "this ball at tick E" unchanged.
 - A frame only needs the balls that bid for a visibility-grid slot, so whole 256-ball chunks are sampled with the
   bidder stride. The reads stay contiguous and the cost follows the size of the grid, not the ball count:
   about 0.05 ms of GPU time per frame on the GTX 1650 at any count.
-- Balls added while frozen (launchers, the probe) are projected back to `E` with the quantized direction the
+- Balls added while frozen (launchers, fills) are projected back to `E` with the quantized direction the
   kernels decode, so flying forward lands exactly on the spawn point.
 - Any normal step, export or transfer between devices first writes every ball back at the current tick
   (`materializeFreeFlightKernel`, `CompactBallStore::materializeRange`), so the rest of each backend never sees
@@ -41,14 +42,23 @@ phase, so the compact 8-byte ball stores "this ball at tick E" unchanged.
 
 Without stepping, the ceiling is how many balls fit:
 
-- `PhysicsBackend::ballCapacityLimit()`: CUDA uses `cuMemGetInfo` minus a 256 MB reserve at 8 bytes per ball;
-  AVX2 uses the memory that is free right now minus a margin (1 GB or 1/32 of RAM) at 8 bytes per ball, and
-  drops to the current count as soon as Windows signals low memory. The separate 4-byte render copy is only kept
-  while every ball has its own visibility slot, so above the grid size a held ball costs 8 bytes, not 12.
-- Near the top of device memory CUDA grows its arrays through host memory, since the old and new arrays no longer
-  fit side by side. A failed allocation keeps the current capacity instead of faulting the backend.
-- `Simulation::scatterBalls` clamps to the room left and hands balls to the backend in 4M-ball batches, and the
-  capacity probe ends its ramp when the room runs out.
+- `PhysicsBackend::ballCapacityLimit()`:
+  - In the growing case, CUDA queries `cuMemGetInfo` minus a 256 MB reserve (`deviceMemoryReserve`, kept free
+    for the visibility grid, render interop buffer, and driver) at 8 bytes per ball (`heldBytesPerBall`). When
+    preallocated (`preallocateBalls()`, as in the scoring build), CUDA carves up front from `cuMemGetInfo` minus
+    a 512 MB reserve (`preallocateGpuReserveBytes`, kept free for renderer interop, framebuffers, visibility grid,
+    display driver, and board arrays) at 16 bytes per ball (`preallocatedBytesPerBall`, covering position, state,
+    and two cell-sort buffers) rounded to 1M-ball granules (`capacityGranule`), and `ballCapacityLimit()` returns
+    this fixed capacity.
+  - AVX2 returns its preallocated capacity if preallocated (`store.isPreallocated()`); otherwise it uses the memory
+    that is free right now minus a margin (1 GB or 1/32 of RAM) at 8 bytes per ball, and drops to the current
+    count as soon as Windows signals low memory. The separate 4-byte render copy is only kept while every ball has
+    its own visibility slot, so above the grid size a held ball costs 8 bytes, not 12.
+- CUDA grows its arrays in place using CUDA virtual memory (`GrowableDeviceArray`), falling back to host memory
+  near the top of device memory only when virtual memory is unsupported. A failed allocation keeps the current
+  capacity instead of faulting the backend.
+- `Simulation::scatterBalls` clamps to the room left and hands balls to the backend in 4M-ball batches
+  (`spawnFlushBalls`), and additions end when the room runs out.
 
 ## Results
 
@@ -57,7 +67,7 @@ Max balls with the probe at 60 FPS on DA_1000Bricks, NVRHI D3D12:
 | Machine | Backend | Stepping | Free flight |
 |---|---|---|---|
 | i9-14900K, 64 GB DDR5, GTX 1650 (target PC) | CUDA | 150M | 287M at ~4,500 FPS (before host-staged growth) |
-| i9-14900K, 64 GB DDR5, GTX 1650 (target PC) | CUDA+AVX2 (now Hybrid) | 262M | 4.37 billion at ~2,600 FPS, min 233 |
+| i9-14900K, 64 GB DDR5, GTX 1650 (target PC) | CUDA+AVX2 | 262M | 4.37 billion at ~2,600 FPS, min 233 |
 | i5-12400F, GTX 1650 (busy development PC) | CUDA | 88M | 392M at ~4,500 FPS |
 
 While bricks are alive nothing changes: balls are stepped exactly as before.
