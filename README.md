@@ -6,6 +6,12 @@ NVRHI (Vulkan or Direct3D 12) with Dear ImGui for the UI. The physics runs on in
 scalar reference to AVX2, CUDA and a split of the balls across every device: see
 [physics backends](data/docs/physics-backends.md).
 
+**The SDL front end is the main version.** `build.bat` builds it, and it is the only front end tuned for the
+target PC ([scoring build](data/docs/scoring-pc.md)). The Unreal Engine and Unity front ends are tech demos: they
+run the same core (Unity also has its own Burst physics backend) to show it inside each engine, but each engine
+adds its own per-frame work and copies the balls through its own renderer, so they may not show the best
+performance the core can reach.
+
 ## Quick start
 
 Requirements: Windows 10/11 x64, Visual Studio 2022 (C++ workload), CMake 3.25+, Python 3, and internet access on
