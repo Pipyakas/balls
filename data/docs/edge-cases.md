@@ -246,8 +246,8 @@ about 15%.
   rises gradually and boards whose bricks absorb balls as fast as they arrive still fill.
 
 The probe's and fill's additions queue behind it, and the probe measures only once its queue has drained.
-`scripts/bench/stutter_check.py` runs the game hidden and reports each second's average and worst frame while a
-board fills; a frame over twice a 60 FPS frame counts as a stutter.
+A stutter check ran the game hidden over the control API (`/state`) and recorded each second's average and worst
+frame while a board filled; a frame over twice a 60 FPS frame counted as a stutter.
 
 Hybrid is the best backend or within a few percent of it on every board; CUDA leads by 2-7% on the 16x16 brick
 boards and on 512x512 Columns. Before the sparse hit and target uploads, Hybrid held only 11-16M on the 2048x2048

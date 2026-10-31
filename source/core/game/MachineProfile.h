@@ -30,8 +30,8 @@ private:
 
 inline constexpr std::string_view targetBenchmarkFileName = "target-benchmark.txt";
 
-// The winner in the target PC's benchmark record (data/assets/target-benchmark.txt, measured with
-// balls_bench --machine-benchmark and shipped with the assets), or nothing when there is none.
+// The winner in the target PC's benchmark record (data/assets/target-benchmark.txt, the machine benchmark measured on
+// the target PC and shipped with the assets), or nothing when there is none.
 std::optional<BenchmarkCandidate> targetMachineWinner(const std::filesystem::path& recordFile);
 
 // The backend a new game starts on ("Default backend and machine benchmark"): the command line, then the Settings

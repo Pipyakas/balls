@@ -3,7 +3,7 @@
 
     python -I scripts/test/RunTests.py                     every stage on this checkout's builds
     python -I scripts/test/RunTests.py --stages sdl ue     only the UI passes
-    python -I scripts/test/RunTests.py --root E:/balls/wt-submission --out C:/scratch/verify
+    python -I scripts/test/RunTests.py --root <checkout> --out <folder>
 
 Stages:
   logic  builds and runs balls_tests (unit tests of the core) and balls_bench --accuracy (every physics backend
