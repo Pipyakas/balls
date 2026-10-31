@@ -98,6 +98,8 @@ std::vector<UiOption> spawnRateChoices(int selectedIndex);
 // Level, Auto, Max (BallLimitChoice order). Level releases the level's counts; Auto and Max keep releasing until the
 // limit (see BallLimitChoice).
 std::vector<UiOption> ballLimitChoices(const SessionView& view);
+// The debug gadget's Waiting to spawn value: the count, or Endless while Auto or Max streams.
+std::string waitingToSpawnLabel(const SessionView& view);
 bool isAutoBallLimit(const SessionView& view);
 // The in-game Physics list: like the default list, a backend still starting reads "<name> - starting...".
 std::vector<BackendRow> gameplayBackendRows(const SessionView& view);

@@ -812,7 +812,7 @@ private:
         Writer.Row(TEXT("Balls"), BallsText::Grouped(Balls));
         Writer.Row(TEXT("Bricks"), BallsText::Grouped(Bricks));
         Writer.Row(TEXT("Launchers"), BallsText::Grouped(Launchers));
-        Writer.Row(TEXT("Waiting to spawn"), BallsText::Grouped(Session.pendingSpawn));
+        Writer.Row(TEXT("Waiting to spawn"), BallsText::FromUtf8(waitingToSpawnLabel(Session)));
         if (Session.mode == GameMode::Performance) {
             FString Resolved;
             if (Session.ballLimitIndex == static_cast<int>(BallLimitChoice::Level)) {

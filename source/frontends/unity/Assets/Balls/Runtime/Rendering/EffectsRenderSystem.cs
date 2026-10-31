@@ -139,7 +139,8 @@ namespace Balls.Rendering
             instance[0] = new QuadInstance
             {
                 center = new float2(board.columns * 0.5f, board.rows - BallRadius * 2f),
-                size = new float2(LaunchMarkerSize, LaunchMarkerSize),
+                // The board's y runs down (the camera flips it), so a negative height keeps the tip pointing up.
+                size = new float2(LaunchMarkerSize, -LaunchMarkerSize),
                 color = new Vector4(LaunchMarkerGrey, LaunchMarkerGrey, LaunchMarkerGrey, 0f),
             };
             Submit(markerMaterial, markerBuffer, markerArgs, instance, 1, RenderPrimitives.UnitTriangle);

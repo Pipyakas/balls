@@ -76,6 +76,7 @@ namespace Balls.Physics.Burst
 
         public override int SpawnRateIndex => selectedSpawnRate;
         public override int BallLimitIndex => selectedBallLimit;
+        public override bool EndlessSpawn => endlessStreams;
         public override ulong BallLimit => selectedBallLimit == BallLimitMax ? ulong.MaxValue : (measuredMachineLimit != 0 ? measuredMachineLimit : ulong.MaxValue);
         public override bool HasMachineLimit => selectedBallLimit == BallLimitAuto && measuredMachineLimit != 0;
         public override ulong MachineLimit => measuredMachineLimit;

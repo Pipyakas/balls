@@ -97,6 +97,7 @@ public:
     int spawnRateIndex() const { return selectedSpawnRate; }
     int ballLimitIndex() const { return static_cast<int>(limitChoice); }
     BallLimitChoice ballLimitChoice() const { return limitChoice; }
+    bool streamsEndlessly() const { return endlessStreams; }
     BallCount ballLimit() const { return limitChoice == BallLimitChoice::Max ? unlimitedBalls : *machineBallLimit(); }
     bool isAutoReleasing() const { return autoRelease; }
     double elapsedSeconds() const { return elapsed; }

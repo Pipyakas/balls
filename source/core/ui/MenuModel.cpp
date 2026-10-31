@@ -166,6 +166,10 @@ std::vector<UiOption> spawnRateChoices(int selectedIndex) {
     return options;
 }
 
+std::string waitingToSpawnLabel(const SessionView& view) {
+    return view.endlessSpawn ? std::string("Endless") : groupedCount(view.pendingSpawn);
+}
+
 bool isAutoBallLimit(const SessionView& view) { return view.usingMachineLimit; }
 
 std::vector<UiOption> ballLimitChoices(const SessionView& view) {
@@ -257,7 +261,7 @@ std::vector<DebugRow> debugGadgetRows(const SessionView& view, const FrameTiming
     rows.value("Balls", groupedCount(balls));
     rows.value("Bricks", groupedCount(bricks));
     rows.value("Launchers", groupedCount(launchers));
-    rows.value("Waiting to spawn", groupedCount(view.pendingSpawn));
+    rows.value("Waiting to spawn", waitingToSpawnLabel(view));
     if (view.mode == GameMode::Performance) {
         std::string limit;
         if (view.ballLimitIndex == static_cast<int>(BallLimitChoice::Level)) {

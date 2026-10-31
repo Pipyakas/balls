@@ -119,6 +119,8 @@ namespace Balls.Game
         // Performance-mode readouts and controls the HUD needs but the session state does not carry.
         public virtual int SpawnRateIndex => 0;
         public virtual int BallLimitIndex => 0;
+        // True while Auto or Max streams every color without end, when Waiting to spawn reads Endless.
+        public virtual bool EndlessSpawn => false;
         public virtual ulong BallLimit => 0;
         public virtual bool ProbeActive => false;
         public virtual int ProbePhase => 0;

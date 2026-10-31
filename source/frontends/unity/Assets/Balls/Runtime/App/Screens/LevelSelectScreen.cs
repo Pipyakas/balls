@@ -56,20 +56,22 @@ namespace Balls.App.Screens
             }
             else
             {
-                Rect content = new Rect(viewport.x, viewport.y - scroll.y, viewport.width,
-                    levelCount * (RowHeight + RowGap));
-                scroll.y = Mathf.Clamp(scroll.y, 0f, Mathf.Max(0f, content.height - viewport.height));
-                for (int index = 0; index < levelCount; ++index)
+                // The wheel and a drag scroll the list, clipped to its viewport so rows never run under the buttons.
+                widgets.ScrollColumn(viewport, levelCount * (RowHeight + RowGap) - RowGap, ref scroll, content =>
                 {
-                    if (BallsNative.balls_flow_level_row(App.FlowHandle, index, out NativeFlowLevelRow row) != 0)
+                    for (int index = 0; index < levelCount; ++index)
                     {
                         Rect rowRect = new Rect(content.x, content.y + index * (RowHeight + RowGap), content.width, RowHeight);
-                        if (rowRect.yMax >= viewport.y - RowHeight && rowRect.y <= viewport.y + viewport.height)
+                        if (rowRect.yMax < viewport.y || rowRect.y > viewport.yMax)
+                        {
+                            continue;
+                        }
+                        if (BallsNative.balls_flow_level_row(App.FlowHandle, index, out NativeFlowLevelRow row) != 0)
                         {
                             DrawRow(widgets, rowRect, row.Name, row.highlighted != 0, index);
                         }
                     }
-                }
+                });
             }
 
             float buttonY = Mathf.Min(height - 150f, listTop + viewport.height + 24f);

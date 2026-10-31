@@ -79,6 +79,7 @@ void describeSessionState(const GameSession& session, SessionView& view) {
     view.elapsedSeconds = session.elapsedSeconds();
     view.launchers = session.launchers();
     view.pendingSpawn = session.spawner().pendingBalls();
+    view.endlessSpawn = session.streamsEndlessly();
     view.autoReleasing = session.isAutoReleasing();
     view.spawnRateIndex = session.spawnRateIndex();
     view.ballLimitIndex = session.ballLimitIndex();
