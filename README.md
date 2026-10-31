@@ -19,8 +19,9 @@ the first build.
 
 1. Double-click `build.bat`. It checks the PC, names anything missing, and builds `dist\win32-sdl\balls.exe`.
 2. Run `dist\win32-sdl\balls.exe`.
-3. For the most balls: Performance mode, level `Unlimited_921Bricks`, then `Start`; Spawn / sec `Max` and Ball limit `Auto` are the
-   defaults, and its seven launchers hold 2,147,483,647 balls each, more than Auto. Close other programs first: Auto is the RAM and VRAM free when the game starts.
+3. For the most balls: Performance mode, level `Unlimited_921Bricks`, then `Start`; Spawn / sec `Max` is the default, and the level's
+   seven launchers hold 2,147,483,647 balls each, more than the machine holds (or pick Ball limit `Auto`, which keeps
+   any level releasing until the machine is full). Close other programs first: Auto is the RAM and VRAM free when the game starts.
 
 The release is tagged (`git tag -l`).
 
@@ -53,8 +54,8 @@ Other front ends (Unreal, Unity), Linux, Android, build options and the benchmar
 - **Normal mode.** Pick launchers from a 3-column queue; each releases its exact number of balls. Balls bounce off
   walls and bricks, break bricks of their own color, and home toward the nearest one after the third bounce.
 - **Performance mode.** One click starts automatic release from seven launchers at once, at 10 to 2000 balls per
-  second or Max. Launchers release the level's counts; Advanced Settings' Override launcher counts adds a
-  ball-count multiplier from x1 to x10000.
+  second (the game's options) or faster up to Max. Ball limit `Level` (default) releases exactly the level's
+  launcher counts; `Auto` and `Max` keep every color streaming at that rate until the machine is full.
 - **Three-section screen.** The board, the user interaction section (the only place that takes gameplay input)
   and a debug panel with FPS, min FPS, total objects, balls per color and the physics backend.
 - **Map editor.** Paint multi-cell bricks, set hits and colors, edit and auto-fill launchers, validate, undo/redo,
