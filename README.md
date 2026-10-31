@@ -28,6 +28,16 @@ build/win32-scoring/bin/Release/balls_tests.exe
 build/win32-scoring/bin/Release/balls_bench.exe --balls 2000,200000,1000000 --ticks 240
 ```
 
+The whole verification pass, logic and UI, runs from one script: it builds and runs `balls_tests` and the physics
+accuracy check, then drives each built front end through its control API (every screen, each Normal level played to
+the win, each Performance level filled, a broken and a repaired map, a clean quit) and writes
+`build/verify-report/report.html` with a screenshot per check.
+
+```powershell
+python -I scripts/test/RunTests.py                  # logic, SDL and Unreal
+python -I scripts/test/RunTests.py --stages sdl --quick
+```
+
 Other front ends (Unreal, Unity), Linux, Android, build options and the benchmark flags:
 [building and testing](data/docs/building.md).
 
