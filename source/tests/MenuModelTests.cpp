@@ -123,14 +123,14 @@ TEST_CASE("the debug gadget shows the game's rows and hides backend rows while A
     EXPECT(findRow(closed, "Ball collisions") == nullptr);
     EXPECT(findRow(closed, "Balls")->value == "1,234,567");
     EXPECT(findRow(closed, "Physics FPS") == nullptr);
-    EXPECT(findRow(closed, "Tick rate")->value == "119 / 120 Hz");
-    EXPECT(findRow(closed, "Tick rate")->tone == UiTone::Success);
+    EXPECT(findRow(closed, "Tick rate") == nullptr);
+    EXPECT(findRow(closed, "Physics ms")->tone == UiTone::Normal);
     SessionView behind = view;
     behind.physicsTicksPerSecond = 80.0;
     behind.state = SessionState::Running;
-    EXPECT(findRow(debugGadgetRows(behind, frames, {}), "Tick rate")->tone == UiTone::Danger);
+    EXPECT(findRow(debugGadgetRows(behind, frames, {}), "Physics ms")->tone == UiTone::Danger);
     behind.state = SessionState::Ready;
-    EXPECT(findRow(debugGadgetRows(behind, frames, {}), "Tick rate")->tone == UiTone::Muted);
+    EXPECT(findRow(debugGadgetRows(behind, frames, {}), "Physics ms")->tone == UiTone::Normal);
     EXPECT(findRow(closed, "Ball limit")->value == "Auto");
     int colorRows = 0;
     for (const DebugRow& row : closed) {

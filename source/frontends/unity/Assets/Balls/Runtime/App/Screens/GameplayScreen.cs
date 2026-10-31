@@ -1079,11 +1079,12 @@ namespace Balls.App.Screens
                     stats.frameMinFps >= 60f ? Palette.Success : Palette.Danger);
                 y += 46f;
                 widgets.Readout(new Rect(content.x, y, half, 40f), "Frame ms", $"{stats.frameMs:F2}");
-                widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "Physics ms", $"{stats.physicsMs:F2}");
+                // Like the core's row: red only while a running game falls behind its tick rate.
+                bool physicsBehind = session.state == BallsNative.StateRunning && stats.physicsFps < KeepingUpTickRate;
+                widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "Physics ms", $"{stats.physicsMs:F2}",
+                    physicsBehind ? Palette.Danger : (Color?)null);
                 y += 46f;
-                widgets.Readout(new Rect(content.x, y, half, 40f), "Tick rate", $"{stats.physicsFps:N0} Hz",
-                    stats.physicsFps >= KeepingUpTickRate ? Palette.Success : Palette.Danger);
-                widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "GPU ms", GpuText());
+                widgets.Readout(new Rect(content.x, y, half, 40f), "GPU ms", GpuText());
                 y += 46f;
                 if (advancedOpen)
                 {

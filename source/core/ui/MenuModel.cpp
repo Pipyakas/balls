@@ -14,12 +14,15 @@ constexpr double ballStepsPerMillion = 1e6;
 
 UiTone fpsTone(double fps) { return fps >= fpsTarget ? UiTone::Success : UiTone::Danger; }
 
-// The simulation keeps up while it runs the ticks its rate asks for; a few percent short is measuring noise. Before a
-// Performance game starts, and after a win, no ticks run, so the row is muted rather than flagged.
+// The simulation keeps up while it runs the ticks its rate asks for; a few percent short is measuring noise. The
+// governor keeps it there, so the tick rate earns no row of its own: Physics ms turns red only while a running game
+// falls behind (before a Performance game starts, and after a win, no ticks are due).
 constexpr double tickRateTolerance = 0.95;
 
-UiTone tickRateTone(double ticksPerSecond, double target) {
-    return target > 0.0 && ticksPerSecond >= target * tickRateTolerance ? UiTone::Success : UiTone::Danger;
+UiTone physicsTone(const SessionView& view) {
+    const bool behind = view.state == SessionState::Running && view.targetTicksPerSecond > 0.0 &&
+                        view.physicsTicksPerSecond < view.targetTicksPerSecond * tickRateTolerance;
+    return behind ? UiTone::Danger : UiTone::Normal;
 }
 
 std::string ballLimitOptionLabel(BallCount limit) {
@@ -233,10 +236,7 @@ std::vector<DebugRow> debugGadgetRows(const SessionView& view, const FrameTiming
     rows.value("FPS", std::format("{:.0f}", fps), fpsTone(fps));
     rows.value("Min FPS (1s)", std::format("{:.0f}", minimumFps), fpsTone(minimumFps));
     rows.value("Frame ms", std::format("{:.2f}", frames.average().frameMs));
-    rows.value("Physics ms", std::format("{:.2f}", stats.lastFramePhysicsMs));
-    rows.value("Tick rate", std::format("{:.0f} / {:.0f} Hz", view.physicsTicksPerSecond, view.targetTicksPerSecond),
-               view.state == SessionState::Running ? tickRateTone(view.physicsTicksPerSecond, view.targetTicksPerSecond)
-                                                   : UiTone::Muted);
+    rows.value("Physics ms", std::format("{:.2f}", stats.lastFramePhysicsMs), physicsTone(view));
     rows.value("GPU ms", std::format("{:.2f}", frames.average().gpuMs));
     for (const auto& [label, value] : options.portRows) {
         rows.value(label, value);
