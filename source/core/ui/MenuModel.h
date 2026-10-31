@@ -54,6 +54,10 @@ inline constexpr std::string_view ballLimitLabel = "Ball limit";
 inline constexpr std::string_view renderGpuLabel = "Render GPU";
 inline constexpr std::string_view computeGpuLabel = "Compute GPU (Vulkan backend)";
 inline constexpr std::string_view ballCollisionsLabel = "Ball collisions";
+// Advanced Settings in Performance mode: Off / On (offOnOptions). Off, the Ball count dropdown is not shown.
+inline constexpr std::string_view launcherOverrideLabel = "Override launcher counts";
+inline constexpr std::string_view launcherOverrideHint =
+    "Off: each launcher releases the balls its level gives it. On: Ball count multiplies them.";
 inline constexpr std::string_view allLaunchersReleased = "All launchers released";
 
 } // namespace menuText
@@ -97,6 +101,8 @@ std::optional<std::vector<BackendPick>> pickDeviceOption(std::span<const Backend
 UiOption releaseButton(const SessionView& view);
 std::vector<UiOption> spawnRateChoices(int selectedIndex);
 std::vector<UiOption> ballMultiplierChoices(int selectedIndex);
+// The Ball count multiplier only means something while Override launcher counts is on.
+inline bool showsBallMultiplier(const Settings& settings) { return settings.overrideLauncherCounts; }
 // Auto first, then the fixed limits. Auto is selected while the machine limit is in use.
 std::vector<UiOption> ballLimitChoices(const SessionView& view);
 bool isAutoBallLimit(const SessionView& view);

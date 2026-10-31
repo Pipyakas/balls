@@ -64,6 +64,10 @@ public:
     // Applies the Ball collisions setting, requesting Scalar when collisions need it and it is offered. The switch
     // lands like any other and comes back through takeBackendSwitchOutcome with forBallCollisions set.
     BallCollisionsChange setBallCollisions(bool enabled);
+    // The Override launcher counts setting. Off (the default), a Performance launcher releases exactly the balls the level
+    // gives it, as the game's level format says; on, the Ball count multiplier scales every launcher.
+    void setLauncherCountOverride(bool enabled) { launcherCountOverride = enabled; }
+    bool launcherCountsOverridden() const { return launcherCountOverride; }
     std::optional<BackendKind> pendingBackend() const;
     // Once per finished request, so the caller can react to the switch or to its failure.
     std::optional<BackendSwitchOutcome> takeBackendSwitchOutcome();
@@ -123,6 +127,7 @@ private:
     int selectedMultiplier = static_cast<int>(ballMultiplierOptions.size()) - 1;
     int selectedBallLimit = static_cast<int>(ballLimitOptions.size()) - 1;
     bool autoRelease = false;
+    bool launcherCountOverride = false;
     double elapsed = 0.0;
     int fillColorIndex = 0;
     std::optional<BallCount> measuredMachineLimit;

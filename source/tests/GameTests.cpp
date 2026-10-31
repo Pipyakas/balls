@@ -152,3 +152,35 @@ TEST_CASE("a performance game starts at the fastest spawn rate and the largest b
     session.restart();
     EXPECT(session.spawnRateIndex() == 2);
 }
+
+namespace {
+
+BallCount launcherBallsLeft(const GameSession& session) {
+    BallCount total = 0;
+    for (const int balls : session.launchers().remainingBalls()) {
+        total += static_cast<BallCount>(balls);
+    }
+    return total;
+}
+
+// Balls the first auto-release frame took from the launchers, and the balls it handed on (spawned or still waiting).
+std::pair<BallCount, BallCount> firstReleaseFrame(bool overrideCounts) {
+    GameSession session(GameMode::Performance, loadSample("performance", "DA_1000Bricks"), BackendKind::Scalar);
+    session.setLauncherCountOverride(overrideCounts);
+    session.selectSpawnRate(0);
+    const BallCount before = launcherBallsLeft(session);
+    session.startAutoRelease();
+    session.update(0.0f);
+    return {before - launcherBallsLeft(session),
+            session.spawner().pendingBalls() + session.simulation().liveBallCount()};
+}
+
+}
+
+TEST_CASE("performance launchers release the level's counts unless Override launcher counts is on") {
+    const auto [taken, released] = firstReleaseFrame(false);
+    EXPECT(taken > 0);
+    EXPECT(released == taken);
+    const auto [takenOverridden, releasedOverridden] = firstReleaseFrame(true);
+    EXPECT(releasedOverridden == takenOverridden * ballMultiplierOptions.back());
+}

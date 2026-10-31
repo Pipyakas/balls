@@ -115,6 +115,9 @@ std::optional<ControlResponse> handleSettings(ControlHost& host, const ControlRe
     if (const auto advanced = flag(request, "advanced")) {
         next.advancedSettings = *advanced;
     }
+    if (const auto launcherOverride = flag(request, "overrideLauncherCounts")) {
+        next.overrideLauncherCounts = *launcherOverride;
+    }
     if (const auto renderer = request.text("renderer")) {
         next.renderer = normalizeRendererName(*renderer);
     }
@@ -206,11 +209,12 @@ std::span<const std::string_view> controlApiPaths() { return knownPaths; }
 std::string controlSettingsJson(const Settings& settings, BackendKind preferredBackend) {
     return std::format(
         "{{\"ok\":true,\"ballCollisions\":{},\"layout\":\"{}\",\"wideScreen\":\"{}\",\"vsync\":{},\"defaultBackend\":\"{}\",\"backend\":\"{}\","
-        "\"renderer\":\"{}\",\"graphicsApi\":\"{}\",\"advancedSettings\":{}}}",
+        "\"renderer\":\"{}\",\"graphicsApi\":\"{}\",\"advancedSettings\":{},\"overrideLauncherCounts\":{}}}",
         settings.ballCollisions, orientationName(settings.layout), wideScreenAnchorName(settings.wideScreen),
         settings.vsync, jsonEscape(settings.defaultBackend),
         backendKindName(preferredBackend), normalizeRendererName(settings.renderer),
-        normalizeGraphicsApiName(settings.graphicsApi), settings.advancedSettings);
+        normalizeGraphicsApiName(settings.graphicsApi), settings.advancedSettings,
+        settings.overrideLauncherCounts);
 }
 
 std::string controlBenchmarkJson(const ControlBenchmarkState& benchmark) {

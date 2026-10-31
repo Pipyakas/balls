@@ -50,6 +50,9 @@ struct Settings {
     // Whether the gameplay control gadget shows its Advanced Settings section (backend and GPU choices), and with it
     // the backend and device rows of the debug gadget.
     bool advancedSettings = false;
+    // Off, a Performance launcher releases exactly the balls its level gives it, as every other entry does; on, the
+    // Ball count multiplier (x1 to x10000) scales them. Shown under Advanced Settings in the Performance controls.
+    bool overrideLauncherCounts = false;
 
     bool operator==(const Settings&) const = default;
 };

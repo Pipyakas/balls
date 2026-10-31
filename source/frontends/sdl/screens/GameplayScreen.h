@@ -66,6 +66,7 @@ private:
     BackendKind shownBackend() const;
     void drawDevicePicker(Rect area);
     void drawBallCollisions(Rect area);
+    void drawLauncherOverride(Rect area);
     int drawOptionDropdown(Rect area, std::string_view current, std::span<const std::string> options,
                            int selected, bool& open);
     void drawOverlay();

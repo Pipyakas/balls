@@ -24,6 +24,7 @@ constexpr std::string_view defaultBackendKey = "defaultBackend";
 constexpr std::string_view rendererKey = "renderer";
 constexpr std::string_view graphicsApiKey = "graphicsApi";
 constexpr std::string_view advancedSettingsKey = "advancedSettings";
+constexpr std::string_view launcherOverrideKey = "overrideLauncherCounts";
 
 constexpr std::array<std::pair<LayoutOrientation, std::string_view>, 3> orientationNames{{
     {LayoutOrientation::Auto, "auto"},
@@ -115,7 +116,7 @@ std::string normalizeGraphicsApiName(std::string_view api) {
 }
 
 std::string serializeSettings(const Settings& settings) {
-    return std::format("{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n",
+    return std::format("{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n{}={}\n",
                        collisionsKey, settings.ballCollisions ? "on" : "off",
                        layoutKey, orientationName(settings.layout),
                        wideScreenKey, wideScreenAnchorName(settings.wideScreen),
@@ -126,7 +127,8 @@ std::string serializeSettings(const Settings& settings) {
                        defaultBackendKey, settings.defaultBackend,
                        rendererKey, normalizeRendererName(settings.renderer),
                        graphicsApiKey, normalizeGraphicsApiName(settings.graphicsApi),
-                       advancedSettingsKey, settings.advancedSettings ? "on" : "off");
+                       advancedSettingsKey, settings.advancedSettings ? "on" : "off",
+                       launcherOverrideKey, settings.overrideLauncherCounts ? "on" : "off");
 }
 
 // Unknown keys and unreadable values keep their defaults, so an old or hand-edited file never blocks startup.
@@ -145,6 +147,8 @@ Settings parseSettings(std::string_view text) {
         const std::string_view value = trim(line.substr(separator + 1));
         if (key == collisionsKey) {
             settings.ballCollisions = parseFlag(value).value_or(settings.ballCollisions);
+        } else if (key == launcherOverrideKey) {
+            settings.overrideLauncherCounts = parseFlag(value).value_or(settings.overrideLauncherCounts);
         } else if (key == layoutKey) {
             settings.layout = parseOrientation(value).value_or(settings.layout);
         } else if (key == wideScreenKey) {

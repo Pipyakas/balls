@@ -92,6 +92,8 @@ def run(arguments):
                 wait_for_backend(arguments.port)
                 call(arguments.port, f"/rate?index={MAX_SPAWN_RATE_INDEX}")
                 call(arguments.port, f"/limit?index={UNLIMITED_BALLS_INDEX}")
+                # The multiplier only scales launchers while Override launcher counts is on (off by default).
+                call(arguments.port, "/settings?overrideLauncherCounts=1")
                 call(arguments.port, f"/multiplier?index={MULTIPLIER_INDEX[multiplier]}")
                 call(arguments.port, "/start")
                 wait_until_spawned(arguments.port)

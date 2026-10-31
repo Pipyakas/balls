@@ -79,7 +79,8 @@ void GameSession::reload(LevelData level) {
 }
 
 void GameSession::releaseLauncher(const Launcher& launcher) {
-    const BallCount multiplier = gameMode == GameMode::Performance ? ballMultiplierOptions[selectedMultiplier] : 1;
+    const BallCount multiplier =
+        gameMode == GameMode::Performance && launcherCountOverride ? ballMultiplierOptions[selectedMultiplier] : 1;
     spawnController.enqueue(launcher.color, saturatingMultiply(static_cast<BallCount>(launcher.ballCount), multiplier));
 }
 
