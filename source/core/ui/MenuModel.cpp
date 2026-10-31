@@ -25,14 +25,7 @@ UiTone physicsTone(const SessionView& view) {
     return behind ? UiTone::Danger : UiTone::Normal;
 }
 
-std::string ballLimitOptionLabel(BallCount limit) {
-    if (limit == unlimitedBalls) {
-        return "Max 2^64-1";
-    }
-    return limit >= 1'000'000 ? std::format("{}M", limit / 1'000'000) : std::format("{}k", limit / 1'000);
-}
-
-// 10 to 2000 as written, then 10k, 50k, 200k, 1M like the ball limits.
+// 10 to 2000 as written, then 10k, 50k, 200k, 1M.
 std::string spawnRateOptionLabel(int rate) {
     if (rate < 10'000) {
         return std::to_string(rate);
@@ -173,23 +166,13 @@ std::vector<UiOption> spawnRateChoices(int selectedIndex) {
     return options;
 }
 
-std::vector<UiOption> ballMultiplierChoices(int selectedIndex) {
-    std::vector<UiOption> options;
-    for (size_t index = 0; index < ::ballMultiplierOptions.size(); ++index) {
-        options.push_back(
-            {std::format("x{}", ::ballMultiplierOptions[index]), true, static_cast<int>(index) == selectedIndex});
-    }
-    return options;
-}
-
 bool isAutoBallLimit(const SessionView& view) { return view.usingMachineLimit; }
 
 std::vector<UiOption> ballLimitChoices(const SessionView& view) {
-    const bool autoLimit = isAutoBallLimit(view);
-    std::vector<UiOption> options{{"Auto", true, autoLimit}};
-    for (size_t index = 0; index < ::ballLimitOptions.size(); ++index) {
-        options.push_back({ballLimitOptionLabel(::ballLimitOptions[index]), true,
-                           !autoLimit && static_cast<int>(index) == view.ballLimitIndex});
+    constexpr std::array<std::string_view, ballLimitChoiceCount> labels{"Level", "Auto", "Max 2^64-1"};
+    std::vector<UiOption> options;
+    for (int index = 0; index < ballLimitChoiceCount; ++index) {
+        options.push_back({std::string(labels[static_cast<size_t>(index)]), true, index == view.ballLimitIndex});
     }
     return options;
 }
@@ -277,7 +260,9 @@ std::vector<DebugRow> debugGadgetRows(const SessionView& view, const FrameTiming
     rows.value("Waiting to spawn", groupedCount(view.pendingSpawn));
     if (view.mode == GameMode::Performance) {
         std::string limit;
-        if (view.usingMachineLimit) {
+        if (view.ballLimitIndex == static_cast<int>(BallLimitChoice::Level)) {
+            limit = "Level";
+        } else if (view.usingMachineLimit) {
             limit = view.machineLimit ? "Auto " + groupedCount(*view.machineLimit) : std::string("Auto");
         } else {
             limit = view.ballLimit == unlimitedBalls ? std::string("Max (2^64-1)") : groupedCount(view.ballLimit);

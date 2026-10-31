@@ -7,9 +7,7 @@ import time
 import urllib.request
 from pathlib import Path
 
-MULTIPLIER_INDEX = {1: 0, 10: 1, 100: 2, 1000: 3, 10000: 4}
-MAX_SPAWN_RATE_INDEX = 5
-UNLIMITED_BALLS_INDEX = 4
+MAX_SPAWN_RATE_INDEX = 9
 
 
 def call(port, path):
@@ -37,11 +35,11 @@ def wait_for_backend(port, timeout_seconds=120.0):
     raise RuntimeError("the backend switch did not finish")
 
 
-def wait_until_spawned(port, timeout_seconds=30.0):
+def wait_until_filled(port, balls, timeout_seconds=30.0):
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
         details = call(port, "/state")["details"]
-        if details["launchersLeft"] == 0 and details["pendingSpawn"] == 0:
+        if details["spawned"] >= balls:
             return
         time.sleep(0.25)
 
@@ -82,7 +80,7 @@ def run(arguments):
     try:
         wait_for_server(arguments.port, 60.0 if arguments.attach else 15.0)
         for backend in arguments.backends:
-            for multiplier in arguments.multipliers:
+            for balls in arguments.balls:
                 call(arguments.port, f"/play?mode=performance&level={arguments.level}")
                 time.sleep(0.3)
                 backend_reply = call(arguments.port, f"/backend?kind={backend}")
@@ -91,18 +89,15 @@ def run(arguments):
                     break
                 wait_for_backend(arguments.port)
                 call(arguments.port, f"/rate?index={MAX_SPAWN_RATE_INDEX}")
-                call(arguments.port, f"/limit?index={UNLIMITED_BALLS_INDEX}")
-                # The multiplier only scales launchers while Override launcher counts is on (off by default).
-                call(arguments.port, "/settings?overrideLauncherCounts=1")
-                call(arguments.port, f"/multiplier?index={MULTIPLIER_INDEX[multiplier]}")
-                call(arguments.port, "/start")
-                wait_until_spawned(arguments.port)
+                # /fill adds exactly this many balls, in every color, as fast as 60 FPS allows.
+                call(arguments.port, f"/fill?count={balls}")
+                wait_until_filled(arguments.port, balls)
                 time.sleep(arguments.settle)
                 summary = summarize(sample(arguments.port, arguments.seconds))
-                summary.update({"backend": backend, "multiplier": multiplier})
+                summary.update({"backend": backend, "target": balls})
                 results.append(summary)
                 print(
-                    f"{backend:7} x{multiplier:<5} balls={summary['balls']:>9,}  "
+                    f"{backend:7} target={balls:>11,} balls={summary['balls']:>9,}  "
                     f"physics fps={summary['physicsFps']:6.1f} ({summary['physicsFrameMs']:5.2f} ms)  "
                     f"ui fps={summary['fps']:6.1f} min={summary['minFps']:6.1f}  cpu={summary['cpuMs']:6.2f}  gpu={summary['gpuMs']:6.2f}  "
                     f"physics={summary['physicsMs']:6.2f}  present={summary['presentMs']:6.2f} {summary['fault']}",
@@ -126,7 +121,7 @@ def main():
     parser.add_argument("--port", type=int, default=7781)
     parser.add_argument("--level", default="DA_1000Bricks")
     parser.add_argument("--backends", nargs="+", default=["avx2", "cuda", "scalar"])
-    parser.add_argument("--multipliers", nargs="+", type=int, default=[1, 10, 100, 1000])
+    parser.add_argument("--balls", nargs="+", type=int, default=[2850, 28_500, 285_000, 2_850_000])
     parser.add_argument("--settle", type=float, default=1.0)
     parser.add_argument("--seconds", type=float, default=3.0)
     parser.add_argument("--json")

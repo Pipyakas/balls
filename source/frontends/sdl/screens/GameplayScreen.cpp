@@ -61,9 +61,6 @@ void GameplayScreen::refreshSettings() {
         return;
     }
     runner->setBallCollisions(ballCollisionsOffered() && app.settings().ballCollisions);
-    runner->post([enabled = app.settings().overrideLauncherCounts](GameSession& session) {
-        session.setLauncherCountOverride(enabled);
-    });
 }
 
 // The physics thread reads the files and builds the session while the UI draws the loading screen from its progress.
@@ -73,7 +70,6 @@ void GameplayScreen::loadSession() {
     loadProgress = std::make_shared<LoadProgress>();
     runner = std::make_unique<SessionRunner>(mode, files, app.preferredBackend(), app.settings().ticksPerSecond,
                                               loadProgress);
-    applyDefaultBallLimit();
 }
 
 bool GameplayScreen::adoptLoadOutcome() {
@@ -92,14 +88,13 @@ bool GameplayScreen::adoptLoadOutcome() {
     return true;
 }
 
-void GameplayScreen::applyDefaultBallLimit() {
-    if (mode == GameMode::Performance) {
-        useAutoBallLimit();
-    }
-}
-
-void GameplayScreen::useAutoBallLimit() {
-    runner->post([](GameSession& session) { session.useCapacityBallLimit(); });
+// After a backend switch Auto follows the new backend's capacity, dropping any /fill count.
+void GameplayScreen::refreshAutoBallLimit() {
+    runner->post([](GameSession& session) {
+        if (session.isUsingMachineBallLimit()) {
+            session.useCapacityBallLimit();
+        }
+    });
 }
 
 void GameplayScreen::handleSessionEvents() {
@@ -107,7 +102,7 @@ void GameplayScreen::handleSessionEvents() {
         if (event.kind == SessionEventKind::BallCollisionsChanged) {
             app.showToast(std::string(ballCollisionsMessage(event.collisionsChange)), false);
         } else if (event.kind == SessionEventKind::BackendSwitched) {
-            applyDefaultBallLimit();
+            refreshAutoBallLimit();
         } else {
             app.showToast(backendFailedMessage(event.backend), true);
         }
@@ -402,27 +397,6 @@ void GameplayScreen::drawBallCollisions(Rect area) {
     }
 }
 
-// Off / On, saved with the settings; the session picks the change up through refreshSettings.
-void GameplayScreen::drawLauncherOverride(Rect area) {
-    const bool enabled = app.settings().overrideLauncherCounts;
-    const Rect buttons{area.x, area.y, area.width, controlRowHeight};
-    bool wanted = enabled;
-    if (ui::button(ui::columnSlice(buttons, 0, 2, controlGap), "Off", true, !enabled)) {
-        wanted = false;
-    }
-    if (ui::button(ui::columnSlice(buttons, 1, 2, controlGap), "On", true, enabled)) {
-        wanted = true;
-    }
-    const float hintY = area.y + controlRowHeight + controlGap;
-    ui::drawTextInRect(std::string(menuText::launcherOverrideHint), {area.x, hintY, area.width, collisionsHintHeight},
-                       collisionsHintSize, palette::textMuted, ui::Align::Left);
-    if (wanted != enabled) {
-        Settings next = app.settings();
-        next.overrideLauncherCounts = wanted;
-        app.applySettings(next);
-    }
-}
-
 int GameplayScreen::drawOptionDropdown(Rect area, std::string_view current,
                                        std::span<const std::string> options, int selected, bool& open) {
     const Rect row{area.x, area.y, area.width, controlRowHeight};
@@ -491,41 +465,19 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
         runner->post([pickedSpawn](GameSession& session) { session.selectSpawnRate(pickedSpawn); });
     }
 
-    if (showsBallMultiplier(app.settings())) {
-        const auto countChoices = ballMultiplierChoices(view->ballMultiplierIndex);
-        std::vector<std::string> countLabels;
-        for (const UiOption& option : countChoices) {
-            countLabels.push_back(option.label);
-        }
-        const float countHeight =
-            controlRowHeight + (countDropdownOpen ? (controlRowHeight + controlGap) * countLabels.size() : 0.0f);
-        const int pickedCount =
-            drawOptionDropdown(group("Ball count", countHeight), countLabels[view->ballMultiplierIndex],
-                               countLabels, view->ballMultiplierIndex, countDropdownOpen);
-        if (pickedCount >= 0) {
-            runner->post([pickedCount](GameSession& session) { session.selectBallMultiplier(pickedCount); });
-        }
-    }
-
     const auto limitChoices = ballLimitChoices(*view);
     std::vector<std::string> limitLabels;
     for (const UiOption& option : limitChoices) {
         limitLabels.push_back(option.label);
     }
-    const bool autoLimit = isAutoBallLimit(*view);
-    const int selectedLimit = autoLimit ? 0 : view->ballLimitIndex + 1;
+    const int selectedLimit = view->ballLimitIndex;
     const float dropdownHeight =
         controlRowHeight + (limitDropdownOpen ? (controlRowHeight + controlGap) * limitLabels.size() : 0.0f);
     const Rect limitArea = group("Ball limit", dropdownHeight);
     const int pickedLimit = drawOptionDropdown(limitArea, limitLabels[selectedLimit], limitLabels, selectedLimit,
                                                limitDropdownOpen);
-    if (pickedLimit == 0) {
-        useAutoBallLimit();
-    } else if (pickedLimit > 0) {
-        runner->post([pickedLimit](GameSession& session) {
-            session.cancelFill();
-            session.selectBallLimit(pickedLimit - 1);
-        });
+    if (pickedLimit >= 0) {
+        runner->post([pickedLimit](GameSession& session) { session.selectBallLimit(pickedLimit); });
     }
 
     // The section header spans both columns, under whichever column ended lower.
@@ -551,14 +503,6 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
             drawAdapterList(group("Compute GPU (Vulkan backend)", listHeight(choices.size())), app.computeAdapters(),
                             choices, selectGpuAdapter(app.computeAdapters(), computeGpuPreference(), GpuRole::Compute),
                             true);
-        }
-        // Across both columns, like Ball collisions below.
-        {
-            const float overrideY = std::max(columnCursors[0], columnCursors[1]);
-            ui::drawText(std::string(menuText::launcherOverrideLabel), {inner.x, overrideY}, 20.0f, palette::textMuted);
-            drawLauncherOverride({inner.x, overrideY + groupLabelHeight, contentWidth, collisionsGroupHeight});
-            const float overrideEnd = overrideY + groupLabelHeight + collisionsGroupHeight + groupGap;
-            columnCursors = {overrideEnd, overrideEnd};
         }
         // Last, across both columns: a testing aid outside the game rules.
         if (ballCollisionsOffered()) {

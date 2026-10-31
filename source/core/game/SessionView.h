@@ -42,7 +42,6 @@ struct SessionView {
     BallCount pendingSpawn = 0;
     bool autoReleasing = false;
     int spawnRateIndex = 0;
-    int ballMultiplierIndex = 0;
     int ballLimitIndex = 0;
     BallCount ballLimit = 0;
     bool usingMachineLimit = false;

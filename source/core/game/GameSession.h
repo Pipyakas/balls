@@ -19,10 +19,16 @@
 
 enum class SessionState { Ready, Running, Won };
 
-// The game's five rates (10 to 2000), then faster ones: at 2000 a x10000 launcher takes minutes to empty. 0 is Max.
+// The game's five rates (10 to 2000), then faster ones for the endless limits below. 0 is Max.
 inline constexpr std::array<int, 10> spawnRateOptions{10, 50, 200, 1000, 2000, 10'000, 50'000, 200'000, 1'000'000, 0};
-inline constexpr std::array<BallCount, 5> ballMultiplierOptions{1, 10, 100, 1000, 10000};
-inline constexpr std::array<BallCount, 5> ballLimitOptions{10'000, 100'000, 1'000'000, 10'000'000, unlimitedBalls};
+
+// Performance mode's Ball limit. Level (the default) releases exactly the balls the level's launchers hold, as the
+// game's level format says, and release ends when they are empty. Auto and Max no longer read those counts: auto
+// release streams every color the level's launchers use, endlessly, at the spawn rate, until the limit:
+// Auto is the most balls the backend holds, Max is 2^64-1 (in practice the same, since a backend never takes more
+// than it holds). Whatever the choice, no more balls are added than the backend holds.
+enum class BallLimitChoice { Level, Auto, Max };
+inline constexpr int ballLimitChoiceCount = 3;
 
 struct BackendSwitchOutcome {
     BackendKind kind = BackendKind::Scalar;
@@ -57,17 +63,13 @@ public:
     bool chooseLauncher(int column, int row);
     void startAutoRelease();
     void selectSpawnRate(int optionIndex);
-    void selectBallMultiplier(int optionIndex);
+    // An index into BallLimitChoice, clamped.
     void selectBallLimit(int optionIndex);
     // The new backend is built off the frame; the session keeps running on the current one until it is ready.
     void requestBackend(BackendKind kind);
     // Applies the Ball collisions setting, requesting Scalar when collisions need it and it is offered. The switch
     // lands like any other and comes back through takeBackendSwitchOutcome with forBallCollisions set.
     BallCollisionsChange setBallCollisions(bool enabled);
-    // The Override launcher counts setting. Off (the default), a Performance launcher releases exactly the balls the level
-    // gives it, as the game's level format says; on, the Ball count multiplier scales every launcher.
-    void setLauncherCountOverride(bool enabled) { launcherCountOverride = enabled; }
-    bool launcherCountsOverridden() const { return launcherCountOverride; }
     std::optional<BackendKind> pendingBackend() const;
     // Once per finished request, so the caller can react to the switch or to its failure.
     std::optional<BackendSwitchOutcome> takeBackendSwitchOutcome();
@@ -79,7 +81,9 @@ public:
     // Auto as the backend's capacity, following it from board to board, without adding balls.
     void useCapacityBallLimit();
     void fillWithBalls(BallCount count);
-    bool isUsingMachineBallLimit() const { return machineLimitSelected; }
+    bool isUsingMachineBallLimit() const { return limitChoice == BallLimitChoice::Auto; }
+    // Level: the launchers release only their level counts; otherwise they are requeued until the limit.
+    bool releasesLevelCountsOnly() const { return limitChoice == BallLimitChoice::Level; }
     std::optional<BallCount> machineBallLimit() const;
 
     GameMode mode() const { return gameMode; }
@@ -91,9 +95,9 @@ public:
     const SpawnController& spawner() const { return spawnController; }
     BackendKind backend() const { return backendKind; }
     int spawnRateIndex() const { return selectedSpawnRate; }
-    int ballMultiplierIndex() const { return selectedMultiplier; }
-    int ballLimitIndex() const { return selectedBallLimit; }
-    BallCount ballLimit() const { return machineLimitSelected ? *machineBallLimit() : ballLimitOptions[selectedBallLimit]; }
+    int ballLimitIndex() const { return static_cast<int>(limitChoice); }
+    BallLimitChoice ballLimitChoice() const { return limitChoice; }
+    BallCount ballLimit() const { return limitChoice == BallLimitChoice::Max ? unlimitedBalls : *machineBallLimit(); }
     bool isAutoReleasing() const { return autoRelease; }
     double elapsedSeconds() const { return elapsed; }
     const std::string& lastBackendFault() const { return backendFault; }
@@ -103,6 +107,7 @@ private:
     // Spawns and fills this frame's balls, no more than the governor allows, and times them for it.
     void addBallsWithinBudget(float deltaTime);
     void releaseLauncher(const Launcher& launcher);
+    void startEndlessStreams();
     void recoverFromBackendFault();
     void switchBackendNow(BackendKind kind);
     void adoptBackend(BackendKind kind, BackendHandle backend);
@@ -121,20 +126,18 @@ private:
     SpawnController spawnController;
     int slowFramesWhileProbing = 0;
     SessionState sessionState = SessionState::Ready;
-    // Performance games start at the top of both ladders: the backends release and simulate billions of balls, so
-    // starting at 200 a second and x1 only made every player climb both dropdowns first. Normal mode uses neither.
+    // Performance games start at the fastest rate: the backends release and simulate billions of balls, so starting at
+    // 200 a second only made every player climb the dropdown first. Normal mode does not use it.
     int selectedSpawnRate = static_cast<int>(spawnRateOptions.size()) - 1;
-    int selectedMultiplier = static_cast<int>(ballMultiplierOptions.size()) - 1;
-    int selectedBallLimit = static_cast<int>(ballLimitOptions.size()) - 1;
+    BallLimitChoice limitChoice = BallLimitChoice::Level;
     bool autoRelease = false;
-    bool launcherCountOverride = false;
+    // Set while the endless per-color streams of Auto or Max are queued.
+    bool endlessStreams = false;
     double elapsed = 0.0;
     int fillColorIndex = 0;
+    // A limit /fill set with a count; without one, the limit is the backend's capacity, which follows the capacity the
+    // backend settles on for each board.
     std::optional<BallCount> measuredMachineLimit;
-    bool machineLimitSelected = false;
-    // Set when Auto is the backend's fixed capacity, so the limit follows the capacity
-    // the backend settles on for each board.
-    bool machineLimitIsCapacity = false;
     std::string backendFault;
     std::shared_ptr<BackendBuild> pendingBuild;
     bool pendingBuildForCollisions = false;
