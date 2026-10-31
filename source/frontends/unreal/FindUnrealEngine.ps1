@@ -1,4 +1,4 @@
-# Prints the root of an Unreal Engine 5.8 install, for build.bat when UE_ROOT is not set. Stock installs come first:
+# Prints the root of an Unreal Engine 5.8.4 (or later 5.8 hotfix) install, for build.bat when UE_ROOT is not set. Stock installs come first:
 # the launcher's own record of what it installed, its registry entry, and the folders a stock 5.8 install is usually
 # unpacked to on each drive. Source builds (the engine fork included) are used only when no stock 5.8 is found: a
 # source engine compiles the whole engine into every worktree's game target, while a stock one links it prebuilt.
@@ -9,7 +9,7 @@ function Test-Engine58([string]$root) {
         return $false
     }
     $version = Get-Content -Raw -LiteralPath (Join-Path $root 'Engine\Build\Build.version') | ConvertFrom-Json
-    return $version.MajorVersion -eq 5 -and $version.MinorVersion -eq 8
+    return $version.MajorVersion -eq 5 -and $version.MinorVersion -eq 8 -and $version.PatchVersion -ge 4
 }
 
 function Test-Installed([string]$root) {

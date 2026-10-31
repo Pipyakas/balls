@@ -12,7 +12,9 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# Stock Unreal Engine 5.8.4 is the engine every machine builds with; an older 5.8 hotfix is updated in the launcher.
 $engineVersion = '5.8'
+$enginePatch = 4
 # The cross toolchain Unreal 5.8 builds Linux targets with, and Epic's installer for it.
 $linuxToolchain = 'v26_clang-20.1.8-rockylinux8'
 $linuxToolchainInstaller = "https://cdn.unrealengine.com/CrossToolchain_Linux/$linuxToolchain.exe"
@@ -76,7 +78,7 @@ function Test-Engine([string]$root) {
     } catch {
         return $false
     }
-    return "$($version.MajorVersion).$($version.MinorVersion)" -eq $engineVersion
+    return "$($version.MajorVersion).$($version.MinorVersion)" -eq $engineVersion -and $version.PatchVersion -ge $enginePatch
 }
 
 # Accepts the engine folder itself or any folder inside it (Engine, Engine\Binaries\Win64, ...).
@@ -139,7 +141,7 @@ function Get-Engine {
     if ($env:UE_ROOT) {
         $root = Resolve-Engine $env:UE_ROOT
         if ($root) { return $root }
-        Write-Host "    UE_ROOT is set to '$env:UE_ROOT', which is not an Unreal Engine $engineVersion folder." -ForegroundColor Yellow
+        Write-Host "    UE_ROOT is set to '$env:UE_ROOT', which is not an Unreal Engine $engineVersion.$enginePatch folder." -ForegroundColor Yellow
     }
     $root = Find-Engine
     while (-not $root) {
@@ -156,7 +158,7 @@ function Get-Engine {
             }
             'i' {
                 Install-WithLauncher "Unreal Engine $engineVersion" `
-                    "Press + next to Engine Versions (or Install Engine), pick $engineVersion and install it."
+                    "Press + next to Engine Versions (or Install Engine), pick $engineVersion and install it (or update an installed $engineVersion to $engineVersion.$enginePatch)."
                 $root = Find-Engine
             }
             default { return $null }
