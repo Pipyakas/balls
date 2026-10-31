@@ -66,6 +66,17 @@ to install what is missing (winget on Windows, apt or dnf on Linux, `sdkmanager`
 tools that are installed but not on `PATH` (such as the CMake bundled with Visual Studio), and stops before CMake or
 Gradle starts when something required is still missing.
 
+The Unreal and Unity checks look for the engine the same way. Unreal takes `UE_ROOT`, else a stock 5.8 install, then
+a source build, then any `UE5*` or `UnrealEngine*` folder near a drive's root; Unity takes `UNITY_EXE`, else the
+exact version in `ProjectVersion.txt` from the installer's registry entry, the Unity Hub's install folders or the
+usual folders on each drive. When the engine is still not found, the check asks whether to give its folder (kept as
+the user variable `UE_ROOT` or `UNITY_EXE` if you agree) or to install it: Unity through the Unity Hub's command
+line, with the build support module the variant needs; Unreal through the Epic Games Launcher, which has no command
+line for engines, so the check opens it on the engine library and waits. Missing build support (Unity's Linux
+IL2CPP, a stock Unreal's Linux target platform) and Unreal's Linux cross toolchain are offered the same way.
+Unattended machines (test runners) set `BALLS_SETUP_YES=1`: the checks then install what they can without asking (the
+Unity editor and its modules, Unreal's Linux toolchain); a missing Unreal engine still needs the Epic Games Launcher.
+
 Every build keeps CMake's intermediate files under `build\`, stages a self-contained runnable copy under `dist\`,
 stops a game still running from that copy first, and ends by printing the absolute path of what it built.
 Started by double-click, the Windows scripts wait for a key before closing.
