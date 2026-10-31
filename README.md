@@ -12,18 +12,42 @@ run the same core (Unity also has its own Burst physics backend) to show it insi
 adds its own per-frame work and copies the balls through its own renderer, so they may not show the best
 performance the core can reach.
 
-## Quick start
+## Download
+
+The latest build is on the [releases page](https://github.com/Pipyakas/balls/releases/latest)
+(Windows 10/11 x64). Each release has three zips:
+
+| Zip | Run | |
+|---|---|---|
+| `balls-<version>-win64-sdl.zip` | `win32-sdl\balls.exe` | The main build |
+| `balls-<version>-win64-unity.zip` | `win32-unity\ColorBlastBallsUnity.exe` | Unity tech demo |
+| `balls-<version>-win64-unreal.zip` | `win32-ue\Balls.exe` | Unreal Engine tech demo |
+
+Unzip and run. An NVIDIA GPU adds the CUDA physics backend, and the CPU backends run anywhere.
+
+For the most balls: Performance mode, level `Unlimited_921Bricks`, then `Start`. Spawn / sec `Max` is the default,
+and the level's seven launchers hold 2,147,483,647 balls each, more than the machine holds (or pick Ball limit
+`Auto`, which keeps any level releasing until the machine is full). Close other programs first: Auto is the RAM and
+VRAM free when the game starts.
+
+## Build
 
 Requirements: Windows 10/11 x64, Visual Studio 2022 (C++ workload), CMake 3.25+, Python 3, and internet access on
 the first build.
 
-1. Double-click `build.bat`. It checks the PC, names anything missing, and builds `dist\win32-sdl\balls.exe`.
+1. Double-click `build.bat`. It checks the PC, names anything missing, and builds the main SDL build into
+   `dist\win32-sdl\balls.exe`.
 2. Run `dist\win32-sdl\balls.exe`.
-3. For the most balls: Performance mode, level `Unlimited_921Bricks`, then `Start`; Spawn / sec `Max` is the default, and the level's
-   seven launchers hold 2,147,483,647 balls each, more than the machine holds (or pick Ball limit `Auto`, which keeps
-   any level releasing until the machine is full). Close other programs first: Auto is the RAM and VRAM free when the game starts.
 
-The release is tagged (`git tag -l`).
+The tech demos build from the same script, each needing its engine installed:
+
+| Command | Output | Needs |
+|---|---|---|
+| `build.bat unity win64` | `dist\win32-unity\ColorBlastBallsUnity.exe` | The Unity version in `source\frontends\unity\ProjectSettings\ProjectVersion.txt` (or `UNITY_EXE`) |
+| `build.bat unreal win64` | `dist\win32-ue\Balls.exe` | Unreal Engine 5.8.4 (found by itself, or `UE_ROOT`) |
+
+Linux, Android and every build option: [building and testing](data/docs/building.md). Each release is tagged
+(`git tag -l`).
 
 ## Tests
 
