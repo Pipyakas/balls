@@ -3,9 +3,9 @@ rem Cooks and packages the Unreal front end, then stages a runnable copy under d
 rem   build.bat               the main variant (win64 on Windows)
 rem   build.bat <variant>     one of the variants below
 rem   build.bat --variants    lists them as id;description, which the root build.bat menu reads
-rem   build.bat --setup [variant]   only checks this PC can build it, naming what is missing
-rem Unreal Engine 5.8 is taken from UE_ROOT, else found by FindUnrealEngine.ps1 (a stock install first, then the fork); its
-rem Linux toolchain at LINUX_MULTIARCH_ROOT (default D:\UnrealToolchains\v26_clang-20.1.8-rockylinux8). The .uproject
+rem   build.bat --setup [variant]   only checks this PC can build it, offering to find or install what is missing
+rem setup.ps1 finds Unreal Engine 5.8 (UE_ROOT, else a stock install first, then the fork) and, for Linux, its cross
+rem toolchain (LINUX_MULTIARCH_ROOT, default D:\UnrealToolchains\v26_clang-20.1.8-rockylinux8). The .uproject
 rem pre-build step builds the core and the physics plugins for the target platform before UAT cooks.
 cd /d "%~dp0"
 
@@ -48,24 +48,17 @@ goto :check
 :check
 rem Printed at the end, so it is made absolute: a path with ..\ in it does not open from every tool.
 for %%I in ("%DIST_DIR%") do set "DIST_DIR=%%~fI"
-if not defined UE_ROOT (
-    for /f "usebackq delims=" %%R in (`powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0FindUnrealEngine.ps1"`) do set "UE_ROOT=%%R"
-)
-if not defined UE_ROOT (
-    echo Unreal Engine 5.8 not found. Set UE_ROOT to its folder, the one that contains Engine\.
-    exit /b 1
-)
-if not exist "%UE_ROOT%\Engine\Build\BatchFiles\RunUAT.bat" (
-    echo Unreal Engine not found at "%UE_ROOT%". Set UE_ROOT to an Unreal Engine 5.8 install.
-    exit /b 1
+rem setup.ps1 finds the engine (and the Linux toolchain), asks for or installs what it cannot find, and writes
+rem UE_ROOT and LINUX_MULTIARCH_ROOT to a file this script loads.
+set "SETUP_ENV=%~dp0..\..\..\build\setup-unreal-%VARIANT%.bat"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup.ps1" -Variant %VARIANT% -EnvFile "%SETUP_ENV%"
+if errorlevel 1 exit /b 1
+call "%SETUP_ENV%"
+if defined SETUP_ONLY (
+    cmd /c exit 0
+    goto :eof
 )
 if /i "%VARIANT%"=="linux" (
-    if not defined LINUX_MULTIARCH_ROOT set "LINUX_MULTIARCH_ROOT=D:\UnrealToolchains\v26_clang-20.1.8-rockylinux8\"
-    if not exist "%LINUX_MULTIARCH_ROOT%x86_64-unknown-linux-gnu\bin\clang++.exe" (
-        echo Unreal's Linux toolchain not found at "%LINUX_MULTIARCH_ROOT%".
-        echo Install it from Epic's Linux cross-compile toolchain, or set LINUX_MULTIARCH_ROOT.
-        exit /b 1
-    )
     rem UnrealBuildTool does not run the .uproject pre-build steps for a cross-compiled target, so the core and the
     rem plugins are built here, with the same toolchain, before UAT links the game against them.
     call "%~dp0BuildCoreLinux.bat"
@@ -73,15 +66,6 @@ if /i "%VARIANT%"=="linux" (
         echo The Linux core failed to build.
         exit /b 1
     )
-)
-where cmake >nul 2>&1 || (
-    echo CMake not found on PATH; the core builds through CMake.
-    exit /b 1
-)
-if defined SETUP_ONLY (
-    echo %VARIANT%: everything needed is present.
-    cmd /c exit 0
-    goto :eof
 )
 
 if /i "%VARIANT%"=="win64" (

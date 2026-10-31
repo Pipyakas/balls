@@ -4,9 +4,9 @@ rem Builds the Unity front end's native plugins and player, then stages a runnab
 rem   build.bat               the Windows player (win64)
 rem   build.bat <variant>     one of the variants below
 rem   build.bat --variants    lists them as id;description, which the root build.bat menu reads
-rem   build.bat --setup [variant]   only checks this PC can build it, naming what is missing
-rem The Unity project lives in this folder. The editor is found from UNITY_EXE, else from the version in
-rem its ProjectVersion.txt under C:\Unity or the Unity Hub's install folder.
+rem   build.bat --setup [variant]   only checks this PC can build it, offering to find or install what is missing
+rem The Unity project lives in this folder. setup.ps1 finds the editor its ProjectVersion.txt names (UNITY_EXE, the
+rem installer's registry entry, the Unity Hub's install folders, the usual folders on each drive) or asks for it.
 for %%I in ("%~dp0..\..\..") do set "ROOT=%%~fI"
 cd /d "%ROOT%"
 
@@ -48,48 +48,13 @@ if not defined PLAYER_NAME (
     goto :failed
 )
 
-echo Checking this PC can build the Unity %VARIANT% player:
-set "MISSING="
-if not defined UNITY_EXE (
-    for /f "tokens=2" %%V in ('findstr /b /c:"m_EditorVersion:" "%PROJECT_DIR%\ProjectSettings\ProjectVersion.txt"') do set "UNITY_VERSION=%%V"
-)
-if not defined UNITY_EXE if exist "C:\Unity\%UNITY_VERSION%\Editor\Unity.exe" set "UNITY_EXE=C:\Unity\%UNITY_VERSION%\Editor\Unity.exe"
-if not defined UNITY_EXE if exist "%ProgramFiles%\Unity\Hub\Editor\%UNITY_VERSION%\Editor\Unity.exe" set "UNITY_EXE=%ProgramFiles%\Unity\Hub\Editor\%UNITY_VERSION%\Editor\Unity.exe"
-if defined UNITY_EXE (
-    echo   [ ok ] Unity                  %UNITY_EXE%
-) else (
-    echo   [MISS] Unity %UNITY_VERSION%      install it with the Unity Hub, or set UNITY_EXE to its Unity.exe
-    set "MISSING=1"
-)
-if defined UNITY_EXE for %%E in ("%UNITY_EXE%") do set "PLAYBACK_DIR=%%~dpEData\PlaybackEngines\%PLAYBACK_ENGINE%"
-if defined UNITY_EXE (
-    if exist "%PLAYBACK_DIR%" (
-        echo   [ ok ] %PLAYBACK_ENGINE%
-    ) else (
-        echo   [MISS] %PLAYBACK_ENGINE%  add the build support module to Unity %UNITY_VERSION% in the Unity Hub
-        set "MISSING=1"
-    )
-)
-where cmake >nul 2>&1 && (
-    echo   [ ok ] CMake                  builds the native plugins
-) || (
-    echo   [MISS] CMake                  install CMake 3.25+ or run a Visual Studio developer prompt
-    set "MISSING=1"
-)
-if /i "%VARIANT%"=="linux" (
-    if exist "%PROJECT_DIR%\NativeLibraries\linux-x86_64\libballs_unity.so" (
-        echo   [ ok ] Linux native plugins   source\frontends\unity\NativeLibraries\linux-x86_64
-    ) else (
-        echo   [MISS] Linux native plugins   build them on Linux: cmake -S . -B build/linux-unity -DBALLS_FRONTEND=none -DBALLS_PROFILE=extended
-        echo                                  then copy build/linux-unity/bin/*.so into source\frontends\unity\NativeLibraries\linux-x86_64
-        set "MISSING=1"
-    )
-)
-if defined MISSING goto :failed
-if defined SETUP_ONLY (
-    echo Ready to build the Unity %VARIANT% player.
-    goto :finish
-)
+rem setup.ps1 finds the editor ProjectVersion.txt names, asks for or installs what it cannot find (the editor and its
+rem build support through the Unity Hub), and writes UNITY_EXE to a file this script loads.
+set "SETUP_ENV=%ROOT%\build\setup-unity-%VARIANT%.bat"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PROJECT_DIR%\setup.ps1" -Variant %VARIANT% -EnvFile "%SETUP_ENV%"
+if errorlevel 1 goto :failed
+call "%SETUP_ENV%"
+if defined SETUP_ONLY goto :finish
 
 if not exist ".deps\cuda\sdk\include\nvrtc.h" (
     echo Fetching CUDA compiler pieces for the GPU backend...

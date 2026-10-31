@@ -79,11 +79,15 @@ Nanite on; `Scripts/MakeNaniteCube.py` recreates it. On the dev PC (i5-12400F, G
   `.uproject` pre-build steps for a cross-compiled target, so the script builds the core and the plugins through
   `BuildCoreLinux.bat` itself.
 
-Without `UE_ROOT`, the script (`FindUnrealEngine.ps1`) takes a stock 5.8 install first: the launcher's own install
-record, its registry entry, or `UE_5.8`, `Unreal\UE_5.8` or `Program Files\Epic Games\UE_5.8` on any drive. Only
-without one does it fall back to a source build (the launcher's registered builds, then the fork at
-`D:\Unreal\UnrealEngine`); set `UE_ROOT` to pick an engine yourself. The `linux` variant needs the launcher's
-Linux target platform option on the stock engine. The script also copies `data/assets` to the packaged game's
+Every build starts with `setup.ps1` (`build.bat --setup [variant]` runs only that). Without `UE_ROOT` it takes a
+stock 5.8 install first (`FindUnrealEngine.ps1`: the launcher's own install record, its registry entry, or
+`UE_5.8`, `Unreal\UE_5.8` or `Program Files\Epic Games\UE_5.8` on any drive), then a source build (the launcher's
+registered builds, then the fork at `D:\Unreal\UnrealEngine`), then any `UE5*`/`UnrealEngine*` folder up to two
+levels below a drive's root. When it still finds none it asks: give the engine's folder (kept as the user variable
+`UE_ROOT` if you agree), or install it, which installs the Epic Games Launcher with winget if needed and opens it on
+the engine library. The `linux` variant also needs the launcher's Linux target platform option on a stock engine
+(offered the same way) and the cross toolchain, which it finds from `LINUX_MULTIARCH_ROOT` or the usual
+`UnrealToolchains` folders, or downloads Epic's installer for. The script also copies `data/assets` to the packaged game's
 `Balls\assets`, where it looks for levels, and the physics plugins stage next to the executable.
 
 The fork lists two prebuilt shaders as staged runtime dependencies that its tree does not contain, and staging
