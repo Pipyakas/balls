@@ -2,7 +2,7 @@
 
 ## 1. Overview & Architecture
 
-WebGPU is implemented as a second desktop renderer for Balls on Windows and Linux targets (`WebGpuRenderer`), compiled into the same binary alongside NVRHI and selectable at runtime (`--renderer nvrhi|webgpu`). NVRHI remains the default desktop renderer (`BALLS_RENDERER=nvrhi`).
+WebGPU is implemented as a renderer for Balls on desktop (Windows, Linux, macOS), Android and Web targets (`WebGpuRenderer`), compiled into the binary alongside NVRHI on desktop and selectable at runtime (`--renderer nvrhi|webgpu`). On desktop, NVRHI remains the default renderer (`BALLS_RENDERER=nvrhi`); on Android, WebGPU is the default renderer (`BALLS_DEFAULT_RENDERER=webgpu`).
 
 The renderer implements the game's `IRenderer` interface against standard `webgpu.h` (and `wgpu.h`), supporting both Direct3D 12 and Vulkan backends.
 
@@ -33,7 +33,8 @@ Therefore, `wgpu-native` prebuilt (pinned revision `v24.0.3.1`) is used. It impl
 Surface creation is abstracted in `createSurfaceFromWindow`:
 - Windows: `WGPUSurfaceSourceWindowsHWND` using `GetModuleHandle(nullptr)` and `HWND`.
 - Linux: `WGPUSurfaceSourceWaylandSurface` or `WGPUSurfaceSourceXlibWindow` queried via SDL3 window properties.
-- Web: Structured with an `#ifdef __EMSCRIPTEN__` placeholder for `emdawnwebgpu`.
+- Android: `WGPUSurfaceSourceAndroidNativeWindow` queried via `SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER`.
+- Web: `WGPUSurfaceSourceCanvasHTMLSelector` with selector `"#canvas"`.
 
 ---
 
@@ -43,7 +44,7 @@ Every major feature in `NvrhiRenderer` has an exact 1:1 mapping in `WebGpuRender
 
 | Feature | NVRHI Implementation | WebGPU Implementation | Status |
 | :--- | :--- | :--- | :---: |
-| **Default Renderer** | Default (`BALLS_RENDERER=nvrhi`) | Second compiled renderer (`BALLS_WITH_WEBGPU=ON`) | Parity |
+| **Default Renderer** | Default on desktop (`BALLS_RENDERER=nvrhi`) | Second compiled renderer on desktop (`BALLS_WITH_WEBGPU=ON`); default on Android | Parity |
 | **Device Description** | `NVRHI / Direct3D 12 / <adapter>` | `WebGPU / Direct3D 12 / <adapter>` | Parity |
 | **Surface & Presentation** | `GraphicsDevice` swapchain, Fifo/Immediate | `wgpuSurfaceConfigure`, Fifo / Immediate / Mailbox | Parity |
 | **Color Format** | Unorm (`RGBA8_UNORM`, `BGRA8_UNORM`) | Unorm format preference matching NVRHI | Parity |
@@ -74,10 +75,12 @@ cmake -B build-wt -G "Visual Studio 18 2026" -A x64 -DBALLS_WITH_WEBGPU=ON
 cmake --build build-wt --config Release
 ```
 
-For single-renderer builds, `BALLS_RENDERER` remains available:
-- `-DBALLS_RENDERER=nvrhi` (default single-renderer build)
+For single-renderer builds, `BALLS_RENDERER` and build scripts are available:
+- `build.bat sdl win32-webgpu` (or `./build.sh sdl linux-webgpu`, `build.bat sdl android`)
+- `-DBALLS_RENDERER=nvrhi` (default desktop single-renderer build)
 - `-DBALLS_RENDERER=webgpu` (single-renderer WebGPU build)
 - `-DBALLS_WITH_WEBGPU=ON` (dual-renderer build with both NVRHI and WebGPU)
+- `-DBALLS_WITH_NVRHI=ON` (dual-renderer build when WebGPU is primary)
 
 ### Build Metrics
 - **Binary Sizes**:
@@ -87,7 +90,7 @@ For single-renderer builds, `BALLS_RENDERER` remains available:
   - Incremental rebuild of WebGPU renderer: ~2.5 seconds
   - Full link of `balls`: ~4.8 seconds
 - **Test Suite**:
-  - `balls_tests.exe`: 42 tests, 0 failed (passes all tests)
+  - `balls_tests.exe`: 173 tests, 0 failed (passes all tests)
 
 ---
 
