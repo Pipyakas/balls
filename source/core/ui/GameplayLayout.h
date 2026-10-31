@@ -32,4 +32,5 @@ struct CoreGameplayLayout {
 LayoutOrientation resolveOrientation(LayoutOrientation setting, float width, float height);
 CoreGameplayLayout computeCoreGameplayLayout(float frameWidth, float frameHeight, int boardColumns,
                                              int boardRows, LayoutOrientation orientation,
-                                             int launcherRows);
+                                             int launcherRows,
+                                             WideScreenAnchor wideScreen = WideScreenAnchor::ScreenEdges);

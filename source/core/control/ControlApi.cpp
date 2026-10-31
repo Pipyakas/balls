@@ -102,6 +102,13 @@ std::optional<ControlResponse> handleSettings(ControlHost& host, const ControlRe
         }
         next.layout = *orientation;
     }
+    if (const auto wide = request.text("wideScreen")) {
+        const auto anchor = parseWideScreenAnchor(*wide);
+        if (!anchor) {
+            return ControlResponse::error(400, "wideScreen must be edges or centered");
+        }
+        next.wideScreen = *anchor;
+    }
     if (const auto vsync = flag(request, "vsync")) {
         next.vsync = *vsync;
     }
@@ -198,9 +205,10 @@ std::span<const std::string_view> controlApiPaths() { return knownPaths; }
 
 std::string controlSettingsJson(const Settings& settings, BackendKind preferredBackend) {
     return std::format(
-        "{{\"ok\":true,\"ballCollisions\":{},\"layout\":\"{}\",\"vsync\":{},\"defaultBackend\":\"{}\",\"backend\":\"{}\","
+        "{{\"ok\":true,\"ballCollisions\":{},\"layout\":\"{}\",\"wideScreen\":\"{}\",\"vsync\":{},\"defaultBackend\":\"{}\",\"backend\":\"{}\","
         "\"renderer\":\"{}\",\"graphicsApi\":\"{}\",\"advancedSettings\":{}}}",
-        settings.ballCollisions, orientationName(settings.layout), settings.vsync, jsonEscape(settings.defaultBackend),
+        settings.ballCollisions, orientationName(settings.layout), wideScreenAnchorName(settings.wideScreen),
+        settings.vsync, jsonEscape(settings.defaultBackend),
         backendKindName(preferredBackend), normalizeRendererName(settings.renderer),
         normalizeGraphicsApiName(settings.graphicsApi), settings.advancedSettings);
 }

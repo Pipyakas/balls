@@ -27,9 +27,11 @@ struct FBallsGameplayLayout {
 };
 
 // The Settings page's Layout > Orientation. Auto follows the window shape; a forced orientation lays out inside a
-// centered 9:16 (portrait) or 16:10 (landscape) frame when the window cannot take that shape, so the rest of the
-// window stays empty (the game's "letterbox").
+// centered 9:16 (portrait) or 16:10 (landscape) frame when the window has the other shape, so the rest of the
+// window stays empty (the game's "letterbox"). Forced landscape in a landscape window uses the whole window.
 void SetLayoutOrientation(LayoutOrientation Orientation);
+// The Settings page's Wide screens: whether a window wider than 16:9 is filled to its edges or keeps 16:9 centred.
+void SetWideScreenAnchor(WideScreenAnchor Anchor);
 
 // Button size of the portrait launcher row for a panel of the given width.
 float PortraitLauncherSize(float PanelWidth);
