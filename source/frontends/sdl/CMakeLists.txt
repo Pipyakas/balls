@@ -260,5 +260,8 @@ if(MSVC)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS} "$<TARGET_FILE_DIR:${BALLS_SDL_TARGET}>")
     endif()
 endif()
+# Replaced, not merged: copy_directory only adds files, so a renamed or deleted level stayed beside the bin's copy (and
+# the dist mirrored from it) and the menus listed every level under its old name too.
 add_custom_command(TARGET ${BALLS_SDL_TARGET} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E rm -rf "$<TARGET_FILE_DIR:${BALLS_SDL_TARGET}>/assets"
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${BALLS_ASSET_DIR}" "$<TARGET_FILE_DIR:${BALLS_SDL_TARGET}>/assets")
