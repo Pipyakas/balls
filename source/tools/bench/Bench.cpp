@@ -541,7 +541,8 @@ void runRawStep(const BrickLayout& layout, BackendKind kind, size_t ballCount, i
     Simulation simulation(createBackend(kind));
     simulation.load(layout);
     if (visibilityGrid) {
-        const float slotSize = simulation.tuning().ballRadius * visibilitySlotsPerRadius;
+        const float slotSize = visibilitySlotSize(simulation.tuning().ballRadius,
+                                              referenceCellPixels(simulation.board().columns(), simulation.board().rows()));
         simulation.backend().setVisibilityGrid(
             visibilitySlots(static_cast<float>(simulation.board().columns()), slotSize),
             visibilitySlots(static_cast<float>(simulation.board().rows()), slotSize));
@@ -644,7 +645,8 @@ void runGrowth(const BrickLayout& layout, BackendKind kind, size_t ballCount, in
         std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - created).count();
     simulation.load(layout);
     // The game always draws through the visibility grid, which caps the per-ball render words.
-    const float slotSize = simulation.tuning().ballRadius * visibilitySlotsPerRadius;
+    const float slotSize = visibilitySlotSize(simulation.tuning().ballRadius,
+                                              referenceCellPixels(simulation.board().columns(), simulation.board().rows()));
     simulation.backend().setVisibilityGrid(
         visibilitySlots(static_cast<float>(simulation.board().columns()), slotSize),
         visibilitySlots(static_cast<float>(simulation.board().rows()), slotSize));
@@ -690,7 +692,8 @@ void runFill(BackendKind kind, size_t batch, int batches) {
     layout.playableHeight = 38;
     layout.cellIds.assign(static_cast<size_t>(layout.width), emptyBrickId);
     simulation.load(layout);
-    const float slotSize = simulation.tuning().ballRadius * visibilitySlotsPerRadius;
+    const float slotSize = visibilitySlotSize(simulation.tuning().ballRadius,
+                                              referenceCellPixels(simulation.board().columns(), simulation.board().rows()));
     simulation.backend().setVisibilityGrid(
         visibilitySlots(static_cast<float>(simulation.board().columns()), slotSize),
         visibilitySlots(static_cast<float>(simulation.board().rows()), slotSize));

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "sim/PhysicsBackend.h"
+
 #include <array>
 #include <memory>
 #include <span>
@@ -34,7 +36,7 @@ struct BallDrawRequest {
     float originY = 0.0f;
     float cellPixels = 1.0f;
     float radiusCells = 0.25f;
-    float slotsPerRadius = 1.6f;
+    float slotsPerRadius = visibilitySlotsPerRadius;
     float clipX = 0.0f;
     float clipY = 0.0f;
     float clipWidth = 0.0f;
