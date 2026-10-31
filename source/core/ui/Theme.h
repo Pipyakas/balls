@@ -62,6 +62,8 @@ inline constexpr float tinySize = 15.0f;
 
 // Toasts: centered at the top of the safe area, bold, on the control fill (danger for errors).
 inline constexpr float toastSeconds = 3.0f;
+// Long enough to read which file was repaired and how.
+inline constexpr float repairToastSeconds = 8.0f;
 inline constexpr float toastTextSize = bodySize;
 
 // The gameplay interaction gadget: one scrolling column of option rows, and the Advanced Settings header.

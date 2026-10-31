@@ -33,6 +33,7 @@ void FBallsGameplay::LoadSession() {
         return;
     }
     LoadError.Reset();
+    RepairNotice = levelRepairNotice(*Level);
     Host = std::make_unique<SessionHost>(Mode, std::move(*Level), App.GetPreferredBackend(), ThreadingFromCommandLine());
     View = Host->view();
     ApplySettings();

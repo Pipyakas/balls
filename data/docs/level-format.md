@@ -17,7 +17,8 @@ Colors: Red, Orange, Yellow, Green, Blue, Indigo, Violet.
 ### Maps that stray from the format
 
 The parser repairs what it can instead of refusing the level. A well-formed file never reaches these repairs, so it
-loads exactly as written.
+loads exactly as written. A repaired level still loads, with a warning toast naming the file and the first repair when
+it starts, and the same warning when it is imported.
 
 - A UTF-8 byte order mark, `#` and `//` comment lines, and section, key and color names in any case.
 - `Key: value` and `Key=value` in `[Board]`; lines there that are not a key and a number are ignored.
@@ -27,8 +28,8 @@ loads exactly as written.
 - `[BrickTypes]` lines with an unknown color, hits of 0 or less or too few fields are skipped, as is a repeated id
   after its first line; their cells stay empty. Extra fields after the hits are ignored. No `[BrickTypes]` at all
   gives an empty board.
-- Launcher rows of different lengths are padded with `Empty`; a missing `Width` is the longest row and a missing
-  `Height` shows up to 3 rows. `Red (10)` with a space is read as `Red(10)`, and a launcher of 0 balls is `Empty`.
+- Launcher rows of different lengths are padded with `Empty`; a missing `Width` is the longest row, a missing
+  `Height` shows up to 3 rows, and the launcher file may leave `[Board]` out. `Red (10)` with a space is read as `Red(10)`, and a launcher of 0 balls is `Empty`.
 
 Still refused, with the file and the reason: no `[Board]`, `[Layout]` or brick `Width`, a cell that is not a number or
 an empty mark, a launcher that is not `Color(count)` or names an unknown color, and boards past the size limit.

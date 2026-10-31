@@ -73,10 +73,11 @@ void GameplayScreen::loadSession() {
     }
     loadError.clear();
     view.reset();
+    std::string repairNotice = levelRepairNotice(*level);
     runner = std::make_unique<SessionRunner>(mode, std::move(*level), app.preferredBackend(),
                                               app.settings().ticksPerSecond);
     applyDefaultBallLimit();
-    app.flow().levelLoaded();
+    app.flow().levelLoaded(std::move(repairNotice));
 }
 
 void GameplayScreen::applyDefaultBallLimit() {

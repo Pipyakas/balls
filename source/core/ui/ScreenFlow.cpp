@@ -110,12 +110,15 @@ void ScreenFlow::runMachineBenchmark() {
 #endif
 }
 
-void ScreenFlow::levelLoaded() {
+void ScreenFlow::levelLoaded(std::string repairNotice) {
     gameRunning = true;
     lastLoadError.clear();
     watcher.markLoaded();
     if (currentScreen == FlowScreen::LoadError) {
         currentScreen = FlowScreen::Gameplay;
+    }
+    if (!repairNotice.empty()) {
+        showToast(std::move(repairNotice), false, theme::repairToastSeconds);
     }
 }
 
@@ -497,6 +500,6 @@ std::string ScreenFlow::gameTitle() const {
 
 std::string_view ScreenFlow::diskNotice() const { return levelDiskNotice(watcher.diskState()); }
 
-void ScreenFlow::showToast(std::string text, bool isError) {
-    currentToast = {std::move(text), isError, theme::toastSeconds};
+void ScreenFlow::showToast(std::string text, bool isError, float seconds) {
+    currentToast = {std::move(text), isError, seconds};
 }

@@ -36,6 +36,43 @@ TEST_CASE("sample levels parse with matching ball and hit totals") {
     }
 }
 
+TEST_CASE("no shipped level needs a repair, so none shows the repair warning") {
+    for (const auto& directory : {normalLevels, performanceLevels}) {
+        for (const auto& files : findLevels(directory)) {
+            auto level = loadLevel(files);
+            EXPECT(level.hasValue() && level->repairs.empty() && levelRepairNotice(*level).empty());
+        }
+    }
+}
+
+TEST_CASE("each repair is noted, and the notice names the level and the first one") {
+    MapRepairs bricksRepairs;
+    const auto bricks = parseBrickLayout("[Board]\nWidth 2\n[Layout]\n0\n1 1\n[BrickTypes]\n0 Red 1\n1 Red 1\n"
+                                         "1 Red 2\n2 Pink 1\n",
+                                         &bricksRepairs);
+    EXPECT(bricks.hasValue());
+    EXPECT(bricksRepairs == MapRepairs({"short layout rows padded to 2 cells", "no Height; used the 2 layout rows",
+                                        "no PlayableHeight; used 9", "1 unreadable [BrickTypes] line skipped",
+                                        "1 repeated brick id skipped"}));
+    MapRepairs resizedRepairs;
+    EXPECT(parseBrickLayout("[Board]\nWidth 1\nHeight 3\nPlayableHeight 9\n[Layout]\n0 0\n[BrickTypes]\n0 Red 1\n",
+                            &resizedRepairs)
+               .hasValue());
+    EXPECT(resizedRepairs == MapRepairs({"layout rows up to 2 cells wide, not Width 1", "1 layout row, not Height 3"}));
+    MapRepairs launcherRepairs;
+    const auto launchers = parseLauncherLayout("[Layout]\nRed(1) Blue(0)\nRed(2)\n", &launcherRepairs);
+    EXPECT(launchers.hasValue());
+    EXPECT(launcherRepairs == MapRepairs({"no Width; used 2 launcher columns", "no Height; showing 2 launcher rows",
+                                          "1 launcher of 0 balls left empty"}));
+    LevelData level;
+    level.name = "Loose";
+    EXPECT(levelRepairNotice(level).empty());
+    level.repairs = {"Loose_Bricks.txt: no PlayableHeight; used 9", "Loose_SpawnBall.txt: no Height"};
+    EXPECT(levelRepairNotice(level) ==
+           "Loose does not follow the map format and was repaired: Loose_Bricks.txt: no PlayableHeight; used 9 "
+           "(and 1 more)");
+}
+
 TEST_CASE("every shipped level but the samples' names its brick count") {
     for (const auto& directory : {normalLevels, performanceLevels}) {
         for (const auto& files : findLevels(directory)) {

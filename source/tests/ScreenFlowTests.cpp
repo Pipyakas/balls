@@ -315,3 +315,13 @@ TEST_CASE("the editor opens on a level or a new one and leaves for the main menu
     EXPECT(flow.escape());
     EXPECT(flow.screen() == FlowScreen::MainMenu);
 }
+
+TEST_CASE("a level loaded after a repair says so in a warning toast that stays longer") {
+    FlowFolders folders("balls_flow_repaired");
+    ScreenFlow flow(folders.normal, folders.performance);
+    playFirstNormalLevel(flow);
+    flow.levelLoaded("Loose does not follow the map format and was repaired: no PlayableHeight; used 9");
+    EXPECT(flow.toast().text == "Loose does not follow the map format and was repaired: no PlayableHeight; used 9");
+    EXPECT(!flow.toast().isError);
+    EXPECT(flow.toast().secondsLeft == theme::repairToastSeconds);
+}

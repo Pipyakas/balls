@@ -157,6 +157,13 @@ LevelImportResult importPair(const PickedPair& pair, const std::filesystem::path
             result.hasWarning = true;
         }
     }
+    if (!level->repairs.empty()) {
+        result.message += std::format(" - warning: repaired {}", level->repairs.front());
+        if (level->repairs.size() > 1) {
+            result.message += std::format(" (and {} more)", level->repairs.size() - 1);
+        }
+        result.hasWarning = true;
+    }
     return result;
 }
 

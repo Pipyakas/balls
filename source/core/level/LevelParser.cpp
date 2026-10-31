@@ -7,6 +7,7 @@
 #include <array>
 #include <charconv>
 #include <format>
+#include <limits>
 #include <fstream>
 #include <map>
 #include <sstream>
@@ -160,9 +161,10 @@ Result<bool> readExactLayout(const std::vector<std::string_view>& rows, BrickLay
 }
 
 // Rows that disagree with the header: the board takes the rows as written, as wide as the longest, and pads the
-// shorter ones with empty cells, so no brick the file places is lost.
+// shorter ones with empty cells, so no brick the file places is lost. Returns whether any row was padded.
 Result<bool> readRaggedLayout(const std::vector<std::string_view>& rows, BrickLayout& layout) {
     int widest = 0;
+    int narrowest = std::numeric_limits<int>::max();
     for (const std::string_view row : rows) {
         int cells = 0;
         forEachToken(row, [&](std::string_view) {
@@ -170,6 +172,7 @@ Result<bool> readRaggedLayout(const std::vector<std::string_view>& rows, BrickLa
             return true;
         });
         widest = std::max(widest, cells);
+        narrowest = std::min(narrowest, cells);
     }
     if (rows.empty() || widest == 0) {
         return Error{"[Layout] has no rows"};
@@ -196,7 +199,7 @@ Result<bool> readRaggedLayout(const std::vector<std::string_view>& rows, BrickLa
             return Error{std::format("[Layout] row {}: {}", row, badToken)};
         }
     }
-    return true;
+    return narrowest < layout.width;
 }
 
 // "<Id> <Color> <Hits>", with anything after the hits ignored; a line that cannot be read is skipped, and its cells
@@ -220,8 +223,17 @@ std::optional<BrickType> parseBrickType(std::string_view line) {
     return BrickType{*id, *color, *hits};
 }
 
-// Keeps the first type of each id, and clears cells whose id has no type.
-void dropDuplicateTypesAndUnknownCells(BrickLayout& layout) {
+void note(MapRepairs* repairs, std::string text) {
+    if (repairs) {
+        repairs->push_back(std::move(text));
+    }
+}
+
+const char* plural(size_t count) { return count == 1 ? "" : "s"; }
+
+// Keeps the first type of each id, and clears cells whose id has no type. Returns how many repeated types it dropped.
+size_t dropDuplicateTypesAndUnknownCells(BrickLayout& layout) {
+    const size_t typeCount = layout.types.size();
     // Ids are almost always 0..N-1, so a flag per id finds duplicates and unknown ids without hashing 67M of them.
     int largestId = -1;
     bool negativeId = false;
@@ -240,7 +252,7 @@ void dropDuplicateTypesAndUnknownCells(BrickLayout& layout) {
                 id = emptyBrickId;
             }
         }
-        return;
+        return typeCount - layout.types.size();
     }
     std::unordered_set<int> typeIds;
     typeIds.reserve(layout.types.size());
@@ -250,6 +262,7 @@ void dropDuplicateTypesAndUnknownCells(BrickLayout& layout) {
             id = emptyBrickId;
         }
     }
+    return typeCount - layout.types.size();
 }
 
 // "Red(10)", and "Red (10)" split by a space, which arrives as two tokens.
@@ -291,7 +304,7 @@ Result<std::optional<Launcher>> parseLauncherToken(std::string_view token) {
 
 }
 
-Result<BrickLayout> parseBrickLayout(std::string_view text) {
+Result<BrickLayout> parseBrickLayout(std::string_view text, MapRepairs* repairs) {
     const SectionMap sections = splitSections(text);
     auto board = parseBoardSection(sections);
     if (!board) {
@@ -307,7 +320,9 @@ Result<BrickLayout> parseBrickLayout(std::string_view text) {
         return Error{width.error()};
     }
     layout.width = *width;
-    layout.height = positiveValue(*board, "Height").value_or(static_cast<int>(rows->size()));
+    const std::optional<int> declaredHeight = positiveValue(*board, "Height");
+    layout.height = declaredHeight.value_or(static_cast<int>(rows->size()));
+    const int declaredWidth = layout.width;
     const std::optional<int> playableHeight = positiveValue(*board, "PlayableHeight");
     if (const std::string tooLarge = checkBoardSize(layout.width, std::max(layout.height, playableHeight.value_or(0)));
         !tooLarge.empty()) {
@@ -319,14 +334,33 @@ Result<BrickLayout> parseBrickLayout(std::string_view text) {
         return Error{exact.error()};
     }
     if (!*exact) {
-        auto ragged = readRaggedLayout(*rows, layout);
-        if (!ragged) {
-            return Error{ragged.error()};
+        auto padded = readRaggedLayout(*rows, layout);
+        if (!padded) {
+            return Error{padded.error()};
+        }
+        if (layout.width != declaredWidth) {
+            note(repairs, std::format("layout rows up to {} cells wide, not Width {}", layout.width, declaredWidth));
+        }
+        if (declaredHeight && layout.height != *declaredHeight) {
+            note(repairs, std::format("{} layout row{}, not Height {}", layout.height,
+                                      plural(static_cast<size_t>(layout.height)), *declaredHeight));
+        }
+        if (*padded) {
+            note(repairs, std::format("short layout rows padded to {} cells", layout.width));
         }
     }
+    if (!declaredHeight) {
+        note(repairs, std::format("no Height; used the {} layout rows", layout.height));
+    }
     // A PlayableHeight left out, or shorter than the brick rows, leaves the bricks no room to fall into.
-    layout.playableHeight = playableHeight && *playableHeight >= layout.height ? *playableHeight
-                                                                               : defaultPlayableHeight(layout.height);
+    if (playableHeight && *playableHeight >= layout.height) {
+        layout.playableHeight = *playableHeight;
+    } else {
+        layout.playableHeight = defaultPlayableHeight(layout.height);
+        note(repairs, playableHeight ? std::format("PlayableHeight {} is below the {} brick rows; used {}", *playableHeight,
+                                                   layout.height, layout.playableHeight)
+                                     : std::format("no PlayableHeight; used {}", layout.playableHeight));
+    }
     if (const std::string tooLarge = checkBoardSize(layout.width, layout.playableHeight); !tooLarge.empty()) {
         return Error{tooLarge};
     }
@@ -341,14 +375,22 @@ Result<BrickLayout> parseBrickLayout(std::string_view text) {
                 layout.types.push_back(*type);
             }
         }
+        if (const size_t skipped = typeLines->size() - layout.types.size(); skipped > 0) {
+            note(repairs, std::format("{} unreadable [BrickTypes] line{} skipped", skipped, plural(skipped)));
+        }
+    } else {
+        note(repairs, "no [BrickTypes]; the board has no bricks");
     }
-    dropDuplicateTypesAndUnknownCells(layout);
+    if (const size_t repeated = dropDuplicateTypesAndUnknownCells(layout); repeated > 0) {
+        note(repairs, std::format("{} repeated brick id{} skipped", repeated, plural(repeated)));
+    }
     return layout;
 }
 
-Result<LauncherLayout> parseLauncherLayout(std::string_view text) {
+Result<LauncherLayout> parseLauncherLayout(std::string_view text, MapRepairs* repairs) {
     const SectionMap sections = splitSections(text);
-    auto board = parseBoardSection(sections);
+    // Both [Board] values have defaults from the rows, so a launcher file may leave the whole section out.
+    auto board = sections.contains(boardSection) ? parseBoardSection(sections) : Result<BoardValues>(BoardValues{});
     if (!board) {
         return Error{board.error()};
     }
@@ -359,6 +401,8 @@ Result<LauncherLayout> parseLauncherLayout(std::string_view text) {
     std::vector<std::vector<std::optional<Launcher>>> parsedRows;
     parsedRows.reserve(rows->size());
     size_t widest = 0;
+    size_t narrowest = std::numeric_limits<size_t>::max();
+    size_t emptiedLaunchers = 0;
     for (size_t row = 0; row < rows->size(); ++row) {
         std::vector<std::optional<Launcher>>& parsed = parsedRows.emplace_back();
         for (const std::string& token : launcherTokens((*rows)[row])) {
@@ -366,18 +410,34 @@ Result<LauncherLayout> parseLauncherLayout(std::string_view text) {
             if (!launcher) {
                 return Error{std::format("[Layout] row {}: {}", row, launcher.error())};
             }
+            if (!launcher->has_value() && !equalsIgnoringCase(token, emptySlotToken)) {
+                ++emptiedLaunchers;
+            }
             parsed.push_back(*launcher);
         }
         widest = std::max(widest, parsed.size());
+        narrowest = std::min(narrowest, parsed.size());
     }
     if (widest == 0) {
         return Error{"[Layout] has no launchers"};
     }
     // Rows wider than Width widen the launcher; shorter ones are padded with empty slots.
     LauncherLayout layout;
-    layout.columns = std::max(positiveValue(*board, "Width").value_or(0), static_cast<int>(widest));
-    layout.visibleRows = positiveValue(*board, "Height")
-                             .value_or(std::min(static_cast<int>(parsedRows.size()), defaultVisibleLauncherRows));
+    const std::optional<int> declaredColumns = positiveValue(*board, "Width");
+    const std::optional<int> declaredRows = positiveValue(*board, "Height");
+    layout.columns = std::max(declaredColumns.value_or(0), static_cast<int>(widest));
+    layout.visibleRows = declaredRows.value_or(std::min(static_cast<int>(parsedRows.size()), defaultVisibleLauncherRows));
+    if (!declaredColumns) {
+        note(repairs, std::format("no Width; used {} launcher columns", layout.columns));
+    } else if (narrowest != widest || static_cast<int>(widest) != *declaredColumns) {
+        note(repairs, std::format("launcher rows padded to {} columns", layout.columns));
+    }
+    if (!declaredRows) {
+        note(repairs, std::format("no Height; showing {} launcher rows", layout.visibleRows));
+    }
+    if (emptiedLaunchers > 0) {
+        note(repairs, std::format("{} launcher{} of 0 balls left empty", emptiedLaunchers, plural(emptiedLaunchers)));
+    }
     layout.slots.reserve(parsedRows.size() * layout.columns);
     for (std::vector<std::optional<Launcher>>& parsed : parsedRows) {
         parsed.resize(static_cast<size_t>(layout.columns));
@@ -410,11 +470,13 @@ Result<LevelData> loadLevel(const LevelFiles& files) {
     if (!launchersText) {
         return Error{launchersText.error()};
     }
-    auto bricks = parseBrickLayout(*bricksText);
+    MapRepairs bricksRepairs;
+    MapRepairs launchersRepairs;
+    auto bricks = parseBrickLayout(*bricksText, &bricksRepairs);
     if (!bricks) {
         return Error{std::format("{}: {}", files.bricksPath.filename().string(), bricks.error())};
     }
-    auto launchers = parseLauncherLayout(*launchersText);
+    auto launchers = parseLauncherLayout(*launchersText, &launchersRepairs);
     if (!launchers) {
         return Error{std::format("{}: {}", files.launchersPath.filename().string(), launchers.error())};
     }
@@ -433,5 +495,24 @@ Result<LevelData> loadLevel(const LevelFiles& files) {
         }
         rules = *parsedRules;
     }
-    return LevelData{files.name, std::move(*bricks), std::move(*launchers), rules};
+    LevelData level{files.name, std::move(*bricks), std::move(*launchers), rules, {}};
+    for (const auto& [path, repairs] :
+         {std::pair{&files.bricksPath, &bricksRepairs}, std::pair{&files.launchersPath, &launchersRepairs}}) {
+        for (const std::string& repair : *repairs) {
+            level.repairs.push_back(std::format("{}: {}", path->filename().string(), repair));
+        }
+    }
+    return level;
+}
+
+std::string levelRepairNotice(const LevelData& level) {
+    if (level.repairs.empty()) {
+        return {};
+    }
+    std::string notice = std::format("{} does not follow the map format and was repaired: {}", level.name,
+                                     level.repairs.front());
+    if (level.repairs.size() > 1) {
+        notice += std::format(" (and {} more)", level.repairs.size() - 1);
+    }
+    return notice;
 }

@@ -5,6 +5,7 @@
 #include "level/LevelData.h"
 #include "level/LevelImporter.h"
 #include "level/LevelWatcher.h"
+#include "ui/Theme.h"
 
 #include <array>
 #include <chrono>
@@ -129,7 +130,8 @@ public:
     void runMachineBenchmark();
 
     // Reports from the front end.
-    void levelLoaded();
+    // A level that loaded only after the parser repaired it shows repairNotice (levelRepairNotice) as a toast.
+    void levelLoaded(std::string repairNotice = {});
     void levelFailed(std::string error);
     void sessionStateChanged(SessionState state);
     void benchmarkFinished();
@@ -177,7 +179,7 @@ public:
     }
     bool benchmarkSettled() const { return benchmarkDone; }
 
-    void showToast(std::string text, bool isError = false);
+    void showToast(std::string text, bool isError = false, float seconds = theme::toastSeconds);
     const FlowToast& toast() const { return currentToast; }
 
 private:
