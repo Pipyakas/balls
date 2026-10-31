@@ -109,9 +109,12 @@ struct DeviceHitResults {
     BallCount killed = 0;
 };
 
-// The visibility grid has one slot per this many ball radii: front ends size it this way, and the machine
-// benchmark sizes it the same, so balls fly freely there exactly as they do in a game.
-inline constexpr float visibilitySlotsPerRadius = 1.6f;
+// The visibility grid has one slot per ball radius: each slot draws the one ball that won it, where that ball is.
+// At 1.6 radii a sixth of a full board showed through, since two neighbouring winners can sit 3.2 radii apart while a
+// ball covers 2; at one radius under 0.2% does (about 4% at 1.3). The grid has 2.6 times the slots of 1.6: on a GTX
+// 1650 a full DA_1000Bricks board went from 0.21 to 0.33 ms of GPU time a frame and still filled to 2.9 billion balls.
+inline constexpr float visibilitySlotsPerRadius = 1.0f;
+
 // GPU backends record each step's kills in a buffer sized for the most a step can make. Bricks with huge hit counts
 // would ask for gigabytes, so the buffer stops here; a kill past it is refunded and the ball bounces, to land a later
 // step.
@@ -120,6 +123,19 @@ inline constexpr size_t maximumKillsPerStep = size_t{1} << 22;
 // A slot is never smaller than a pixel: a board bigger than the screen draws at most one ball per pixel.
 inline float visibilitySlotSize(float radiusCells, float cellPixels) {
     return std::max(radiusCells * visibilitySlotsPerRadius, cellPixels > 0.0f ? 1.0f / cellPixels : 0.0f);
+}
+
+// A ball anywhere inside its pixel covers that pixel's centre, where the rasterizer samples, once its radius reaches
+// half the pixel's diagonal: on a board bigger than the screen every slot is a pixel, and this keeps each lit.
+inline constexpr float minimumBallRadiusPixels = 0.75f;
+
+// About the board's cell size in pixels on a 1920x1080 screen with the gameplay gadgets beside it (16 margins, two
+// 310-wide gadgets, 8 gaps, 10 padding), for tools that size the visibility grid as a game would but have no screen.
+inline float referenceCellPixels(int columns, int rows) {
+    constexpr float boardWidthPixels = 1920.0f - 2.0f * 16.0f - 2.0f * 310.0f - 2.0f * 8.0f - 2.0f * 10.0f;
+    constexpr float boardHeightPixels = 1080.0f - 2.0f * 16.0f - 2.0f * 10.0f;
+    return std::min(boardWidthPixels / static_cast<float>(std::max(columns, 1)),
+                    boardHeightPixels / static_cast<float>(std::max(rows, 1)));
 }
 
 inline int visibilitySlots(float fieldExtent, float slotSize) {

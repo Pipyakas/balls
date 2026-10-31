@@ -111,7 +111,7 @@ For single-renderer builds, `BALLS_RENDERER` and build scripts are available:
 
 ---
 
-## 5. L1 Verification & Benchmark Results
+## 5. Verification & Benchmark Results
 
 ### Benchmark Tool (`scripts/bench/CompareRenderers.ps1`)
 

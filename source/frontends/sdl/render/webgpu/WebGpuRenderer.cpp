@@ -560,7 +560,7 @@ public:
             uniforms.viewportSize[1] = logicalHeight;
             uniforms.cellPixels = request.cellPixels;
             uniforms.radiusPixels = std::max(request.radiusCells * request.cellPixels,
-                                             0.5f * logicalWidth / static_cast<float>(pixelWidth));
+                                             minimumBallRadiusPixels * logicalWidth / static_cast<float>(pixelWidth));
             for (int color = 0; color < rendererPaletteSize; ++color) {
                 std::copy(request.palette[color].begin(), request.palette[color].end(), uniforms.palette[color]);
             }

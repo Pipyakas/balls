@@ -26,8 +26,6 @@ constexpr double BrickFlashPopCells = 0.25;
 constexpr double CellInset = 0.06;
 constexpr float MinimumBallPixels = 1.2f;
 constexpr double BrickAnimationInterval = 1.0 / 30.0;
-// A visibility slot this many ball radii wide keeps one drawn ball per slot; matches the SDL frontend.
-constexpr float VisibilitySlotPerRadius = 1.6f;
 // What the backends write into a visibility-grid slot no ball won (core's emptyRenderSlot).
 constexpr uint32 EmptyRenderSlot = 0xFFFFFFFFu;
 // The most balls one frame uploads and draws; a grid snapshot is far smaller, this only bounds an ungridded one.
@@ -598,9 +596,9 @@ void FBallsBoardView::FrameCamera(const BrickBoard& Board, const FBallsGameplayL
     }
 }
 
-// A screen-space visibility grid: slots about 1.6 ball radii wide, so at most one ball is drawn per slot. At millions
-// of balls the eye cannot see more than that, and the instance count collapses from the ball count to the number of
-// slots (the same trick the SDL frontend uses).
+// A screen-space visibility grid of one slot per pixel, so one ball is drawn per pixel. At millions of balls the eye
+// cannot see more than that, and the instance count collapses from the ball count to the number of pixels (the
+// same trick the SDL frontend uses).
 float FBallsBoardView::VisibilitySlotCells(float BallRadius, const FBallsGameplayLayout& Layout, float DpiScale) {
     const float CellPixels = Layout.CellSize * DpiScale;
     return visibilitySlotSize(BallRadius, CellPixels);

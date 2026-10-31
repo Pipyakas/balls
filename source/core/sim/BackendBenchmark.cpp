@@ -453,7 +453,8 @@ void BackendBenchmark::runCandidate(size_t index, std::optional<long long> refer
     }
     Simulation simulation(std::move(backend));
     simulation.load(workload.level);
-    const float slotSize = simulation.tuning().ballRadius * visibilitySlotsPerRadius;
+    const float slotSize = visibilitySlotSize(simulation.tuning().ballRadius,
+                                              referenceCellPixels(simulation.board().columns(), simulation.board().rows()));
     simulation.backend().setVisibilityGrid(visibilitySlots(static_cast<float>(simulation.board().columns()), slotSize),
                                            visibilitySlots(static_cast<float>(simulation.board().rows()), slotSize));
     const auto scatterUpTo = [&](size_t balls) {
