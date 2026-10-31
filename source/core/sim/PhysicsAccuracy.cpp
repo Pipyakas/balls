@@ -54,7 +54,8 @@ AccuracyRun runAccuracyScenario(BackendHandle backend, const AccuracyScenario& s
     AccuracyRun run;
     Simulation simulation(std::move(backend));
     simulation.load(scenario.level);
-    const float slotSize = simulation.tuning().ballRadius * visibilitySlotsPerRadius;
+    const float slotSize = visibilitySlotSize(simulation.tuning().ballRadius,
+                                              referenceCellPixels(simulation.board().columns(), simulation.board().rows()));
     simulation.backend().setDrawing(scenario.drawing);
     simulation.setTicksPerSecond(scenario.ticksPerSecond);
     const int ticksPerFrame = std::max(1, scenario.ticksPerFrame * scenario.ticksPerSecond / defaultTicksPerSecond);
