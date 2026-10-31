@@ -16,6 +16,9 @@ namespace Balls.App.Screens
     /// </summary>
     public sealed class GameplayScreen : Screen
     {
+        // The 120 Hz simulation counts as keeping up within 5%, as the core's debug gadget judges it.
+        private const double KeepingUpTickRate = 120.0 * 0.95;
+
         // The game's interaction-gadget metrics.
         private const float LauncherMaxSize = 110f;
         private const float LauncherGapShare = 0.18f;
@@ -1078,8 +1081,8 @@ namespace Balls.App.Screens
                 widgets.Readout(new Rect(content.x, y, half, 40f), "Frame ms", $"{stats.frameMs:F2}");
                 widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "Physics ms", $"{stats.physicsMs:F2}");
                 y += 46f;
-                widgets.Readout(new Rect(content.x, y, half, 40f), "Physics FPS", $"{stats.physicsFps:N0}",
-                    stats.physicsFps >= 60.0 ? Palette.Success : Palette.Danger);
+                widgets.Readout(new Rect(content.x, y, half, 40f), "Tick rate", $"{stats.physicsFps:N0} Hz",
+                    stats.physicsFps >= KeepingUpTickRate ? Palette.Success : Palette.Danger);
                 widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "GPU ms", GpuText());
                 y += 46f;
                 if (advancedOpen)

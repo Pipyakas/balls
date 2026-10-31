@@ -258,7 +258,7 @@ namespace Balls.App
             BallsNative.balls_frame_timings_stats(frameTimings, out NativeFrameStats frames);
 
             var stats = backend.Stats;
-            // Physics FPS is how many physics frames finished in the last stretch of wall time; the UI rate can differ.
+            // The tick rate is how many simulation ticks ran in the last stretch of wall time; the UI rate can differ.
             // ticksLastFrame counts the ticks of one frame, so they are summed over the window.
             m_physicsTimer += deltaSeconds;
             m_physicsTicks += stats.ticks;

@@ -69,6 +69,9 @@ struct SessionView {
     // threads apart the UI frame rate no longer says how fast the simulation runs.
     double physicsFrameMs = 0.0;
     double physicsFramesPerSecond = 0.0;
+    // Simulation ticks run per second, and the rate the simulation is set to: equal while physics keeps up.
+    double physicsTicksPerSecond = 0.0;
+    double targetTicksPerSecond = 0.0;
     double physicsLongestFrameMs = 0.0;
     long long physicsSlowFrames = 0;
     // How long bringing the UI's board snapshot up to date took on the physics thread.

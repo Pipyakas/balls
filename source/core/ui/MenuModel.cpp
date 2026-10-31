@@ -14,6 +14,14 @@ constexpr double ballStepsPerMillion = 1e6;
 
 UiTone fpsTone(double fps) { return fps >= fpsTarget ? UiTone::Success : UiTone::Danger; }
 
+// The simulation keeps up while it runs the ticks its rate asks for; a few percent short is measuring noise. Before a
+// Performance game starts, and after a win, no ticks run, so the row is muted rather than flagged.
+constexpr double tickRateTolerance = 0.95;
+
+UiTone tickRateTone(double ticksPerSecond, double target) {
+    return target > 0.0 && ticksPerSecond >= target * tickRateTolerance ? UiTone::Success : UiTone::Danger;
+}
+
 std::string ballLimitOptionLabel(BallCount limit) {
     if (limit == unlimitedBalls) {
         return "Max 2^64-1";
@@ -226,7 +234,9 @@ std::vector<DebugRow> debugGadgetRows(const SessionView& view, const FrameTiming
     rows.value("Min FPS (1s)", std::format("{:.0f}", minimumFps), fpsTone(minimumFps));
     rows.value("Frame ms", std::format("{:.2f}", frames.average().frameMs));
     rows.value("Physics ms", std::format("{:.2f}", stats.lastFramePhysicsMs));
-    rows.value("Physics FPS", std::format("{:.0f}", view.physicsFramesPerSecond), fpsTone(view.physicsFramesPerSecond));
+    rows.value("Tick rate", std::format("{:.0f} / {:.0f} Hz", view.physicsTicksPerSecond, view.targetTicksPerSecond),
+               view.state == SessionState::Running ? tickRateTone(view.physicsTicksPerSecond, view.targetTicksPerSecond)
+                                                   : UiTone::Muted);
     rows.value("GPU ms", std::format("{:.2f}", frames.average().gpuMs));
     for (const auto& [label, value] : options.portRows) {
         rows.value(label, value);

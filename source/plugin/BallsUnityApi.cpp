@@ -161,6 +161,7 @@ struct BallsSession {
         describeSession(*game, *described);
         described->physicsFrameMs = rate.lastFrameMs();
         described->physicsFramesPerSecond = rate.framesPerSecond();
+        described->physicsTicksPerSecond = rate.ticksPerSecond();
         return described;
     }
     // Runs a command on the session: at once, or at the start of the next physics frame.
@@ -799,8 +800,9 @@ double balls_session_physics_frame_ms(const BallsSession* session) {
     return session != nullptr && session->view ? session->view->physicsFrameMs : 0.0;
 }
 
+// Simulation ticks per second, which the Unity HUD shows as Tick rate; the name predates the rename.
 double balls_session_physics_fps(const BallsSession* session) {
-    return session != nullptr && session->view ? session->view->physicsFramesPerSecond : 0.0;
+    return session != nullptr && session->view ? session->view->physicsTicksPerSecond : 0.0;
 }
 
 void balls_session_destroy(BallsSession* session) {
@@ -839,7 +841,7 @@ void balls_session_update(BallsSession* session, float deltaSeconds) {
         session->game->pollBackgroundWork();
         const PhysicsRate::Clock::time_point workStart = PhysicsRate::Clock::now();
         session->game->update(deltaSeconds);
-        session->rate.frame(workStart, PhysicsRate::Clock::now());
+        session->rate.frame(workStart, PhysicsRate::Clock::now(), session->game->simulation().stats().ticksLastFrame);
         return;
     }
     // The physics thread keeps its own pace; the host's frame only hands over its timings and takes the newest view.

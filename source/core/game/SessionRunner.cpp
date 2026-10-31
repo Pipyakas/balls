@@ -103,6 +103,7 @@ void describeSessionState(const GameSession& session, SessionView& view) {
     view.launchX = simulation.launchX();
     view.launchY = simulation.launchY();
     view.ballRadius = simulation.tuning().ballRadius;
+    view.targetTicksPerSecond = 1.0 / static_cast<double>(simulation.tuning().tickSeconds);
 }
 
 // The last field size the backend reported, kept across frames: the grid is sized from it, and a size that changed
@@ -197,11 +198,13 @@ void runSession(std::shared_ptr<SessionRunner::Shared> shared, std::unique_ptr<G
         }
         const double sinceLastUpdate = secondsBetween(lastUpdate, workStart);
         lastUpdate = workStart;
+        int ticks = 0;
         if (!input.paused) {
             // Coming out of a pause, the paused time is not simulated.
             const double frameSeconds = wasPaused ? 0.0 : std::min(sinceLastUpdate, maximumPhysicsFrameSeconds);
             session->reportFrameWorkSeconds(std::max(rate.lastFrameSeconds(), input.uiWorkSeconds));
             session->update(static_cast<float>(frameSeconds));
+            ticks = session->simulation().stats().ticksLastFrame;
         }
         wasPaused = input.paused;
         // Settings > Advanced > Physics frames: 0 is one frame per tick, -1 as fast as the thread can go.
@@ -214,10 +217,11 @@ void runSession(std::shared_ptr<SessionRunner::Shared> shared, std::unique_ptr<G
             session->simulation().backend().setDrawing(drawing);
         }
         fillView(*session, *view, previous.get(), boards, input.visibilitySlotCells, field);
-        rate.frame(workStart, Clock::now());
+        rate.frame(workStart, Clock::now(), ticks);
         view->frameNumber = ++frameNumber;
         view->physicsFrameMs = rate.lastFrameMs();
         view->physicsFramesPerSecond = rate.framesPerSecond();
+        view->physicsTicksPerSecond = rate.ticksPerSecond();
         view->physicsLongestFrameMs = rate.longestFrameMs();
         view->physicsSlowFrames = rate.slowFrameCount();
         {
