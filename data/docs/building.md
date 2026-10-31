@@ -16,7 +16,7 @@ picks the renderer (default: `nvrhi` on desktop, `webgpu` on Android). With NVRH
 with no backend menu, machine benchmark, Layout choice or Ball collisions option. The pair
 allocates its whole memory budget once per process (free VRAM less 512 MB, available RAM less the usual margin), so
 balls never grow, copy or page-fault during play. Auto is that capacity, with no probe, and ramping up to it keeps every physics frame within 1/60 s. `-DBALLS_PROFILE=extended` has everything else: every
-backend and CUDA architecture, the backend menu, the machine benchmark and the Unity plugin. It is the default where the
+backend and CUDA architecture, the backend menu, the machine benchmark and the Unity plugin; it defaults to Hybrid (the device composer). It is the default where the
 scoring profile cannot build (Android, macOS, the web, ARM); set `BALLS_PREALLOCATE=1` there to try the same up-front
 allocation on the pair.
 To try the scoring build on another NVIDIA GPU, set `-DBALLS_SCORING_CUDA_SM` to its architecture (86 for an RTX 30
@@ -50,12 +50,12 @@ new front end adds its scripts to its own folder and appears in the menu. The SD
 | `linux-nvrhi` (default on Linux), `linux-webgpu`, `linux-sdlgpu` | `dist/linux-sdl/`, `dist/linux-sdl-webgpu/`, `dist/linux-sdl-sdlgpu/` |
 | `android` | `dist\android-sdl\balls.apk` (needs JDK 17, and `ANDROID_HOME` pointing at an SDK with NDK 27.2) |
 
-The engine front ends follow the same pattern from Windows:
+The engine front ends follow the same pattern from Windows (the Unreal project is `source/frontends/unreal/Balls.uproject`; the Unity project lives in `source/frontends/unity`):
 
 | Command | Output |
 |---|---|
-| `build.bat unreal win64`, `build.bat unreal linux` | `dist\win32-ue\Balls.exe`, `dist\linux-ue\` (needs Unreal Engine 5.8, found by itself or set with `UE_ROOT`; a stock install works) |
-| `build.bat unity win64` | `dist\win32-unity\ColorBlastBallsUnity.exe` (Mono player; needs the Unity version in `source\frontends\unity\ProjectSettings\ProjectVersion.txt`, or `UNITY_EXE`) |
+| `build.bat unreal win64`, `build.bat unreal linux` | `dist\win32-ue\Balls.exe`, `dist\linux-ue\Balls.sh` (needs Unreal Engine 5.8.4, found by itself or set with `UE_ROOT`; a stock install works) |
+| `build.bat unity win64` | `dist\win32-unity\ColorBlastBallsUnity.exe` (Mono player; needs the Unity version in `source\frontends\unity\ProjectSettings\ProjectVersion.txt` [6000.3.27f2, the latest LTS], or `UNITY_EXE`) |
 | `build.bat unity linux` | `dist\linux-unity\ColorBlastBallsUnity.x86_64` (IL2CPP; needs the Linux `.so` files, built on Linux, in `source\frontends\unity\NativeLibraries\linux-x86_64`) |
 
 Every build starts with a setup check (`source/frontends/<name>/setup.ps1`, `setup.sh` on Linux) that lists each
@@ -66,9 +66,9 @@ to install what is missing (winget on Windows, apt or dnf on Linux, `sdkmanager`
 tools that are installed but not on `PATH` (such as the CMake bundled with Visual Studio), and stops before CMake or
 Gradle starts when something required is still missing.
 
-The Unreal and Unity checks look for the engine the same way. Unreal takes `UE_ROOT`, else a stock 5.8 install, then
+The Unreal and Unity checks look for the engine the same way. Unreal takes `UE_ROOT`, else a stock 5.8.4 install, then
 a source build, then any `UE5*` or `UnrealEngine*` folder near a drive's root; Unity takes `UNITY_EXE`, else the
-exact version in `ProjectVersion.txt` from the installer's registry entry, the Unity Hub's install folders or the
+exact version in `ProjectVersion.txt` (6000.3.27f2) from the installer's registry entry, the Unity Hub's install folders or the
 usual folders on each drive. When the engine is still not found, the check asks whether to give its folder (kept as
 the user variable `UE_ROOT` or `UNITY_EXE` if you agree) or to install it: Unity through the Unity Hub's command
 line, with the build support module the variant needs; Unreal through the Epic Games Launcher, which has no command
@@ -132,6 +132,13 @@ cmake --build build/win32-scoring --config Release --target balls_tests balls_be
 build/win32-scoring/bin/Release/balls_tests.exe
 build/win32-scoring/bin/Release/balls_bench.exe --balls 2000,200000,1000000 --ticks 240
 build/win32-scoring/bin/Release/balls_bench.exe --fill --balls 262144 --ticks 100
+```
+
+The whole verification pipeline (unit tests, accuracy benchmark and driving built front ends through every screen and level) runs from `scripts/test/RunTests.py`:
+
+```powershell
+python -I scripts/test/RunTests.py                  # logic, SDL and Unreal
+python -I scripts/test/RunTests.py --stages sdl --quick
 ```
 
 ## Shaders

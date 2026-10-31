@@ -45,7 +45,8 @@ python -I scripts/test/RunTests.py --stages sdl --quick
 ```
 
 Other front ends (Unreal, Unity), Linux, Android, build options and the benchmark flags:
-[building and testing](data/docs/building.md).
+[building and testing](data/docs/building.md). The scoring build's design and PC measurements:
+[target PC](data/docs/scoring-pc.md).
 
 ## Features
 
@@ -64,12 +65,13 @@ Other front ends (Unreal, Unity), Linux, Android, build options and the benchmar
 | Where | Input | Action |
 |---|---|---|
 | Normal mode | Left-click a launcher | Release its balls |
-| Performance mode | Start button / Space | Begin automatic release |
-| Any game | Esc / P | Pause menu |
-| Any game | R | Restart level |
+| Performance mode | Start button | Begin automatic release |
+| Any game | Header Pause button | Pause menu overlay |
+| Pause overlay | Resume / Restart / Settings / Main Menu | Select action |
+| Menus | Esc | Back |
 | Editor | L-drag / R-drag | Apply tool / erase |
 | Editor | 1-7, P/E/X/K | Color, tool |
-| Editor | Ctrl+Z / Ctrl+Y / Ctrl+S | Undo / redo / save |
+| Editor | Ctrl+Z / Ctrl+Y / Ctrl+S / Esc | Undo / redo / save / back |
 
 ## Levels
 
