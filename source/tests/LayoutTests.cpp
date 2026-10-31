@@ -226,10 +226,14 @@ TEST_CASE("landscape gadgets widen to fill the frame up to 16:9") {
     EXPECT(near(filled.interaction.width, filled.leftGadget.width));
     EXPECT(near(filled.debug.width, filled.rightGadget.width));
 
+    // Past 16:9 the gadgets stop widening and the board's section takes the rest, so the screen stays filled.
     const CoreGameplayLayout ultrawide = compute(3440.0f, 900.0f, 7, 14, LayoutOrientation::Landscape, false);
-    const float groupWidth = ultrawide.rightGadget.x + ultrawide.rightGadget.width - ultrawide.leftGadget.x;
-    EXPECT(near(groupWidth, 900.0f * 16.0f / 9.0f - outerMargin * 2.0f));
-    EXPECT(near(ultrawide.leftGadget.x, (3440.0f - groupWidth) * 0.5f));
+    const float gadgetGroup = ultrawide.leftGadget.width * 2.0f + gadgetGap * 2.0f + filled.boardRect.width + 20.0f;
+    EXPECT(near(gadgetGroup, 900.0f * 16.0f / 9.0f - outerMargin * 2.0f));
+    EXPECT(near(ultrawide.leftGadget.x, outerMargin));
+    EXPECT(near(ultrawide.rightGadget.x + ultrawide.rightGadget.width, 3440.0f - outerMargin));
+    EXPECT(ultrawide.main.width > ultrawide.boardRect.width + 1000.0f);
+    EXPECT(near(ultrawide.boardRect.x + ultrawide.boardRect.width * 0.5f, ultrawide.main.x + ultrawide.main.width * 0.5f));
     EXPECT(near(ultrawide.cellSize, filled.cellSize));
 
     const CoreGameplayLayout boardBound = compute(1440.0f, 900.0f, 40, 10, LayoutOrientation::Landscape, false);
@@ -250,5 +254,32 @@ TEST_CASE("a board with more cells than the window has pixels keeps both gadgets
         EXPECT(layout.main.y + layout.main.height <= height + epsilon);
         EXPECT(!overlaps(layout.main, layout.leftGadget));
         EXPECT(!overlaps(layout.main, layout.rightGadget));
+    }
+}
+
+TEST_CASE("every window shape is filled edge to edge, with the board centred in its section") {
+    constexpr float outerMargin = 16.0f;
+    const std::pair<float, float> frames[] = {{1280.0f, 1024.0f}, {1440.0f, 900.0f}, {1920.0f, 1080.0f},
+                                              {2560.0f, 1080.0f}, {3840.0f, 1080.0f}, {1080.0f, 1920.0f},
+                                              {1080.0f, 2400.0f}, {800.0f, 800.0f}};
+    const std::pair<int, int> boards[] = {{7, 14}, {40, 10}, {2048, 64}, {64, 64}, {10, 30}};
+    for (const auto& [width, height] : frames) {
+        for (const auto& [columns, rows] : boards) {
+            const CoreGameplayLayout layout = compute(width, height, columns, rows, LayoutOrientation::Auto, false);
+            const LayoutRect first = layout.isPortrait ? layout.topGadget : layout.leftGadget;
+            const LayoutRect last = layout.isPortrait ? layout.bottomGadget : layout.rightGadget;
+            EXPECT(near(first.x, outerMargin) && near(first.y, outerMargin));
+            EXPECT(near(last.x + last.width, width - outerMargin));
+            EXPECT(near(last.y + last.height, height - outerMargin));
+            if (layout.isPortrait) {
+                EXPECT(near(layout.main.x, outerMargin) && near(layout.main.width, width - outerMargin * 2.0f));
+            } else {
+                EXPECT(near(layout.main.y, outerMargin) && near(layout.main.height, height - outerMargin * 2.0f));
+            }
+            EXPECT(near(layout.boardRect.x - layout.main.x,
+                        layout.main.x + layout.main.width - layout.boardRect.x - layout.boardRect.width));
+            EXPECT(near(layout.boardRect.y - layout.main.y,
+                        layout.main.y + layout.main.height - layout.boardRect.y - layout.boardRect.height));
+        }
     }
 }
