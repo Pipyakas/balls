@@ -10,6 +10,7 @@
 #include "render/Palette.h"
 #include "screens/DevicePicker.h"
 #include "screens/SettingsPanel.h"
+#include "ui/LoadingScreen.h"
 #include "ui/MenuModel.h"
 #include "sim/BackendWorker.h"
 #include "ui/Widgets.h"
@@ -62,22 +63,30 @@ void GameplayScreen::refreshSettings() {
     runner->setBallCollisions(ballCollisionsOffered() && app.settings().ballCollisions);
 }
 
+// The physics thread reads the files and builds the session while the UI draws the loading screen from its progress.
 void GameplayScreen::loadSession() {
-    auto level = loadLevel(files);
-    if (!level) {
-        runner.reset();
-        view.reset();
-        loadError = level.error();
-        app.flow().levelFailed(loadError);
-        return;
-    }
     loadError.clear();
     view.reset();
-    std::string repairNotice = levelRepairNotice(*level);
-    runner = std::make_unique<SessionRunner>(mode, std::move(*level), app.preferredBackend(),
-                                              app.settings().ticksPerSecond);
+    loadProgress = std::make_shared<LoadProgress>();
+    runner = std::make_unique<SessionRunner>(mode, files, app.preferredBackend(), app.settings().ticksPerSecond,
+                                              loadProgress);
     applyDefaultBallLimit();
-    app.flow().levelLoaded(std::move(repairNotice));
+}
+
+bool GameplayScreen::adoptLoadOutcome() {
+    const std::optional<LevelLoadOutcome> outcome = runner->takeLoadOutcome();
+    if (!outcome) {
+        return true;
+    }
+    if (!outcome->loaded) {
+        runner.reset();
+        view.reset();
+        loadError = outcome->message;
+        app.flow().levelFailed(loadError);
+        return false;
+    }
+    app.flow().levelLoaded(outcome->message);
+    return true;
 }
 
 void GameplayScreen::applyDefaultBallLimit() {
@@ -190,7 +199,7 @@ void GameplayScreen::handleLauncherClick(const GameplayLayout& layout) {
 }
 
 void GameplayScreen::update(float /*deltaTime*/) {
-    if (!runner) {
+    if (!runner || !adoptLoadOutcome()) {
         return;
     }
     view = runner->view();
@@ -697,9 +706,7 @@ void GameplayScreen::draw() {
         return;
     }
     if (!view) {
-        const float centerX = static_cast<float>(gfx::screenWidth()) * 0.5f;
-        ui::drawText("Loading " + files.name, {centerX, static_cast<float>(gfx::screenHeight()) * 0.45f}, 32.0f,
-                     palette::textMuted, ui::Align::Center);
+        drawLoading();
         return;
     }
     const GameplayLayout layout = computeGameplayLayout(
@@ -717,6 +724,28 @@ void GameplayScreen::draw() {
         drawDebugPanel(layout.debugSection, *view, app.frameTimings(), debugState, app.settings().advancedSettings, {}, app.rendererDescription());
     }
     drawOverlay();
+}
+
+void GameplayScreen::drawLoading() {
+    constexpr float titleSize = 32.0f;
+    constexpr float lineSize = 18.0f;
+    constexpr float lineHeight = 26.0f;
+    constexpr float columnWidth = 760.0f;
+    const LoadingScreenText text = loadingScreenText(files.name, loadProgress.get());
+    const float width = static_cast<float>(gfx::screenWidth());
+    const float left = std::max(16.0f, (width - columnWidth) * 0.5f);
+    const float right = std::min(width - 16.0f, left + columnWidth);
+    const float blockHeight = 60.0f + lineHeight * static_cast<float>(loadingScreenMaxLines + 1);
+    float y = std::max(24.0f, (static_cast<float>(gfx::screenHeight()) - blockHeight) * 0.5f);
+    ui::drawText(text.title, {width * 0.5f, y}, titleSize, palette::text, ui::Align::Center);
+    y += 60.0f;
+    for (const LoadingScreenLine& line : text.lines) {
+        const auto color = line.running ? palette::accent : palette::textMuted;
+        ui::drawText(line.text, {left, y}, lineSize, color, ui::Align::Left);
+        ui::drawText(line.time, {right, y}, lineSize, color, ui::Align::Right);
+        y += lineHeight;
+    }
+    ui::drawText(text.total, {right, y + 8.0f}, lineSize, palette::textMuted, ui::Align::Right);
 }
 
 void GameplayScreen::post(std::function<void(GameSession&)> command) {

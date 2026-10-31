@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common/LoadProgress.h"
 #include "game/GameSession.h"
 #include "game/SessionView.h"
 
@@ -10,6 +11,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <string>
 #include <vector>
 
 // What the UI hands the physics thread each frame.
@@ -37,6 +39,13 @@ struct SessionEvent {
     BallCollisionsChange collisionsChange = BallCollisionsChange::None;
 };
 
+// How reading a level that a runner loads itself ended: loaded, with the repair notice if it needed one, or not, with
+// the reason.
+struct LevelLoadOutcome {
+    bool loaded = false;
+    std::string message;
+};
+
 // Runs a GameSession on its own thread so that nothing the simulation does, from a slow physics step to building a
 // backend, can hold up a UI frame. The UI posts commands, which run at the start of the next physics frame, and
 // draws the latest SessionView. The two are not synchronised: the physics thread keeps its own pace of one frame
@@ -46,6 +55,10 @@ public:
     using Command = std::function<void(GameSession&)>;
 
     SessionRunner(GameMode mode, LevelData level, BackendKind backend, int ticksPerSecond = defaultTicksPerSecond);
+    // Reads the level on the physics thread too, so even parsing a huge map leaves the UI free to draw the loading
+    // screen from `progress`; takeLoadOutcome() says how the read went.
+    SessionRunner(GameMode mode, LevelFiles files, BackendKind backend, int ticksPerSecond,
+                  std::shared_ptr<LoadProgress> progress);
     // Does not wait for the physics thread: it finishes its frame, destroys the session and exits on its own.
     ~SessionRunner();
     SessionRunner(const SessionRunner&) = delete;
@@ -59,6 +72,8 @@ public:
     // Null until the physics thread has built the session.
     std::shared_ptr<const SessionView> view() const;
     std::vector<SessionEvent> takeEvents();
+    // Once, after a runner given LevelFiles has read them; empty before then and for a runner given the level.
+    std::optional<LevelLoadOutcome> takeLoadOutcome();
 
     // Waits, up to the timeout, for the physics threads of destroyed runners to finish; used when the game quits.
     static bool waitForStoppedRunners(std::chrono::milliseconds timeout);

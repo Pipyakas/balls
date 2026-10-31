@@ -26,18 +26,33 @@ FBallsGameplay::FBallsGameplay(FBallsApp& InApp, GameMode InMode, LevelFiles InF
     LoadSession();
 }
 
+// On the physics thread the files are read off the game thread, and the HUD draws the loading steps meanwhile.
 void FBallsGameplay::LoadSession() {
-    Result<LevelData> Level = loadLevel(Files);
-    if (!Level) {
-        LoadError = BallsText::FromUtf8(Level.error());
+    LoadError.Reset();
+    Progress = std::make_shared<LoadProgress>();
+    Host = std::make_unique<SessionHost>(Mode, Files, App.GetPreferredBackend(), ThreadingFromCommandLine(), Progress);
+    AdoptLoadOutcome();
+    if (!Host) {
         return;
     }
-    LoadError.Reset();
-    RepairNotice = levelRepairNotice(*Level);
-    Host = std::make_unique<SessionHost>(Mode, std::move(*Level), App.GetPreferredBackend(), ThreadingFromCommandLine());
     View = Host->view();
     ApplySettings();
     ApplyDefaultBallLimit();
+}
+
+void FBallsGameplay::AdoptLoadOutcome() {
+    const std::optional<LevelLoadOutcome> Outcome = Host->takeLoadOutcome();
+    if (!Outcome) {
+        return;
+    }
+    if (!Outcome->loaded) {
+        Host.reset();
+        View.reset();
+        LoadError = BallsText::FromUtf8(Outcome->message);
+        App.GetScreenFlow().levelFailed(Outcome->message);
+        return;
+    }
+    App.GetScreenFlow().levelLoaded(Outcome->message);
 }
 
 void FBallsGameplay::ApplyDefaultBallLimit() {
@@ -81,6 +96,9 @@ const FBallsToast& FBallsGameplay::GetToast() const { return App.GetToast(); }
 bool FBallsGameplay::IsWon() const { return View && Mode == GameMode::Normal && View->state == SessionState::Won; }
 
 void FBallsGameplay::Tick(float DeltaSeconds, double WorkSeconds) {
+    if (Host) {
+        AdoptLoadOutcome();
+    }
     if (!Host) {
         // Load-error retry is owned by the flow; nothing to do here.
         return;

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "common/LoadProgress.h"
+
 #include "common/BallCount.h"
 #include "sim/BrickBoard.h"
 #include "sim/BackendHandle.h"
@@ -64,7 +66,7 @@ public:
     explicit Simulation(BackendHandle backend, SimulationTuning tuning = {});
     ~Simulation();
 
-    void load(const BrickLayout& layout);
+    void load(const BrickLayout& layout, LoadProgress* progress = nullptr);
     BackendReplacement replaceBackend(BackendHandle backend, size_t chunkBalls = migrationChunkBalls);
     // Hands the backend over to be destroyed off the frame; the simulation must not be used afterwards.
     BackendHandle releaseBackend() { return std::move(physics); }

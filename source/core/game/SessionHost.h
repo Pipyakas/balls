@@ -5,6 +5,7 @@
 #include "game/SessionView.h"
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 // Where a session's physics runs: inside the UI's frame, or on a SessionRunner's own thread, where a long physics step
@@ -18,6 +19,10 @@ enum class SessionThreading { UiThread, PhysicsThread };
 class SessionHost {
 public:
     SessionHost(GameMode mode, LevelData level, BackendKind backend, SessionThreading threading);
+    // Reads the files as well: on the physics thread off the UI's frame, reporting to `progress`; on the UI thread
+    // at once. takeLoadOutcome() says how it went, and a host whose level did not load must not be used further.
+    SessionHost(GameMode mode, LevelFiles files, BackendKind backend, SessionThreading threading,
+                std::shared_ptr<LoadProgress> progress);
     SessionHost(const SessionHost&) = delete;
     SessionHost& operator=(const SessionHost&) = delete;
 
@@ -33,6 +38,8 @@ public:
     std::shared_ptr<const SessionView> view() const { return latest; }
     // Backend switches and ball collisions changes since the last call, in order.
     std::vector<SessionEvent> takeEvents();
+    // Once, after a host given LevelFiles has read them.
+    std::optional<LevelLoadOutcome> takeLoadOutcome();
     // The session itself while it runs on the UI thread, for drawing straight from its backend; null otherwise.
     GameSession* liveSession() { return session.get(); }
 
@@ -44,6 +51,7 @@ private:
     std::shared_ptr<const SessionView> latest;
     BoardSnapshots boards;
     std::vector<SessionEvent> events;
+    std::optional<LevelLoadOutcome> loadOutcome;
     // On the game thread a physics frame is a tick that stepped the session.
     PhysicsRate rate;
 };

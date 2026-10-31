@@ -430,7 +430,8 @@ public:
 
         if (!Session) {
             // The physics thread has not published its first view yet.
-            return LayerId;
+            PaintLoading(Out, LayerId, Geometry);
+            return LayerId + 2;
         }
         const FBallsGameplayLayout Layout = LayoutFor(Geometry);
         const FLinearColor PanelTint = BallsPalette::Linear(BallsPalette::Panel);
@@ -899,6 +900,37 @@ private:
 
     float MaximumDebugScroll(const FSlateRect& Area) const {
         return FMath::Max(0.0f, DebugContentHeight - static_cast<float>(Area.GetSize().Y));
+    }
+
+    void PaintLoading(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry) const {
+        constexpr float TitleSize = 32.0f;
+        constexpr float LineSize = 18.0f;
+        constexpr double LineHeight = 26.0;
+        constexpr double TitleGap = 60.0;
+        constexpr double ColumnWidth = 760.0;
+        constexpr double Margin = 16.0;
+        const FVector2D Size = Geometry.GetLocalSize();
+        DrawBox(Out, Layer, Geometry, FSlateRect(FVector2D::ZeroVector, Size), BallsStyle::White(),
+                BallsPalette::Linear(BallsPalette::Background));
+        const LoadingScreenText Text = loadingScreenText(Gameplay->GetFiles().name, Gameplay->GetLoadProgress());
+        const double Left = FMath::Max(Margin, (Size.X - ColumnWidth) * 0.5);
+        const double Right = FMath::Min(Size.X - Margin, Left + ColumnWidth);
+        const double BlockHeight = TitleGap + LineHeight * static_cast<double>(loadingScreenMaxLines + 1);
+        double Y = FMath::Max(24.0, (Size.Y - BlockHeight) * 0.5);
+        DrawText(Out, Layer + 1, Geometry, BallsText::FromUtf8(Text.title), FVector2D(Size.X * 0.5, Y),
+                 BallsStyle::Font(TitleSize, true), BallsPalette::Linear(BallsPalette::Text), EAlign::Center);
+        Y += TitleGap;
+        for (const LoadingScreenLine& Line : Text.lines) {
+            const FLinearColor Color =
+                BallsPalette::Linear(Line.running ? BallsPalette::Accent : BallsPalette::TextMuted);
+            DrawText(Out, Layer + 1, Geometry, BallsText::FromUtf8(Line.text), FVector2D(Left, Y),
+                     BallsStyle::Font(LineSize), Color);
+            DrawText(Out, Layer + 1, Geometry, BallsText::FromUtf8(Line.time), FVector2D(Right, Y),
+                     BallsStyle::Font(LineSize), Color, EAlign::Right);
+            Y += LineHeight;
+        }
+        DrawText(Out, Layer + 1, Geometry, BallsText::FromUtf8(Text.total), FVector2D(Right, Y + 8.0),
+                 BallsStyle::Font(LineSize), BallsPalette::Linear(BallsPalette::TextMuted), EAlign::Right);
     }
 
     void PaintToast(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry) const {

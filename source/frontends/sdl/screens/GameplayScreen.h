@@ -41,6 +41,9 @@ public:
 
 private:
     void loadSession();
+    // False when the level turned out not to load and the screen dropped to the load error.
+    bool adoptLoadOutcome();
+    void drawLoading();
     void handleLauncherClick(const GameplayLayout& layout);
     void applyDefaultBallLimit();
     void useAutoBallLimit();
@@ -75,6 +78,7 @@ private:
     std::unique_ptr<SessionRunner> runner;
     std::shared_ptr<const SessionView> view;
     std::string loadError;
+    std::shared_ptr<LoadProgress> loadProgress;
     float controlsScroll = 0.0f;
     float performanceControlsHeight = 0.0f;
     float normalScroll = 0.0f;

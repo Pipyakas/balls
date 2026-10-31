@@ -1,5 +1,7 @@
 #include "game/SessionHost.h"
 
+#include "level/LevelParser.h"
+
 #include <utility>
 
 SessionHost::SessionHost(GameMode mode, LevelData level, BackendKind backend, SessionThreading threading) {
@@ -9,6 +11,33 @@ SessionHost::SessionHost(GameMode mode, LevelData level, BackendKind backend, Se
         session = std::make_unique<GameSession>(mode, std::move(level), backend);
         refreshView();
     }
+}
+
+SessionHost::SessionHost(GameMode mode, LevelFiles files, BackendKind backend, SessionThreading threading,
+                         std::shared_ptr<LoadProgress> progress) {
+    if (threading == SessionThreading::PhysicsThread) {
+        runner = std::make_unique<SessionRunner>(mode, std::move(files), backend, defaultTicksPerSecond,
+                                                 std::move(progress));
+        return;
+    }
+    auto level = loadLevel(files, progress.get());
+    if (!level) {
+        loadOutcome = LevelLoadOutcome{false, level.error()};
+        return;
+    }
+    loadOutcome = LevelLoadOutcome{true, levelRepairNotice(*level)};
+    session = std::make_unique<GameSession>(mode, std::move(*level), backend, defaultTicksPerSecond, progress.get());
+    refreshView();
+    if (progress) {
+        progress->finish();
+    }
+}
+
+std::optional<LevelLoadOutcome> SessionHost::takeLoadOutcome() {
+    if (runner) {
+        return runner->takeLoadOutcome();
+    }
+    return std::exchange(loadOutcome, std::nullopt);
 }
 
 void SessionHost::post(SessionRunner::Command command) {

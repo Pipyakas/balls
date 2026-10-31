@@ -51,8 +51,9 @@ Simulation::Simulation(BackendHandle backend, SimulationTuning tuning)
 
 Simulation::~Simulation() = default;
 
-void Simulation::load(const BrickLayout& layout) {
+void Simulation::load(const BrickLayout& layout, LoadProgress* progress) {
     brickBoard.load(layout);
+    beginLoadStep(progress, "Building the brick targets and sending the board to the physics");
     physics->clear();
     pendingSpawns.clear();
     statistics = {};
