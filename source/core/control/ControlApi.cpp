@@ -265,7 +265,7 @@ std::string controlGameJson(ControlGame& game) {
         "\"pendingBackend\":\"{}\",\"refilling\":{},\"backendFault\":\"{}\",\"collisions\":{},"
         "\"balls\":{},\"bricks\":{},\"launchersLeft\":{},\"pendingSpawn\":{},\"spawned\":{},\"hits\":{},"
         "\"physicsMs\":{:.3f},\"kernelMs\":{:.3f},\"ticks\":{},\"spawnRate\":{},\"multiplier\":{},"
-        "\"ballLimit\":{},\"elapsed\":{:.2f},\"physicsFps\":{:.1f},\"physicsFrameMs\":{:.3f},"
+        "\"ballLimit\":{},\"elapsed\":{:.2f},\"physicsFps\":{:.1f},\"tickRate\":{:.1f},\"targetTickRate\":{:.1f},\"physicsFrameMs\":{:.3f},"
         "\"physicsLongestFrameMs\":{:.3f},\"physicsSlowFrames\":{},"
         "\"syncMs\":{:.3f},\"stepMs\":{:.3f},\"deviceHitsMs\":{:.3f},\"hostHitsMs\":{:.3f},\"publishMs\":{:.3f},\"targetFieldMs\":{:.3f},\"boardUploadMs\":{:.3f},"
         "\"ballsByColor\":{{{}}},\"launchers\":[{}]}}",
@@ -276,7 +276,7 @@ std::string controlGameJson(ControlGame& game) {
         launchers.launcherCount(), view->pendingSpawn, stats.totalBallsSpawned, stats.totalHits,
         stats.lastFramePhysicsMs, view->deviceStepMs, stats.ticksLastFrame, spawnRateOptions[view->spawnRateIndex],
         ballMultiplierOptions[view->ballMultiplierIndex], view->ballLimit, view->elapsedSeconds,
-        view->physicsFramesPerSecond, view->physicsFrameMs, view->physicsLongestFrameMs, view->physicsSlowFrames,
+        view->physicsFramesPerSecond, view->physicsTicksPerSecond, view->targetTicksPerSecond, view->physicsFrameMs, view->physicsLongestFrameMs, view->physicsSlowFrames,
         stats.lastSyncMs, stats.lastStepMs, stats.lastDeviceHitsMs, stats.lastHostHitsMs, view->boardPublishMs,
         stats.lastTargetFieldMs, stats.lastBoardUploadMs, ballsByColor, launcherColumns);
 }

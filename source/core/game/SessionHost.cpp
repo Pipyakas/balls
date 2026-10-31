@@ -84,7 +84,7 @@ void SessionHost::tick(const PhysicsFrameInput& input, float deltaSeconds) {
         const PhysicsRate::Clock::time_point workStart = PhysicsRate::Clock::now();
         session->reportFrameWorkSeconds(input.uiWorkSeconds);
         session->update(deltaSeconds);
-        rate.frame(workStart, PhysicsRate::Clock::now());
+        rate.frame(workStart, PhysicsRate::Clock::now(), session->simulation().stats().ticksLastFrame);
     }
     refreshView();
 }
@@ -96,5 +96,6 @@ void SessionHost::refreshView() {
     describeSession(*session, *view, latest.get(), &boards);
     view->physicsFrameMs = rate.lastFrameMs();
     view->physicsFramesPerSecond = rate.framesPerSecond();
+    view->physicsTicksPerSecond = rate.ticksPerSecond();
     latest = std::move(view);
 }

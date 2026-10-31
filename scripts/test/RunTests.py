@@ -376,7 +376,7 @@ class UiPass:
                 peak = max(peak, int(game.get("balls", 0)))
                 if time.time() - started > 5:
                     worst_fps = state.get("fps") if worst_fps is None else min(worst_fps, state.get("fps", 0))
-                    physics = game.get("physicsFps", 0)
+                    physics = game.get("tickRate", game.get("physicsFps", 0))
                     worst_physics = physics if worst_physics is None else min(worst_physics, physics)
                 time.sleep(0.5)
             shot = self.game.screenshot(f"performance-{level}")
@@ -384,7 +384,7 @@ class UiPass:
                 raise StageFailure("no balls after /start and /fill")
             if worst_fps is not None and worst_fps < MINIMUM_PLAYABLE_FPS:
                 raise StageFailure(f"UI dropped to {worst_fps:.1f} FPS with {peak:,} balls")
-            return (f"{peak:,} balls, UI at least {worst_fps or 0:.0f} FPS, physics at least {worst_physics or 0:.0f} FPS",
+            return (f"{peak:,} balls, UI at least {worst_fps or 0:.0f} FPS, tick rate at least {worst_physics or 0:.0f} Hz",
                     shot)
         return action
 

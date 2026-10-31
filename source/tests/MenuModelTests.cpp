@@ -111,7 +111,10 @@ TEST_CASE("the debug gadget shows the game's rows and hides backend rows while A
     view.mode = GameMode::Performance;
     view.usingMachineLimit = true;
     view.stats.ballCount = 1'234'567;
-    view.physicsFramesPerSecond = 120.0;
+    view.physicsFramesPerSecond = 60.0;
+    view.physicsTicksPerSecond = 119.0;
+    view.targetTicksPerSecond = 120.0;
+    view.state = SessionState::Running;
     FrameTimings frames;
     const std::vector<DebugRow> closed = debugGadgetRows(view, frames, {});
     EXPECT(closed.front().kind == DebugRow::Kind::Heading);
@@ -119,7 +122,15 @@ TEST_CASE("the debug gadget shows the game's rows and hides backend rows while A
     EXPECT(findRow(closed, "Backend") == nullptr);
     EXPECT(findRow(closed, "Ball collisions") == nullptr);
     EXPECT(findRow(closed, "Balls")->value == "1,234,567");
-    EXPECT(findRow(closed, "Physics FPS")->tone == UiTone::Success);
+    EXPECT(findRow(closed, "Physics FPS") == nullptr);
+    EXPECT(findRow(closed, "Tick rate")->value == "119 / 120 Hz");
+    EXPECT(findRow(closed, "Tick rate")->tone == UiTone::Success);
+    SessionView behind = view;
+    behind.physicsTicksPerSecond = 80.0;
+    behind.state = SessionState::Running;
+    EXPECT(findRow(debugGadgetRows(behind, frames, {}), "Tick rate")->tone == UiTone::Danger);
+    behind.state = SessionState::Ready;
+    EXPECT(findRow(debugGadgetRows(behind, frames, {}), "Tick rate")->tone == UiTone::Muted);
     EXPECT(findRow(closed, "Ball limit")->value == "Auto");
     int colorRows = 0;
     for (const DebugRow& row : closed) {
