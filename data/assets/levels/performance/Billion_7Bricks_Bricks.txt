@@ -1,0 +1,14 @@
+[Board]
+Width 7
+Height 1
+PlayableHeight 14
+[Layout]
+0 1 2 3 4 5 6
+[BrickTypes]
+0 Red 142857143
+1 Orange 142857143
+2 Yellow 142857143
+3 Green 142857143
+4 Blue 142857143
+5 Indigo 142857143
+6 Violet 142857143

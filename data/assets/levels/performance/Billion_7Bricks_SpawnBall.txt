@@ -1,0 +1,5 @@
+[Board]
+Width 7
+Height 1
+[Layout]
+Red(142857143) Orange(142857143) Yellow(142857143) Green(142857143) Blue(142857143) Indigo(142857143) Violet(142857143)

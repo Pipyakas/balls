@@ -143,3 +143,12 @@ TEST_CASE("ball collisions on another backend move to Scalar only where Scalar i
     EXPECT(outcome && outcome->succeeded && outcome->forBallCollisions);
     EXPECT(session.simulation().ballCollisionsActive());
 }
+
+TEST_CASE("a performance game starts at the fastest spawn rate and the largest ball count") {
+    GameSession session(GameMode::Performance, loadSample("performance", "DA_1000Bricks"), BackendKind::Scalar);
+    EXPECT(spawnRateOptions[session.spawnRateIndex()] == 0);
+    EXPECT(ballMultiplierOptions[session.ballMultiplierIndex()] == ballMultiplierOptions.back());
+    session.selectSpawnRate(2);
+    session.restart();
+    EXPECT(session.spawnRateIndex() == 2);
+}
