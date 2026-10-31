@@ -4,6 +4,8 @@ Each level is a pair of files in `data/assets/levels/normal` or `data/assets/lev
 
 - `<Name>_Bricks.txt`
   - `[Board] Width / Height / PlayableHeight`: brick rows, plus total rows including the empty play space.
+    Without `PlayableHeight`, or with one below `Height`, the board gets a quarter of its brick rows as open space
+    below them, at least 7 rows.
   - `[Layout]`: a grid of brick ids. Cells that share an id form one multi-cell brick. `-1` marks an empty cell.
   - `[BrickTypes]`: one `id Color hits` line per brick.
 - `<Name>_SpawnBall.txt`
@@ -11,6 +13,25 @@ Each level is a pair of files in `data/assets/levels/normal` or `data/assets/lev
   - `[Layout]`: `Color(count)` or `Empty` per slot.
 
 Colors: Red, Orange, Yellow, Green, Blue, Indigo, Violet.
+
+### Maps that stray from the format
+
+The parser repairs what it can instead of refusing the level. A well-formed file never reaches these repairs, so it
+loads exactly as written.
+
+- A UTF-8 byte order mark, `#` and `//` comment lines, and section, key and color names in any case.
+- `Key: value` and `Key=value` in `[Board]`; lines there that are not a key and a number are ignored.
+- Brick layout rows that disagree with `Width`/`Height`: the rows are taken as written, as wide as the longest, and
+  shorter rows are padded with empty cells. A missing `Height` is the row count.
+- `Empty`, `.`, `-`, `_` and `x` as empty cells.
+- `[BrickTypes]` lines with an unknown color, hits of 0 or less or too few fields are skipped, as is a repeated id
+  after its first line; their cells stay empty. Extra fields after the hits are ignored. No `[BrickTypes]` at all
+  gives an empty board.
+- Launcher rows of different lengths are padded with `Empty`; a missing `Width` is the longest row and a missing
+  `Height` shows up to 3 rows. `Red (10)` with a space is read as `Red(10)`, and a launcher of 0 balls is `Empty`.
+
+Still refused, with the file and the reason: no `[Board]`, `[Layout]` or brick `Width`, a cell that is not a number or
+an empty mark, a launcher that is not `Color(count)` or names an unknown color, and boards past the size limit.
 
 `data/assets/levels/Gameplay.txt` holds the rules every level plays by, in the same `[Section]` / `Key Value` text:
 ball radius and speed, how many bounces before a ball heads for the nearest brick of its color, the launch angle,
