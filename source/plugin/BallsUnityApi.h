@@ -8,7 +8,7 @@
 
 #include <stdint.h>
 
-#define BALLS_UNITY_ABI_VERSION 6
+#define BALLS_UNITY_ABI_VERSION 7
 
 #if defined(_WIN32)
 #define BALLS_API __declspec(dllexport)
@@ -20,7 +20,7 @@
 extern "C" {
 #endif
 
-// Mirrors GameSession/BackendKind/CapacityProbe enums. Kept as int32_t so a host language needs no C++ enums.
+// Mirrors the GameSession and BackendKind enums. Kept as int32_t so a host language needs no C++ enums.
 enum {
     BALLS_MODE_NORMAL = 0,
     BALLS_MODE_PERFORMANCE = 1,
@@ -443,10 +443,8 @@ BALLS_API double balls_session_elapsed_seconds(const BallsSession* session);
 BALLS_API int32_t balls_session_choose_launcher(BallsSession* session, int32_t column, int32_t row);
 BALLS_API void balls_session_start_auto_release(BallsSession* session);
 BALLS_API void balls_session_select_spawn_rate(BallsSession* session, int32_t optionIndex);
-BALLS_API void balls_session_select_ball_multiplier(BallsSession* session, int32_t optionIndex);
 BALLS_API void balls_session_select_ball_limit(BallsSession* session, int32_t optionIndex);
 BALLS_API int32_t balls_session_spawn_rate_index(const BallsSession* session);
-BALLS_API int32_t balls_session_ball_multiplier_index(const BallsSession* session);
 BALLS_API int32_t balls_session_ball_limit_index(const BallsSession* session);
 BALLS_API uint64_t balls_session_ball_limit(const BallsSession* session);
 BALLS_API int32_t balls_session_auto_releasing(const BallsSession* session);
@@ -697,8 +695,7 @@ enum {
     BALLS_MENU_ORIENTATION = 0,      // value: BallsSettings.orientation
     BALLS_MENU_OFF_ON = 1,           // value: 1 when on
     BALLS_MENU_SPAWN_RATE = 2,       // session options from here on
-    BALLS_MENU_BALL_MULTIPLIER = 3,
-    BALLS_MENU_BALL_LIMIT = 4,       // Auto first
+    BALLS_MENU_BALL_LIMIT = 4,       // Level, Auto, Max (BallLimitChoice order)
     BALLS_MENU_GAMEPLAY_BACKENDS = 5,
     BALLS_MENU_RELEASE = 6,          // one option: the Release button
     BALLS_MENU_BALL_COLLISIONS = 7,  // value: 1 when requested; detail of the first option holds the hint

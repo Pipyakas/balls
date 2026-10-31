@@ -37,7 +37,6 @@ void FBallsGameplay::LoadSession() {
     }
     View = Host->view();
     ApplySettings();
-    ApplyDefaultBallLimit();
 }
 
 void FBallsGameplay::AdoptLoadOutcome() {
@@ -55,18 +54,16 @@ void FBallsGameplay::AdoptLoadOutcome() {
     App.GetScreenFlow().levelLoaded(Outcome->message);
 }
 
-void FBallsGameplay::ApplyDefaultBallLimit() {
-    if (Mode == GameMode::Performance && Host) {
-        UseAutoBallLimit();
-    }
-}
-
-void FBallsGameplay::UseAutoBallLimit() {
+// After a backend switch Auto follows the new backend's capacity, dropping any /fill count.
+void FBallsGameplay::RefreshAutoBallLimit() {
     if (!Host) {
         return;
     }
-    // The backend may still be settling (a physics thread, a fallback), so the session picks its own limit.
-    Host->post([](GameSession& Session) { Session.useCapacityBallLimit(); });
+    Host->post([](GameSession& Session) {
+        if (Session.isUsingMachineBallLimit()) {
+            Session.useCapacityBallLimit();
+        }
+    });
 }
 
 // Loads the files as they are now: a parse failure drops to the load-error screen instead of keeping the old game.
@@ -85,7 +82,6 @@ void FBallsGameplay::ReloadFromDisk() {
         Host = std::make_unique<SessionHost>(Mode, std::move(*Level), App.GetPreferredBackend(), ThreadingFromCommandLine());
         View = Host->view();
         ApplySettings();
-        ApplyDefaultBallLimit();
     }
 }
 
@@ -113,7 +109,7 @@ void FBallsGameplay::Tick(float DeltaSeconds, double WorkSeconds) {
         } else if (Event.kind == SessionEventKind::BackendSwitched) {
             // A switch inside a game lasts for that game only; the Settings page owns the remembered default.
             ShowToast(BallsText::FromUtf8(physicsOnMessage(displayedPicks(Event.backend))), false);
-            ApplyDefaultBallLimit();
+            RefreshAutoBallLimit();
         } else {
             ShowToast(BallsText::FromUtf8(backendFailedMessage(Event.backend)), true);
         }
@@ -151,18 +147,9 @@ void FBallsGameplay::SelectSpawnRate(int32 Index) {
     }
 }
 
-void FBallsGameplay::SelectBallMultiplier(int32 Index) {
-    if (Host) {
-        Host->post([Index](GameSession& Session) { Session.selectBallMultiplier(Index); });
-    }
-}
-
 void FBallsGameplay::SelectBallLimit(int32 Index) {
     if (Host) {
-        Host->post([Index](GameSession& Session) {
-            Session.cancelFill();
-            Session.selectBallLimit(Index);
-        });
+        Host->post([Index](GameSession& Session) { Session.selectBallLimit(Index); });
     }
 }
 

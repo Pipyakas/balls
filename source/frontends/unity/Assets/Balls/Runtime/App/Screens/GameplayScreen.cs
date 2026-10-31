@@ -68,18 +68,15 @@ namespace Balls.App.Screens
         }
         private int probeTargetFps = 60;
         private int spawnRateIndex;
-        private int multiplierIndex;
         private int limitIndex;
         private bool advancedOpen;
         private float performanceContentHeight = 600f;
-        private bool autoLimit;
         private bool probeRecorded;
         private GameBackend syncedBackend;
         private Vector2 interactionScroll;
         private Vector2 debugScroll;
         private readonly string[] spawnRateOptions = { "10", "50", "200", "1000", "2000", "10k", "50k", "200k", "1M", "Max" };
-        private readonly string[] multiplierOptions = { "x1", "x10", "x100", "x1000", "x10000" };
-        private readonly string[] limitOptions = { "Auto", "10k", "100k", "1M", "10M", "Max" };
+        private readonly string[] limitOptions = { "Level", "Auto", "Max" };
 
         public void BeginSession()
         {
@@ -107,7 +104,10 @@ namespace Balls.App.Screens
             int outcome = backend.TakeSwitchOutcome(out int kind);
             if (outcome == 1)
             {
-                ReapplySavedLimit(backend);
+                if (backend.BallLimitIndex == 1)
+                {
+                    backend.SelectBallLimit(1);
+                }
             }
             else if (outcome == 2)
             {
@@ -125,35 +125,9 @@ namespace Balls.App.Screens
             }
             syncedBackend = backend;
             spawnRateIndex = backend.SpawnRateIndex;
-            multiplierIndex = backend.BallMultiplierIndex;
-            limitIndex = backend.BallLimitIndex + 1;
-            autoLimit = false;
+            limitIndex = backend.BallLimitIndex;
             advancedOpen = App.Settings != null && App.Settings.AdvancedSettings;
             probeRecorded = false;
-            ReapplySavedLimit(backend);
-        }
-
-        /// <summary>A capacity probe result saved for this backend becomes the Auto ball limit of a new Performance game.</summary>
-        private void ReapplySavedLimit(GameBackend backend)
-        {
-            if (backend.Mode != BallsApp.PerformanceMode)
-            {
-                return;
-            }
-            // Every Performance game starts on Auto, as in SDL: the remembered limit when it was measured at this
-            // target, otherwise a fresh probe.
-            limitIndex = 0;
-            autoLimit = true;
-            string name = BallsNative.BackendName(backend.BackendKind);
-            if (App.Profile.TryLimit(backend.BackendKind, out ulong balls, out double fps) && Mathf.RoundToInt((float)fps) == probeTargetFps)
-            {
-                backend.UseMachineLimit(balls);
-                App.Toast(BallsNative.MenuMessage(BallsNative.MenuTextProbeResult, backend.BackendKind, balls, fps, null));
-            }
-            else
-            {
-                backend.StartProbe(probeTargetFps);
-            }
         }
 
         /// <summary>Saves a finished capacity probe per machine and backend so the next run starts from it.</summary>
@@ -272,12 +246,6 @@ namespace Balls.App.Screens
         {
             spawnRateIndex = Mathf.Clamp(index, 0, spawnRateOptions.Length - 1);
             SessionSystem.Current?.Backend?.SelectSpawnRate(spawnRateIndex);
-        }
-
-        public void ControlMultiplier(int index)
-        {
-            multiplierIndex = Mathf.Clamp(index, 0, multiplierOptions.Length - 1);
-            SessionSystem.Current?.Backend?.SelectBallMultiplier(multiplierIndex);
         }
 
         public void ControlBallLimit(int index)
@@ -717,7 +685,6 @@ namespace Balls.App.Screens
         {
             System.IntPtr session = SessionSystem.Current != null ? SessionSystem.Current.SessionHandle : System.IntPtr.Zero;
             string[] spawnRateOptions = this.spawnRateOptions;
-            string[] multiplierOptions = this.multiplierOptions;
             string[] limitOptions = this.limitOptions;
             if (session != System.IntPtr.Zero)
             {
@@ -726,12 +693,6 @@ namespace Balls.App.Screens
                 {
                     spawnRateOptions = new string[spawnOpts.Count];
                     for (int i = 0; i < spawnOpts.Count; ++i) spawnRateOptions[i] = spawnOpts[i].Label;
-                }
-                var multOpts = BallsNative.MenuOptions(BallsNative.MenuBallMultiplier, multiplierIndex, session);
-                if (multOpts.Count > 0)
-                {
-                    multiplierOptions = new string[multOpts.Count];
-                    for (int i = 0; i < multOpts.Count; ++i) multiplierOptions[i] = multOpts[i].Label;
                 }
                 var limitOpts = BallsNative.MenuOptions(BallsNative.MenuBallLimit, limitIndex, session);
                 if (limitOpts.Count > 0)
@@ -748,18 +709,13 @@ namespace Balls.App.Screens
                 backend?.SelectSpawnRate(spawnRateIndex);
             }
             y += 42f;
-            if (widgets.Dropdown("multiplier", new Rect(content.x, y, content.width, 34f), multiplierOptions, ref multiplierIndex))
-            {
-                backend?.SelectBallMultiplier(multiplierIndex);
-            }
-            y += 42f;
             if (widgets.Dropdown("balllimit", new Rect(content.x, y, content.width, 34f), limitOptions, ref limitIndex))
             {
                 SelectBallLimit(backend);
             }
             y += 42f;
-            float height = 24f + 3 * 42f;
-            if (limitIndex == 0)
+            float height = 24f + 2 * 42f;
+            if (limitIndex == 1)
             {
                 // Auto: the probe's target sits under the dropdown, with no separate probe button; changing the
                 // target probes again.
@@ -1160,38 +1116,28 @@ namespace Balls.App.Screens
             });
         }
 
-        /// <summary>Auto uses the machine's measured limit, probing first when there is none; the rest are fixed limits.</summary>
+        /// <summary>Level releases launcher counts; Auto and Max stream until the limit.</summary>
         private void SelectBallLimit(GameBackend backend)
         {
             if (backend == null)
             {
                 return;
             }
-            if (limitIndex != 0)
-            {
-                autoLimit = false;
-                backend.SelectBallLimit(limitIndex - 1);
-            }
-            else if (backend.HasMachineLimit)
-            {
-                autoLimit = true;
-                backend.UseMachineLimit(backend.MachineLimit);
-            }
-            else
-            {
-                autoLimit = true;
-                backend.StartProbe(probeTargetFps);
-            }
+            backend.SelectBallLimit(limitIndex);
         }
 
-        /// <summary>The Auto option shows the number it resolved to; a fixed option shows its own limit.</summary>
+        /// <summary>The Level option shows Level; Auto shows its resolved limit; Max shows Max.</summary>
         private string BallLimitText(GameBackend backend)
         {
-            if (!autoLimit)
+            if (backend.BallLimitIndex == 0)
             {
-                return backend.BallLimit == ulong.MaxValue ? "Max (2^64-1)" : $"{backend.BallLimit:N0}";
+                return "Level";
             }
-            return backend.HasMachineLimit ? $"Auto {backend.MachineLimit:N0}" : "Auto (probe needed)";
+            if (backend.BallLimitIndex == 1)
+            {
+                return backend.HasMachineLimit ? $"Auto {backend.MachineLimit:N0}" : "Auto";
+            }
+            return backend.BallLimit == ulong.MaxValue ? "Max (2^64-1)" : $"{backend.BallLimit:N0}";
         }
 
         private static string ProbePhaseName(int phase) => phase switch

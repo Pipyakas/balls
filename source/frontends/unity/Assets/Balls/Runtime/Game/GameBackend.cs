@@ -73,8 +73,6 @@ namespace Balls.Game
 
         public abstract void SelectSpawnRate(int index);
 
-        public abstract void SelectBallMultiplier(int index);
-
         public abstract void SelectBallLimit(int index);
 
         public abstract bool SwitchBackend(int kind);
@@ -120,7 +118,6 @@ namespace Balls.Game
 
         // Performance-mode readouts and controls the HUD needs but the session state does not carry.
         public virtual int SpawnRateIndex => 0;
-        public virtual int BallMultiplierIndex => 0;
         public virtual int BallLimitIndex => 0;
         public virtual ulong BallLimit => 0;
         public virtual bool ProbeActive => false;

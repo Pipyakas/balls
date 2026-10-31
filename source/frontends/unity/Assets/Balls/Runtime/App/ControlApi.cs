@@ -230,22 +230,25 @@ namespace Balls.App
                     Ok(request, "{\"ok\":true}");
                     return true;
                 case "/rate":
-                case "/multiplier":
                 case "/limit":
                 {
                     int index = Integer(query, "index", -1);
+                    if (path == "/limit" && index < 0)
+                    {
+                        string mode = Get(query, "mode");
+                        if (mode != null)
+                        {
+                            index = mode == "level" ? 0 : mode == "auto" ? 1 : mode == "max" ? 2 : -1;
+                        }
+                    }
                     if (index < 0)
                     {
-                        Error(request, 400, "index is required");
+                        Error(request, 400, path == "/limit" ? "index or mode is required" : "index is required");
                         return true;
                     }
                     if (path == "/rate")
                     {
                         gameplay.ControlSpawnRate(index);
-                    }
-                    else if (path == "/multiplier")
-                    {
-                        gameplay.ControlMultiplier(index);
                     }
                     else
                     {

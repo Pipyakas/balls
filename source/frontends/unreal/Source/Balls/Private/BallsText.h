@@ -23,14 +23,6 @@ inline FString Grouped(BallCount Value) {
     return Digits;
 }
 
-inline FString BallLimitShort(BallCount Limit) {
-    if (Limit == unlimitedBalls) {
-        return TEXT("Max 2^64-1");
-    }
-    return Limit >= 1'000'000 ? FString::Printf(TEXT("%lluM"), static_cast<unsigned long long>(Limit / 1'000'000))
-                              : FString::Printf(TEXT("%lluk"), static_cast<unsigned long long>(Limit / 1'000));
-}
-
 inline FString CompactCount(int32 Count) {
     if (Count >= 1'000'000) {
         return FString::Printf(TEXT("%dM"), Count / 1'000'000);

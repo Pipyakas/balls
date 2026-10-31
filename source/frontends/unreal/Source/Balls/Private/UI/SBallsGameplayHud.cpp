@@ -814,13 +814,17 @@ private:
         Writer.Row(TEXT("Launchers"), BallsText::Grouped(Launchers));
         Writer.Row(TEXT("Waiting to spawn"), BallsText::Grouped(Session.pendingSpawn));
         if (Session.mode == GameMode::Performance) {
-            const BallCount Limit = Session.ballLimit;
-            const std::optional<BallCount> Measured = Session.machineLimit;
-            const FString Resolved = Measured ? TEXT("Auto ") + BallsText::Grouped(*Measured)
-                                              : FString(TEXT("Auto"));
-            Writer.Row(TEXT("Ball limit"), Session.usingMachineLimit ? Resolved
-                                           : Limit == unlimitedBalls          ? FString(TEXT("Max (2^64-1)"))
-                                                                              : BallsText::Grouped(Limit));
+            FString Resolved;
+            if (Session.ballLimitIndex == static_cast<int>(BallLimitChoice::Level)) {
+                Resolved = TEXT("Level");
+            } else if (Session.usingMachineLimit) {
+                const std::optional<BallCount> Measured = Session.machineLimit;
+                Resolved = Measured ? TEXT("Auto ") + BallsText::Grouped(*Measured) : FString(TEXT("Auto"));
+            } else {
+                Resolved = Session.ballLimit == unlimitedBalls ? FString(TEXT("Max (2^64-1)"))
+                                                               : BallsText::Grouped(Session.ballLimit);
+            }
+            Writer.Row(TEXT("Ball limit"), Resolved);
         }
     }
 
@@ -1376,39 +1380,18 @@ TSharedRef<SWidget> SBallsGameplayHud::MakePerformanceControls() {
                                   [Game](int32 Index) { Game->SelectSpawnRate(Index); }),
            false);
 
-    AddLabel(TEXT("Ball count"));
-    TArray<FString> MultiplierNames;
-    for (const UiOption& Option : ballMultiplierChoices(0)) {
-        MultiplierNames.Add(BallsText::FromUtf8(Option.label));
-    }
-    AddRow(BallsWidgets::Dropdown(MultiplierNames, [Session] { return Session() ? Session()->ballMultiplierIndex : 0; },
-                                  [Game](int32 Index) { Game->SelectBallMultiplier(Index); }),
-           false);
-
-    // The first entry is Auto (the backend's capacity); the rest are the fixed limits. Every Performance
-    // game starts on Auto.
+    // Ball limit: Level (the default), Auto, or Max.
     AddLabel(TEXT("Ball limit"));
     TArray<FString> LimitNames;
-    if (const SessionView* Current = Game->GetView()) {
-        for (const UiOption& Option : ballLimitChoices(*Current)) {
-            LimitNames.Add(BallsText::FromUtf8(Option.label));
-        }
-    } else {
-        LimitNames.Add(TEXT("Auto"));
-        for (const BallCount Limit : ballLimitOptions) {
-            LimitNames.Add(BallsText::BallLimitShort(Limit));
-        }
+    const SessionView* Current = Game->GetView();
+    const SessionView FallbackView;
+    for (const UiOption& Option : ballLimitChoices(Current ? *Current : FallbackView)) {
+        LimitNames.Add(BallsText::FromUtf8(Option.label));
     }
     AddRow(BallsWidgets::Dropdown(
                LimitNames,
-               [Game] { return !Game->GetView() ? 0 : Game->IsAutoLimit() ? 0 : Game->GetView()->ballLimitIndex + 1; },
-               [Game](int32 Index) {
-                   if (Index == 0) {
-                       Game->UseAutoBallLimit();
-                   } else {
-                       Game->SelectBallLimit(Index - 1);
-                   }
-               }),
+               [Game] { return Game->GetView() ? Game->GetView()->ballLimitIndex : 0; },
+               [Game](int32 Index) { Game->SelectBallLimit(Index); }),
            false);
     Column->AddSlot().AutoHeight()[MakeAdvancedSettings(true)];
     return SNew(SScrollBox) + SScrollBox::Slot()[Column];
