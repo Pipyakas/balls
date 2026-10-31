@@ -117,8 +117,10 @@ private:
     SpawnController spawnController;
     int slowFramesWhileProbing = 0;
     SessionState sessionState = SessionState::Ready;
-    int selectedSpawnRate = 2;
-    int selectedMultiplier = 0;
+    // Performance games start at the top of both ladders: the backends release and simulate billions of balls, so
+    // starting at 200 a second and x1 only made every player climb both dropdowns first. Normal mode uses neither.
+    int selectedSpawnRate = static_cast<int>(spawnRateOptions.size()) - 1;
+    int selectedMultiplier = static_cast<int>(ballMultiplierOptions.size()) - 1;
     int selectedBallLimit = static_cast<int>(ballLimitOptions.size()) - 1;
     bool autoRelease = false;
     double elapsed = 0.0;
