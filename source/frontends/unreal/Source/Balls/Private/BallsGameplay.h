@@ -66,6 +66,8 @@ public:
     // Slot size of the ball visibility grid, in board cells, for a session on the physics thread to size it.
     void SetVisibilitySlotCells(float Cells) { VisibilitySlotCells = Cells; }
     const FString& GetLoadError() const { return LoadError; }
+    // Empty unless the level loaded only after the parser repaired it (levelRepairNotice).
+    const std::string& GetRepairNotice() const { return RepairNotice; }
     const FBallsToast& GetToast() const;
     bool IsPaused() const { return App.GetScreenFlow().isPaused(); }
     bool IsSettingsOpen() const { return App.GetScreenFlow().overlay() == FlowOverlay::Settings; }
@@ -84,4 +86,5 @@ private:
     std::shared_ptr<const SessionView> View;
     float VisibilitySlotCells = 0.0f;
     FString LoadError;
+    std::string RepairNotice;
 };

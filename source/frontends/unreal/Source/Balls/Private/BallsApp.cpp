@@ -347,7 +347,7 @@ void FBallsApp::ProcessFlowRequests() {
             // Next level and reloads stay on the gameplay screen, so its widgets must be rebuilt for the new game.
             bFlowScreenApplied = false;
             if (Next->GetLoadError().IsEmpty()) {
-                Flow->levelLoaded();
+                Flow->levelLoaded(Next->GetRepairNotice());
             } else {
                 Flow->levelFailed(TCHAR_TO_UTF8(*Next->GetLoadError()));
             }

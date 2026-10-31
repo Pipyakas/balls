@@ -52,6 +52,9 @@ struct LevelData {
     BrickLayout bricks;
     LauncherLayout launchers;
     GameplayRules rules;
+    // What the parser fixed to load a file that strays from the format, each as "<file>: <what>"; empty for a
+    // well-formed level.
+    std::vector<std::string> repairs;
 };
 
 struct LevelFiles {

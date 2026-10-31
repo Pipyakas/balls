@@ -106,6 +106,16 @@ TEST_CASE("normal-mode ball shortfalls are imported with a warning") {
     EXPECT(importPaths(folder, {bricks}, GameMode::Performance).summary() == "Replaced Short");
 }
 
+TEST_CASE("a repaired pair is imported with a warning that names the file and the repair") {
+    const ScratchFolder folder("repaired");
+    const auto bricks = folder.write("Loose_Bricks.txt", "[Board]\nWidth 2\nHeight 1\n[Layout]\n0 1\n[BrickTypes]\n0 Red 1\n1 Red 1\n");
+    folder.write("Loose_SpawnBall.txt", twoRedBalls);
+    const LevelImportReport report = importPaths(folder, {bricks});
+    EXPECT(report.summary() == "Imported Loose - warning: repaired Loose_Bricks.txt: no PlayableHeight; used 8");
+    EXPECT(!report.anyFailed());
+    EXPECT(findLevels(folder.levels()).size() == 1);
+}
+
 TEST_CASE("a dropped folder imports every pair in it with one summary") {
     const ScratchFolder folder("folder");
     for (const char* name : {"First", "Second", "Third"}) {
