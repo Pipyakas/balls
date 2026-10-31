@@ -30,6 +30,25 @@ and the level's seven launchers hold 2,147,483,647 balls each, more than the mac
 `Auto`, which keeps any level releasing until the machine is full). Close other programs first: Auto is the RAM and
 VRAM free when the game starts.
 
+### Measured on the target PC
+
+Release `v0.0.1` on the target PC (Core i9-14900K, 64 GB DDR5-6000, GeForce GTX 1650, Windows 11), at
+1920x1080 with Spawn / sec `Max` and Ball limit `Auto`: each level filled until the count stopped growing, then held
+for 20 seconds. FPS is the average over that hold, worst FPS the slowest one-second window in it; the physics ran its
+full 120 ticks a second throughout.
+
+| Build | Level | Balls | Time to full | FPS | Worst FPS | Physics backend |
+|---|---|---|---|---|---|---|
+| SDL (main) | `Unlimited_921Bricks` | 7,105,150,976 | 37 s | 3,434 | 462 | CUDA+AVX2 |
+| SDL (main) | `DA_1000Bricks` | 7,155,482,624 | 32 s | 3,408 | 547 | CUDA+AVX2 |
+| Unreal Engine | `Unlimited_921Bricks` | 6,955,204,608 | 39 s | 361 | 233 | CUDA+AVX2 |
+| Unreal Engine | `DA_1000Bricks` | 6,938,427,392 | 33 s | 358 | 16 | CUDA+AVX2 |
+
+The main build holds over 7 billion balls at more than 3,000 FPS. Unreal reaches about the same ball count, its
+frame rate bounded by the engine's own per-frame work; its one 16 FPS second on `DA_1000Bricks` was a single hitch in
+an otherwise 350+ FPS hold. Six idle desktop sessions held 1.2 GB of the GPU's 4 GB during the runs. The Unity
+build was not measured there: it needs a signed-in desktop to create its graphics device, and the runs were remote.
+
 ## Build
 
 Requirements: Windows 10/11 x64, Visual Studio 2022 (C++ workload), CMake 3.25+, Python 3, and internet access on
