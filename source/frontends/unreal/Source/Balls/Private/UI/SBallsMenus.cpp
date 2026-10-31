@@ -446,6 +446,23 @@ void SBallsSettingsPanel::Construct(const FArguments& InArgs) {
                   {TEXT("On"), TAttribute<bool>::CreateLambda([Owner] { return Owner->IsVSyncEnabled(); }),
                    [Owner] { Owner->SetVSyncEnabled(true); }}});
     AddHint(TEXT("Replaces the old V shortcut."));
+    AddSection(BallsText::FromUtf8(menuText::wideScreenLabel), false);
+    {
+        TArray<FOption> WideOptions;
+        const std::vector<UiOption> Labels = wideScreenOptions(Owner->GetSettings().wideScreen);
+        for (int32 Index = 0; Index < static_cast<int32>(Labels.size()); ++Index) {
+            const WideScreenAnchor Anchor = static_cast<WideScreenAnchor>(Index);
+            WideOptions.Add({BallsText::FromUtf8(Labels[Index].label),
+                             TAttribute<bool>::CreateLambda([Owner, Anchor] { return Owner->GetSettings().wideScreen == Anchor; }),
+                             [Owner, Anchor] {
+                                 Settings Next = Owner->GetSettings();
+                                 Next.wideScreen = Anchor;
+                                 Owner->UpdateSettings(Next);
+                             }});
+        }
+        AddOptionRow(MoveTemp(WideOptions));
+    }
+    AddHint(BallsText::FromUtf8(menuText::wideScreenHint));
 
     // Unreal's own Graphics page, where SDL lists its renderer and graphics API.
     AddSection(TEXT("Graphics"), false);

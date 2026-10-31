@@ -32,4 +32,5 @@ struct GameplayLayout {
 
 GameplayLayout computeGameplayLayout(Vec2 screenSize, int boardColumns, int boardRows);
 GameplayLayout computeGameplayLayout(Vec2 screenSize, int boardColumns, int boardRows,
-                                     LayoutOrientation orientation, int launcherRows);
+                                     LayoutOrientation orientation, int launcherRows,
+                                     WideScreenAnchor wideScreen = WideScreenAnchor::ScreenEdges);

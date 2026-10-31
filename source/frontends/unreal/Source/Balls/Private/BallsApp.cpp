@@ -542,6 +542,7 @@ void FBallsApp::SetPreferredBackend(BackendKind Kind) {
 
 void FBallsApp::ApplyOrientation() {
     SetLayoutOrientation(layoutInUse(CurrentSettings));
+    SetWideScreenAnchor(CurrentSettings.wideScreen);
 #if !PLATFORM_ANDROID
     UGameViewportClient* Viewport = World ? World->GetGameViewport() : nullptr;
     const TSharedPtr<SWindow> Window = Viewport ? Viewport->GetWindow() : nullptr;
@@ -561,6 +562,7 @@ void FBallsApp::ApplyOrientation() {
 void FBallsApp::UpdateSettings(const Settings& Next) {
     const bool bLayoutChanged = Next.layout != CurrentSettings.layout;
     CurrentSettings = Next;
+    SetWideScreenAnchor(CurrentSettings.wideScreen);
     if (bLayoutChanged) {
         ApplyOrientation();
     }

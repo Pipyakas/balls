@@ -435,6 +435,7 @@ public:
         }
         const FBallsGameplayLayout Layout = LayoutFor(Geometry);
         const FLinearColor PanelTint = BallsPalette::Linear(BallsPalette::Panel);
+        PaintBackdropAroundBoard(Out, LayerId, Geometry, Layout);
         PaintBoardFrame(Out, LayerId, Geometry, Layout);
         PaintLaunchPoint(Out, LayerId + 1, Geometry, *Session, Layout);
 
@@ -521,6 +522,22 @@ private:
     }
 
     FString MapNoticeText() const { return BallsText::FromUtf8(App->GetScreenFlow().diskNotice()); }
+
+    // The 3D board scene shows through wherever the HUD paints nothing, and its clear color is not the window's: the
+    // margins and gaps around the board's section get the window background, as the SDL front end draws them.
+    void PaintBackdropAroundBoard(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,
+                                  const FBallsGameplayLayout& Layout) const {
+        const FVector2D Size = Geometry.GetLocalSize();
+        const FSlateRect& Frame = Layout.MainSection;
+        const FLinearColor Fill = BallsPalette::Linear(BallsPalette::Background);
+        const FSlateBrush* Square = BallsStyle::RoundedBox(0.0f);
+        const float Width = static_cast<float>(Size.X);
+        const float Height = static_cast<float>(Size.Y);
+        DrawBox(Out, Layer, Geometry, FSlateRect(0.0f, 0.0f, Width, Frame.Top), Square, Fill);
+        DrawBox(Out, Layer, Geometry, FSlateRect(0.0f, Frame.Bottom, Width, Height), Square, Fill);
+        DrawBox(Out, Layer, Geometry, FSlateRect(0.0f, Frame.Top, Frame.Left, Frame.Bottom), Square, Fill);
+        DrawBox(Out, Layer, Geometry, FSlateRect(Frame.Right, Frame.Top, Width, Frame.Bottom), Square, Fill);
+    }
 
     // The board frame is the gadget color around the 3D board: four strips, so the board stays visible.
     void PaintBoardFrame(FSlateWindowElementList& Out, int32 Layer, const FGeometry& Geometry,

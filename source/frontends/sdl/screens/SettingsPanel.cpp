@@ -88,6 +88,7 @@ float settingsContentHeight(BackendKind selectedBackend) {
     height += sectionHeight + blockHeight;
     height += blockHeight;
     height += blockHeight;
+    height += blockHeight;
     if (backendChoiceOffered()) {
         height += sectionHeight + sectionHeight + (optionHeight + optionGap) * selectableBackends().size() -
                   optionGap + blockGap - optionGap;
@@ -154,6 +155,23 @@ SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind sel
     }
     cursor += optionHeight + hintGap;
     ui::drawText("Replaces the old V shortcut.", {innerX, cursor}, hintSize, palette::textMuted);
+    cursor += hintHeight + blockGap;
+
+    ui::drawText(std::string(menuText::wideScreenLabel), {innerX, cursor}, sectionSize, palette::text);
+    cursor += sectionHeight;
+    const Rect wideOptions{innerX, cursor, innerWidth, optionHeight};
+    const std::vector<UiOption> wideChoices = wideScreenOptions(current.wideScreen);
+    for (size_t i = 0; i < wideChoices.size(); ++i) {
+        const auto anchor = static_cast<WideScreenAnchor>(i);
+        if (ui::button(ui::columnSlice(wideOptions, static_cast<int>(i), static_cast<int>(wideChoices.size()), optionGap),
+                       wideChoices[i].label.c_str(), true, wideChoices[i].selected) &&
+            current.wideScreen != anchor) {
+            edit.settings.wideScreen = anchor;
+            edit.changed = true;
+        }
+    }
+    cursor += optionHeight + hintGap;
+    ui::drawText(std::string(menuText::wideScreenHint), {innerX, cursor}, hintSize, palette::textMuted);
     cursor += hintHeight + blockGap;
 
     ui::drawText("Renderer", {innerX, cursor}, sectionSize, palette::text);

@@ -36,6 +36,8 @@ namespace menuText {
 
 inline constexpr std::string_view layoutHeading = "Layout";
 inline constexpr std::string_view layoutHint = "Auto follows the window shape.";
+inline constexpr std::string_view wideScreenLabel = "Wide screens";
+inline constexpr std::string_view wideScreenHint = "Wider than 16:9: fill to the edges, or keep 16:9 centered.";
 inline constexpr std::string_view displayHeading = "Display";
 inline constexpr std::string_view vsyncLabel = "VSync";
 inline constexpr std::string_view physicsHeading = "Physics";
@@ -61,6 +63,8 @@ std::string brickHitLabel(int64_t hitsLeft);
 
 // Settings panel.
 std::vector<UiOption> orientationOptions(LayoutOrientation current);
+// "Screen edges", then "Centered 16:9", in WideScreenAnchor order.
+std::vector<UiOption> wideScreenOptions(WideScreenAnchor current);
 std::vector<UiOption> offOnOptions(bool on);
 
 struct BackendRow {
