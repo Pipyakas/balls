@@ -89,6 +89,11 @@ namespace Balls.Rendering
             for (int index = 0; index < batch.count && count < capacity; ++index)
             {
                 uint word = packed[index];
+                // An empty visibility slot is all ones: colour 15 at the far corner, drawn as a stray magenta ball.
+                if ((word >> 28) >= BallPalette.ColorCount)
+                {
+                    continue;
+                }
                 float x = (word & 0x3FFFu) * scaleX;
                 float y = ((word >> 14) & 0x3FFFu) * scaleY;
                 if (!float.IsFinite(x) || !float.IsFinite(y) || x < -1f || y < -1f ||
