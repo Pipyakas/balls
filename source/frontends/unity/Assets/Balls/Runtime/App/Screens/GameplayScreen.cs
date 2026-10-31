@@ -26,7 +26,6 @@ namespace Balls.App.Screens
         private const float LauncherHeaderHeight = 24f;
         private const float BrickLabelShare = 0.55f;
         private const float MinimumLabelPixels = 9f;
-        private const float ShadowMinimumCellPixels = 28f;
         private static readonly string[] HitLabels = new string[128];
 
         /// <summary>Hit counts as strings, built once, so the per-frame labels allocate nothing.</summary>
@@ -39,7 +38,6 @@ namespace Balls.App.Screens
             return HitLabels[hits] ??= hits.ToString();
         }
         private const float TwoColumnWidth = 2f * 220f + 16f;
-        private const float ReleaseHeight = 62f;
         private const float LauncherTapSlop = 8f;
         private const float LauncherHoverBrighten = 0.25f;
 
@@ -68,21 +66,19 @@ namespace Balls.App.Screens
         }
         private int probeTargetFps = 60;
         private int spawnRateIndex;
-        private int multiplierIndex;
         private int limitIndex;
         private bool advancedOpen;
         private float performanceContentHeight = 600f;
-        private bool autoLimit;
         private bool probeRecorded;
         private GameBackend syncedBackend;
         private Vector2 interactionScroll;
         private Vector2 debugScroll;
         private readonly string[] spawnRateOptions = { "10", "50", "200", "1000", "2000", "10k", "50k", "200k", "1M", "Max" };
-        private readonly string[] multiplierOptions = { "x1", "x10", "x100", "x1000", "x10000" };
-        private readonly string[] limitOptions = { "Auto", "10k", "100k", "1M", "10M", "Max" };
+        private readonly string[] limitOptions = { "Level", "Auto", "Max" };
 
         public void BeginSession()
         {
+            System.Array.Clear(brickMaxHits, 0, brickMaxHits.Length);
             hasLayout = false;
             layoutOrientation = -1;
             lastLayoutWidth = -1f;
@@ -107,7 +103,10 @@ namespace Balls.App.Screens
             int outcome = backend.TakeSwitchOutcome(out int kind);
             if (outcome == 1)
             {
-                ReapplySavedLimit(backend);
+                if (backend.BallLimitIndex == 1)
+                {
+                    backend.SelectBallLimit(1);
+                }
             }
             else if (outcome == 2)
             {
@@ -125,35 +124,9 @@ namespace Balls.App.Screens
             }
             syncedBackend = backend;
             spawnRateIndex = backend.SpawnRateIndex;
-            multiplierIndex = backend.BallMultiplierIndex;
-            limitIndex = backend.BallLimitIndex + 1;
-            autoLimit = false;
+            limitIndex = backend.BallLimitIndex;
             advancedOpen = App.Settings != null && App.Settings.AdvancedSettings;
             probeRecorded = false;
-            ReapplySavedLimit(backend);
-        }
-
-        /// <summary>A capacity probe result saved for this backend becomes the Auto ball limit of a new Performance game.</summary>
-        private void ReapplySavedLimit(GameBackend backend)
-        {
-            if (backend.Mode != BallsApp.PerformanceMode)
-            {
-                return;
-            }
-            // Every Performance game starts on Auto, as in SDL: the remembered limit when it was measured at this
-            // target, otherwise a fresh probe.
-            limitIndex = 0;
-            autoLimit = true;
-            string name = BallsNative.BackendName(backend.BackendKind);
-            if (App.Profile.TryLimit(backend.BackendKind, out ulong balls, out double fps) && Mathf.RoundToInt((float)fps) == probeTargetFps)
-            {
-                backend.UseMachineLimit(balls);
-                App.Toast(BallsNative.MenuMessage(BallsNative.MenuTextProbeResult, backend.BackendKind, balls, fps, null));
-            }
-            else
-            {
-                backend.StartProbe(probeTargetFps);
-            }
         }
 
         /// <summary>Saves a finished capacity probe per machine and backend so the next run starts from it.</summary>
@@ -199,6 +172,8 @@ namespace Balls.App.Screens
             EnsureLayout(board);
 
             RefitCamera(board);
+            // The main section's one-unit frame, as SDL and Unreal draw it around the board.
+            theme.Frame(layout.Main, UiTheme.Clear, Palette.Border);
             DrawBrickLabels(board);
 
             DrawHeader(session, board);
@@ -274,12 +249,6 @@ namespace Balls.App.Screens
             SessionSystem.Current?.Backend?.SelectSpawnRate(spawnRateIndex);
         }
 
-        public void ControlMultiplier(int index)
-        {
-            multiplierIndex = Mathf.Clamp(index, 0, multiplierOptions.Length - 1);
-            SessionSystem.Current?.Backend?.SelectBallMultiplier(multiplierIndex);
-        }
-
         public void ControlBallLimit(int index)
         {
             limitIndex = Mathf.Clamp(index, 0, limitOptions.Length - 1);
@@ -335,9 +304,14 @@ namespace Balls.App.Screens
             camera.orthographic = true;
             camera.orthographicSize = windowCells * 0.5f;
             camera.rect = new Rect(0f, 0f, 1f, 1f);
+            // The core's board runs y down, row 0 at the top and the launch point at the bottom, as SDL and Unreal
+            // draw it. Flipping the projection's y keeps that orientation (every board shader has Cull Off, so the
+            // reversed winding draws the same) and keeps depth order, which rotating the camera would reverse.
+            camera.ResetProjectionMatrix();
+            camera.projectionMatrix = camera.projectionMatrix * Matrix4x4.Scale(new Vector3(1f, -1f, 1f));
             camera.transform.position = new Vector3(
                 theme.UnitsWidth / (2f * cellSize) - worldBoardRect.x / cellSize,
-                (worldBoardRect.y + worldBoardRect.height) / cellSize - windowCells * 0.5f,
+                (theme.UnitsHeight * 0.5f - worldBoardRect.y) / cellSize,
                 -10f);
             camera.transform.rotation = Quaternion.identity;
             camera.clearFlags = CameraClearFlags.SolidColor;
@@ -347,38 +321,132 @@ namespace Balls.App.Screens
             _ = board;
         }
 
-        /// <summary>Remaining hits on every brick, centred, with a drop shadow; hidden once they would be under 9 px.</summary>
+        // Per brick, while labels are drawn: its cells' bounds, centroid, the cell nearest that, and the most hits it
+        // has been seen with (hits only fall, so that is its starting count; bricks that start at one are not labelled,
+        // as SDL and Unreal leave them).
+        private int[] brickMaxHits = System.Array.Empty<int>();
+        private int[] labelMinColumn = System.Array.Empty<int>();
+        private int[] labelMaxColumn = System.Array.Empty<int>();
+        private int[] labelMinRow = System.Array.Empty<int>();
+        private int[] labelMaxRow = System.Array.Empty<int>();
+        private int[] labelCellCount = System.Array.Empty<int>();
+        private float[] labelSumColumn = System.Array.Empty<float>();
+        private float[] labelSumRow = System.Array.Empty<float>();
+        private int[] labelNearest = System.Array.Empty<int>();
+        private float[] labelNearestDistance = System.Array.Empty<float>();
+
+        private static void Size<T>(ref T[] array, int length)
+        {
+            if (array.Length < length)
+            {
+                array = new T[length];
+            }
+        }
+
+        /// <summary>
+        /// One label per brick that started with more than one hit, as SDL's BoardRenderer draws it: over the whole
+        /// brick when its cells fill their bounding box, otherwise on the cell nearest its centroid; 0.55 of the
+        /// area's smaller side, shrunk to 90% of its width, with a shadow 1.5 units down-right; left out under 9 px.
+        /// </summary>
         private void DrawBrickLabels(BoardInfoData board)
         {
             float cell = layout.CellSize;
-            float labelSize = cell * BrickLabelShare;
-            if (Event.current.type != EventType.Repaint || labelSize * App.Theme.Scale < MinimumLabelPixels ||
+            if (Event.current.type != EventType.Repaint || cell * BrickLabelShare * App.Theme.Scale < MinimumLabelPixels ||
                 !App.TryReadCells(labelCells))
             {
                 return;
             }
-            Rect boardRect = layout.BoardRect;
-            int size = Mathf.RoundToInt(labelSize);
-            bool withShadow = cell * App.Theme.Scale >= ShadowMinimumCellPixels;
-            GUIStyle shadow = App.Theme.TextStyle(size, Palette.BoardBackdrop, true, TextAnchor.MiddleCenter);
-            GUIStyle text = App.Theme.TextStyle(size, Color.white, true, TextAnchor.MiddleCenter);
+            int bricks = Mathf.Max(board.brickCount, 1);
+            if (brickMaxHits.Length < bricks)
+            {
+                System.Array.Resize(ref brickMaxHits, bricks);
+            }
+            Size(ref labelMinColumn, bricks);
+            Size(ref labelMaxColumn, bricks);
+            Size(ref labelMinRow, bricks);
+            Size(ref labelMaxRow, bricks);
+            Size(ref labelCellCount, bricks);
+            Size(ref labelSumColumn, bricks);
+            Size(ref labelSumRow, bricks);
+            Size(ref labelNearest, bricks);
+            Size(ref labelNearestDistance, bricks);
+            System.Array.Clear(labelCellCount, 0, bricks);
             for (int index = 0; index < labelCells.Count; ++index)
             {
                 CellElement brick = labelCells[index];
-                if (brick.brick < 0 || brick.hitsLeft <= 0)
+                if (brick.brick < 0 || brick.brick >= bricks || brick.hitsLeft <= 0)
                 {
                     continue;
                 }
+                int id = brick.brick;
+                brickMaxHits[id] = Mathf.Max(brickMaxHits[id], brick.hitsLeft);
                 int column = index % board.paddedWidth - 1;
                 int row = index / board.paddedWidth - 1;
-                float x = boardRect.x + column * cell;
-                float y = boardRect.yMax - (row + 1f + brick.rise) * cell;
-                string label = HitLabel(brick.hitsLeft);
-                if (withShadow)
+                if (labelCellCount[id]++ == 0)
                 {
-                    GUI.Label(App.Theme.Units(x + 1.5f, y + 1.5f, cell, cell), label, shadow);
+                    labelMinColumn[id] = labelMaxColumn[id] = column;
+                    labelMinRow[id] = labelMaxRow[id] = row;
+                    labelSumColumn[id] = labelSumRow[id] = 0f;
+                    labelNearestDistance[id] = float.MaxValue;
                 }
-                GUI.Label(App.Theme.Units(x, y, cell, cell), label, text);
+                labelMinColumn[id] = Mathf.Min(labelMinColumn[id], column);
+                labelMaxColumn[id] = Mathf.Max(labelMaxColumn[id], column);
+                labelMinRow[id] = Mathf.Min(labelMinRow[id], row);
+                labelMaxRow[id] = Mathf.Max(labelMaxRow[id], row);
+                labelSumColumn[id] += column + 0.5f;
+                labelSumRow[id] += row + 0.5f;
+            }
+            for (int index = 0; index < labelCells.Count; ++index)
+            {
+                CellElement brick = labelCells[index];
+                if (brick.brick < 0 || brick.brick >= bricks || brick.hitsLeft <= 0)
+                {
+                    continue;
+                }
+                int id = brick.brick;
+                float dx = index % board.paddedWidth - 1 + 0.5f - labelSumColumn[id] / labelCellCount[id];
+                float dy = index / board.paddedWidth - 1 + 0.5f - labelSumRow[id] / labelCellCount[id];
+                if (dx * dx + dy * dy < labelNearestDistance[id])
+                {
+                    labelNearestDistance[id] = dx * dx + dy * dy;
+                    labelNearest[id] = index;
+                }
+            }
+            Rect boardRect = layout.BoardRect;
+            for (int id = 0; id < bricks; ++id)
+            {
+                if (labelCellCount[id] == 0 || brickMaxHits[id] <= 1)
+                {
+                    continue;
+                }
+                CellElement brick = labelCells[labelNearest[id]];
+                int width = labelMaxColumn[id] - labelMinColumn[id] + 1;
+                int height = labelMaxRow[id] - labelMinRow[id] + 1;
+                Rect area = width * height == labelCellCount[id]
+                    ? new Rect(boardRect.x + labelMinColumn[id] * cell, boardRect.y + (labelMinRow[id] + brick.rise) * cell,
+                        width * cell, height * cell)
+                    : new Rect(boardRect.x + (labelNearest[id] % board.paddedWidth - 1) * cell,
+                        boardRect.y + (labelNearest[id] / board.paddedWidth - 1 + brick.rise) * cell, cell, cell);
+                string label = HitLabel(brick.hitsLeft);
+                float size = Mathf.Min(area.width, area.height) * BrickLabelShare;
+                GUIStyle probe = App.Theme.TextStyle(Mathf.Max(1, Mathf.RoundToInt(size)), Color.white, false,
+                    TextAnchor.MiddleCenter);
+                float labelWidth = probe.CalcSize(new GUIContent(label)).x / App.Theme.Scale;
+                if (labelWidth > area.width * 0.9f)
+                {
+                    size *= area.width * 0.9f / labelWidth;
+                }
+                if (size * App.Theme.Scale < MinimumLabelPixels)
+                {
+                    continue;
+                }
+                int fontSize = Mathf.RoundToInt(size);
+                Color fill = Palette.Balls[Mathf.Clamp(brick.color, 0, Palette.Balls.Length - 1)];
+                GUI.Label(App.Theme.Units(area.x + 1.5f, area.y + 1.5f, area.width, area.height), label,
+                    App.Theme.TextStyle(fontSize, new Color(fill.r * 0.4f, fill.g * 0.4f, fill.b * 0.4f, 1f), false,
+                        TextAnchor.MiddleCenter));
+                GUI.Label(App.Theme.Units(area.x, area.y, area.width, area.height), label,
+                    App.Theme.TextStyle(fontSize, Palette.TextStrong, false, TextAnchor.MiddleCenter));
             }
         }
 
@@ -395,10 +463,8 @@ namespace Balls.App.Screens
             Vector2 mouse = Event.current.mousePosition;
             bool hovered = pixels.Contains(mouse);
             bool pressed = hovered && (Event.current.type == EventType.MouseDown || Event.current.type == EventType.MouseDrag);
-            if (hovered)
-            {
-                theme.Fill(header, pressed ? Palette.ControlPressed : Palette.ControlHover);
-            }
+            theme.Frame(header, pressed ? Palette.ControlPressed : hovered ? Palette.ControlHover : Palette.Panel,
+                Palette.Border);
 
             string title = BallsNative.FlowText(App.FlowHandle, BallsNative.FlowTextGameTitle);
             if (string.IsNullOrEmpty(title))
@@ -671,24 +737,31 @@ namespace Balls.App.Screens
             });
         }
 
+        // SDL's control groups: a muted label (20) over 44-high rows, 14 between groups.
+        private const float GroupLabelHeight = 26f;
+        private const float GroupGap = 14f;
+
         /// <summary>The game's Release row: Start (1 click), then a disabled Auto releasing - N launchers left.</summary>
         private float DrawRelease(SessionInfo session, Rect content, float y)
         {
             Widgets widgets = App.Widgets;
-            var row = new Rect(content.x, y, content.width, 52f);
-            if (session.launcherRemaining > 0 && !IsAutoReleasing(session))
+            widgets.GroupLabel(new Rect(content.x, y, content.width, GroupLabelHeight), "Release");
+            var row = new Rect(content.x, y + GroupLabelHeight, content.width, Widgets.RowHeight);
+            // The core words the row (launchers left, not balls), as SDL and Unreal show it.
+            System.IntPtr handle = SessionSystem.Current != null ? SessionSystem.Current.SessionHandle : System.IntPtr.Zero;
+            List<NativeUiOption> release = handle != System.IntPtr.Zero
+                ? BallsNative.MenuOptions(BallsNative.MenuRelease, 0, handle)
+                : null;
+            bool canStart = release != null && release.Count > 0
+                ? release[0].enabled != 0
+                : session.launcherRemaining > 0 && !IsAutoReleasing(session);
+            string label = release != null && release.Count > 0 ? release[0].Label
+                : canStart ? "Start (1 click)" : "Auto releasing";
+            if (widgets.Button(row, label, TypeSizes.Label, canStart) && canStart)
             {
-                if (widgets.AccentButton(row, "Start (1 click)", true, TypeSizes.Label))
-                {
-                    BallsInput.RequestAutoRelease();
-                }
+                BallsInput.RequestAutoRelease();
             }
-            else
-            {
-                widgets.Button(row, $"Auto releasing - {session.launcherRemaining:N0} launchers left", TypeSizes.Label,
-                    false);
-            }
-            return ReleaseHeight;
+            return GroupLabelHeight + Widgets.RowHeight + GroupGap;
         }
 
         private static string ProbeStatus(GameBackend backend)
@@ -717,7 +790,6 @@ namespace Balls.App.Screens
         {
             System.IntPtr session = SessionSystem.Current != null ? SessionSystem.Current.SessionHandle : System.IntPtr.Zero;
             string[] spawnRateOptions = this.spawnRateOptions;
-            string[] multiplierOptions = this.multiplierOptions;
             string[] limitOptions = this.limitOptions;
             if (session != System.IntPtr.Zero)
             {
@@ -727,12 +799,6 @@ namespace Balls.App.Screens
                     spawnRateOptions = new string[spawnOpts.Count];
                     for (int i = 0; i < spawnOpts.Count; ++i) spawnRateOptions[i] = spawnOpts[i].Label;
                 }
-                var multOpts = BallsNative.MenuOptions(BallsNative.MenuBallMultiplier, multiplierIndex, session);
-                if (multOpts.Count > 0)
-                {
-                    multiplierOptions = new string[multOpts.Count];
-                    for (int i = 0; i < multOpts.Count; ++i) multiplierOptions[i] = multOpts[i].Label;
-                }
                 var limitOpts = BallsNative.MenuOptions(BallsNative.MenuBallLimit, limitIndex, session);
                 if (limitOpts.Count > 0)
                 {
@@ -740,47 +806,30 @@ namespace Balls.App.Screens
                     for (int i = 0; i < limitOpts.Count; ++i) limitOptions[i] = limitOpts[i].Label;
                 }
             }
-            widgets.Label(new Rect(content.x, y, content.width, 22f), "Spawn", TypeSizes.Small, Palette.Accent,
-                TextAnchor.UpperLeft, true);
-            y += 24f;
-            if (widgets.Dropdown("spawnrate", new Rect(content.x, y, content.width, 34f), spawnRateOptions, ref spawnRateIndex))
+            float top = y;
+            widgets.GroupLabel(new Rect(content.x, y, content.width, GroupLabelHeight), "Spawn / sec");
+            y += GroupLabelHeight;
+            if (widgets.Dropdown("spawnrate", new Rect(content.x, y, content.width, Widgets.RowHeight), spawnRateOptions,
+                    ref spawnRateIndex))
             {
                 backend?.SelectSpawnRate(spawnRateIndex);
             }
-            y += 42f;
-            if (widgets.Dropdown("multiplier", new Rect(content.x, y, content.width, 34f), multiplierOptions, ref multiplierIndex))
-            {
-                backend?.SelectBallMultiplier(multiplierIndex);
-            }
-            y += 42f;
-            if (widgets.Dropdown("balllimit", new Rect(content.x, y, content.width, 34f), limitOptions, ref limitIndex))
+            y += widgets.DropdownHeight("spawnrate", spawnRateOptions.Length) + GroupGap;
+            widgets.GroupLabel(new Rect(content.x, y, content.width, GroupLabelHeight), "Ball limit");
+            y += GroupLabelHeight;
+            if (widgets.Dropdown("balllimit", new Rect(content.x, y, content.width, Widgets.RowHeight), limitOptions,
+                    ref limitIndex))
             {
                 SelectBallLimit(backend);
             }
-            y += 42f;
-            float height = 24f + 3 * 42f;
-            if (limitIndex == 0)
-            {
-                // Auto: the probe's target sits under the dropdown, with no separate probe button; changing the
-                // target probes again.
-                if (widgets.Stepper(new Rect(content.x, y, content.width, 36f), "Target FPS", ref probeTargetFps, 10,
-                        1000, out _))
-                {
-                    backend?.StartProbe(probeTargetFps);
-                }
-                string probeStatus = session != System.IntPtr.Zero ? BallsNative.MenuProbeStatus(session) : ProbeStatus(backend);
-                if (string.IsNullOrEmpty(probeStatus)) probeStatus = ProbeStatus(backend);
-                widgets.Muted(new Rect(content.x, y + 40f, content.width, 22f), probeStatus, TypeSizes.Small);
-                height += 70f;
-            }
-            return height;
+            y += widgets.DropdownHeight("balllimit", limitOptions.Length) + GroupGap;
+            return y - top;
         }
 
         /// <summary>The game's collapsible Advanced Settings header: a row with a chevron, remembered in the settings.</summary>
         private float DrawAdvancedToggle(Widgets widgets, Rect content, float y)
         {
-            string label = advancedOpen ? "Advanced Settings  ^" : "Advanced Settings  v";
-            if (widgets.Button(new Rect(content.x, y, content.width, 34f), label, TypeSizes.Small))
+            if (widgets.CollapsingHeader(new Rect(content.x, y, content.width, 40f), "Advanced Settings", advancedOpen))
             {
                 advancedOpen = !advancedOpen;
                 if (App.Settings != null)
@@ -789,13 +838,13 @@ namespace Balls.App.Screens
                     App.SaveSettings();
                 }
             }
-            return 38f;
+            return 40f + GroupGap;
         }
 
         /// <summary>Draws the toggle at the bottom of the launcher gadget, and the Physics group under it when open.</summary>
         private float AdvancedSectionHeight() => advancedOpen
-            ? 58f + BackendChoiceCount() * 38f + 8f + SharedControls.BallCollisionsHeight()
-            : 34f;
+            ? 40f + GroupGap + 24f + BackendChoiceCount() * 38f + 8f + SharedControls.BallCollisionsHeight()
+            : 40f;
 
         private void DrawAdvancedSection(Widgets widgets, SessionInfo session, Rect inner)
         {
@@ -1008,18 +1057,24 @@ namespace Balls.App.Screens
             bool showBackend = advancedOpen;
             List<NativeDebugRow> rows = BallsNative.MenuDebugRows(sessionHandle, timingsHandle, showBackend ? 1 : 0, BallsApp.RendererText);
 
-            float contentHeight = 12f;
+            // SDL's DebugPanel metrics: headings 24 in the accent, labels 16 muted over values 20, 26-unit lines.
+            const float padding = 16f;
+            const float lineHeight = 26f;
+            const float labelHeight = 22f;
+            float contentHeight = padding;
             foreach (NativeDebugRow r in rows)
             {
-                if (r.kind == 0) contentHeight += 6f + 26f + 4f;
-                else if (r.kind == 2) contentHeight += 24f;
-                else contentHeight += 22f + 26f + 18f;
+                if (r.kind == 0) contentHeight += 6f + lineHeight + 4f;
+                else if (r.kind == 2) contentHeight += lineHeight;
+                else contentHeight += labelHeight + lineHeight;
             }
-            contentHeight += 12f;
+            contentHeight += padding;
 
             widgets.ScrollColumn(inner, contentHeight, ref debugScroll, content =>
             {
-                float y = content.y + 12f;
+                float y = content.y + padding;
+                float x = content.x + padding - 12f;
+                float width = content.width - 2f * (padding - 12f);
                 Color ToneColor(int tone) => tone switch
                 {
                     1 => Palette.TextMuted,
@@ -1033,24 +1088,25 @@ namespace Balls.App.Screens
                     if (r.kind == 0)
                     {
                         y += 6f;
-                        widgets.Label(new Rect(content.x, y, content.width, 22f), r.Label, TypeSizes.Small,
-                            Palette.Accent, TextAnchor.UpperLeft, true);
-                        y += 26f + 4f;
+                        widgets.Label(new Rect(x, y, width, lineHeight), r.Label, TypeSizes.Body, Palette.Accent);
+                        y += lineHeight + 4f;
                     }
                     else if (r.kind == 2)
                     {
                         int colorIndex = Mathf.Clamp(r.colorIndex, 0, Palette.Balls.Length - 1);
-                        App.Theme.FillDisc(new Rect(content.x, y + 6f, 14f, 14f), Palette.Balls[colorIndex]);
-                        widgets.Label(new Rect(content.x + 22f, y, content.width - 22f, 22f), r.Label, TypeSizes.Small,
+                        App.Theme.FillDisc(new Rect(x, y + 3f, 14f, 14f), Palette.Balls[colorIndex]);
+                        widgets.Label(new Rect(x + 22f, y, width - 22f, lineHeight), r.Label, TypeSizes.Label,
                             Palette.TextMuted);
-                        widgets.Label(new Rect(content.x, y, content.width, 22f), r.Value, TypeSizes.Small,
-                            Palette.Text, TextAnchor.UpperRight);
-                        y += 24f;
+                        widgets.Label(new Rect(x, y, width, lineHeight), r.Value, TypeSizes.Label, Palette.Text,
+                            TextAnchor.UpperRight);
+                        y += lineHeight;
                     }
                     else
                     {
-                        widgets.Readout(new Rect(content.x, y, content.width, 40f), r.Label, r.Value, ToneColor(r.tone));
-                        y += 46f;
+                        widgets.Label(new Rect(x, y, width, labelHeight), r.Label, TypeSizes.Small, Palette.TextMuted);
+                        y += labelHeight;
+                        widgets.Label(new Rect(x, y, width, lineHeight), r.Value, TypeSizes.Label, ToneColor(r.tone));
+                        y += lineHeight;
                     }
                 }
             });
@@ -1079,11 +1135,12 @@ namespace Balls.App.Screens
                     stats.frameMinFps >= 60f ? Palette.Success : Palette.Danger);
                 y += 46f;
                 widgets.Readout(new Rect(content.x, y, half, 40f), "Frame ms", $"{stats.frameMs:F2}");
-                widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "Physics ms", $"{stats.physicsMs:F2}");
+                // Like the core's row: red only while a running game falls behind its tick rate.
+                bool physicsBehind = session.state == BallsNative.StateRunning && stats.physicsFps < KeepingUpTickRate;
+                widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "Physics ms", $"{stats.physicsMs:F2}",
+                    physicsBehind ? Palette.Danger : (Color?)null);
                 y += 46f;
-                widgets.Readout(new Rect(content.x, y, half, 40f), "Tick rate", $"{stats.physicsFps:N0} Hz",
-                    stats.physicsFps >= KeepingUpTickRate ? Palette.Success : Palette.Danger);
-                widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "GPU ms", GpuText());
+                widgets.Readout(new Rect(content.x, y, half, 40f), "GPU ms", GpuText());
                 y += 46f;
                 if (advancedOpen)
                 {
@@ -1126,7 +1183,8 @@ namespace Balls.App.Screens
                 widgets.Readout(new Rect(content.x + half + 12f, y, half, 40f), "Launchers",
                     $"{session.launcherRemaining:N0}");
                 y += 46f;
-                widgets.Readout(new Rect(content.x, y, content.width, 40f), "Waiting to spawn", $"{stats.waitingToSpawn:N0}");
+                widgets.Readout(new Rect(content.x, y, content.width, 40f), "Waiting to spawn",
+                    backend != null && backend.EndlessSpawn ? "Endless" : $"{stats.waitingToSpawn:N0}");
                 y += 46f;
                 if (performance && backend != null)
                 {
@@ -1159,38 +1217,28 @@ namespace Balls.App.Screens
             });
         }
 
-        /// <summary>Auto uses the machine's measured limit, probing first when there is none; the rest are fixed limits.</summary>
+        /// <summary>Level releases launcher counts; Auto and Max stream until the limit.</summary>
         private void SelectBallLimit(GameBackend backend)
         {
             if (backend == null)
             {
                 return;
             }
-            if (limitIndex != 0)
-            {
-                autoLimit = false;
-                backend.SelectBallLimit(limitIndex - 1);
-            }
-            else if (backend.HasMachineLimit)
-            {
-                autoLimit = true;
-                backend.UseMachineLimit(backend.MachineLimit);
-            }
-            else
-            {
-                autoLimit = true;
-                backend.StartProbe(probeTargetFps);
-            }
+            backend.SelectBallLimit(limitIndex);
         }
 
-        /// <summary>The Auto option shows the number it resolved to; a fixed option shows its own limit.</summary>
+        /// <summary>The Level option shows Level; Auto shows its resolved limit; Max shows Max.</summary>
         private string BallLimitText(GameBackend backend)
         {
-            if (!autoLimit)
+            if (backend.BallLimitIndex == 0)
             {
-                return backend.BallLimit == ulong.MaxValue ? "Max (2^64-1)" : $"{backend.BallLimit:N0}";
+                return "Level";
             }
-            return backend.HasMachineLimit ? $"Auto {backend.MachineLimit:N0}" : "Auto (probe needed)";
+            if (backend.BallLimitIndex == 1)
+            {
+                return backend.HasMachineLimit ? $"Auto {backend.MachineLimit:N0}" : "Auto";
+            }
+            return backend.BallLimit == ulong.MaxValue ? "Max (2^64-1)" : $"{backend.BallLimit:N0}";
         }
 
         private static string ProbePhaseName(int phase) => phase switch

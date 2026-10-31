@@ -13,7 +13,7 @@ namespace Balls.Native
     {
         public const string Library = "balls_unity";
 
-        public const int AbiVersion = 6;
+        public const int AbiVersion = 7;
 
         // Theme ids, as BALLS_THEME_* in BallsUnityApi.h.
         public const int ThemeBackground = 0;
@@ -116,7 +116,6 @@ namespace Balls.Native
         public const int MenuOrientation = 0;
         public const int MenuOffOn = 1;
         public const int MenuSpawnRate = 2;
-        public const int MenuBallMultiplier = 3;
         public const int MenuBallLimit = 4;
         public const int MenuGameplayBackends = 5;
         public const int MenuRelease = 6;
@@ -503,13 +502,9 @@ namespace Balls.Native
 
         [DllImport(Library)] public static extern void balls_session_select_spawn_rate(IntPtr session, int optionIndex);
 
-        [DllImport(Library)] public static extern void balls_session_select_ball_multiplier(IntPtr session, int optionIndex);
-
         [DllImport(Library)] public static extern void balls_session_select_ball_limit(IntPtr session, int optionIndex);
 
         [DllImport(Library)] public static extern int balls_session_spawn_rate_index(IntPtr session);
-
-        [DllImport(Library)] public static extern int balls_session_ball_multiplier_index(IntPtr session);
 
         [DllImport(Library)] public static extern int balls_session_ball_limit_index(IntPtr session);
 

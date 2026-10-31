@@ -36,17 +36,15 @@ const DebugRow* findRow(const std::vector<DebugRow>& rows, std::string_view labe
 TEST_CASE("the control gadget lists the game's spawn rates, ball counts and ball limits with Auto first") {
     EXPECT((labels(spawnRateChoices(2)) == std::vector<std::string>{"10", "50", "200", "1000", "2000", "10k", "50k", "200k", "1M", "Max"}));
     EXPECT(selectedIndex(spawnRateChoices(2)) == 2);
-    EXPECT((labels(ballMultiplierChoices(0)) == std::vector<std::string>{"x1", "x10", "x100", "x1000", "x10000"}));
 
     SessionView view;
     view.mode = GameMode::Performance;
-    view.ballLimitIndex = 2;
-    EXPECT((labels(ballLimitChoices(view)) ==
-            std::vector<std::string>{"Auto", "10k", "100k", "1M", "10M", "Max 2^64-1"}));
-    EXPECT(selectedIndex(ballLimitChoices(view)) == 3);
+    EXPECT((labels(ballLimitChoices(view)) == std::vector<std::string>{"Level", "Auto", "Max 2^64-1"}));
+    EXPECT(selectedIndex(ballLimitChoices(view)) == 0);
+    view.ballLimitIndex = static_cast<int>(BallLimitChoice::Auto);
     view.usingMachineLimit = true;
     EXPECT(isAutoBallLimit(view));
-    EXPECT(selectedIndex(ballLimitChoices(view)) == 0);
+    EXPECT(selectedIndex(ballLimitChoices(view)) == 1);
 }
 
 TEST_CASE("the release button starts once and then counts the launchers left") {
@@ -109,6 +107,7 @@ TEST_CASE("backendChoiceOffered matches the number of selectable backends") {
 TEST_CASE("the debug gadget shows the game's rows and hides backend rows while Advanced Settings is closed") {
     SessionView view;
     view.mode = GameMode::Performance;
+    view.ballLimitIndex = static_cast<int>(BallLimitChoice::Auto);
     view.usingMachineLimit = true;
     view.stats.ballCount = 1'234'567;
     view.physicsFramesPerSecond = 60.0;
@@ -123,14 +122,14 @@ TEST_CASE("the debug gadget shows the game's rows and hides backend rows while A
     EXPECT(findRow(closed, "Ball collisions") == nullptr);
     EXPECT(findRow(closed, "Balls")->value == "1,234,567");
     EXPECT(findRow(closed, "Physics FPS") == nullptr);
-    EXPECT(findRow(closed, "Tick rate")->value == "119 / 120 Hz");
-    EXPECT(findRow(closed, "Tick rate")->tone == UiTone::Success);
+    EXPECT(findRow(closed, "Tick rate") == nullptr);
+    EXPECT(findRow(closed, "Physics ms")->tone == UiTone::Normal);
     SessionView behind = view;
     behind.physicsTicksPerSecond = 80.0;
     behind.state = SessionState::Running;
-    EXPECT(findRow(debugGadgetRows(behind, frames, {}), "Tick rate")->tone == UiTone::Danger);
+    EXPECT(findRow(debugGadgetRows(behind, frames, {}), "Physics ms")->tone == UiTone::Danger);
     behind.state = SessionState::Ready;
-    EXPECT(findRow(debugGadgetRows(behind, frames, {}), "Tick rate")->tone == UiTone::Muted);
+    EXPECT(findRow(debugGadgetRows(behind, frames, {}), "Physics ms")->tone == UiTone::Normal);
     EXPECT(findRow(closed, "Ball limit")->value == "Auto");
     int colorRows = 0;
     for (const DebugRow& row : closed) {

@@ -45,8 +45,7 @@ private:
     bool adoptLoadOutcome();
     void drawLoading();
     void handleLauncherClick(const GameplayLayout& layout);
-    void applyDefaultBallLimit();
-    void useAutoBallLimit();
+    void refreshAutoBallLimit();
     void handleSessionEvents();
     void tickPhysics(const GameplayLayout& layout);
     void selectComputeAdapter(int adapter);
@@ -87,7 +86,6 @@ private:
     bool portraitPressing = false;
     bool portraitDragged = false;
     bool spawnDropdownOpen = false;
-    bool countDropdownOpen = false;
     bool limitDropdownOpen = false;
     float pauseSettingsScroll = 0.0f;
     DebugPanelState debugState;

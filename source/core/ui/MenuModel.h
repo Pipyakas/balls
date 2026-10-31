@@ -49,7 +49,6 @@ inline constexpr std::string_view devicesHint =
 inline constexpr std::string_view advancedSettingsLabel = "Advanced Settings";
 inline constexpr std::string_view releaseLabel = "Release";
 inline constexpr std::string_view spawnRateLabel = "Spawn / sec";
-inline constexpr std::string_view ballCountLabel = "Ball count";
 inline constexpr std::string_view ballLimitLabel = "Ball limit";
 inline constexpr std::string_view renderGpuLabel = "Render GPU";
 inline constexpr std::string_view computeGpuLabel = "Compute GPU (Vulkan backend)";
@@ -96,9 +95,11 @@ std::optional<std::vector<BackendPick>> pickDeviceOption(std::span<const Backend
 // Gameplay control gadget.
 UiOption releaseButton(const SessionView& view);
 std::vector<UiOption> spawnRateChoices(int selectedIndex);
-std::vector<UiOption> ballMultiplierChoices(int selectedIndex);
-// Auto first, then the fixed limits. Auto is selected while the machine limit is in use.
+// Level, Auto, Max (BallLimitChoice order). Level releases the level's counts; Auto and Max keep releasing until the
+// limit (see BallLimitChoice).
 std::vector<UiOption> ballLimitChoices(const SessionView& view);
+// The debug gadget's Waiting to spawn value: the count, or Endless while Auto or Max streams.
+std::string waitingToSpawnLabel(const SessionView& view);
 bool isAutoBallLimit(const SessionView& view);
 // The in-game Physics list: like the default list, a backend still starting reads "<name> - starting...".
 std::vector<BackendRow> gameplayBackendRows(const SessionView& view);

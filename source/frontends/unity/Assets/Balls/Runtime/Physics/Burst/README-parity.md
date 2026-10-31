@@ -11,8 +11,7 @@ This document provides a complete parity audit between the pure C# Unity Burst b
 | **Session State Enum** | `source/core/game/GameSession.h:20` | `BallsNative.State*` (`BallsNative.cs:48-50`) | Ready (0), Running (1), Won (2). |
 | **Game Modes** | `source/core/game/GameMode.h:6` | `BallsNative.Mode*` (`BallsNative.cs:38-39`) | Normal Mode (0), Performance Mode (1). |
 | **Spawn Rate Options** | `source/core/game/GameSession.h:23` | `BurstGameBackend.SpawnRateOptions` | `{ 10, 50, 200, 1000, 2000, 10000, 50000, 200000, 1000000, 0 }` (0 indicates unlimited/Max). Default index 2 (200 balls/s). |
-| **Ball Multiplier Options** | `source/core/game/GameSession.h:24` | `BurstGameBackend.BallMultiplierOptions` | `{ 1, 10, 100, 1000, 10000 }`. Applied in Performance Mode. Default index 0 (1x). |
-| **Ball Limit Options** | `source/core/game/GameSession.h:25` | `BurstGameBackend.BallLimitOptions` | `{ 10_000, 100_000, 1_000_000, 10_000_000, ulong.MaxValue }`. Default index 4 (unlimited). |
+| **Ball Limit Choices** | `source/core/game/GameSession.h:26` | `BurstGameBackend.BallLimit*` | `BallLimitChoice`: Level (0, default), Auto (1), Max (2). Level releases level counts only; Auto/Max stream all launcher colors endlessly until the limit. |
 | **Normal Mode Rate** | `source/core/game/SpawnController.h:13` | `BurstGameBackend.NormalModeSpawnRate` | Constant `60.0f` balls per second. |
 | **Session Initialization & Restart** | `source/core/game/GameSession.cpp:57-74` | `BurstGameBackend.Restart()` | Clears ball store, resets elapsed time, reloads layout into board and queue, sets initial state (Running for Normal mode, Ready for Performance mode). |
 | **Launcher Selection Rule** | `source/core/game/GameSession.cpp:86-96` | `BurstGameBackend.ChooseLauncher(col, row)` | In Normal mode while Running, takes launcher at `(col, row)` from queue and enqueues balls. Returns false if not in Running state or if slot is empty. |

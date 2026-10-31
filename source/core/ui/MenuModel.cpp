@@ -14,22 +14,18 @@ constexpr double ballStepsPerMillion = 1e6;
 
 UiTone fpsTone(double fps) { return fps >= fpsTarget ? UiTone::Success : UiTone::Danger; }
 
-// The simulation keeps up while it runs the ticks its rate asks for; a few percent short is measuring noise. Before a
-// Performance game starts, and after a win, no ticks run, so the row is muted rather than flagged.
+// The simulation keeps up while it runs the ticks its rate asks for; a few percent short is measuring noise. The
+// governor keeps it there, so the tick rate earns no row of its own: Physics ms turns red only while a running game
+// falls behind (before a Performance game starts, and after a win, no ticks are due).
 constexpr double tickRateTolerance = 0.95;
 
-UiTone tickRateTone(double ticksPerSecond, double target) {
-    return target > 0.0 && ticksPerSecond >= target * tickRateTolerance ? UiTone::Success : UiTone::Danger;
+UiTone physicsTone(const SessionView& view) {
+    const bool behind = view.state == SessionState::Running && view.targetTicksPerSecond > 0.0 &&
+                        view.physicsTicksPerSecond < view.targetTicksPerSecond * tickRateTolerance;
+    return behind ? UiTone::Danger : UiTone::Normal;
 }
 
-std::string ballLimitOptionLabel(BallCount limit) {
-    if (limit == unlimitedBalls) {
-        return "Max 2^64-1";
-    }
-    return limit >= 1'000'000 ? std::format("{}M", limit / 1'000'000) : std::format("{}k", limit / 1'000);
-}
-
-// 10 to 2000 as written, then 10k, 50k, 200k, 1M like the ball limits.
+// 10 to 2000 as written, then 10k, 50k, 200k, 1M.
 std::string spawnRateOptionLabel(int rate) {
     if (rate < 10'000) {
         return std::to_string(rate);
@@ -170,23 +166,17 @@ std::vector<UiOption> spawnRateChoices(int selectedIndex) {
     return options;
 }
 
-std::vector<UiOption> ballMultiplierChoices(int selectedIndex) {
-    std::vector<UiOption> options;
-    for (size_t index = 0; index < ::ballMultiplierOptions.size(); ++index) {
-        options.push_back(
-            {std::format("x{}", ::ballMultiplierOptions[index]), true, static_cast<int>(index) == selectedIndex});
-    }
-    return options;
+std::string waitingToSpawnLabel(const SessionView& view) {
+    return view.endlessSpawn ? std::string("Endless") : groupedCount(view.pendingSpawn);
 }
 
 bool isAutoBallLimit(const SessionView& view) { return view.usingMachineLimit; }
 
 std::vector<UiOption> ballLimitChoices(const SessionView& view) {
-    const bool autoLimit = isAutoBallLimit(view);
-    std::vector<UiOption> options{{"Auto", true, autoLimit}};
-    for (size_t index = 0; index < ::ballLimitOptions.size(); ++index) {
-        options.push_back({ballLimitOptionLabel(::ballLimitOptions[index]), true,
-                           !autoLimit && static_cast<int>(index) == view.ballLimitIndex});
+    constexpr std::array<std::string_view, ballLimitChoiceCount> labels{"Level", "Auto", "Max 2^64-1"};
+    std::vector<UiOption> options;
+    for (int index = 0; index < ballLimitChoiceCount; ++index) {
+        options.push_back({std::string(labels[static_cast<size_t>(index)]), true, index == view.ballLimitIndex});
     }
     return options;
 }
@@ -233,10 +223,7 @@ std::vector<DebugRow> debugGadgetRows(const SessionView& view, const FrameTiming
     rows.value("FPS", std::format("{:.0f}", fps), fpsTone(fps));
     rows.value("Min FPS (1s)", std::format("{:.0f}", minimumFps), fpsTone(minimumFps));
     rows.value("Frame ms", std::format("{:.2f}", frames.average().frameMs));
-    rows.value("Physics ms", std::format("{:.2f}", stats.lastFramePhysicsMs));
-    rows.value("Tick rate", std::format("{:.0f} / {:.0f} Hz", view.physicsTicksPerSecond, view.targetTicksPerSecond),
-               view.state == SessionState::Running ? tickRateTone(view.physicsTicksPerSecond, view.targetTicksPerSecond)
-                                                   : UiTone::Muted);
+    rows.value("Physics ms", std::format("{:.2f}", stats.lastFramePhysicsMs), physicsTone(view));
     rows.value("GPU ms", std::format("{:.2f}", frames.average().gpuMs));
     for (const auto& [label, value] : options.portRows) {
         rows.value(label, value);
@@ -274,10 +261,12 @@ std::vector<DebugRow> debugGadgetRows(const SessionView& view, const FrameTiming
     rows.value("Balls", groupedCount(balls));
     rows.value("Bricks", groupedCount(bricks));
     rows.value("Launchers", groupedCount(launchers));
-    rows.value("Waiting to spawn", groupedCount(view.pendingSpawn));
+    rows.value("Waiting to spawn", waitingToSpawnLabel(view));
     if (view.mode == GameMode::Performance) {
         std::string limit;
-        if (view.usingMachineLimit) {
+        if (view.ballLimitIndex == static_cast<int>(BallLimitChoice::Level)) {
+            limit = "Level";
+        } else if (view.usingMachineLimit) {
             limit = view.machineLimit ? "Auto " + groupedCount(*view.machineLimit) : std::string("Auto");
         } else {
             limit = view.ballLimit == unlimitedBalls ? std::string("Max (2^64-1)") : groupedCount(view.ballLimit);

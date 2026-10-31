@@ -25,8 +25,10 @@ namespace Balls.Physics.Burst
         public const int BackendBurst = 5;
 
         public static readonly int[] SpawnRateOptions = { 10, 50, 200, 1000, 2000, 10000, 50000, 200000, 1000000, 0 };
-        public static readonly ulong[] BallMultiplierOptions = { 1, 10, 100, 1000, 10000 };
-        public static readonly ulong[] BallLimitOptions = { 10000, 100000, 1000000, 10000000, ulong.MaxValue };
+        public const int BallLimitLevel = 0;
+        public const int BallLimitAuto = 1;
+        public const int BallLimitMax = 2;
+        public const int BallLimitChoiceCount = 3;
 
         public const float NormalModeSpawnRate = 60.0f;
         public const float TickSeconds = 1.0f / 120.0f;
@@ -49,8 +51,8 @@ namespace Balls.Physics.Burst
 
         private int sessionState = BallsNative.StateReady;
         private int selectedSpawnRate = 2; // 200 balls/s default
-        private int selectedMultiplier = 0; // 1x default
-        private int selectedBallLimit = 4; // unlimited balls default
+        private int selectedBallLimit = BallLimitLevel; // Level default
+        private bool endlessStreams = false;
         private bool autoRelease;
         private double elapsed;
         private float accumulator;
@@ -73,11 +75,14 @@ namespace Balls.Physics.Burst
         public override string LastFault => string.Empty;
 
         public override int SpawnRateIndex => selectedSpawnRate;
-        public override int BallMultiplierIndex => selectedMultiplier;
         public override int BallLimitIndex => selectedBallLimit;
-        public override ulong BallLimit => machineLimitSelected ? measuredMachineLimit : BallLimitOptions[selectedBallLimit];
-        public override bool HasMachineLimit => machineLimitSelected;
+        public override bool EndlessSpawn => endlessStreams;
+        public override ulong BallLimit => selectedBallLimit == BallLimitMax ? ulong.MaxValue : (measuredMachineLimit != 0 ? measuredMachineLimit : ulong.MaxValue);
+        public override bool HasMachineLimit => selectedBallLimit == BallLimitAuto && measuredMachineLimit != 0;
         public override ulong MachineLimit => measuredMachineLimit;
+
+        public bool ReleasesLevelCountsOnly => selectedBallLimit == BallLimitLevel;
+        public bool IsUsingMachineBallLimit => selectedBallLimit == BallLimitAuto;
 
         public BurstBoard Board => board;
         public BurstLauncherQueue Launchers => launcherQueue;
@@ -117,6 +122,8 @@ namespace Balls.Physics.Burst
             board.Load(levelData.bricks);
             launcherQueue.Load(levelData.launchers);
             spawnController.Clear();
+            endlessStreams = false;
+            spawnController.SetInterleaved(gameMode == BallsNative.ModePerformance);
             spawnController.SetBallsPerSecond(gameMode == BallsNative.ModeNormal
                 ? NormalModeSpawnRate
                 : (float)SpawnRateOptions[selectedSpawnRate]);
@@ -178,15 +185,57 @@ namespace Balls.Physics.Burst
             }
         }
 
-        public override void SelectBallMultiplier(int index)
-        {
-            selectedMultiplier = math.clamp(index, 0, BallMultiplierOptions.Length - 1);
-        }
-
         public override void SelectBallLimit(int index)
         {
+            int choice = math.clamp(index, 0, BallLimitChoiceCount - 1);
+            if (choice == BallLimitAuto)
+            {
+                machineLimitSelected = true;
+                measuredMachineLimit = 0;
+                selectedBallLimit = BallLimitAuto;
+                return;
+            }
             machineLimitSelected = false;
-            selectedBallLimit = math.clamp(index, 0, BallLimitOptions.Length - 1);
+            measuredMachineLimit = 0;
+            selectedBallLimit = choice;
+            if (choice == BallLimitLevel && endlessStreams)
+            {
+                spawnController.Clear();
+                endlessStreams = false;
+            }
+        }
+
+        public override void UseMachineLimit(ulong limit)
+        {
+            measuredMachineLimit = limit;
+            machineLimitSelected = true;
+            selectedBallLimit = BallLimitAuto;
+        }
+
+        private void StartEndlessStreams()
+        {
+            if (endlessStreams)
+            {
+                return;
+            }
+            endlessStreams = true;
+            var streaming = new bool[BurstBoard.BallColorCount];
+            if (levelData?.launchers?.slots != null)
+            {
+                foreach (var launcher in levelData.launchers.slots)
+                {
+                    if (!launcher.HasValue)
+                    {
+                        continue;
+                    }
+                    int color = launcher.Value.color;
+                    if (color >= 0 && color < streaming.Length && !streaming[color])
+                    {
+                        streaming[color] = true;
+                        spawnController.Enqueue(color, ulong.MaxValue / (2UL * (ulong)BurstBoard.BallColorCount));
+                    }
+                }
+            }
         }
 
         public override bool SwitchBackend(int kind)
@@ -206,25 +255,16 @@ namespace Balls.Physics.Burst
 
         public override void ReportFrame(double frameSeconds, double workSeconds)
         {
-            // No-op for capacity probe.
+            // No-op for capacity probe technique.
         }
 
         /// <summary>
-        /// Releases a launcher into the spawn controller with multiplier applied.
-        /// Mirrored from source/core/game/GameSession.cpp:26-30.
+        /// Releases a launcher into the spawn controller.
+        /// Mirrored from source/core/game/GameSession.cpp:80-84.
         /// </summary>
         private void ReleaseLauncher(Launcher launcher)
         {
-            ulong multiplier = gameMode == BallsNative.ModePerformance ? BallMultiplierOptions[selectedMultiplier] : 1UL;
-            ulong total = SaturatingMultiply((ulong)launcher.ballCount, multiplier);
-            spawnController.Enqueue(launcher.color, total);
-        }
-
-        private static ulong SaturatingMultiply(ulong a, ulong b)
-        {
-            if (a == 0 || b == 0) return 0;
-            if (a > ulong.MaxValue / b) return ulong.MaxValue;
-            return a * b;
+            spawnController.Enqueue(launcher.color, (ulong)launcher.ballCount);
         }
 
         private static ulong RemainingCapacity(ulong limit, ulong current)
@@ -234,7 +274,7 @@ namespace Balls.Physics.Burst
 
         /// <summary>
         /// Advances per-frame game session bookkeeping and accumulates physics ticks.
-        /// Mirrored from source/core/game/GameSession.cpp:154-173 and source/core/sim/Simulation.cpp:206-218.
+        /// Mirrored from source/core/game/GameSession.cpp:342-362 and source/core/sim/Simulation.cpp:206-218.
         /// </summary>
         public override void Update(float deltaSeconds)
         {
@@ -245,13 +285,20 @@ namespace Balls.Physics.Burst
             {
                 elapsed += deltaSeconds;
 
-                if (autoRelease && spawnController.IsIdle)
+                if (autoRelease && !ReleasesLevelCountsOnly)
+                {
+                    StartEndlessStreams();
+                }
+
+                while (autoRelease && ReleasesLevelCountsOnly &&
+                       spawnController.ActiveStreams < BurstBoard.BallColorCount)
                 {
                     var next = launcherQueue.TakeNextInRotation();
-                    if (next.HasValue)
+                    if (!next.HasValue)
                     {
-                        ReleaseLauncher(next.Value);
+                        break;
                     }
+                    ReleaseLauncher(next.Value);
                 }
 
                 ulong limit = gameMode == BallsNative.ModePerformance ? BallLimit : ulong.MaxValue;

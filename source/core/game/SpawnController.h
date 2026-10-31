@@ -10,7 +10,12 @@ class Simulation;
 class SpawnController {
 public:
     void enqueue(BallColor color, BallCount count);
-    void setBallsPerSecond(float rate) { ballsPerSecond = rate; }
+    // A new rate starts from an empty budget: at Max the budget is the whole room left, which a slower rate would
+    // otherwise keep spending at full speed.
+    void setBallsPerSecond(float rate) {
+        ballsPerSecond = rate;
+        budget = 0.0;
+    }
     // Interleaved streams share each frame's balls instead of emptying one launcher before the next.
     void setInterleaved(bool enabled) { interleaved = enabled; }
     // The balls this frame may release: the spawn rate's share of deltaTime, or at the unlimited rate all of

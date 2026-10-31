@@ -40,9 +40,10 @@ struct SessionView {
 
     LauncherQueue launchers;
     BallCount pendingSpawn = 0;
+    // Auto and Max stream every color without end, so what is waiting is not a count worth showing.
+    bool endlessSpawn = false;
     bool autoReleasing = false;
     int spawnRateIndex = 0;
-    int ballMultiplierIndex = 0;
     int ballLimitIndex = 0;
     BallCount ballLimit = 0;
     bool usingMachineLimit = false;

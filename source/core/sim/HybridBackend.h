@@ -16,6 +16,7 @@ public:
     void removeBalls(std::span<const uint32_t> descendingIndices) override;
     size_t ballCount() const override { return gpu->ballCount() + cpu->ballCount(); }
     size_t ballCapacityLimit() const override;
+    size_t ballHardLimit() const override;
     BallSnapshot snapshot() override;
     std::vector<BallSpawn> exportBalls() override;
     std::vector<BallSpawn> takeTail(size_t count) override;

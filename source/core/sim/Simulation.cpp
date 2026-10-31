@@ -158,7 +158,8 @@ void Simulation::spawnBalls(const std::vector<BallSpawn>& spawns) {
 }
 
 BallCount Simulation::ballRoom() const {
-    const BallCount limit = static_cast<BallCount>(physics->ballCapacityLimit());
+    const BallCount limit =
+        static_cast<BallCount>(roomPastCapacity ? physics->ballHardLimit() : physics->ballCapacityLimit());
     const BallCount live = liveBallCount();
     return limit > live ? limit - live : 0;
 }

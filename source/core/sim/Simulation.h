@@ -91,6 +91,8 @@ public:
     void setTuning(const SimulationTuning& tuning) { settings = tuning; }
     BallCount liveBallCount() const { return physics->ballCount() + pendingSpawns.size(); }
     BallCount ballRoom() const;
+    // On, the room runs to the backend's hard limit (paging included) instead of its capacity: the Max ball limit.
+    void setRoomPastCapacity(bool on) { roomPastCapacity = on; }
     bool isCleared() const { return brickBoard.aliveBrickCount() == 0; }
     float launchX() const { return static_cast<float>(brickBoard.columns()) * 0.5f; }
     float launchY() const { return static_cast<float>(brickBoard.rows()) - settings.ballRadius * 2.0f; }
@@ -128,4 +130,5 @@ private:
     float accumulator = 0.0f;
     uint32_t elapsedTicks = 0;
     bool ballCollisionsWanted = false;
+    bool roomPastCapacity = false;
 };

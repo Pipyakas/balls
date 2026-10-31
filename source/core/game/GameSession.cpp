@@ -3,6 +3,7 @@
 #include "common/BallColor.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <format>
 #include <utility>
@@ -63,6 +64,7 @@ void GameSession::restart(LoadProgress* progress) {
     physicsSimulation.load(levelData.bricks, progress);
     launcherQueue.load(levelData.launchers);
     spawnController.clear();
+    endlessStreams = false;
     spawnController.setInterleaved(gameMode == GameMode::Performance);
     fillRemaining = 0;
     additionGovernor = AdditionGovernor(physicsSimulation.tuning().tickSeconds);
@@ -79,8 +81,7 @@ void GameSession::reload(LevelData level) {
 }
 
 void GameSession::releaseLauncher(const Launcher& launcher) {
-    const BallCount multiplier = gameMode == GameMode::Performance ? ballMultiplierOptions[selectedMultiplier] : 1;
-    spawnController.enqueue(launcher.color, saturatingMultiply(static_cast<BallCount>(launcher.ballCount), multiplier));
+    spawnController.enqueue(launcher.color, static_cast<BallCount>(launcher.ballCount));
 }
 
 bool GameSession::chooseLauncher(int column, int row) {
@@ -155,32 +156,63 @@ void GameSession::selectSpawnRate(int optionIndex) {
 void GameSession::useCapacityBallLimit() {
     cancelFill();
     measuredMachineLimit.reset();
-    machineLimitSelected = true;
-    machineLimitIsCapacity = true;
+    setLimitChoice(BallLimitChoice::Auto);
 }
 
+// Level and Auto are both capped by the backend's capacity (or by a /fill count).
 std::optional<BallCount> GameSession::machineBallLimit() const {
-    if (machineLimitIsCapacity) {
-        return static_cast<BallCount>(physicsSimulation.backend().ballCapacityLimit());
+    if (measuredMachineLimit) {
+        return measuredMachineLimit;
     }
-    return measuredMachineLimit;
+    return static_cast<BallCount>(physicsSimulation.backend().ballCapacityLimit());
 }
 
 void GameSession::useMachineBallLimit(BallCount limit) {
     measuredMachineLimit = limit;
-    machineLimitSelected = true;
-    machineLimitIsCapacity = false;
+    setLimitChoice(BallLimitChoice::Auto);
     physicsSimulation.trimBallsTo(limit);
 }
 
 void GameSession::selectBallLimit(int optionIndex) {
-    machineLimitSelected = false;
-    machineLimitIsCapacity = false;
-    selectedBallLimit = std::clamp(optionIndex, 0, static_cast<int>(ballLimitOptions.size()) - 1);
+    const auto choice = static_cast<BallLimitChoice>(std::clamp(optionIndex, 0, ballLimitChoiceCount - 1));
+    if (choice == BallLimitChoice::Auto) {
+        useCapacityBallLimit();
+        return;
+    }
+    cancelFill();
+    measuredMachineLimit.reset();
+    setLimitChoice(choice);
+    // Back on Level the endless streams stop; the launchers still queued release their level counts.
+    if (choice == BallLimitChoice::Level && endlessStreams) {
+        spawnController.clear();
+        endlessStreams = false;
+    }
 }
 
-void GameSession::selectBallMultiplier(int optionIndex) {
-    selectedMultiplier = std::clamp(optionIndex, 0, static_cast<int>(ballMultiplierOptions.size()) - 1);
+// Auto stops at the backend's capacity, where balls still fit in memory without paging; only Max goes past it.
+void GameSession::setLimitChoice(BallLimitChoice choice) {
+    limitChoice = choice;
+    physicsSimulation.setRoomPastCapacity(choice == BallLimitChoice::Max);
+}
+
+// Auto and Max no longer read the launchers' counts: one endless stream per color the level's launchers use, sharing
+// the spawn rate, until the ball limit stops them. Each stream holds a share of 2^64-1 so their sum cannot overflow.
+void GameSession::startEndlessStreams() {
+    if (endlessStreams) {
+        return;
+    }
+    endlessStreams = true;
+    std::array<bool, ballColorCount> streaming{};
+    for (const std::optional<Launcher>& launcher : levelData.launchers.slots) {
+        if (!launcher) {
+            continue;
+        }
+        const auto color = static_cast<size_t>(launcher->color);
+        if (color < streaming.size() && !streaming[color]) {
+            streaming[color] = true;
+            spawnController.enqueue(launcher->color, unlimitedBalls / (2 * ballColorCount));
+        }
+    }
 }
 
 GameSession::~GameSession() {
@@ -318,7 +350,11 @@ void GameSession::update(float deltaTime) {
     physicsSimulation.animate(deltaTime);
     if (sessionState == SessionState::Running) {
         elapsed += deltaTime;
-        while (autoRelease && spawnController.activeStreams() < concurrentPerformanceReleases) {
+        if (autoRelease && !releasesLevelCountsOnly()) {
+            startEndlessStreams();
+        }
+        while (autoRelease && releasesLevelCountsOnly() &&
+               spawnController.activeStreams() < concurrentPerformanceReleases) {
             const auto launcher = launcherQueue.takeNextInRotation();
             if (!launcher) {
                 break;

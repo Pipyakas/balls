@@ -926,12 +926,6 @@ void balls_session_select_spawn_rate(BallsSession* session, int32_t optionIndex)
     }
 }
 
-void balls_session_select_ball_multiplier(BallsSession* session, int32_t optionIndex) {
-    if (session != nullptr) {
-        session->apply([optionIndex](GameSession& game) { game.selectBallMultiplier(optionIndex); });
-    }
-}
-
 void balls_session_select_ball_limit(BallsSession* session, int32_t optionIndex) {
     if (session != nullptr) {
         session->apply([optionIndex](GameSession& game) { game.selectBallLimit(optionIndex); });
@@ -943,13 +937,6 @@ int32_t balls_session_spawn_rate_index(const BallsSession* session) {
         return 0;
     }
     return session->threaded() ? session->view->spawnRateIndex : session->game->spawnRateIndex();
-}
-
-int32_t balls_session_ball_multiplier_index(const BallsSession* session) {
-    if (session == nullptr) {
-        return 0;
-    }
-    return session->threaded() ? session->view->ballMultiplierIndex : session->game->ballMultiplierIndex();
 }
 
 int32_t balls_session_ball_limit_index(const BallsSession* session) {
@@ -1813,8 +1800,6 @@ int32_t balls_menu_options(int32_t list, int32_t value, BallsSession* session, B
     switch (list) {
     case BALLS_MENU_SPAWN_RATE:
         return writeOptions(spawnRateChoices(view->spawnRateIndex), options, capacity);
-    case BALLS_MENU_BALL_MULTIPLIER:
-        return writeOptions(ballMultiplierChoices(view->ballMultiplierIndex), options, capacity);
     case BALLS_MENU_BALL_LIMIT:
         return writeOptions(ballLimitChoices(*view), options, capacity);
     case BALLS_MENU_GAMEPLAY_BACKENDS:

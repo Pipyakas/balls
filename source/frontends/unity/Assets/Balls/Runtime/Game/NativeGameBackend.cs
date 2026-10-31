@@ -96,8 +96,6 @@ namespace Balls.Game
 
         public override void SelectSpawnRate(int index) => BallsNative.balls_session_select_spawn_rate(session, index);
 
-        public override void SelectBallMultiplier(int index) => BallsNative.balls_session_select_ball_multiplier(session, index);
-
         public override void SelectBallLimit(int index) => BallsNative.balls_session_select_ball_limit(session, index);
 
         public override bool SwitchBackend(int kind) => BallsNative.balls_session_switch_backend(session, kind) != 0;
@@ -111,8 +109,6 @@ namespace Balls.Game
         public override void ReportFrame(double frameSeconds, double workSeconds) => BallsNative.balls_session_report_frame(session, frameSeconds, workSeconds);
 
         public override int SpawnRateIndex => BallsNative.balls_session_spawn_rate_index(session);
-
-        public override int BallMultiplierIndex => BallsNative.balls_session_ball_multiplier_index(session);
 
         public override int BallLimitIndex => BallsNative.balls_session_ball_limit_index(session);
 

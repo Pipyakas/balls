@@ -70,7 +70,6 @@ void GameplayScreen::loadSession() {
     loadProgress = std::make_shared<LoadProgress>();
     runner = std::make_unique<SessionRunner>(mode, files, app.preferredBackend(), app.settings().ticksPerSecond,
                                               loadProgress);
-    applyDefaultBallLimit();
 }
 
 bool GameplayScreen::adoptLoadOutcome() {
@@ -89,14 +88,13 @@ bool GameplayScreen::adoptLoadOutcome() {
     return true;
 }
 
-void GameplayScreen::applyDefaultBallLimit() {
-    if (mode == GameMode::Performance) {
-        useAutoBallLimit();
-    }
-}
-
-void GameplayScreen::useAutoBallLimit() {
-    runner->post([](GameSession& session) { session.useCapacityBallLimit(); });
+// After a backend switch Auto follows the new backend's capacity, dropping any /fill count.
+void GameplayScreen::refreshAutoBallLimit() {
+    runner->post([](GameSession& session) {
+        if (session.isUsingMachineBallLimit()) {
+            session.useCapacityBallLimit();
+        }
+    });
 }
 
 void GameplayScreen::handleSessionEvents() {
@@ -104,7 +102,7 @@ void GameplayScreen::handleSessionEvents() {
         if (event.kind == SessionEventKind::BallCollisionsChanged) {
             app.showToast(std::string(ballCollisionsMessage(event.collisionsChange)), false);
         } else if (event.kind == SessionEventKind::BackendSwitched) {
-            applyDefaultBallLimit();
+            refreshAutoBallLimit();
         } else {
             app.showToast(backendFailedMessage(event.backend), true);
         }
@@ -467,39 +465,19 @@ void GameplayScreen::drawPerformanceControls(Rect area) {
         runner->post([pickedSpawn](GameSession& session) { session.selectSpawnRate(pickedSpawn); });
     }
 
-    const auto countChoices = ballMultiplierChoices(view->ballMultiplierIndex);
-    std::vector<std::string> countLabels;
-    for (const UiOption& option : countChoices) {
-        countLabels.push_back(option.label);
-    }
-    const float countHeight =
-        controlRowHeight + (countDropdownOpen ? (controlRowHeight + controlGap) * countLabels.size() : 0.0f);
-    const int pickedCount =
-        drawOptionDropdown(group("Ball count", countHeight), countLabels[view->ballMultiplierIndex],
-                           countLabels, view->ballMultiplierIndex, countDropdownOpen);
-    if (pickedCount >= 0) {
-        runner->post([pickedCount](GameSession& session) { session.selectBallMultiplier(pickedCount); });
-    }
-
     const auto limitChoices = ballLimitChoices(*view);
     std::vector<std::string> limitLabels;
     for (const UiOption& option : limitChoices) {
         limitLabels.push_back(option.label);
     }
-    const bool autoLimit = isAutoBallLimit(*view);
-    const int selectedLimit = autoLimit ? 0 : view->ballLimitIndex + 1;
+    const int selectedLimit = view->ballLimitIndex;
     const float dropdownHeight =
         controlRowHeight + (limitDropdownOpen ? (controlRowHeight + controlGap) * limitLabels.size() : 0.0f);
     const Rect limitArea = group("Ball limit", dropdownHeight);
     const int pickedLimit = drawOptionDropdown(limitArea, limitLabels[selectedLimit], limitLabels, selectedLimit,
                                                limitDropdownOpen);
-    if (pickedLimit == 0) {
-        useAutoBallLimit();
-    } else if (pickedLimit > 0) {
-        runner->post([pickedLimit](GameSession& session) {
-            session.cancelFill();
-            session.selectBallLimit(pickedLimit - 1);
-        });
+    if (pickedLimit >= 0) {
+        runner->post([pickedLimit](GameSession& session) { session.selectBallLimit(pickedLimit); });
     }
 
     // The section header spans both columns, under whichever column ended lower.

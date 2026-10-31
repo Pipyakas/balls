@@ -51,6 +51,7 @@ public:
     void removeBalls(std::span<const uint32_t> descendingIndices) override;
     size_t ballCount() const override;
     size_t ballCapacityLimit() const override;
+    size_t ballHardLimit() const override;
     BallSnapshot snapshot() override;
     std::vector<BallSpawn> exportBalls() override;
     std::vector<BallSpawn> takeTail(size_t count) override;
@@ -104,6 +105,7 @@ protected:
     void overlay(const BallSnapshot& balls, uint32_t replaceBelow, uint32_t salt);
     void shareRenderSamples();
     size_t partCapacity(const Part& part) const;
+    size_t partHardLimit(const Part& part) const;
     size_t gridCellCount() const { return static_cast<size_t>(stepGridWidth) * static_cast<size_t>(stepGridHeight); }
 
     Tuning settings;

@@ -37,8 +37,7 @@ namespace Balls.Ui
             size = FitSize(label, units.width - 16f, size);
             if (!enabled)
             {
-                theme.Fill(units, Palette.Control);
-                theme.Frame(units, Palette.Control, Palette.Border);
+                theme.Frame(units, Palette.Panel, Palette.Border);
                 GUI.Label(theme.Units(units.x, units.y, units.width, units.height),
                     label, theme.TextStyle(size, Palette.TextDim, false, TextAnchor.MiddleCenter));
                 return false;
@@ -125,18 +124,19 @@ namespace Balls.Ui
         {
             bool changed = false;
             bool open = openDropdowns.TryGetValue(key, out bool isOpen) && isOpen;
+            bool hovered = UnitsContains(units, Event.current.mousePosition);
 
-            theme.Frame(units, Palette.Background, open ? Palette.Accent : Palette.Border);
-            GUI.Label(theme.Units(units.x + 10f, units.y, units.width - 44f, units.height),
+            // As SDL's ui::dropdown: the board backdrop fill, accent border while hovered or open, and a square handle
+            // on the right with a hairline before it and a triangle pointing down (up while open).
+            theme.Frame(units, hovered ? Palette.ControlHover : Palette.BoardBackdrop,
+                open || hovered ? Palette.Accent : Palette.Border);
+            Rect handle = new Rect(units.xMax - units.height, units.y, units.height, units.height);
+            theme.Fill(new Rect(handle.x, units.y + 6f, 1f, units.height - 12f), Palette.Border);
+            Triangle(new Vector2(handle.center.x, handle.center.y), open ? -1 : 1,
+                open || hovered ? Palette.Accent : Palette.TextMuted);
+            GUI.Label(theme.Units(units.x + 12f, units.y, handle.x - units.x - 24f, units.height),
                 index >= 0 && index < options.Length ? options[index] : "",
-                theme.TextStyle(size, Palette.Text, false, TextAnchor.MiddleLeft));
-            // The chevron: a square handle on the right, down when closed and up when open.
-            Rect handle = new Rect(units.x + units.width - 28f, units.y, 28f, units.height);
-            theme.Fill(new Rect(handle.x, units.y + 1f, 1f, units.height - 2f), Palette.Border);
-            float cy = units.y + units.height * 0.5f;
-            Color chevron = open ? Palette.Accent : Palette.TextMuted;
-            theme.Fill(new Rect(handle.x + 8f, cy - 4f, 12f, 2f), chevron);
-            theme.Fill(new Rect(handle.x + 8f, cy + 2f, 12f, 2f), chevron);
+                theme.TextStyle(size, Palette.Text, false, TextAnchor.MiddleLeft, true));
 
             if (GUI.Button(theme.Units(units.x, units.y, units.width, units.height), GUIContent.none,
                     GUIStyle.none))
@@ -150,7 +150,7 @@ namespace Balls.Ui
                 float rowHeight = units.height;
                 for (int option = 0; option < options.Length; ++option)
                 {
-                    Rect row = new Rect(units.x, units.y + units.height * (option + 1) + 2f, units.width, rowHeight);
+                    Rect row = new Rect(units.x, units.y + (rowHeight + RowGap) * (option + 1), units.width, rowHeight);
                     bool selected = option == index;
                     Color fill = selected ? Palette.Accent : Palette.Control;
                     if (GUI.Button(theme.Units(row.x, row.y, row.width, row.height), GUIContent.none,
@@ -167,6 +167,65 @@ namespace Balls.Ui
                 }
             }
             return changed;
+        }
+
+        public bool IsDropdownOpen(string key) => openDropdowns.TryGetValue(key, out bool open) && open;
+
+        /// <summary>Height a dropdown takes in a column: its row, plus its option list while open.</summary>
+        public float DropdownHeight(string key, int optionCount) =>
+            RowHeight + (IsDropdownOpen(key) ? (RowHeight + RowGap) * optionCount : 0f);
+
+        /// <summary>
+        /// A 12 x 7 triangle centred on a point, drawn as thin strips: direction 1 points down, -1 up, and 0 right
+        /// (as a 7 x 12 triangle).
+        /// </summary>
+        public void Triangle(Vector2 center, int direction, Color color)
+        {
+            const float halfWidth = 6f;
+            const float halfHeight = 3.5f;
+            float strip = 1f / theme.Scale;
+            if (direction == 0)
+            {
+                for (float x = -halfHeight; x < halfHeight; x += strip)
+                {
+                    float half = halfWidth * (halfHeight - (x + strip * 0.5f)) / (2f * halfHeight);
+                    theme.Fill(new Rect(center.x + x, center.y - half, strip, half * 2f), color);
+                }
+                return;
+            }
+            for (float y = -halfHeight; y < halfHeight; y += strip)
+            {
+                float fromWide = direction > 0 ? y + halfHeight : halfHeight - y - strip;
+                float half = halfWidth * (1f - (fromWide + strip * 0.5f) / (2f * halfHeight));
+                theme.Fill(new Rect(center.x - half, center.y + y, half * 2f, strip), color);
+            }
+        }
+
+        /// <summary>
+        /// The game's collapsible section header, as SDL's ui::collapsingHeader: a hairline above, a chevron (right when
+        /// closed, down when open) and the label at 20, hover fill and accent while hovered. Returns true on click.
+        /// </summary>
+        public bool CollapsingHeader(Rect units, string label, bool open)
+        {
+            bool hovered = UnitsContains(units, Event.current.mousePosition);
+            if (hovered)
+            {
+                theme.Fill(units, Event.current.type == EventType.MouseDown ? Palette.ControlPressed : Palette.ControlHover);
+            }
+            theme.Fill(new Rect(units.x, units.y, units.width, 1f), Palette.Border);
+            Color color = hovered ? Palette.Accent : Palette.Text;
+            var center = new Vector2(units.x + 10f, units.y + units.height * 0.5f);
+            Triangle(center, open ? 1 : 0, color);
+            float labelX = center.x + 16f;
+            GUI.Label(theme.Units(labelX, units.y, units.xMax - labelX, units.height), label,
+                theme.TextStyle(TypeSizes.Label, color, false, TextAnchor.MiddleLeft, true));
+            return GUI.Button(theme.Units(units.x, units.y, units.width, units.height), GUIContent.none, GUIStyle.none);
+        }
+
+        /// <summary>A muted group label (20) above a control group, as SDL's gameplay gadget writes them.</summary>
+        public void GroupLabel(Rect units, string text)
+        {
+            Label(units, text, TypeSizes.Label, Palette.TextMuted, TextAnchor.UpperLeft);
         }
 
         /// <summary>A number with minus and plus buttons; steps by 1, or by 10 with Shift held.</summary>

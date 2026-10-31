@@ -24,12 +24,7 @@ public:
 
     void ChooseLauncher(int32 Column, int32 Row);
     void StartAutoRelease();
-    // Auto sets the physics backend's capacity as the ball limit. Every Performance game starts on it.
-    void UseAutoBallLimit();
-    // True while the Auto ball limit is chosen.
-    bool IsAutoLimit() const { return View && View->usingMachineLimit; }
     void SelectSpawnRate(int32 Index);
-    void SelectBallMultiplier(int32 Index);
     void SelectBallLimit(int32 Index);
     void SwitchBackend(BackendKind Kind);
     void Restart();
@@ -77,7 +72,7 @@ private:
     void LoadSession();
     // Tells the flow once the host has read the level: loaded, with any repair notice, or failed.
     void AdoptLoadOutcome();
-    void ApplyDefaultBallLimit();
+    void RefreshAutoBallLimit();
     void ReloadFromDisk();
     void ShowToast(FString Text, bool bIsError);
 

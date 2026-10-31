@@ -10,6 +10,10 @@ namespace Balls.Ui
     {
         public const float ReferenceHeight = 900f;
 
+        // The game's type sizes are the line heights SDL and Unreal draw text at; IBM Plex Mono's em is that much
+        // larger, so Unity's font size is the size times this (measured off SDL's 10.1-unit advance at size 22).
+        public const float FontScale = 0.76f;
+
         private static readonly Color Transparent = new Color(0f, 0f, 0f, 0f);
 
         private Font regular;
@@ -60,7 +64,7 @@ namespace Balls.Ui
             var style = new GUIStyle(GUI.skin.label)
             {
                 font = bold ? semibold : regular,
-                fontSize = Mathf.Max(8, Mathf.RoundToInt(size * Scale)),
+                fontSize = Mathf.Max(8, Mathf.RoundToInt(size * FontScale * Scale)),
                 alignment = anchor,
                 wordWrap = false,
                 richText = false,
@@ -86,7 +90,7 @@ namespace Balls.Ui
             var style = new GUIStyle(GUI.skin.button)
             {
                 font = bold ? semibold : regular,
-                fontSize = Mathf.Max(8, Mathf.RoundToInt(size * Scale)),
+                fontSize = Mathf.Max(8, Mathf.RoundToInt(size * FontScale * Scale)),
                 alignment = TextAnchor.MiddleCenter,
                 border = new RectOffset(1, 1, 1, 1),
                 padding = new RectOffset(6, 6, 2, 2),
@@ -109,7 +113,7 @@ namespace Balls.Ui
             var style = new GUIStyle(GUI.skin.textField)
             {
                 font = regular,
-                fontSize = Mathf.Max(8, Mathf.RoundToInt(size * Scale)),
+                fontSize = Mathf.Max(8, Mathf.RoundToInt(size * FontScale * Scale)),
                 alignment = TextAnchor.MiddleLeft,
                 border = new RectOffset(1, 1, 1, 1),
                 padding = new RectOffset(8, 8, 2, 2),

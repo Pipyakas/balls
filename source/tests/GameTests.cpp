@@ -93,8 +93,10 @@ TEST_CASE("Auto is the backend's capacity, and the ramp fills toward it over fra
         session.update(1.0f / 60.0f);
     }
     EXPECT(session.simulation().liveBallCount() > 0);
-    session.selectBallLimit(0);
-    EXPECT(session.ballLimit() == ballLimitOptions[0]);
+    session.selectBallLimit(static_cast<int>(BallLimitChoice::Max));
+    EXPECT(session.ballLimit() == unlimitedBalls);
+    session.selectBallLimit(static_cast<int>(BallLimitChoice::Level));
+    EXPECT(session.releasesLevelCountsOnly());
 }
 
 TEST_CASE("performance session waits for one click then releases automatically") {
@@ -144,11 +146,43 @@ TEST_CASE("ball collisions on another backend move to Scalar only where Scalar i
     EXPECT(session.simulation().ballCollisionsActive());
 }
 
-TEST_CASE("a performance game starts at the fastest spawn rate and the largest ball count") {
+TEST_CASE("a performance game starts at the fastest spawn rate") {
     GameSession session(GameMode::Performance, loadSample("performance", "DA_1000Bricks"), BackendKind::Scalar);
     EXPECT(spawnRateOptions[session.spawnRateIndex()] == 0);
-    EXPECT(ballMultiplierOptions[session.ballMultiplierIndex()] == ballMultiplierOptions.back());
     session.selectSpawnRate(2);
     session.restart();
     EXPECT(session.spawnRateIndex() == 2);
+}
+
+namespace {
+
+BallCount levelLauncherBalls(const LevelData& level) {
+    BallCount total = 0;
+    for (const std::optional<Launcher>& launcher : level.launchers.slots) {
+        total += launcher ? static_cast<BallCount>(launcher->ballCount) : 0;
+    }
+    return total;
+}
+
+// Balls spawned after auto release has run for `frames` frames at the fastest rate.
+BallCount spawnedAfter(GameSession& session, int frames) {
+    session.startAutoRelease();
+    for (int frame = 0; frame < frames; ++frame) {
+        session.update(1.0f / 60.0f);
+    }
+    return session.simulation().stats().totalBallsSpawned;
+}
+
+}
+
+TEST_CASE("the Level ball limit releases the level's counts; Auto keeps the launchers releasing") {
+    const LevelData level = loadSample("performance", "DA_1000Bricks");
+    const BallCount levelBalls = levelLauncherBalls(level);
+    constexpr int frames = 240;
+    GameSession exact(GameMode::Performance, level, BackendKind::Scalar);
+    EXPECT(spawnedAfter(exact, frames) == levelBalls);
+    EXPECT(exact.launchers().isEmpty());
+    GameSession endless(GameMode::Performance, level, BackendKind::Scalar);
+    endless.selectBallLimit(static_cast<int>(BallLimitChoice::Auto));
+    EXPECT(spawnedAfter(endless, frames) > levelBalls);
 }

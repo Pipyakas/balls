@@ -71,6 +71,13 @@ size_t HybridBackend::ballCapacityLimit() const {
                                                                      : gpuLimit + cpuLimit;
 }
 
+size_t HybridBackend::ballHardLimit() const {
+    const size_t gpuLimit = gpu->ballHardLimit();
+    const size_t cpuLimit = cpu->ballHardLimit();
+    return gpuLimit > std::numeric_limits<size_t>::max() - cpuLimit ? std::numeric_limits<size_t>::max()
+                                                                     : gpuLimit + cpuLimit;
+}
+
 // Balls the GPU has no memory left for go to the CPU side, whatever the measured share says.
 void HybridBackend::addBalls(std::span<const BallSpawn> spawns) {
     const size_t cpuCount = cpu->ballCount();

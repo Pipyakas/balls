@@ -332,6 +332,29 @@ private:
     std::vector<BallSpawn> balls;
 };
 
+// Holds 300 balls without paging and 1,000 with it.
+class PagingBackend final : public PhysicsBackend {
+public:
+    static constexpr size_t capacity = 300;
+    static constexpr size_t hardLimit = 1'000;
+    std::string_view name() const override { return "Paging"; }
+    void uploadBoard(const BoardUpload&) override {}
+    void addBalls(std::span<const BallSpawn> spawns) override { held += spawns.size(); }
+    void step(const StepParams&, std::vector<BallHit>&) override {}
+    void removeBalls(std::span<const uint32_t>) override {}
+    size_t ballCount() const override { return held; }
+    size_t ballCapacityLimit() const override { return capacity; }
+    size_t ballHardLimit() const override { return hardLimit; }
+    BallSnapshot snapshot() override { return {}; }
+    std::vector<BallSpawn> exportBalls() override { return {}; }
+    std::vector<BallSpawn> takeTail(size_t) override { return {}; }
+    void clear() override { held = 0; }
+    BallTally truncate(size_t) override { return {}; }
+
+private:
+    size_t held = 0;
+};
+
 } // namespace
 
 TEST_CASE("switching backends streams every ball across with its position and velocity") {
@@ -364,6 +387,18 @@ TEST_CASE("balls a new backend drops partway are counted and handed back") {
         BackendHandle(new SmallBackend(false), BackendRelease{[](PhysicsBackend* backend) { delete backend; }, nullptr}), 100);
     EXPECT(simulation.backend().ballCount() == 300);
     EXPECT(replacement.ballsToRefill == 700);
+}
+
+TEST_CASE("room past the capacity runs to the backend's hard limit, for the Max ball limit") {
+    Simulation simulation(
+        BackendHandle(new PagingBackend(), BackendRelease{[](PhysicsBackend* backend) { delete backend; }, nullptr}));
+    simulation.load(makeLayout(singleBrickLevel));
+    EXPECT(simulation.ballRoom() == PagingBackend::capacity);
+    simulation.setRoomPastCapacity(true);
+    EXPECT(simulation.ballRoom() == PagingBackend::hardLimit);
+    simulation.launchBalls(BallColor::Red, 2'000);
+    simulation.flushSpawns();
+    EXPECT(simulation.liveBallCount() == PagingBackend::hardLimit);
 }
 
 TEST_CASE("removing many balls at once on AVX2 keeps exactly the survivors") {

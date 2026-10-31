@@ -15,7 +15,7 @@ namespace {
 constexpr std::string_view knownPaths[] = {
     "/state",  "/screenshot", "/play",  "/levels", "/editor", "/menu",      "/quit",           "/settings",
     "/vsync",  "/benchmark",  "/benchmark/skip", "/benchmark/continue", "/launch", "/launcher", "/start",
-    "/rate",   "/fill",       "/limit", "/multiplier", "/backend", "/pause",   "/resume", "/restart",
+    "/rate",   "/fill",       "/limit", "/backend", "/pause",   "/resume", "/restart",
 };
 
 std::string_view candidateStatusName(CandidateStatus status) {
@@ -184,16 +184,18 @@ std::optional<ControlResponse> handleGameRoute(ControlGame& game, const ControlR
         return done;
     }
     if (path == "/limit") {
-        const int index = request.integer("index").value_or(view->ballLimitIndex);
+        // index: 0 Level, 1 Auto, 2 Max (BallLimitChoice); or mode=level|auto|max.
+        int index = request.integer("index").value_or(view->ballLimitIndex);
+        if (const auto mode = request.text("mode")) {
+            index = *mode == "level" ? 0 : *mode == "auto" ? 1 : *mode == "max" ? 2 : -1;
+            if (index < 0) {
+                return ControlResponse::error(400, "mode must be level, auto or max");
+            }
+        }
         game.post([index](GameSession& session) {
             session.cancelFill();
             session.selectBallLimit(index);
         });
-        return done;
-    }
-    if (path == "/multiplier") {
-        const int index = request.integer("index").value_or(view->ballMultiplierIndex);
-        game.post([index](GameSession& session) { session.selectBallMultiplier(index); });
         return done;
     }
     return std::nullopt;
@@ -264,7 +266,7 @@ std::string controlGameJson(ControlGame& game) {
         "{{\"mode\":\"{}\",\"level\":\"{}\",\"diskNotice\":\"{}\",\"state\":\"{}\",\"paused\":{},\"backend\":\"{}\","
         "\"pendingBackend\":\"{}\",\"refilling\":{},\"backendFault\":\"{}\",\"collisions\":{},"
         "\"balls\":{},\"bricks\":{},\"launchersLeft\":{},\"pendingSpawn\":{},\"spawned\":{},\"hits\":{},"
-        "\"physicsMs\":{:.3f},\"kernelMs\":{:.3f},\"ticks\":{},\"spawnRate\":{},\"multiplier\":{},"
+        "\"physicsMs\":{:.3f},\"kernelMs\":{:.3f},\"ticks\":{},\"spawnRate\":{},"
         "\"ballLimit\":{},\"elapsed\":{:.2f},\"physicsFps\":{:.1f},\"tickRate\":{:.1f},\"targetTickRate\":{:.1f},\"physicsFrameMs\":{:.3f},"
         "\"physicsLongestFrameMs\":{:.3f},\"physicsSlowFrames\":{},"
         "\"syncMs\":{:.3f},\"stepMs\":{:.3f},\"deviceHitsMs\":{:.3f},\"hostHitsMs\":{:.3f},\"publishMs\":{:.3f},\"targetFieldMs\":{:.3f},\"boardUploadMs\":{:.3f},"
@@ -275,7 +277,7 @@ std::string controlGameJson(ControlGame& game) {
         jsonEscape(view->backendFault), view->collisionsActive, stats.ballCount, view->board ? view->board->aliveBrickCount() : 0,
         launchers.launcherCount(), view->pendingSpawn, stats.totalBallsSpawned, stats.totalHits,
         stats.lastFramePhysicsMs, view->deviceStepMs, stats.ticksLastFrame, spawnRateOptions[view->spawnRateIndex],
-        ballMultiplierOptions[view->ballMultiplierIndex], view->ballLimit, view->elapsedSeconds,
+        view->ballLimit, view->elapsedSeconds,
         view->physicsFramesPerSecond, view->physicsTicksPerSecond, view->targetTicksPerSecond, view->physicsFrameMs, view->physicsLongestFrameMs, view->physicsSlowFrames,
         stats.lastSyncMs, stats.lastStepMs, stats.lastDeviceHitsMs, stats.lastHostHitsMs, view->boardPublishMs,
         stats.lastTargetFieldMs, stats.lastBoardUploadMs, ballsByColor, launcherColumns);
