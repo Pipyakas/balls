@@ -1,26 +1,35 @@
 # Hybrid split physics
 
-`Hybrid` (`DeviceComposer`) splits the balls between devices: one backend on each device the player picks, described
-in [The device composer](#the-device-composer). It replaced the fixed `CUDA+AVX2` pair (`HybridBackend`), which was
-removed once the composer matched it on the target PC ([the comparison](#the-composer-against-the-cudaavx2-pair-on-the-scoring-pc)).
-The pair's old names (`CUDA+AVX2`, `cuda-avx2`, and `Hybrid` in a settings or profile file written before the
-composer) now select Hybrid over AVX2 on the CPU and CUDA on the default GPU. The pair's section is kept as history:
-what made its CPU side worth adding still holds for the composer's CPU part.
+Two backends split the balls between devices:
 
-## History: the CUDA+AVX2 pair
+- The fixed `CUDA+AVX2` pair (`HybridBackend`, kind `CudaAvx2`) is the scoring build's only physics backend: with
+  `BALLS_PROFILE=scoring` the game starts it, preallocated, and offers nothing else (`chooseStartupBackend`,
+  `selectableBackends`).
+- `Hybrid` (`DeviceComposer`) runs one backend on each device the player picks, described in
+  [The device composer](#the-device-composer). It is the extended build's default. That build hides the pair from its
+  menus and shows Hybrid in its place (`offeredBackend`), since Hybrid composes the same two devices and any others.
+
+`CUDA+AVX2` and `cuda-avx2` name the pair, and so does `Hybrid` in a settings or profile file written before the
+composer took that name (`parseStoredBackend`). What made the pair's CPU side worth adding also holds for the
+composer's CPU part.
+
+## The CUDA+AVX2 pair
 
 Balls never collide with each other, so the ball set can be split between devices. The `CUDA+AVX2` backend
-(F4, `/backend?kind=cuda-avx2`; called `Hybrid` until the general device composer took that name) keeps most balls on CUDA and a share on the AVX2 backend, steps both at the same
-time, and merges their results on the host. Measured on a GTX 1650 with an i5-12400F (6 cores, 12 threads,
-dual-channel DDR4-3200).
+(`/backend?kind=cuda-avx2`; called `Hybrid` until the general device composer took that name) keeps most balls on
+CUDA and a share on the AVX2 backend, steps both at the same time, and merges their results on the host. The
+measurements in this section were taken on a GTX 1650 with an i5-12400F (6 cores, 12 threads, dual-channel
+DDR4-3200).
 
 ### How it works
 
 - `HybridBackend` (`source/core/sim/`) owns a CUDA and an AVX2 backend. Each step runs the AVX2 step on a helper
   thread while the calling thread drives CUDA.
-- The CPU share follows the measured cost per ball of each side: `share = gpuCost / (cpuCost + gpuCost)`,
-  smoothed over frames. When the CPU ball count drifts more than 10% from its target, up to 256k balls move
-  between devices per step as raw 8-byte records (`takeCompactTail` / `addCompact`), about 0.4-1 ms per move.
+- The CPU share follows the measured cost per ball of each side: `share = gpuCost / (cpuCost + gpuCost)`. It
+  starts at 8%, is capped at 50%, and is smoothed at 0.35 for the first 24 measurements and 0.1 after. Each side
+  needs 65536 balls to be measured, and below 262144 balls the CPU gets none. When the CPU ball count is more than
+  2% or 131072 balls off its target, up to 1M balls move between devices per step as raw 8-byte records
+  (`takeCompactTail` / `addCompact`). Moving 4M took about 30 ms on the target PC (`HybridBackend.cpp`).
 - Brick hits: CUDA resolves its hits on the device as before. The CPU returns hits to `Simulation`, which
   accepts them against the hits the GPU left, then re-uploads the hit counts so the GPU sees them next tick.
 - Rendering: both sides fill the same visibility grid. The CPU writes its grid in the step; the hybrid
@@ -202,7 +211,8 @@ What closed the gap, in order:
 After all three, Tough, Checker and LoneBrick at 128 and 512, two rounds with the order of the two swapped: the
 composer held 1758M balls in total against the pair's 1728M. Per board the two were within the run-to-run noise
 (about 15%), the composer ahead on Checker (100-175M against 89-131M) and behind on Tough 512 (146-151M against
-163-167M). Holding a half-share cap on the CPU, as the pair did, changed nothing. The pair was then removed.
+163-167M). Holding a half-share cap on the CPU, as the pair did, changed nothing. The pair was then taken out of the extended
+build's menus; the scoring build still runs it.
 
 ### Hit-heavy small boards
 
@@ -252,7 +262,8 @@ Three more backends can be composer parts.
   then `finishStep` waits for each. It ties the two-part Vulkan Hybrid; doing without the helper threads saves
   about what the single thread's serial readback costs.
 
-Composer changes that came with them:
+Composer changes that came with them (the parking rules below were later removed: the composer no longer parks a
+picked device, see [Splitting the balls](#splitting-the-balls)):
 
 - A part is parked when the composed step stays slower than the other parts would be without it (before: than the
   lead part alone). With three parts the old rule kept a CPU that held two GPUs back: Zen4 + CUDA + ROCm stepped at
@@ -265,7 +276,8 @@ Composer changes that came with them:
 ### Results on the two-GPU desktop
 
 Same machine and method as above (`balls_bench --grid`, 1500 ticks, averages include the first ticks while shares
-settle; the two-GPU desktop numbers the RX 6700 XT `gpu0` and the RTX 2060 `gpu1`).
+settle; the two-GPU desktop numbers the RX 6700 XT `gpu0` and the RTX 2060 `gpu1`). Measured while the composer still parked parts,
+so "CPU parked" rows would now keep the CPU stepping.
 
 | Backend | 32M balls | 96M balls |
 |---|---|---|
