@@ -4,10 +4,15 @@
 #include "game/SessionRunner.h"
 #include "level/LevelParser.h"
 #include "level/LevelRepository.h"
+#include "ui/LoadingScreen.h"
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <format>
+#include <fstream>
 #include <functional>
+#include <random>
 #include <thread>
 
 namespace {
@@ -110,4 +115,74 @@ TEST_CASE("a session host on the physics thread reads the runner's views") {
         std::this_thread::sleep_for(5ms);
     }
     EXPECT(host.view() && host.view()->stats.totalBallsSpawned > 0);
+}
+
+TEST_CASE("a runner given level files reads them on its thread and reports each loading step") {
+    auto progress = std::make_shared<LoadProgress>();
+    SessionRunner runner(GameMode::Normal,
+                         levelFilesFor(std::filesystem::path(BALLS_ASSET_DIR) / "levels" / "normal", "DA_FirstLevel"),
+                         BackendKind::Scalar, defaultTicksPerSecond, progress);
+    const auto view = tickUntil(runner, [](const SessionView&) { return true; });
+    EXPECT(view != nullptr);
+    const auto outcome = runner.takeLoadOutcome();
+    EXPECT(outcome && outcome->loaded && outcome->message.empty());
+    EXPECT(!runner.takeLoadOutcome());
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (!progress->isFinished() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(5ms);
+    }
+    EXPECT(progress->isFinished());
+    std::vector<std::string> texts;
+    for (const LoadProgress::Step& step : progress->steps()) {
+        EXPECT(step.done);
+        texts.push_back(step.text);
+    }
+    EXPECT(texts.size() >= 6);
+    EXPECT(texts.front() == "Reading DA_FirstLevel_Bricks.txt");
+    EXPECT(std::ranges::find(texts, "Starting Scalar physics") != texts.end());
+    EXPECT(texts.back() == "Drawing the first frame");
+}
+
+TEST_CASE("a runner whose level files do not parse reports why and builds no session") {
+    const std::filesystem::path folder =
+        std::filesystem::temp_directory_path() / ("balls-runner-load-" + std::to_string(std::random_device{}()));
+    std::filesystem::create_directories(folder);
+    std::ofstream(folder / "Bad_Bricks.txt") << "[Board]\nWidth 1\nHeight 1\n[Layout]\nabc\n";
+    std::ofstream(folder / "Bad_SpawnBall.txt") << "[Layout]\nRed(1)\n";
+    auto progress = std::make_shared<LoadProgress>();
+    SessionRunner runner(GameMode::Normal, levelFilesFor(folder, "Bad"), BackendKind::Scalar, defaultTicksPerSecond,
+                         progress);
+    std::optional<LevelLoadOutcome> outcome;
+    const auto deadline = std::chrono::steady_clock::now() + 2s;
+    while (!(outcome = runner.takeLoadOutcome()) && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(5ms);
+    }
+    EXPECT(outcome && !outcome->loaded && outcome->message.starts_with("Bad_Bricks.txt: "));
+    EXPECT(progress->isFinished());
+    EXPECT(runner.view() == nullptr);
+    std::error_code error;
+    std::filesystem::remove_all(folder, error);
+}
+
+TEST_CASE("the loading screen lists each step with its time, the running one last with its detail") {
+    LoadProgress progress;
+    EXPECT(loadingScreenText("Arena", nullptr).lines.empty());
+    progress.begin("Reading Arena_Bricks.txt");
+    progress.setDetail("1.5 MB");
+    progress.begin("Reading the 4 x 2 brick layout");
+    progress.setDetail("row 64 of 128");
+    const LoadingScreenText running = loadingScreenText("Arena", &progress);
+    EXPECT(running.title == "Loading Arena");
+    EXPECT(running.lines.size() == 2);
+    EXPECT(running.lines[0].text == "Reading Arena_Bricks.txt: 1.5 MB" && !running.lines[0].running);
+    EXPECT(running.lines[1].text.starts_with("Reading the 4 x 2 brick layout: row 64 of 128") &&
+           running.lines[1].running);
+    EXPECT(running.lines[1].time.ends_with(" s") && running.total.ends_with(" s total"));
+    for (size_t step = 0; step < loadingScreenMaxLines; ++step) {
+        progress.begin(std::format("Step {}", step));
+    }
+    progress.finish();
+    const LoadingScreenText finished = loadingScreenText("Arena", &progress);
+    EXPECT(finished.lines.size() == loadingScreenMaxLines);
+    EXPECT(finished.lines.front().text == "Step 0" && !finished.lines.back().running);
 }

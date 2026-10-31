@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <format>
 #include <utility>
 
 namespace {
@@ -11,18 +12,27 @@ namespace {
 // A GPU backend can fail to build even when available: starting a level right after one held hundreds of millions of
 // balls, the GPU memory is still being given back while the new session builds, and the target PC crashed loading the
 // level into a missing backend. The session then starts on the fastest CPU backend instead.
-BackendHandle firstBackendThatBuilds(BackendKind& kind) {
+BackendHandle firstBackendThatBuilds(BackendKind& kind, LoadProgress* progress) {
     for (const BackendKind candidate : {kind, fastestAvailableCpuBackend(), BackendKind::Scalar}) {
         if (!isBackendAvailable(candidate)) {
             continue;
         }
+        beginLoadStep(progress, std::format("Starting {} physics", backendKindName(candidate)));
         if (BackendHandle handle = createBackend(candidate)) {
             kind = candidate;
             return handle;
         }
+        setLoadDetail(progress, "did not start");
     }
     kind = BackendKind::Scalar;
+    beginLoadStep(progress, std::format("Starting {} physics", backendKindName(kind)));
     return createBackend(BackendKind::Scalar);
+}
+
+std::string boardStepText(const BrickLayout& layout) {
+    return std::format("Placing {} bricks on the {} x {} board", groupedCount(layout.types.size()),
+                       groupedCount(static_cast<uint64_t>(layout.width)),
+                       groupedCount(static_cast<uint64_t>(layout.playableHeight)));
 }
 
 // Performance auto release keeps this many launchers spawning at once, so every color is on the board together
@@ -35,20 +45,22 @@ double secondsSince(std::chrono::steady_clock::time_point start) {
 
 }
 
-GameSession::GameSession(GameMode mode, LevelData level, BackendKind backend, int ticksPerSecond)
+GameSession::GameSession(GameMode mode, LevelData level, BackendKind backend, int ticksPerSecond,
+                         LoadProgress* progress)
     : gameMode(mode), levelData(std::move(level)), backendKind(backend), physicsTicksPerSecond(ticksPerSecond),
-      physicsSimulation(firstBackendThatBuilds(backendKind), simulationTuning(levelData.rules)),
+      physicsSimulation(firstBackendThatBuilds(backendKind, progress), simulationTuning(levelData.rules)),
       additionGovernor(physicsSimulation.tuning().tickSeconds) {
-    restart();
+    beginLoadStep(progress, boardStepText(levelData.bricks));
+    restart(progress);
 }
 
-void GameSession::restart() {
+void GameSession::restart(LoadProgress* progress) {
     physicsSimulation.setTuning(simulationTuning(levelData.rules));
     // The Settings page's physics rate replaces the level's when the player chose one other than the default.
     if (physicsTicksPerSecond > 0 && physicsTicksPerSecond != defaultTicksPerSecond) {
         physicsSimulation.setTicksPerSecond(physicsTicksPerSecond);
     }
-    physicsSimulation.load(levelData.bricks);
+    physicsSimulation.load(levelData.bricks, progress);
     launcherQueue.load(levelData.launchers);
     spawnController.clear();
     spawnController.setInterleaved(gameMode == GameMode::Performance);

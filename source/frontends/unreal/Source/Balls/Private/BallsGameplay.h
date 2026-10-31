@@ -66,8 +66,8 @@ public:
     // Slot size of the ball visibility grid, in board cells, for a session on the physics thread to size it.
     void SetVisibilitySlotCells(float Cells) { VisibilitySlotCells = Cells; }
     const FString& GetLoadError() const { return LoadError; }
-    // Empty unless the level loaded only after the parser repaired it (levelRepairNotice).
-    const std::string& GetRepairNotice() const { return RepairNotice; }
+    // The steps of the load in progress, for the loading screen until the first view is out.
+    const LoadProgress* GetLoadProgress() const { return Progress.get(); }
     const FBallsToast& GetToast() const;
     bool IsPaused() const { return App.GetScreenFlow().isPaused(); }
     bool IsSettingsOpen() const { return App.GetScreenFlow().overlay() == FlowOverlay::Settings; }
@@ -75,6 +75,8 @@ public:
 
 private:
     void LoadSession();
+    // Tells the flow once the host has read the level: loaded, with any repair notice, or failed.
+    void AdoptLoadOutcome();
     void ApplyDefaultBallLimit();
     void ReloadFromDisk();
     void ShowToast(FString Text, bool bIsError);
@@ -86,5 +88,5 @@ private:
     std::shared_ptr<const SessionView> View;
     float VisibilitySlotCells = 0.0f;
     FString LoadError;
-    std::string RepairNotice;
+    std::shared_ptr<LoadProgress> Progress;
 };

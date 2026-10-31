@@ -39,6 +39,24 @@ using BoardValues = std::map<std::string, int, CaseInsensitiveLess>;
 constexpr std::array<std::string_view, 5> emptyCellTokens = {"Empty", ".", "-", "_", "x"};
 // A launcher file without Height shows this many rows, the sample Normal levels' count.
 constexpr int defaultVisibleLauncherRows = 3;
+// The loading screen's row count moves on every this many layout rows: often enough to watch, rarely enough to cost
+// nothing beside the parse.
+constexpr int progressRowStride = 64;
+constexpr double bytesPerKilobyte = 1024.0;
+constexpr double bytesPerMegabyte = bytesPerKilobyte * 1024.0;
+
+std::string fileSizeText(size_t bytes) {
+    const double size = static_cast<double>(bytes);
+    return size < bytesPerMegabyte ? std::format("{:.1f} KB", size / bytesPerKilobyte)
+                                   : std::format("{:.1f} MB", size / bytesPerMegabyte);
+}
+
+void reportLayoutRow(LoadProgress* progress, int row, int rows) {
+    if (progress && row % progressRowStride == 0) {
+        progress->setDetail(std::format("row {} of {}", groupedCount(static_cast<uint64_t>(row)),
+                                        groupedCount(static_cast<uint64_t>(rows))));
+    }
+}
 
 Result<int> parseInt(std::string_view token) {
     int value = 0;
@@ -132,12 +150,13 @@ Result<int> parseCellToken(std::string_view token) {
 }
 
 // The format's fast path: exactly Height rows of exactly Width cells. False when the rows disagree with the header.
-Result<bool> readExactLayout(const std::vector<std::string_view>& rows, BrickLayout& layout) {
+Result<bool> readExactLayout(const std::vector<std::string_view>& rows, BrickLayout& layout, LoadProgress* progress) {
     if (static_cast<int>(rows.size()) != layout.height) {
         return false;
     }
     layout.cellIds.reserve(static_cast<size_t>(layout.width) * layout.height);
     for (int row = 0; row < layout.height; ++row) {
+        reportLayoutRow(progress, row, layout.height);
         const size_t rowStart = layout.cellIds.size();
         std::string badToken;
         forEachToken(rows[row], [&](std::string_view token) {
@@ -162,7 +181,7 @@ Result<bool> readExactLayout(const std::vector<std::string_view>& rows, BrickLay
 
 // Rows that disagree with the header: the board takes the rows as written, as wide as the longest, and pads the
 // shorter ones with empty cells, so no brick the file places is lost. Returns whether any row was padded.
-Result<bool> readRaggedLayout(const std::vector<std::string_view>& rows, BrickLayout& layout) {
+Result<bool> readRaggedLayout(const std::vector<std::string_view>& rows, BrickLayout& layout, LoadProgress* progress) {
     int widest = 0;
     int narrowest = std::numeric_limits<int>::max();
     for (const std::string_view row : rows) {
@@ -184,6 +203,7 @@ Result<bool> readRaggedLayout(const std::vector<std::string_view>& rows, BrickLa
     }
     layout.cellIds.assign(static_cast<size_t>(layout.width) * layout.height, emptyBrickId);
     for (int row = 0; row < layout.height; ++row) {
+        reportLayoutRow(progress, row, layout.height);
         size_t cell = static_cast<size_t>(row) * layout.width;
         std::string badToken;
         forEachToken(rows[row], [&](std::string_view token) {
@@ -304,7 +324,8 @@ Result<std::optional<Launcher>> parseLauncherToken(std::string_view token) {
 
 }
 
-Result<BrickLayout> parseBrickLayout(std::string_view text, MapRepairs* repairs) {
+Result<BrickLayout> parseBrickLayout(std::string_view text, MapRepairs* repairs, LoadProgress* progress) {
+    beginLoadStep(progress, "Finding the sections");
     const SectionMap sections = splitSections(text);
     auto board = parseBoardSection(sections);
     if (!board) {
@@ -329,12 +350,15 @@ Result<BrickLayout> parseBrickLayout(std::string_view text, MapRepairs* repairs)
         return Error{tooLarge};
     }
 
-    auto exact = readExactLayout(*rows, layout);
+    beginLoadStep(progress, std::format("Reading the {} x {} brick layout", groupedCount(static_cast<uint64_t>(layout.width)),
+                                        groupedCount(static_cast<uint64_t>(layout.height))));
+    auto exact = readExactLayout(*rows, layout, progress);
     if (!exact) {
         return Error{exact.error()};
     }
     if (!*exact) {
-        auto padded = readRaggedLayout(*rows, layout);
+        setLoadDetail(progress, "rows disagree with the header; reading them as written");
+        auto padded = readRaggedLayout(*rows, layout, progress);
         if (!padded) {
             return Error{padded.error()};
         }
@@ -349,6 +373,7 @@ Result<BrickLayout> parseBrickLayout(std::string_view text, MapRepairs* repairs)
             note(repairs, std::format("short layout rows padded to {} cells", layout.width));
         }
     }
+    setLoadDetail(progress, std::format("{} rows", groupedCount(static_cast<uint64_t>(layout.height))));
     if (!declaredHeight) {
         note(repairs, std::format("no Height; used the {} layout rows", layout.height));
     }
@@ -366,6 +391,7 @@ Result<BrickLayout> parseBrickLayout(std::string_view text, MapRepairs* repairs)
     }
 
     if (const auto* typeLines = findSection(sections, brickTypesSection)) {
+        beginLoadStep(progress, std::format("Reading {} brick types", groupedCount(typeLines->size())));
         if (typeLines->size() > mostBricks) {
             return Error{std::format("too many bricks: {}, at most {}", typeLines->size(), mostBricks)};
         }
@@ -381,6 +407,7 @@ Result<BrickLayout> parseBrickLayout(std::string_view text, MapRepairs* repairs)
     } else {
         note(repairs, "no [BrickTypes]; the board has no bricks");
     }
+    beginLoadStep(progress, "Matching cells to brick types");
     if (const size_t repeated = dropDuplicateTypesAndUnknownCells(layout); repeated > 0) {
         note(repairs, std::format("{} repeated brick id{} skipped", repeated, plural(repeated)));
     }
@@ -461,30 +488,43 @@ Result<std::string> readTextFile(const std::filesystem::path& path) {
     return content;
 }
 
-Result<LevelData> loadLevel(const LevelFiles& files) {
-    auto bricksText = readTextFile(files.bricksPath);
+Result<LevelData> loadLevel(const LevelFiles& files, LoadProgress* progress) {
+    auto readReported = [progress](const std::filesystem::path& path) {
+        beginLoadStep(progress, std::format("Reading {}", path.filename().string()));
+        auto text = readTextFile(path);
+        if (text) {
+            setLoadDetail(progress, fileSizeText(text->size()));
+        }
+        return text;
+    };
+    auto bricksText = readReported(files.bricksPath);
     if (!bricksText) {
         return Error{bricksText.error()};
     }
-    auto launchersText = readTextFile(files.launchersPath);
+    auto launchersText = readReported(files.launchersPath);
     if (!launchersText) {
         return Error{launchersText.error()};
     }
     MapRepairs bricksRepairs;
     MapRepairs launchersRepairs;
-    auto bricks = parseBrickLayout(*bricksText, &bricksRepairs);
+    auto bricks = parseBrickLayout(*bricksText, &bricksRepairs, progress);
     if (!bricks) {
         return Error{std::format("{}: {}", files.bricksPath.filename().string(), bricks.error())};
     }
+    beginLoadStep(progress, "Reading the launchers");
     auto launchers = parseLauncherLayout(*launchersText, &launchersRepairs);
     if (!launchers) {
         return Error{std::format("{}: {}", files.launchersPath.filename().string(), launchers.error())};
     }
+    setLoadDetail(progress, std::format("{} column{}, {} row{}", launchers->columns,
+                                        plural(static_cast<size_t>(launchers->columns)), launchers->rowCount(),
+                                        plural(static_cast<size_t>(launchers->rowCount()))));
     // Gameplay.txt sits in the levels folder, the parent of the normal/ and performance/ folders; a level kept
     // anywhere else plays by the built-in rules.
     GameplayRules rules;
     const std::filesystem::path rulesPath = files.bricksPath.parent_path().parent_path() / gameplayRulesFileName;
     if (std::filesystem::exists(rulesPath)) {
+        beginLoadStep(progress, std::format("Reading {}", gameplayRulesFileName));
         auto rulesText = readTextFile(rulesPath);
         if (!rulesText) {
             return Error{rulesText.error()};

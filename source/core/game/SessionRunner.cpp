@@ -1,6 +1,7 @@
 #include "game/SessionRunner.h"
 
 #include "game/PhysicsRate.h"
+#include "level/LevelParser.h"
 
 #include "sim/HybridBackend.h"
 
@@ -45,6 +46,7 @@ struct SessionRunner::Shared {
     std::shared_ptr<const SessionView> latest;
     // Views are recycled once the UI has let go of them, so publishing a frame reuses their buffers.
     std::array<std::shared_ptr<SessionView>, viewPoolSize> pool;
+    std::optional<LevelLoadOutcome> loadOutcome;
 };
 
 namespace {
@@ -140,9 +142,18 @@ void fillView(GameSession& session, SessionView& view, const SessionView* previo
     captureBalls(session.simulation(), slotCells, field, view.balls);
 }
 
-void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, LevelData level, BackendKind backend,
-                int ticksPerSecond) {
-    auto session = std::make_unique<GameSession>(mode, std::move(level), backend, ticksPerSecond);
+void physicsThreadFinished() {
+    {
+        std::lock_guard lock(liveThreadsMutex());
+        --liveThreadCount();
+    }
+    liveThreadsChanged().notify_all();
+}
+
+// The loading screen's last step lasts until the first view is out, since copying a huge board for it takes a while.
+void runSession(std::shared_ptr<SessionRunner::Shared> shared, std::unique_ptr<GameSession> session,
+                LoadProgress* progress) {
+    beginLoadStep(progress, "Drawing the first frame");
     const Clock::duration tickPeriod =
         std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(session->simulation().tuning().tickSeconds));
     Clock::duration framePeriod = tickPeriod;
@@ -216,13 +227,38 @@ void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, Le
                 shared->events.push_back(*event);
             }
         }
+        if (progress && frameNumber == 1) {
+            progress->finish();
+        }
     }
     session.reset();
-    {
-        std::lock_guard lock(liveThreadsMutex());
-        --liveThreadCount();
+    physicsThreadFinished();
+}
+
+void runPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, LevelData level, BackendKind backend,
+                int ticksPerSecond) {
+    runSession(shared, std::make_unique<GameSession>(mode, std::move(level), backend, ticksPerSecond), nullptr);
+}
+
+void loadAndRunPhysics(std::shared_ptr<SessionRunner::Shared> shared, GameMode mode, LevelFiles files,
+                       BackendKind backend, int ticksPerSecond, std::shared_ptr<LoadProgress> progress) {
+    auto level = loadLevel(files, progress.get());
+    if (!level) {
+        progress->finish();
+        {
+            std::lock_guard lock(shared->mutex);
+            shared->loadOutcome = LevelLoadOutcome{false, level.error()};
+        }
+        physicsThreadFinished();
+        return;
     }
-    liveThreadsChanged().notify_all();
+    std::string repairNotice = levelRepairNotice(*level);
+    auto session = std::make_unique<GameSession>(mode, std::move(*level), backend, ticksPerSecond, progress.get());
+    {
+        std::lock_guard lock(shared->mutex);
+        shared->loadOutcome = LevelLoadOutcome{true, std::move(repairNotice)};
+    }
+    runSession(shared, std::move(session), progress.get());
 }
 
 } // namespace
@@ -234,6 +270,19 @@ SessionRunner::SessionRunner(GameMode mode, LevelData level, BackendKind backend
         ++liveThreadCount();
     }
     std::thread(runPhysics, shared, mode, std::move(level), backend, ticksPerSecond).detach();
+}
+
+SessionRunner::SessionRunner(GameMode mode, LevelFiles files, BackendKind backend, int ticksPerSecond,
+                             std::shared_ptr<LoadProgress> progress)
+    : shared(std::make_shared<Shared>()) {
+    if (!progress) {
+        progress = std::make_shared<LoadProgress>();
+    }
+    {
+        std::lock_guard lock(liveThreadsMutex());
+        ++liveThreadCount();
+    }
+    std::thread(loadAndRunPhysics, shared, mode, std::move(files), backend, ticksPerSecond, std::move(progress)).detach();
 }
 
 SessionRunner::~SessionRunner() {
@@ -279,6 +328,11 @@ void SessionRunner::setBallCollisions(bool enabled) {
 std::vector<SessionEvent> SessionRunner::takeEvents() {
     std::lock_guard lock(shared->mutex);
     return std::exchange(shared->events, {});
+}
+
+std::optional<LevelLoadOutcome> SessionRunner::takeLoadOutcome() {
+    std::lock_guard lock(shared->mutex);
+    return std::exchange(shared->loadOutcome, std::nullopt);
 }
 
 void describeSession(const GameSession& session, SessionView& view, const SessionView* previous,

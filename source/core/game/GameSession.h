@@ -1,5 +1,6 @@
 #pragma once
 
+#include "common/LoadProgress.h"
 #include "game/AdditionGovernor.h"
 #include "game/GameMode.h"
 #include "game/LauncherQueue.h"
@@ -39,12 +40,15 @@ std::string_view ballCollisionsMessage(BallCollisionsChange change);
 
 class GameSession {
 public:
-    GameSession(GameMode mode, LevelData level, BackendKind backend, int ticksPerSecond = defaultTicksPerSecond);
+    // Given a LoadProgress, starting the backend and placing the board are reported to it as loading steps.
+    GameSession(GameMode mode, LevelData level, BackendKind backend, int ticksPerSecond = defaultTicksPerSecond,
+                LoadProgress* progress = nullptr);
     ~GameSession();
     GameSession(const GameSession&) = delete;
     GameSession& operator=(const GameSession&) = delete;
 
-    void restart();
+    // Given a LoadProgress, placing the board is reported to it, as the first load does.
+    void restart(LoadProgress* progress = nullptr);
     void reload(LevelData level);
     void update(float deltaTime);
     // Runs every frame, paused or not: swaps in a backend that finished building and refills a batch of balls.

@@ -24,6 +24,7 @@ THIRD_PARTY_INCLUDES_START
 #include "sim/Simulation.h"
 #include "editor/EditorSession.h"
 #include "ui/GameplayLayout.h"
+#include "ui/LoadingScreen.h"
 #include "ui/MenuModel.h"
 #include "ui/ScreenFlow.h"
 #include "ui/Theme.h"

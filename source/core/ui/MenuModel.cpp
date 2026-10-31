@@ -87,14 +87,6 @@ std::string brickHitLabel(int64_t hitsLeft) {
     return std::to_string(hitsLeft);
 }
 
-std::string groupedCount(BallCount value) {
-    std::string digits = std::to_string(value);
-    for (int insertAt = static_cast<int>(digits.size()) - 3; insertAt > 0; insertAt -= 3) {
-        digits.insert(static_cast<size_t>(insertAt), ",");
-    }
-    return digits;
-}
-
 std::vector<UiOption> orientationOptions(LayoutOrientation current) {
     return {{"Auto", true, current == LayoutOrientation::Auto},
             {"Landscape", true, current == LayoutOrientation::Landscape},

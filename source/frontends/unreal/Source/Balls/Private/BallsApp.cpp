@@ -344,13 +344,9 @@ void FBallsApp::ProcessFlowRequests() {
         case FlowRequestKind::ReloadGame: {
             TSharedPtr<FBallsGameplay> Next = MakeShared<FBallsGameplay>(*this, Req.mode, *Req.files);
             Gameplay = Next;
-            // Next level and reloads stay on the gameplay screen, so its widgets must be rebuilt for the new game.
+            // Next level and reloads stay on the gameplay screen, so its widgets must be rebuilt for the new game. The
+            // game tells the flow how its load went once the physics thread has read the files.
             bFlowScreenApplied = false;
-            if (Next->GetLoadError().IsEmpty()) {
-                Flow->levelLoaded(Next->GetRepairNotice());
-            } else {
-                Flow->levelFailed(TCHAR_TO_UTF8(*Next->GetLoadError()));
-            }
             break;
         }
         case FlowRequestKind::RestartGame: {

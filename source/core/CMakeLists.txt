@@ -1,6 +1,7 @@
 add_library(balls_core STATIC
     common/BallColor.cpp
     common/DynamicLibrary.cpp
+    common/LoadProgress.cpp
     common/ParallelChunks.cpp
     common/WorkerPool.cpp
     gpu/GpuAdapters.cpp
@@ -42,6 +43,7 @@ add_library(balls_core STATIC
     control/ControlApi.cpp
     game/FrameTimings.cpp
     ui/GameplayLayout.cpp
+    ui/LoadingScreen.cpp
     ui/MenuModel.cpp
     ui/ScreenFlow.cpp
     ui/Theme.cpp
