@@ -100,10 +100,54 @@ TEST_CASE("writer output parses back to the same level") {
     EXPECT(countBallsByColor(*launchers) == countBallsByColor(level->launchers));
 }
 
-TEST_CASE("parser reports malformed input") {
-    EXPECT(!parseBrickLayout("[Board]\nWidth 2\nHeight 1\nPlayableHeight 3\n[Layout]\n0\n[BrickTypes]\n").hasValue());
+TEST_CASE("parser reports input it cannot repair") {
+    EXPECT(!parseBrickLayout("[Layout]\n0\n[BrickTypes]\n0 Red 1\n").hasValue());
+    EXPECT(!parseBrickLayout("[Board]\nHeight 1\n[Layout]\n0\n[BrickTypes]\n0 Red 1\n").hasValue());
+    EXPECT(!parseBrickLayout("[Board]\nWidth 1\nHeight 1\n[BrickTypes]\n0 Red 1\n").hasValue());
+    EXPECT(!parseBrickLayout("[Board]\nWidth 1\nHeight 1\n[Layout]\nabc\n").hasValue());
     EXPECT(!parseLauncherLayout("[Board]\nWidth 1\nHeight 1\n[Layout]\nPink(3)\n").hasValue());
-    EXPECT(!parseLauncherLayout("[Board]\nWidth 1\nHeight 1\n[Layout]\nRed(0)\n").hasValue());
+    EXPECT(!parseLauncherLayout("[Board]\nWidth 1\nHeight 1\n[Layout]\nRed\n").hasValue());
+    EXPECT(!parseLauncherLayout("[Board]\nWidth 1\nHeight 1\n[Layout]\n").hasValue());
+}
+
+TEST_CASE("parser repairs header and section slips") {
+    const auto bricks = parseBrickLayout("\xEF\xBB\xBF// made by hand\n[board]\nwidth: 2\nHEIGHT = 1\nPlayableHeight=4\n"
+                                         "Author someone else\n[LAYOUT]\n# the only row\n0 1\n[bricktypes]\n0 red 2\n"
+                                         "1 Blue 3 extra\n");
+    EXPECT(bricks.hasValue());
+    EXPECT(bricks->width == 2 && bricks->height == 1 && bricks->playableHeight == 4);
+    EXPECT(bricks->cellIds == std::vector<int>({0, 1}));
+    EXPECT(bricks->types.size() == 2 && bricks->findType(1)->hits == 3);
+}
+
+TEST_CASE("parser takes the layout rows as written when they disagree with the header") {
+    const auto bricks =
+        parseBrickLayout("[Board]\nWidth 2\nHeight 1\nPlayableHeight 1\n[Layout]\n0\n1 1 2\n[BrickTypes]\n0 Red 1\n"
+                         "1 Red 1\n2 Red 1\n");
+    EXPECT(bricks.hasValue());
+    EXPECT(bricks->width == 3 && bricks->height == 2 && bricks->playableHeight == 9);
+    EXPECT(bricks->cellIds == std::vector<int>({0, emptyBrickId, emptyBrickId, 1, 1, 2}));
+}
+
+TEST_CASE("parser keeps the readable brick types and the first of a repeated id") {
+    const auto bricks = parseBrickLayout("[Board]\nWidth 4\nHeight 1\n[Layout]\n0 1 2 x\n[BrickTypes]\n0 Red 1\n"
+                                         "1 Pink 2\n2 Green 0\n0 Blue 5\n");
+    EXPECT(bricks.hasValue());
+    EXPECT(bricks->types.size() == 1 && bricks->findType(0)->hits == 1);
+    EXPECT(bricks->cellIds == std::vector<int>({0, emptyBrickId, emptyBrickId, emptyBrickId}));
+    const auto noTypes = parseBrickLayout("[Board]\nWidth 1\nHeight 1\n[Layout]\n0\n");
+    EXPECT(noTypes.hasValue() && noTypes->types.empty() && noTypes->cellIds[0] == emptyBrickId);
+}
+
+TEST_CASE("parser repairs launcher rows") {
+    const auto launchers = parseLauncherLayout("[Board]\nWidth 2\n[Layout]\nRed (3) blue(2) Green(1)\nempty\n"
+                                               "Yellow(0) Red(4)\n");
+    EXPECT(launchers.hasValue());
+    EXPECT(launchers->columns == 3 && launchers->visibleRows == 3 && launchers->rowCount() == 3);
+    EXPECT(launchers->slot(0, 0)->color == BallColor::Red && launchers->slot(0, 0)->ballCount == 3);
+    EXPECT(launchers->slot(1, 0)->color == BallColor::Blue);
+    EXPECT(!launchers->slot(0, 1).has_value() && !launchers->slot(2, 1).has_value());
+    EXPECT(!launchers->slot(0, 2).has_value() && launchers->slot(1, 2)->ballCount == 4);
 }
 
 TEST_CASE("a board too large for the simulation's 32-bit cell indexes is refused with a message") {

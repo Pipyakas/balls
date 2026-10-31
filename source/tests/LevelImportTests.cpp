@@ -14,7 +14,7 @@ namespace {
 constexpr const char* twoRedBricks = "[Board]\nWidth 2\nHeight 1\nPlayableHeight 4\n[Layout]\n0 1\n[BrickTypes]\n0 Red 1\n1 Red 1\n";
 constexpr const char* twoRedBalls = "[Board]\nWidth 1\nHeight 1\n[Layout]\nRed(2)\n";
 constexpr const char* oneRedBall = "[Board]\nWidth 1\nHeight 1\n[Layout]\nRed(1)\n";
-constexpr const char* brokenBricks = "[Board]\nWidth 2\nHeight 1\nPlayableHeight 4\n[Layout]\n0\n[BrickTypes]\n0 Red 1\n";
+constexpr const char* brokenBricks = "[Board]\nWidth 2\nHeight 1\nPlayableHeight 4\n[Layout]\n0 zero\n[BrickTypes]\n0 Red 1\n";
 
 // A scratch folder per test case, removed again when the test ends. The random suffix keeps test runs from other
 // worktrees, which share the temp folder, from deleting each other's files.
