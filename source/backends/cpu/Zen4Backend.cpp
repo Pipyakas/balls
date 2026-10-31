@@ -1,4 +1,5 @@
 #include "cpu/Zen4Backend.h"
+#include "cpu/SystemMemory.h"
 
 #include <immintrin.h>
 
@@ -27,40 +28,9 @@
 
 namespace {
 
-struct PhysicalMemory {
-    size_t total = 0;
-    size_t available = 0;
-};
-
-bool isMemoryLow() {
-#if defined(_WIN32)
-    static const HANDLE lowMemory = CreateMemoryResourceNotification(LowMemoryResourceNotification);
-    BOOL low = FALSE;
-    return lowMemory && QueryMemoryResourceNotification(lowMemory, &low) && low;
-#else
-    return false;
-#endif
-}
-
-std::optional<PhysicalMemory> physicalMemory() {
-#if defined(_WIN32)
-    MEMORYSTATUSEX memory{};
-    memory.dwLength = sizeof(memory);
-    if (!GlobalMemoryStatusEx(&memory)) {
-        return std::nullopt;
-    }
-    return PhysicalMemory{static_cast<size_t>(memory.ullTotalPhys), static_cast<size_t>(memory.ullAvailPhys)};
-#else
-    const long pageSize = sysconf(_SC_PAGESIZE);
-    const long pages = sysconf(_SC_PHYS_PAGES);
-    const long availablePages = sysconf(_SC_AVPHYS_PAGES);
-    if (pageSize <= 0 || pages <= 0 || availablePages < 0) {
-        return std::nullopt;
-    }
-    return PhysicalMemory{static_cast<size_t>(pages) * static_cast<size_t>(pageSize),
-                          static_cast<size_t>(availablePages) * static_cast<size_t>(pageSize)};
-#endif
-}
+using system_memory::isMemoryLow;
+using system_memory::PhysicalMemory;
+using system_memory::physicalMemory;
 
 constexpr size_t ballsPerChunk = 16384;
 constexpr int paddingRowsAboveFirstRow = 1;
@@ -364,6 +334,25 @@ size_t Zen4Backend::ballCapacityLimit() const {
     const size_t margin = std::max(minimumMarginBytes, memory->total / marginDivisor);
     const size_t spare = memory->available > margin ? memory->available - margin : 0;
     return store.count + spare / bytesPerBall;
+}
+
+// Max goes past the capacity above, into the page file or swap: everything the system can still commit, less a
+// margin that keeps the rest of the game and the system running. The store reserves address space for at most the
+// physical memory per array, so that is the most it can ever hold.
+size_t Zen4Backend::ballHardLimit() const {
+    if (store.isPreallocated()) {
+        return store.capacity();
+    }
+    constexpr size_t bytesPerBall = 8;
+    constexpr size_t bytesPerArrayElement = 4;
+    constexpr size_t marginBytes = size_t{512} << 20;
+    const std::optional<size_t> committable = system_memory::committableBytes();
+    const std::optional<PhysicalMemory> memory = physicalMemory();
+    if (!committable || !memory) {
+        return ballCapacityLimit();
+    }
+    const size_t spare = *committable > marginBytes ? *committable - marginBytes : 0;
+    return std::max(ballCapacityLimit(), std::min(store.count + spare / bytesPerBall, memory->total / bytesPerArrayElement));
 }
 
 size_t Zen4Backend::preallocateBalls() {

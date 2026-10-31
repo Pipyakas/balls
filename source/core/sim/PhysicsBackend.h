@@ -142,6 +142,9 @@ public:
     virtual size_t ballCount() const = 0;
     // How many balls fit in this backend's memory; without free flight the frame rate runs out long before.
     virtual size_t ballCapacityLimit() const { return std::numeric_limits<size_t>::max(); }
+    // The most balls the backend can hold at all, paging included, for the Max ball limit; ballCapacityLimit stops
+    // where a frame would start to pay for memory, which is what Auto fills to.
+    virtual size_t ballHardLimit() const { return ballCapacityLimit(); }
     virtual BallSnapshot snapshot() = 0;
     virtual std::vector<BallSpawn> exportBalls() = 0;
     virtual std::vector<BallSpawn> takeTail(size_t count) = 0;

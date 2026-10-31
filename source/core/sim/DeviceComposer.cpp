@@ -104,6 +104,19 @@ size_t DeviceComposer::ballCapacityLimit() const {
     return limit;
 }
 
+size_t DeviceComposer::partHardLimit(const Part& part) const {
+    const size_t hard = part.backend->ballHardLimit();
+    return hard == std::numeric_limits<size_t>::max() ? partCapacity(part) : std::max(hard, partCapacity(part));
+}
+
+size_t DeviceComposer::ballHardLimit() const {
+    size_t limit = 0;
+    for (const Part& part : parts) {
+        limit = saturatingAdd(limit, partHardLimit(part));
+    }
+    return limit;
+}
+
 void DeviceComposer::uploadBoard(const BoardUpload& board) {
     for (Part& part : parts) {
         part.backend->uploadBoard(board);
@@ -176,6 +189,14 @@ void DeviceComposer::addBalls(std::span<const BallSpawn> spawns) {
     std::ranges::stable_sort(byShare, [&](size_t a, size_t b) { return parts[a].share > parts[b].share; });
     for (const size_t index : byShare) {
         const size_t extra = std::min(room[index], left);
+        take[index] += extra;
+        left -= extra;
+    }
+    // Past every part's capacity (the Max ball limit) the rest go where the system can still page them in.
+    for (const size_t index : byShare) {
+        const size_t limit = partHardLimit(parts[index]);
+        const size_t held = parts[index].backend->ballCount() + take[index];
+        const size_t extra = std::min(limit > held ? limit - held : 0, left);
         take[index] += extra;
         left -= extra;
     }

@@ -156,7 +156,7 @@ void GameSession::selectSpawnRate(int optionIndex) {
 void GameSession::useCapacityBallLimit() {
     cancelFill();
     measuredMachineLimit.reset();
-    limitChoice = BallLimitChoice::Auto;
+    setLimitChoice(BallLimitChoice::Auto);
 }
 
 // Level and Auto are both capped by the backend's capacity (or by a /fill count).
@@ -169,7 +169,7 @@ std::optional<BallCount> GameSession::machineBallLimit() const {
 
 void GameSession::useMachineBallLimit(BallCount limit) {
     measuredMachineLimit = limit;
-    limitChoice = BallLimitChoice::Auto;
+    setLimitChoice(BallLimitChoice::Auto);
     physicsSimulation.trimBallsTo(limit);
 }
 
@@ -181,12 +181,18 @@ void GameSession::selectBallLimit(int optionIndex) {
     }
     cancelFill();
     measuredMachineLimit.reset();
-    limitChoice = choice;
+    setLimitChoice(choice);
     // Back on Level the endless streams stop; the launchers still queued release their level counts.
     if (choice == BallLimitChoice::Level && endlessStreams) {
         spawnController.clear();
         endlessStreams = false;
     }
+}
+
+// Auto stops at the backend's capacity, where balls still fit in memory without paging; only Max goes past it.
+void GameSession::setLimitChoice(BallLimitChoice choice) {
+    limitChoice = choice;
+    physicsSimulation.setRoomPastCapacity(choice == BallLimitChoice::Max);
 }
 
 // Auto and Max no longer read the launchers' counts: one endless stream per color the level's launchers use, sharing

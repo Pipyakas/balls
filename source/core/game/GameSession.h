@@ -103,6 +103,7 @@ public:
     const std::string& lastBackendFault() const { return backendFault; }
 
 private:
+    void setLimitChoice(BallLimitChoice choice);
     void launchAcrossColors(BallCount count);
     // Spawns and fills this frame's balls, no more than the governor allows, and times them for it.
     void addBallsWithinBudget(float deltaTime);

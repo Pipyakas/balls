@@ -55,7 +55,8 @@ Other front ends (Unreal, Unity), Linux, Android, build options and the benchmar
   walls and bricks, break bricks of their own color, and home toward the nearest one after the third bounce.
 - **Performance mode.** One click starts automatic release from seven launchers at once, at 10 to 2000 balls per
   second (the game's options) or faster up to Max. Ball limit `Level` (default) releases exactly the level's
-  launcher counts; `Auto` and `Max` keep every color streaming at that rate until the machine is full.
+  launcher counts; `Auto` and `Max` keep every color streaming at that rate, `Auto` until memory is full and `Max`
+  on past that into the page file or swap.
 - **Three-section screen.** The board, the user interaction section (the only place that takes gameplay input)
   and a debug panel with FPS, min FPS, total objects, balls per color and the physics backend.
 - **Map editor.** Paint multi-cell bricks, set hits and colors, edit and auto-fill launchers, validate, undo/redo,
