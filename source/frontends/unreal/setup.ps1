@@ -12,6 +12,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# Unattended machines (test runners) set BALLS_SETUP_YES=1 so build.bat installs what is missing without asking.
+if ($env:BALLS_SETUP_YES -eq '1') { $Yes = [switch]$true }
 # Stock Unreal Engine 5.8.4 is the engine every machine builds with; an older 5.8 hotfix is updated in the launcher.
 $engineVersion = '5.8'
 $enginePatch = 4

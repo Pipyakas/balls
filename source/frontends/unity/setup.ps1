@@ -12,6 +12,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+# Unattended machines (test runners) set BALLS_SETUP_YES=1 so build.bat installs what is missing without asking.
+if ($env:BALLS_SETUP_YES -eq '1') { $Yes = [switch]$true }
 $project = $PSScriptRoot
 $interactive = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected
 
@@ -159,6 +161,11 @@ function Get-Editor {
         Write-Host "    UNITY_EXE is set to '$env:UNITY_EXE', which is not a Unity.exe." -ForegroundColor Yellow
     }
     $exe = Find-Editor
+    if (-not $exe -and $Yes) {
+        # Unattended (-Yes): nobody to ask, so install the project's editor through the Hub straight away.
+        Install-Editor
+        return Find-Editor
+    }
     while (-not $exe) {
         if (-not $interactive) { return $null }
         Write-Host "    Unity $version was not found. You can:" -ForegroundColor Yellow
@@ -200,7 +207,7 @@ if ($editor) {
     $environment['UNITY_EXE'] = $editor
     $playback = Join-Path (Split-Path $editor -Parent) "Data\PlaybackEngines\$playbackEngine"
     $hasPlayback = Test-Path -LiteralPath $playback
-    if (-not $hasPlayback -and $module -and $interactive -and (Confirm "Add $playbackEngine ($module) to Unity $version with the Unity Hub now?")) {
+    if (-not $hasPlayback -and $module -and ($Yes -or $interactive) -and (Confirm "Add $playbackEngine ($module) to Unity $version with the Unity Hub now?")) {
         Install-Module $editor
         $hasPlayback = Test-Path -LiteralPath $playback
     }

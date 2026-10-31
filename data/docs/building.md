@@ -74,6 +74,8 @@ the user variable `UE_ROOT` or `UNITY_EXE` if you agree) or to install it: Unity
 line, with the build support module the variant needs; Unreal through the Epic Games Launcher, which has no command
 line for engines, so the check opens it on the engine library and waits. Missing build support (Unity's Linux
 IL2CPP, a stock Unreal's Linux target platform) and Unreal's Linux cross toolchain are offered the same way.
+Unattended machines (test runners) set `BALLS_SETUP_YES=1`: the checks then install what they can without asking (the
+Unity editor and its modules, Unreal's Linux toolchain); a missing Unreal engine still needs the Epic Games Launcher.
 
 Every build keeps CMake's intermediate files under `build\`, stages a self-contained runnable copy under `dist\`,
 stops a game still running from that copy first, and ends by printing the absolute path of what it built.
