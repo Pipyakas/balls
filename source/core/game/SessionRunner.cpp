@@ -51,16 +51,22 @@ namespace {
 
 std::shared_ptr<SessionView> freeView(std::array<std::shared_ptr<SessionView>, viewPoolSize>& pool,
                                       const std::shared_ptr<const SessionView>& latest) {
+    std::shared_ptr<SessionView> chosen;
     for (std::shared_ptr<SessionView>& view : pool) {
         if (!view) {
             view = std::make_shared<SessionView>();
         }
         // One reference is the pool's own; a second is the latest view or a frame the UI is still drawing.
         if (view.use_count() == 1 && view != latest) {
-            return view;
+            // An idle view must not pin a board: BoardSnapshots has two, and with one held here and the other by the
+            // latest view it has none to bring up to date, so the UI kept drawing bricks long since broken.
+            view->board.reset();
+            if (!chosen) {
+                chosen = view;
+            }
         }
     }
-    return std::make_shared<SessionView>();
+    return chosen ? chosen : std::make_shared<SessionView>();
 }
 
 // Everything but the board and the balls, which the physics thread shares and recycles between views.
