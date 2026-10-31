@@ -53,6 +53,15 @@ Shader "Balls/Procedural"
             {
                 Varyings output;
                 uint packed = _Balls[input.instanceID];
+                // An empty visibility slot is all ones (colour 15, the far corner): collapse it rather than draw a
+                // stray ball there, as SDL's renderer skips its emptySlot.
+                if ((packed >> 28u) >= 7u)
+                {
+                    output.positionCS = float4(0.0, 0.0, 0.0, 0.0);
+                    output.color = 0.0;
+                    output.local = 0.0;
+                    return output;
+                }
                 float2 center = float2(packed & 0x3FFFu, (packed >> 14u) & 0x3FFFu) * _FieldToWorld;
                 float3 world = float3(center + input.positionOS.xy * _Radius, 0.0);
                 output.positionCS = mul(UNITY_MATRIX_VP, float4(world, 1.0));
