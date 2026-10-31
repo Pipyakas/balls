@@ -19,15 +19,18 @@ game runs on the engine's empty `/Engine/Maps/Entry` map, and `ABallsGameMode` s
 
 ## Build and run
 
-Build with the engine fork at `D:\Unreal\UnrealEngine`. The `.uproject` pre-build step runs `BuildCore.bat`, which
+Build with a stock Unreal Engine 5.8 install (5.8.4 from the Epic launcher, at `D:\Unreal\UE_5.8` on the dev
+PCs). The engine fork at `D:\Unreal\UnrealEngine` still works but is no longer the default: as a source engine it
+compiles the whole engine into every worktree's game target (about 1,100 actions and 14-21 GB each), where a stock
+install links it prebuilt. The `.uproject` pre-build step runs `BuildCore.bat`, which
 builds `balls_core.lib` and the physics plugin DLLs (CPU, CUDA) into `build/win32-ue/` with `/MD` and no LTO. For
 the CUDA backend, run `pwsh scripts/FetchCudaSdk.ps1` once first. The core loads the plugin DLLs at run time:
 packaged builds stage them beside the executable, and the editor finds them in `build/win32-ue/bin/Release`.
 
 ```powershell
-D:\Unreal\UnrealEngine\Engine\Build\BatchFiles\Build.bat BallsEditor Win64 Development `
+D:\Unreal\UE_5.8\Engine\Build\BatchFiles\Build.bat BallsEditor Win64 Development `
     -Project="$PWD\source\frontends\unreal\Balls.uproject" -WaitMutex
-D:\Unreal\UnrealEngine\Engine\Binaries\Win64\UnrealEditor.exe "$PWD\source\frontends\unreal\Balls.uproject" `
+D:\Unreal\UE_5.8\Engine\Binaries\Win64\UnrealEditor.exe "$PWD\source\frontends\unreal\Balls.uproject" `
     -game -windowed -ResX=1600 -ResY=900 -BallsPlay=normal:DA_FirstLevel -BallsBackend=avx2
 ```
 
@@ -76,11 +79,11 @@ Nanite on; `Scripts/MakeNaniteCube.py` recreates it. On the dev PC (i5-12400F, G
   `.uproject` pre-build steps for a cross-compiled target, so the script builds the core and the plugins through
   `BuildCoreLinux.bat` itself.
 
-Without `UE_ROOT`, the script finds a 5.8 engine at `D:\Unreal\UnrealEngine`, in the launcher's registered
-installs and source builds, or at `UE_5.8`, `Unreal\UE_5.8` or `Program Files\Epic Games\UE_5.8` on any drive;
-set `UE_ROOT` for an engine anywhere else. A stock Unreal Engine 5.8 install works (checked with
-5.8.4). The first run compiles the game target and
-takes about an hour; later runs are incremental. The script also copies `data/assets` to the packaged game's
+Without `UE_ROOT`, the script (`FindUnrealEngine.ps1`) takes a stock 5.8 install first: the launcher's own install
+record, its registry entry, or `UE_5.8`, `Unreal\UE_5.8` or `Program Files\Epic Games\UE_5.8` on any drive. Only
+without one does it fall back to a source build (the launcher's registered builds, then the fork at
+`D:\Unreal\UnrealEngine`); set `UE_ROOT` to pick an engine yourself. The `linux` variant needs the launcher's
+Linux target platform option on the stock engine. The script also copies `data/assets` to the packaged game's
 `Balls\assets`, where it looks for levels, and the physics plugins stage next to the executable.
 
 The fork lists two prebuilt shaders as staged runtime dependencies that its tree does not contain, and staging

@@ -4,7 +4,7 @@ rem   build.bat               the main variant (win64 on Windows)
 rem   build.bat <variant>     one of the variants below
 rem   build.bat --variants    lists them as id;description, which the root build.bat menu reads
 rem   build.bat --setup [variant]   only checks this PC can build it, naming what is missing
-rem Unreal Engine 5.8 (a stock install or the fork) is taken from UE_ROOT, else found by FindUnrealEngine.ps1; its
+rem Unreal Engine 5.8 is taken from UE_ROOT, else found by FindUnrealEngine.ps1 (a stock install first, then the fork); its
 rem Linux toolchain at LINUX_MULTIARCH_ROOT (default D:\UnrealToolchains\v26_clang-20.1.8-rockylinux8). The .uproject
 rem pre-build step builds the core and the physics plugins for the target platform before UAT cooks.
 cd /d "%~dp0"
