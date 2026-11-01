@@ -1,0 +1,10 @@
+// Ball-step compute profiles. Single source of truth for both sides:
+//   - core/gpu/GpuAdapters.cpp expands these rows into ballStepProfiles() (via the X-macro below),
+//   - tools/gpucompute/CompileBallStep.py parses the rows with a regex and compiles one blob set per profile
+//     with THREADS_PER_GROUP, BALLS_PER_THREAD, COUNT_THREADS, COUNT_ITEMS, SORT_THREADS and SORT_ITEMS defined.
+// Keep every row on one line in exactly this form, and keep this file free of any other macro usage, so the
+// script's parser stays trivial. Numbers come from measured sweeps (tools/gpucompute --sweep), not guesses.
+//
+// BALLS_BALLSTEP_PROFILE(name, threadsPerGroup, ballsPerThread, countThreads, countItems, sortThreads, sortItems)
+BALLS_BALLSTEP_PROFILE(wave32, 256, 4, 256, 16, 512, 8)
+BALLS_BALLSTEP_PROFILE(wave64, 256, 4, 256, 16, 512, 8)

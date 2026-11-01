@@ -1,0 +1,329 @@
+#include "screens/SettingsPanel.h"
+
+#include "render/Palette.h"
+#include "ui/MenuModel.h"
+#include "screens/DevicePicker.h"
+#include "sim/BackendFactory.h"
+#include "sim/BackendWorker.h"
+#include "ui/Widgets.h"
+
+#include <algorithm>
+#include <array>
+#include <format>
+
+namespace {
+
+constexpr float panelPadding = 24.0f;
+constexpr float titleSize = 40.0f;
+constexpr float titleHeight = 56.0f;
+constexpr float sectionSize = 20.0f;
+constexpr float sectionHeight = 30.0f;
+constexpr float optionHeight = 48.0f;
+constexpr float optionGap = 10.0f;
+constexpr float hintSize = 18.0f;
+constexpr float hintHeight = 24.0f;
+constexpr float hintGap = 8.0f;
+constexpr float blockGap = 16.0f;
+constexpr float backHeight = 56.0f;
+constexpr float scoreInset = 16.0f;
+constexpr float runBenchmarkWidth = 240.0f;
+constexpr double ballStepsPerMillion = 1e6;
+constexpr DevicePickerStyle devicePickerStyle{optionHeight, optionGap, 0.34f, hintSize};
+
+std::string benchmarkScore(std::span<const CandidateResult> scores, BackendKind kind) {
+    const std::string shown = kind == BackendKind::Hybrid ? formatBackendPicks(displayedPicks(kind)) : std::string{};
+    const auto found = std::ranges::find_if(scores, [&](const CandidateResult& result) {
+        return result.candidate.kind == kind && result.candidate.picks == shown;
+    });
+    if (found == scores.end()) {
+        return {};
+    }
+    switch (found->status) {
+    case CandidateStatus::Done:
+        return found->estimatedBalls > 0.0
+                   ? std::format("{} balls", shortBallCount(found->estimatedBalls))
+                   : std::format("{:.0f} M/s", found->ballStepsPerSecond / ballStepsPerMillion);
+    case CandidateStatus::Failed:
+        return "failed";
+    default:
+        return {};
+    }
+}
+
+constexpr std::array<std::pair<LayoutOrientation, const char*>, 3> layoutOptions{{
+    {LayoutOrientation::Auto, "Auto"},
+    {LayoutOrientation::Landscape, "Landscape"},
+    {LayoutOrientation::Portrait, "Portrait"},
+}};
+
+struct ApiChoice {
+    const char* id;
+    const char* label;
+};
+
+#if defined(_WIN32)
+constexpr std::array<ApiChoice, 3> apiChoices{{
+    {"auto", "Auto"},
+    {"d3d12", "Direct3D 12"},
+    {"vulkan", "Vulkan"},
+}};
+#else
+constexpr std::array<ApiChoice, 2> apiChoices{{
+    {"auto", "Auto"},
+    {"vulkan", "Vulkan"},
+}};
+#endif
+
+constexpr float blockHeight = sectionHeight + optionHeight + hintGap + hintHeight + blockGap;
+
+}
+
+float settingsContentHeight(BackendKind selectedBackend) {
+    float height = panelPadding * 2.0f;
+    height += titleHeight + blockGap;
+    if (layoutChoiceOffered) {
+        height += blockHeight;
+    }
+    height += sectionHeight + blockHeight;
+    height += blockHeight;
+    height += blockHeight;
+    height += blockHeight;
+    if (backendChoiceOffered()) {
+        height += sectionHeight + sectionHeight + (optionHeight + optionGap) * selectableBackends().size() -
+                  optionGap + blockGap - optionGap;
+    }
+    if (showsDevicePicks(selectedBackend)) {
+        height += sectionHeight + devicePickerHeight(devicePickerStyle) + hintGap + hintHeight * 2.0f + blockGap;
+    }
+
+    height += sectionHeight + blockHeight;
+    height += blockHeight;
+    height += blockHeight;
+    height += backHeight;
+    return height;
+}
+
+SettingsPanelEdit drawSettingsPanel(Rect area, Settings current, BackendKind selectedBackend,
+                                    std::span<const CandidateResult> benchmarkScores, bool webGpuSupported,
+                                    float& scroll, bool canRunBenchmark) {
+    SettingsPanelEdit edit{current, false, false, std::nullopt};
+    const Rect inner{area.x, area.y, area.width, area.height};
+    float visibleHeight = 0.0f;
+    ui::scrollFrame(inner, scroll, settingsContentHeight(selectedBackend), visibleHeight);
+    gfx::beginClip(inner);
+    const float innerX = area.x + panelPadding;
+    const float innerWidth = area.width - panelPadding * 2.0f;
+    float cursor = area.y + panelPadding - scroll;
+
+    ui::drawTextInRect("Settings", {innerX, cursor, innerWidth, titleHeight}, titleSize, palette::text);
+    cursor += titleHeight + blockGap;
+
+    if (layoutChoiceOffered) {
+        ui::drawText(std::string(menuText::layoutHeading), {innerX, cursor}, sectionSize, palette::textMuted);
+        cursor += sectionHeight;
+        const Rect layoutButtons{innerX, cursor, innerWidth, optionHeight};
+        for (size_t i = 0; i < layoutOptions.size(); ++i) {
+            const auto& [orientation, label] = layoutOptions[i];
+            if (ui::button(ui::columnSlice(layoutButtons, static_cast<int>(i),
+                                           static_cast<int>(layoutOptions.size()), optionGap),
+                           label, true, current.layout == orientation) &&
+                current.layout != orientation) {
+                edit.settings.layout = orientation;
+                edit.changed = true;
+            }
+        }
+        cursor += optionHeight + hintGap;
+        ui::drawText(std::string(menuText::layoutHint), {innerX, cursor}, hintSize, palette::textMuted);
+        cursor += hintHeight + blockGap;
+    }
+
+    ui::drawText(std::string(menuText::displayHeading), {innerX, cursor}, sectionSize, palette::textMuted);
+    cursor += sectionHeight;
+    ui::drawText(std::string(menuText::vsyncLabel), {innerX, cursor}, sectionSize, palette::text);
+    cursor += sectionHeight;
+    const Rect vsyncOptions{innerX, cursor, innerWidth, optionHeight};
+    if (ui::button(ui::columnSlice(vsyncOptions, 0, 2, optionGap), "Off", true, !current.vsync) &&
+        current.vsync) {
+        edit.settings.vsync = false;
+        edit.changed = true;
+    }
+    if (ui::button(ui::columnSlice(vsyncOptions, 1, 2, optionGap), "On", true, current.vsync) &&
+        !current.vsync) {
+        edit.settings.vsync = true;
+        edit.changed = true;
+    }
+    cursor += optionHeight + hintGap;
+    ui::drawText("Replaces the old V shortcut.", {innerX, cursor}, hintSize, palette::textMuted);
+    cursor += hintHeight + blockGap;
+
+    ui::drawText(std::string(menuText::wideScreenLabel), {innerX, cursor}, sectionSize, palette::text);
+    cursor += sectionHeight;
+    const Rect wideOptions{innerX, cursor, innerWidth, optionHeight};
+    const std::vector<UiOption> wideChoices = wideScreenOptions(current.wideScreen);
+    for (size_t i = 0; i < wideChoices.size(); ++i) {
+        const auto anchor = static_cast<WideScreenAnchor>(i);
+        if (ui::button(ui::columnSlice(wideOptions, static_cast<int>(i), static_cast<int>(wideChoices.size()), optionGap),
+                       wideChoices[i].label.c_str(), true, wideChoices[i].selected) &&
+            current.wideScreen != anchor) {
+            edit.settings.wideScreen = anchor;
+            edit.changed = true;
+        }
+    }
+    cursor += optionHeight + hintGap;
+    ui::drawText(std::string(menuText::wideScreenHint), {innerX, cursor}, hintSize, palette::textMuted);
+    cursor += hintHeight + blockGap;
+
+    ui::drawText("Renderer", {innerX, cursor}, sectionSize, palette::text);
+    cursor += sectionHeight;
+    const Rect rendererOptions{innerX, cursor, innerWidth, optionHeight};
+    const bool isNvrhi = current.renderer == "nvrhi";
+    const bool isWebGpu = current.renderer == "webgpu";
+    if (ui::button(ui::columnSlice(rendererOptions, 0, 2, optionGap), "NVRHI", true, isNvrhi) && !isNvrhi) {
+        edit.settings.renderer = "nvrhi";
+        edit.changed = true;
+    }
+    const std::string webGpuLabel = webGpuSupported ? "WebGPU" : "WebGPU - not built";
+    if (ui::button(ui::columnSlice(rendererOptions, 1, 2, optionGap), webGpuLabel.c_str(), webGpuSupported,
+                   isWebGpu) &&
+        webGpuSupported && !isWebGpu) {
+        edit.settings.renderer = "webgpu";
+        edit.changed = true;
+    }
+    cursor += optionHeight + hintGap;
+    ui::drawText("Desktop only. Both draw the same frame.", {innerX, cursor}, hintSize, palette::textMuted);
+    cursor += hintHeight + blockGap;
+
+    ui::drawText("Graphics API", {innerX, cursor}, sectionSize, palette::text);
+    cursor += sectionHeight;
+    const Rect apiButtons{innerX, cursor, innerWidth, optionHeight};
+    for (size_t i = 0; i < apiChoices.size(); ++i) {
+        const ApiChoice& api = apiChoices[i];
+        const bool selected = current.graphicsApi == api.id;
+        if (ui::button(ui::columnSlice(apiButtons, static_cast<int>(i),
+                                       static_cast<int>(apiChoices.size()), optionGap),
+                       api.label, true, selected) &&
+            !selected) {
+            edit.settings.graphicsApi = api.id;
+            edit.changed = true;
+        }
+    }
+    cursor += optionHeight + hintGap;
+    ui::drawText("The native API under the selected renderer.", {innerX, cursor}, hintSize,
+                 palette::textMuted);
+    cursor += hintHeight + blockGap;
+
+    if (backendChoiceOffered()) {
+        ui::drawText(std::string(menuText::physicsHeading), {innerX, cursor}, sectionSize, palette::textMuted);
+        cursor += sectionHeight;
+        ui::drawText(std::string(menuText::defaultBackendLabel), {innerX, cursor}, sectionSize, palette::text);
+        if (canRunBenchmark) {
+            const Rect runBenchmark{innerX + innerWidth - runBenchmarkWidth, cursor - optionGap, runBenchmarkWidth,
+                                    sectionHeight + optionGap * 0.5f};
+            if (ui::button(runBenchmark, std::string(menuText::runBenchmarkLabel))) {
+                edit.runBenchmark = true;
+            }
+        }
+        cursor += sectionHeight;
+        for (const BackendRow& rowInfo : defaultBackendRows(selectedBackend, benchmarkScores)) {
+            const BackendKind kind = rowInfo.kind;
+            std::string label = rowInfo.option.label;
+            if (!rowInfo.option.enabled && !rowInfo.option.detail.empty()) {
+                label += std::string(" - ") + rowInfo.option.detail;
+            }
+            const Rect row{innerX, cursor, innerWidth, optionHeight};
+            if (ui::button(row, label, rowInfo.option.enabled, rowInfo.option.selected) && rowInfo.option.enabled) {
+                edit.backend = kind;
+                edit.changed = true;
+            }
+            if (rowInfo.option.enabled && !rowInfo.option.detail.empty()) {
+                const bool selected = selectedBackend == kind;
+                ui::drawTextInRect(rowInfo.option.detail, {row.x, row.y, row.width - scoreInset, row.height}, hintSize,
+                                   selected ? palette::panel : palette::textMuted, ui::Align::Right);
+            }
+            cursor += optionHeight + optionGap;
+        }
+        cursor += blockGap - optionGap;
+    }
+
+    if (showsDevicePicks(selectedBackend)) {
+        ui::drawText(std::string(menuText::devicesLabel), {innerX, cursor}, sectionSize, palette::text);
+        cursor += sectionHeight;
+        const std::vector<BackendPick> picks = displayedPicks(selectedBackend);
+        if (const auto changed = drawDevicePicker({innerX, cursor, innerWidth, devicePickerHeight(devicePickerStyle)},
+                                                  picks, devicePickerStyle)) {
+            setBackendPicks(*changed);
+            refreshBackendStatuses();
+            edit.backend = kindForPicks(*changed);
+            edit.changed = true;
+        }
+        cursor += devicePickerHeight(devicePickerStyle) + hintGap;
+        ui::drawTextInRect(std::string(menuText::devicesHint), {innerX, cursor, innerWidth, hintHeight * 2.0f}, hintSize,
+                           palette::textMuted, ui::Align::Left);
+        cursor += hintHeight * 2.0f + blockGap;
+    }
+
+    ui::drawText("Advanced", {innerX, cursor}, sectionSize, palette::textMuted);
+    cursor += sectionHeight;
+    ui::drawText("Draw the board", {innerX, cursor}, sectionSize, palette::text);
+    cursor += sectionHeight;
+    const Rect drawOptions{innerX, cursor, innerWidth, optionHeight};
+    if (ui::button(ui::columnSlice(drawOptions, 0, 2, optionGap), "Off", true, !current.drawBoard) &&
+        current.drawBoard) {
+        edit.settings.drawBoard = false;
+        edit.changed = true;
+    }
+    if (ui::button(ui::columnSlice(drawOptions, 1, 2, optionGap), "On", true, current.drawBoard) &&
+        !current.drawBoard) {
+        edit.settings.drawBoard = true;
+        edit.changed = true;
+    }
+    cursor += optionHeight + hintGap;
+    ui::drawText("Off runs the physics with nothing drawn, to measure it alone.", {innerX, cursor}, hintSize,
+                 palette::textMuted);
+    cursor += hintHeight + blockGap;
+
+    ui::drawText("Physics rate", {innerX, cursor}, sectionSize, palette::text);
+    cursor += sectionHeight;
+    const Rect rateOptions{innerX, cursor, innerWidth, optionHeight};
+    constexpr std::array<std::pair<int, const char*>, 3> rates{{{120, "120 Hz"}, {240, "240 Hz"}, {480, "480 Hz"}}};
+    for (size_t i = 0; i < rates.size(); ++i) {
+        const auto& [rate, label] = rates[i];
+        if (ui::button(ui::columnSlice(rateOptions, static_cast<int>(i), static_cast<int>(rates.size()), optionGap),
+                       label, true, current.ticksPerSecond == rate) &&
+            current.ticksPerSecond != rate) {
+            edit.settings.ticksPerSecond = rate;
+            edit.changed = true;
+        }
+    }
+    cursor += optionHeight + hintGap;
+    ui::drawText("Contacts checked more often; costs that much more. Next level.", {innerX, cursor}, hintSize,
+                 palette::textMuted);
+    cursor += hintHeight + blockGap;
+
+    ui::drawText("Physics frames", {innerX, cursor}, sectionSize, palette::text);
+    cursor += sectionHeight;
+    const Rect frameOptions{innerX, cursor, innerWidth, optionHeight};
+    constexpr std::array<std::pair<int, const char*>, 5> frameRates{
+        {{0, "Per tick"}, {60, "60"}, {120, "120"}, {240, "240"}, {-1, "Uncapped"}}};
+    for (size_t i = 0; i < frameRates.size(); ++i) {
+        const auto& [rate, label] = frameRates[i];
+        if (ui::button(ui::columnSlice(frameOptions, static_cast<int>(i), static_cast<int>(frameRates.size()), optionGap),
+                       label, true, current.physicsFramesPerSecond == rate) &&
+            current.physicsFramesPerSecond != rate) {
+            edit.settings.physicsFramesPerSecond = rate;
+            edit.changed = true;
+        }
+    }
+    cursor += optionHeight + hintGap;
+    ui::drawText("How often physics runs and publishes a frame; the tick stays fixed.", {innerX, cursor}, hintSize,
+                 palette::textMuted);
+    cursor += hintHeight + blockGap;
+
+    if (ui::button({innerX, cursor, innerWidth, backHeight}, "Back")) {
+        edit.backPressed = true;
+    }
+
+    ui::scrollHints({innerX, inner.y, innerWidth, inner.height}, scroll, settingsContentHeight(selectedBackend), palette::panel);
+    gfx::endClip();
+    return edit;
+}

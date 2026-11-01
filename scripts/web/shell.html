@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Balls</title>
+    <style>
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            overflow: hidden;
+            background: #171923;
+        }
+
+        #canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            outline: none;
+        }
+
+        #status {
+            position: fixed;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 1;
+            padding: 10px 16px;
+            color: #e7e9ef;
+            background: rgba(16, 18, 28, 0.92);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            border-radius: 6px;
+            font: 14px/1.4 system-ui, sans-serif;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas" tabindex="0"></canvas>
+    <div id="status">Loading Balls...</div>
+    <script>
+        var statusElement = document.getElementById("status");
+        var Module = {
+            arguments: [],
+            canvas: document.getElementById("canvas"),
+            print: function () { console.log.apply(console, arguments); },
+            printErr: function () { console.error.apply(console, arguments); },
+            setStatus: function (text) {
+                if (text) statusElement.textContent = text;
+            },
+            monitorRunDependencies: function (left) {
+                if (left) statusElement.textContent = "Loading...";
+            },
+            postRun: function () {
+                // The game draws its own loading screen and menus from here on.
+                statusElement.style.display = "none";
+                document.getElementById("canvas").focus();
+                // The desktop control API over HTTP becomes a function call: same routes, same JSON back.
+                //   window.ballsControl("/play?mode=performance&level=DA_1000Bricks")
+                Module.ballsControl = function (target) {
+                    return Module.ccall("ballsControl", "string", ["string"], [target]);
+                };
+                window.ballsControl = Module.ballsControl;
+                // ?cmd=/play?mode=...;/start lets one page load drive a whole run, for a script or a test. The app
+                // answers only once it has finished starting, which is a while after this callback, so the first
+                // command waits for that.
+                var commands = new URLSearchParams(window.location.search).get("cmd");
+                if (commands) {
+                    var queue = commands.split(";").filter(function (command) { return command; });
+                    var run = function () {
+                        if (!queue.length) return;
+                        if (!window.ballsReady) {
+                            setTimeout(run, 100);
+                            return;
+                        }
+                        var command = queue.shift();
+                        console.log("[control] " + command + " -> " + Module.ballsControl(command));
+                        setTimeout(run, 100);
+                    };
+                    run();
+                }
+            }
+        };
+        window.addEventListener("error", function (event) {
+            statusElement.style.display = "";
+            statusElement.textContent = "Runtime error - see the browser console";
+            console.error(event.message);
+        });
+    </script>
+    {{{ SCRIPT }}}
+</body>
+</html>

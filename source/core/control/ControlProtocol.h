@@ -1,0 +1,31 @@
+#pragma once
+
+#include <cstdint>
+#include <map>
+#include <optional>
+#include <string>
+#include <string_view>
+
+struct ControlRequest {
+    std::string path;
+    std::map<std::string, std::string, std::less<>> query;
+
+    std::optional<std::string> text(std::string_view key) const;
+    std::optional<int> integer(std::string_view key) const;
+
+    std::optional<uint64_t> count(std::string_view key) const;
+};
+
+struct ControlResponse {
+    int status = 200;
+    std::string json = "{\"ok\":true}";
+
+    static ControlResponse ok(std::string json = "{\"ok\":true}") { return {200, std::move(json)}; }
+    static ControlResponse error(int status, std::string_view message);
+};
+
+std::string jsonEscape(std::string_view text);
+
+ControlRequest parseControlTarget(std::string_view target);
+
+std::string httpResponseText(const ControlResponse& response);

@@ -1,0 +1,17 @@
+/build/
+/dist/
+/.deps/
+/.vs/
+/.vscode/
+*.user
+CMakeUserPresets.json
+/build-*/
+__pycache__/
+
+# Android/Gradle build outputs
+/source/frontends/sdl/android/.gradle/
+/source/frontends/sdl/android/build/
+/source/frontends/sdl/android/app/build/
+/source/frontends/sdl/android/app/.cxx/
+/source/frontends/sdl/android/local.properties
+

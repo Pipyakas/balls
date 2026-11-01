@@ -1,0 +1,20 @@
+# The rules every level in normal/ and performance/ plays by. Edit and restart the level to try other values;
+# a key left out keeps its built-in value. Distances are in board cells, times in seconds.
+
+[Balls]
+# Contest rule: a brick holds four balls (2x2), so a ball is half a cell across.
+Radius 0.25
+Speed 14
+# After this many bounces off walls and other bricks, a ball heads for the nearest brick of its color (1 to 3).
+RetargetAfterBounces 3
+# Launched balls leave the launch point within this angle either side of straight up.
+LaunchHalfAngleDegrees 55
+
+[Simulation]
+TicksPerSecond 120
+# After a slow frame, at most this many ticks catch up at once.
+MaxTicksPerFrame 4
+
+[Normal]
+# Balls per second a chosen launcher releases in Normal mode.
+SpawnRate 60

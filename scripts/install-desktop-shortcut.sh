@@ -1,0 +1,53 @@
+#!/usr/bin/env sh
+
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+binary="$root/dist/linux-sdl/balls"
+
+if [ ! -x "$binary" ]; then
+    echo "Not built yet: $binary" >&2
+    echo "Run $root/build.sh first." >&2
+    exit 1
+fi
+
+apps_dir="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
+desktop_dir=$(xdg-user-dir DESKTOP 2>/dev/null || true)
+if [ -z "$desktop_dir" ] || [ "$desktop_dir" = "$HOME" ]; then
+    desktop_dir="$HOME/Desktop"
+fi
+
+entry_name=color-blast-balls.desktop
+menu_entry="$apps_dir/$entry_name"
+mkdir -p "$apps_dir"
+
+write_entry() {
+    cat > "$1" <<EOF
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Balls
+GenericName=Arcade game
+Comment=Ball Bounce Color Blast
+Exec=$binary %U
+TryExec=$binary
+Path=$root/dist/linux-sdl
+Icon=$root/data/packaging/linux/color-blast-balls.svg
+Terminal=false
+Categories=Game;ArcadeGame;
+Keywords=balls;arcade;color;
+StartupNotify=true
+EOF
+    chmod +x "$1"
+}
+
+write_entry "$menu_entry"
+update-desktop-database "$apps_dir" >/dev/null 2>&1 || true
+
+if [ -d "$desktop_dir" ]; then
+    write_entry "$desktop_dir/$entry_name"
+    gio set "$desktop_dir/$entry_name" metadata::trusted true >/dev/null 2>&1 || true
+    echo "Desktop shortcut: $desktop_dir/$entry_name"
+fi
+
+echo "Menu entry: $menu_entry"
