@@ -1,0 +1,1909 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Balls / a guide through the code</title>
+<style>
+@font-face { font-family: "IBM Plex Mono"; font-weight: 400; font-display: swap; src: url(gdd/fonts/IBMPlexMono-Regular.woff2) format("woff2"); }
+@font-face { font-family: "IBM Plex Mono"; font-weight: 600; font-display: swap; src: url(gdd/fonts/IBMPlexMono-SemiBold.woff2) format("woff2"); }
+:root {
+    --bg: #161616; --surface: #1d1d1d; --weak: #242424; --hover: #303030; --line: rgba(255, 255, 255, 0.1);
+    --text: #d4d4d4; --strong: #ffffff; --muted: #a3a3a3; --dim: #707070; --accent: #8190ff;
+    --ok: #5ad278; --gap: #eb505a; --wip: #ffc440;
+    --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+}
+* { box-sizing: border-box; border-radius: 0; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.6 var(--mono); }
+main { max-width: 1200px; margin: 0 auto; padding: 32px 24px 96px; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { position: sticky; top: 0; z-index: 5; background: var(--bg); border-bottom: 1px solid var(--line); }
+nav ul { list-style: none; display: flex; flex-wrap: wrap; gap: 0; max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+nav a { display: block; padding: 10px 12px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+nav a:hover { color: var(--strong); background: var(--weak); text-decoration: none; }
+header.title { border-bottom: 1px solid var(--line); padding-bottom: 20px; }
+h1 { font-size: 24px; font-weight: 600; color: var(--strong); margin: 0 0 8px; }
+h1 span { color: var(--dim); font-weight: 400; }
+h2 { scroll-margin-top: 56px; font-size: 16px; font-weight: 600; color: var(--strong); text-transform: uppercase; letter-spacing: 0.06em;
+    margin: 56px 0 16px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+h2::before { content: "## "; color: var(--dim); }
+h3 { font-size: 14px; font-weight: 600; color: var(--strong); margin: 28px 0 8px; }
+h3::before { content: "### "; color: var(--dim); }
+p, li { max-width: 900px; }
+.lead { color: var(--muted); }
+code { color: var(--strong); background: var(--weak); padding: 0 5px; font-family: var(--mono); font-size: 13px; }
+ul.rules { padding-left: 18px; }
+ul.rules li { margin: 4px 0; }
+ul.rules li::marker { content: "- "; color: var(--dim); }
+.kw { color: var(--strong); font-weight: 600; }
+table { width: 100%; border-collapse: collapse; margin: 12px 0 18px; font-size: 13px; border: 1px solid var(--line); }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--weak); color: var(--muted); font-weight: 400; text-transform: uppercase; font-size: 11.5px; letter-spacing: 0.05em; }
+tr:hover td { background: var(--surface); }
+.status { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 4px; }
+.badge { display: inline-block; padding: 2px 8px; font-size: 11.5px; border: 1px solid currentColor; }
+.ok { color: var(--ok); }
+.gap { color: var(--gap); }
+.wip { color: var(--wip); }
+.shots { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 14px 0 6px; }
+.shots.one { grid-template-columns: 1fr; }
+.shots.three { grid-template-columns: 1fr 1fr 2fr; align-items: start; }
+figure { margin: 0; background: var(--surface); border: 1px solid var(--line); padding: 8px; }
+figure img { width: 100%; height: auto; max-height: min(60vh, 560px); object-fit: contain; display: block; cursor: zoom-in; }
+figure.missing img { display: none; }
+figcaption { color: var(--muted); font-size: 12px; padding: 8px 2px 0; }
+.placeholder { display: none; aspect-ratio: 16 / 10; border: 1px dashed var(--line); place-items: center; color: var(--dim);
+    text-align: center; padding: 16px; font-size: 12px; }
+figure.missing .placeholder, .placeholder.always { display: grid; }
+.diagram { position: relative; background: #101010; border: 1px solid var(--line); }
+.diagram div { position: absolute; display: grid; place-items: center; text-align: center; font-size: 11px; padding: 4px; color: var(--strong); }
+.d-header { background: #3a3a3a; }
+.d-gadget { background: #2a2a2a; outline: 1px solid var(--accent); outline-offset: -1px; }
+.d-board { background: #181818; outline: 1px solid var(--muted); outline-offset: -1px; }
+.d-gap { background: repeating-linear-gradient(90deg, var(--accent) 0 2px, transparent 2px 4px) !important; padding: 0 !important; }
+.layouts { display: grid; grid-template-columns: 2fr 1fr; gap: 24px; align-items: start; }
+.swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 0; margin: 12px 0; border: 1px solid var(--line); }
+.swatch { display: flex; align-items: center; gap: 10px; padding: 8px 10px; font-size: 12px; border: 1px solid var(--line); margin: -1px 0 0 -1px; }
+.swatch i { width: 28px; height: 28px; flex: none; }
+.swatch b { color: var(--strong); font-weight: 600; display: block; }
+svg.flow { width: 100%; height: auto; display: block; background: var(--surface); border: 1px solid var(--line); }
+svg.flow .node rect { fill: var(--weak); stroke: rgba(255, 255, 255, 0.18); }
+svg.flow .node-title { fill: var(--strong); font: 600 13px var(--mono); }
+svg.flow .node-sub { fill: var(--muted); font: 10px var(--mono); }
+svg.flow .edge { fill: none; stroke: var(--accent); stroke-width: 1.4; }
+svg.flow .edge-label { fill: var(--text); font: 10.5px var(--mono); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; }
+.debug-mock { width: 200px; background: #1d1d1d; border: 1px solid var(--line); padding: 10px 12px; font-size: 12px; line-height: 1.25; }
+.debug-mock .h { color: var(--accent); font-weight: 600; margin: 6px 0 4px; }
+.debug-mock .k { color: var(--muted); font-size: 11px; }
+.debug-mock .v { color: var(--strong); font-weight: 600; margin-bottom: 6px; }
+.debug-mock .row { display: flex; justify-content: space-between; }
+.side { display: grid; grid-template-columns: 1fr 220px; gap: 24px; align-items: start; }
+#lightbox { position: fixed; inset: 0; z-index: 50; display: none; place-items: center; background: rgba(0, 0, 0, 0.88); cursor: zoom-out; }
+#lightbox.open { display: grid; }
+#lightbox img { max-width: 96vw; max-height: 88vh; object-fit: contain; border: 1px solid var(--line); cursor: default; }
+#lightbox .cap { position: fixed; left: 0; right: 0; bottom: 16px; text-align: center; color: var(--muted); font-size: 12px; }
+#lightbox button { position: fixed; top: 12px; right: 16px; background: var(--weak); color: var(--strong); border: 1px solid var(--line);
+    font: 600 16px var(--mono); width: 40px; height: 40px; cursor: pointer; }
+#lightbox button:hover { background: var(--hover); }
+@media (max-width: 720px) { .shots.three { grid-template-columns: 1fr 1fr; } .shots.three figure:last-child { grid-column: 1 / -1; } .layouts, .side { grid-template-columns: 1fr; } }
+@media (max-width: 480px) { .shots, .shots.three { grid-template-columns: 1fr; } }
+
+.bars { margin: 12px 0 18px; border: 1px solid var(--line); }
+.bar { display: grid; grid-template-columns: minmax(150px, 330px) minmax(40px, 1fr) 64px; gap: 12px; align-items: center; padding: 5px 12px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+.bar:last-child { border-bottom: 0; }
+.bar i { display: block; height: 10px; background: var(--accent); }
+.bar i.alt { background: var(--wip); }
+.bar span:last-child { text-align: right; color: var(--muted); }
+pre { background: var(--surface); border: 1px solid var(--line); padding: 12px 14px; overflow-x: auto; font: 12.5px/1.5 var(--mono); color: var(--text); }
+ol.rules li::marker { content: counter(list-item) ". "; color: var(--dim); }
+@media (max-width: 720px) { .bar { grid-template-columns: minmax(110px, 1fr) minmax(30px, 1fr) 56px; gap: 8px; } }
+td.what { color: var(--text); } h4 { font-size: 13px; font-weight: 600; color: var(--muted); margin: 20px 0 6px; } h4::before { content: "#### "; color: var(--dim); } td.name { white-space: nowrap; color: var(--strong); }
+
+.cap { color: var(--muted); font-size: 12px; margin: 14px 0 0; padding: 4px 14px; background: var(--weak); border: 1px solid var(--line); border-bottom: 0; }
+.cap + pre { margin-top: 0; }
+.cm { color: var(--dim); }
+svg.flow .edge.dash { stroke-dasharray: 5 4; }
+svg.flow .node.dim rect { stroke-dasharray: 4 3; opacity: 0.7; }
+</style>
+</head>
+<body>
+<nav><ul>
+<li><a href="#overview">Overview</a></li><li><a href="#build">1 Build</a></li><li><a href="#layout">2 Layout</a></li><li><a href="#core">3 Core</a></li>
+<li><a href="#plugins">4 Plugins</a></li><li><a href="#runtime">5 Run time</a></li><li><a href="#physics">6 Physics</a></li><li><a href="#sdl">7 SDL</a></li>
+<li><a href="#web">8 Web</a></li><li><a href="#unreal">9 Unreal</a></li><li><a href="#unity">10 Unity</a></li><li><a href="#shared">11 Shared</a></li><li><a href="#workflow">12 Workflow</a></li>
+</ul></nav>
+<main>
+<header class="title">
+<h1>Balls <span>/ a guide through the code</span></h1>
+<p class="lead">How the code is built, how it is laid out, how the engine-agnostic core is designed and how its pieces link together,
+and how each front end (SDL3, the web build, Unreal, Unity) sits on top of it. Read it top to bottom: every chapter uses only what the
+ones before it introduced. The game design document specifies behaviour; this page describes the code, and the <a href="knowledge.html">knowledge report</a> collects what is worth knowing about it.
+Checked against <code>main</code> at 2026-11-02 (<code>3aba6b1</code>); file paths are relative to the repository root.</p>
+<p class="lead">The <code>####</code> blocks are real code, each captioned with its file and line range. Lines cut for length are marked <code>// ...</code>, and a few grey comments are notes added for this guide. Each block says what the code is for, then walks through how it works and why it was written that way.</p>
+</header>
+
+<!-- ================================================================== -->
+<h2 id="overview">Overview</h2>
+<p>The game is one C++20 library, <code>balls_core</code>, that holds every rule: levels, launchers, spawning, the simulation, the editor model,
+the menus' content and order, settings, the benchmark and the automation API. It has no window, no renderer and no engine types.
+Physics, the one part that has to be fast on very different hardware, lives in separate plugins the core loads at run time.
+A front end is the rest: a window or an engine, input, drawing, and a thin layer that turns the core's models into widgets.</p>
+<svg class="flow" viewBox="0 0 1100 400" role="img" aria-label="Layer diagram">
+<g class="node"><rect x="20" y="20" width="250" height="70"/><text class="node-title" x="36" y="50">SDL3 front end</text><text class="node-sub" x="36" y="70">Windows · Linux · Android</text></g>
+<g class="node"><rect x="290" y="20" width="250" height="70"/><text class="node-title" x="306" y="50">Web build</text><text class="node-sub" x="306" y="70">same SDL tree, wasm + WebGPU</text></g>
+<g class="node"><rect x="560" y="20" width="250" height="70"/><text class="node-title" x="576" y="50">Unreal front end</text><text class="node-sub" x="576" y="70">UE 5.8 module, Slate UI</text></g>
+<g class="node"><rect x="830" y="20" width="250" height="70"/><text class="node-title" x="846" y="50">Unity front end</text><text class="node-sub" x="846" y="70">C# + ECS, Burst backend</text></g>
+<g class="node"><rect x="830" y="120" width="250" height="44"/><text class="node-title" x="846" y="147">balls_unity  (C ABI v7)</text></g>
+<g class="node"><rect x="20" y="196" width="1060" height="70"/><text class="node-title" x="36" y="226">balls_core  (C++20 static library, no SDL, no engine types)</text><text class="node-sub" x="36" y="246">common · level · game · sim · editor · ui · control · gpu</text></g>
+<g class="node"><rect x="20" y="320" width="250" height="60"/><text class="node-title" x="36" y="346">cpu plugin</text><text class="node-sub" x="36" y="364">Scalar · AVX2 · Zen4</text></g>
+<g class="node"><rect x="290" y="320" width="250" height="60"/><text class="node-title" x="306" y="346">cuda plugin</text><text class="node-sub" x="306" y="364">CUDA (NVRTC-built kernels)</text></g>
+<g class="node"><rect x="560" y="320" width="250" height="60"/><text class="node-title" x="576" y="346">vulkan plugin</text><text class="node-sub" x="576" y="364">Vulkan · VulkanMulti</text></g>
+<g class="node"><rect x="830" y="320" width="250" height="60"/><text class="node-title" x="846" y="346">rocm plugin</text><text class="node-sub" x="846" y="364">ROCm over HSA (Linux)</text></g>
+<path class="edge" d="M145 90V196M415 90V196M685 90V196M955 90V120M955 164V196M145 266V320M415 266V320M685 266V320M955 266V320"/>
+<text class="edge-label" x="550" y="298" text-anchor="middle">PhysicsBackend.h · plugin interface v5 · loaded with DynamicLibrary, never linked</text>
+<text class="edge-label" x="415" y="180" text-anchor="middle">links the scalar backend statically</text>
+</svg>
+<p>Three rules hold the structure together, and every chapter below is an application of one of them:</p>
+<ol class="rules">
+<li><span class="kw">Dependencies point down.</span> A front end includes the core; the core never includes a front end; a physics plugin sees only
+<code>sim/PhysicsBackend.h</code> and the shared step math. A grep of <code>source/core</code> finds no SDL, Unreal or Unity header.</li>
+<li><span class="kw">Rules are written once.</span> Anything two front ends would otherwise both implement (screen order, button labels, layout
+rectangles, the editor's tools, the control API, the toasts' wording) is a model in the core that each front end only draws.</li>
+<li><span class="kw">Hardware is chosen at run time.</span> One build carries every backend; which ones run is decided on the player's machine,
+from what loads, what the player picked and what the benchmark measured. A missing driver turns into a reason string in a menu, never a crash.</li>
+</ol>
+<h3>Size</h3>
+<p>Lines of source (headers, C++, CUDA, OpenCL, HLSL, USF, C#), generated shader headers and the Android Java glue excluded.</p>
+<div class="bars">
+<div class="bar"><span>core (source/core)</span><i style="width:100%"></i><span>15,078</span></div>
+<div class="bar"><span>physics plugins (source/backends)</span><i style="width:66%"></i><span>9,991</span></div>
+<div class="bar"><span>SDL front end (incl. web)</span><i style="width:73%" class="alt"></i><span>11,063</span></div>
+<div class="bar"><span>Unreal front end</span><i style="width:54%" class="alt"></i><span>8,125</span></div>
+<div class="bar"><span>Unity front end (C#)</span><i style="width:88%" class="alt"></i><span>13,305</span></div>
+<div class="bar"><span>Unity C ABI (source/plugin)</span><i style="width:20%" class="alt"></i><span>3,051</span></div>
+<div class="bar"><span>tests (source/tests)</span><i style="width:26%"></i><span>3,953</span></div>
+<div class="bar"><span>tools (bench, gpucompute, ptxgen)</span><i style="width:19%"></i><span>2,934</span></div>
+</div>
+<p>769 commits on <code>main</code>, 149 of them merges.</p>
+
+<!-- ================================================================== -->
+<h2 id="build">1 · How it is built</h2>
+<p>Everything native is one CMake tree rooted at <code>CMakeLists.txt</code> (CMake 3.22+, C++20, no compiler extensions). The engines
+cannot be CMake projects, so Unreal and Unity call into the same tree to build the core and the plugins, then wrap the result their own way.</p>
+
+<h3>Targets</h3>
+<table>
+<tr><th>Target</th><th>Kind</th><th>From</th><th>What it is</th></tr>
+<tr><td class="name">balls_core</td><td>static</td><td>source/core</td><td>all rules and the simulation host; links only Threads and <code>dl</code>. Position-independent so it can go into shared libraries.</td></tr>
+<tr><td class="name">balls_physics_interface</td><td>interface</td><td>source/core</td><td>an include path only, so plugins can see <code>PhysicsBackend.h</code> without linking the core</td></tr>
+<tr><td class="name">balls_physics_cpu</td><td>shared</td><td>source/backends/cpu</td><td>Scalar, plus AVX2 and Zen4 on x86; static in the web build</td></tr>
+<tr><td class="name">balls_physics_cuda</td><td>shared</td><td>source/backends/cuda</td><td>CUDA over the driver API, kernels embedded as SASS + PTX</td></tr>
+<tr><td class="name">balls_physics_vulkan</td><td>shared</td><td>source/backends/vulkan</td><td>Vulkan compute through NVRHI; SPIR-V embedded</td></tr>
+<tr><td class="name">balls_physics_rocm</td><td>shared</td><td>source/backends/rocm</td><td>AMD GPUs over HSA, OpenCL C kernels compiled by ROCm clang</td></tr>
+<tr><td class="name">balls_physics_plugins</td><td>custom</td><td>source/backends</td><td>umbrella that depends on every enabled plugin</td></tr>
+<tr><td class="name">balls</td><td>executable</td><td>source/frontends/sdl</td><td>the SDL game; <code>libmain.so</code> on Android, <code>balls.html</code> + <code>.wasm</code> on the web</td></tr>
+<tr><td class="name">balls_imgui</td><td>static</td><td>source/frontends/sdl</td><td>Dear ImGui with its SDL3 (and SDL_GPU) backends: fonts and text for the SDL UI</td></tr>
+<tr><td class="name">balls_unity</td><td>shared</td><td>source/plugin</td><td>the core behind a flat C ABI for Unity; stages the cpu plugin into <code>balls_plugins/</code></td></tr>
+<tr><td class="name">balls_tests</td><td>executable</td><td>source/tests</td><td>the whole test suite in one binary, registered with CTest</td></tr>
+<tr><td class="name">balls_bench</td><td>executable</td><td>source/tools/bench</td><td>headless physics benchmarks, device listing, the machine benchmark record</td></tr>
+<tr><td class="name">balls_ptxgen</td><td>executable</td><td>source/tools/ptxgen</td><td>build-time tool: compiles the CUDA kernels through NVRTC</td></tr>
+<tr><td class="name">balls_gpucompute</td><td>executable</td><td>source/tools/gpucompute</td><td>GPU API probe (D3D11/D3D12/Vulkan); its <code>BallStep.hlsl</code> is the Vulkan plugin's step</td></tr>
+</table>
+<p>Every runtime binary lands in <code>&lt;build&gt;/bin</code>, so the plugins sit beside the executable that loads them.</p>
+
+<h3>Options</h3>
+<table>
+<tr><th>Cache variable</th><th>Default</th><th>Effect</th></tr>
+<tr><td class="name">BALLS_FRONTEND</td><td>sdl</td><td><code>none</code> builds only the core, plugins, tools and tests (what Unreal and Unity use)</td></tr>
+<tr><td class="name">BALLS_RENDERER</td><td>nvrhi</td><td>which SDL renderers to compile: <code>nvrhi</code>, <code>webgpu</code> or <code>sdlgpu</code> (WebGPU is forced on Android and the web)</td></tr>
+<tr><td class="name">BALLS_ENABLE_CUDA / _ROCM</td><td>ON</td><td>build those plugins; off under Emscripten</td></tr>
+<tr><td class="name">BALLS_BUILD_TOOLS</td><td>ON</td><td>tests, bench, gpucompute</td></tr>
+<tr><td class="name">BALLS_BUILD_UNITY_PLUGIN</td><td>ON</td><td><code>balls_unity</code></td></tr>
+<tr><td class="name">BALLS_STATIC_CRT</td><td>OFF</td><td>plugins need the shared CRT, because they and the host pass C++ objects across the boundary</td></tr>
+<tr><td class="name">BALLS_PRECOMPILED_HEADERS</td><td>ON</td><td>one PCH of standard headers; the AVX2 and Zen4 files opt out because their ISA flags differ</td></tr>
+</table>
+<p>There are no build profiles: since 2026-11-01 every build has every backend, the backend menu and the machine benchmark.</p>
+
+<h3>Third-party code</h3>
+<ul class="rules">
+<li>Fetched by CMake (<code>FetchContent</code>): SDL 3.2.30, Dear ImGui 1.93.0, NVRHI (pinned commit, which also brings Vulkan-Headers), wgpu-native 24.0.3.1 on desktop.</li>
+<li>Vendored: wgpu-native for Android under <code>externals/</code>.</li>
+<li>Downloaded on demand into <code>.deps/</code> by scripts: the minimal CUDA SDK with NVRTC (<code>scripts/FetchCudaSdk.ps1|.sh</code>), ROCm HSA headers (<code>FetchRocmSdk.sh</code>), DXC for shaders. The player's PC needs no SDK; only drivers.</li>
+</ul>
+
+<h3>Compiled-in kernels and shaders</h3>
+<p>Nothing is compiled from source on the player's machine. Each GPU program is turned into bytes at build time and embedded as a C++ array:</p>
+<table>
+<tr><th>Program</th><th>Source</th><th>Compiled by</th><th>Embedded in</th></tr>
+<tr><td>CUDA ball step</td><td>backends/cuda/BallKernels.cu + core/sim/kernels/BallStepCore.h</td><td><code>balls_ptxgen</code> (NVRTC): SASS for sm_50…sm_89, PTX for compute_50/75</td><td>generated <code>BallKernelImages.h</code></td></tr>
+<tr><td>Vulkan ball step</td><td>tools/gpucompute/BallStep.hlsl, one variant per GPU profile in core/gpu/BallStepProfiles.def</td><td><code>scripts/CompileBallStep.py</code> (DXC → SPIR-V)</td><td><code>BallStepBlobs.h</code></td></tr>
+<tr><td>Vulkan compaction</td><td>backends/vulkan/Compaction.hlsl</td><td><code>scripts/CompileCompaction.py</code></td><td><code>CompactionBlobs.h</code></td></tr>
+<tr><td>ROCm ball step</td><td>backends/rocm/BallKernels.cl</td><td><code>scripts/CompileRocmKernels.py</code> (ROCm clang, gfx1030/1031)</td><td><code>BallKernelImages_rocm.h</code></td></tr>
+<tr><td>SDL renderer shaders</td><td>frontends/sdl/shaders/*.hlsl (balls, rects, visibility, cell image, ImGui)</td><td><code>scripts/CompileShaders.py</code> (DXC → DXIL and SPIR-V); WGSL translated with naga</td><td><code>ShaderBlobs.h</code>, <code>generated/web/WgslShaders.h</code></td></tr>
+</table>
+<p>CPU ISA is handled per file rather than per target: <code>Avx2Backend.cpp</code> gets <code>/arch:AVX2</code> or <code>-mavx2 -mfma</code>,
+<code>Zen4Backend.cpp</code> gets the AVX-512 set, and the plugin checks <code>cpuid</code> before it constructs either, so one binary runs on any x86-64.</p>
+
+<h4>Embedding CUDA kernels into a physics plugin</h4>
+<p>Drives NVRTC build-time kernel compilation to header blobs and links the physics plugin against the lightweight interface target.</p>
+<div class="cap">source/backends/CMakeLists.txt:51-78 (condensed)</div>
+<pre>    set(BALLS_KERNEL_HEADER "${CMAKE_CURRENT_BINARY_DIR}/generated/BallKernelImages.h")
+    set(BALLS_PTXGEN_FLAGS "")
+    add_custom_command(
+        OUTPUT "${BALLS_KERNEL_HEADER}"
+        COMMAND ${CMAKE_COMMAND} -E env "PATH=${BALLS_CUDA_SDK_DIR}/bin" "LD_LIBRARY_PATH=${BALLS_CUDA_SDK_DIR}/lib"
+                $&lt;TARGET_FILE:balls_ptxgen&gt; ${BALLS_PTXGEN_FLAGS} "${BALLS_KERNEL_HEADER}" ${BALLS_KERNEL_SOURCES}
+        DEPENDS balls_ptxgen ${BALLS_KERNEL_SOURCES}
+        COMMENT "Compiling CUDA kernels to SASS and PTX with NVRTC")
+    add_custom_target(balls_kernels DEPENDS "${BALLS_KERNEL_HEADER}")
+
+    add_library(balls_physics_cuda SHARED
+        cuda/CudaBackend.cpp
+        cuda/CudaDriver.cpp
+        # ...
+        cuda/CudaPlugin.cpp
+    )
+    # ...
+    target_link_libraries(balls_physics_cuda PRIVATE balls_physics_interface)
+    # ...
+    add_dependencies(balls_physics_cuda balls_kernels)</pre>
+<p>The build tool <code>balls_ptxgen</code> invokes NVRTC on <code>BallKernels.cu</code> and the shared header <code>BallStepCore.h</code>, producing precompiled SASS machine code and PTX stored as static C++ byte arrays. The resulting <code>balls_physics_cuda</code> library is built as a <code>SHARED</code> target linked solely against <code>balls_physics_interface</code> so plugins access the abstract <code>PhysicsBackend</code> interface without linking <code>balls_core</code>. The custom target <code>balls_kernels</code> establishes an explicit build dependency ensuring generated headers exist before plugin sources compile.</p>
+
+<h3>Build scripts</h3>
+<p>The root <code>build.bat</code> / <code>build.sh</code> only dispatch: with no argument they run the SDL build, with
+<code>--menu</code> they ask each front end for its variants, and <code>&lt;frontend&gt; [variant]</code> calls
+<code>source/frontends/&lt;frontend&gt;/build.*</code>. Each front end owns its script and its <code>setup.ps1</code>/<code>setup.sh</code>, which checks or installs the toolchain.</p>
+<table>
+<tr><th>Front end</th><th>Variant</th><th>Build dir</th><th>Output</th></tr>
+<tr><td>SDL</td><td>win32-sdl (default), win32-webgpu, win32-sdlgpu</td><td>build\win32-sdl …</td><td>dist\win32-sdl …</td></tr>
+<tr><td>SDL</td><td>linux (NVRHI/Vulkan), linux-webgpu, linux-sdlgpu</td><td>build/linux …</td><td>dist/linux-sdl …</td></tr>
+<tr><td>SDL</td><td>android (Gradle, <code>source/frontends/sdl/android</code>)</td><td>Gradle</td><td>dist\android-sdl\balls.apk</td></tr>
+<tr><td>Web</td><td>emcmake + Ninja (<code>scripts/web/README.md</code>)</td><td>build-web</td><td>balls.html/.js/.wasm/.data → gh-pages</td></tr>
+<tr><td>Unreal</td><td>win64, linux</td><td>core in build\win32-ue / linux-ue</td><td>dist\win32-ue, dist\linux-ue</td></tr>
+<tr><td>Unity</td><td>win64 (Mono), linux (IL2CPP)</td><td>build\win32-unity</td><td>dist\win32-unity, dist\linux-unity</td></tr>
+</table>
+
+<h3>Where builds run</h3>
+<p>The low-end laptop L2 (i7-7500U, 16 GB, Radeon R7 M445) is the target the game is tuned for, but it compiles on two cores.
+<code>scripts/remote/BuildOnDesktop.py</code> pushes the current commit to L2's bare clone, has the two-GPU desktop (16 threads) build it inside its
+<code>balls-dev</code> distrobox, rsyncs <code>build/linux/bin</code> to <code>/mnt/data/balls/run</code> on L2 and runs <code>balls_tests</code> there
+(<code>--play</code> also starts a level and prints the frame rate). The binary has no absolute build paths baked in (tests find
+<code>assets/</code> beside the executable, <code>testAssetRoot()</code>), so a the two-GPU desktop build runs unchanged on L2.</p>
+
+<h3>Tests</h3>
+<p><code>source/tests/TestFramework.h</code> is the whole framework: a static registrar and a throwing <code>EXPECT</code>. 26 test files compile into
+one <code>balls_tests</code> (174 cases at <code>651640c</code>), which runs headless: CPU backends, the composer's brick budgets, the session runner,
+level parse/write round trips, the editor, screen flow, menus, layout, the control API, settings.</p>
+<pre>#define TEST_CASE(name) static void testBody##__LINE__(); \
+    static TestRegistrar registrar##__LINE__(name, testBody##__LINE__); static void testBody##__LINE__()
+#define EXPECT(cond) do { if (!(cond)) throw TestFailure{"file:line: EXPECT(cond) failed"}; } while (false)</pre>
+
+<!-- ================================================================== -->
+<h2 id="layout">2 · Repository layout</h2>
+<pre>CMakeLists.txt            one native tree for everything below
+build.bat · build.sh      dispatch to source/frontends/&lt;name&gt;/build.*
+source/
+  core/                   balls_core: the game, engine-agnostic
+    common/  level/  game/  sim/  sim/kernels/  editor/  ui/  control/  gpu/
+  backends/               physics plugins: cpu/ cuda/ vulkan/ rocm/
+  plugin/                 BallsUnityApi: the core as a C ABI for Unity
+  frontends/
+    sdl/                  app/ screens/ render/ editor/ ui/ control/ shaders/ android/
+    unreal/               Balls.uproject, Source/{Balls,BallsRendering,BallsCore}, Shaders/
+    unity/                Assets/Balls/{Runtime,Editor}, Packages, ProjectSettings
+  tests/                  balls_tests
+  tools/                  bench/ gpucompute/ ptxgen/
+data/
+  assets/                 levels/, fonts/, target-benchmark.txt: shipped next to every build
+  docs/                   design, this guide, design notes
+scripts/                  shader/kernel compilers, SDK fetchers, bench/, levels/, remote/, submission/, web/, test/
+externals/                vendored prebuilt wgpu-native for Android</pre>
+
+<!-- ================================================================== -->
+<h2 id="core">3 · The core</h2>
+<p><code>source/core</code> is organised by job, one directory each, and inside a directory one translation unit per job. Data is plain
+structs; behaviour lives in free functions or small classes next to it, so most of the core can be tested without a window or a GPU.</p>
+<table>
+<tr><th>Directory</th><th>Lines</th><th>Holds</th><th>Includes</th></tr>
+<tr><td class="name">common</td><td>612</td><td>colours, <code>BallCount</code>, <code>Result&lt;T&gt;</code>, <code>DynamicLibrary</code>, <code>WorkerPool</code></td><td>nothing</td></tr>
+<tr><td class="name">level</td><td>1,609</td><td><code>LevelData</code>, <code>GameplayRules</code>, parser, writer, importer, repository, file watcher</td><td>common</td></tr>
+<tr><td class="name">sim</td><td>6,569</td><td><code>Simulation</code>, <code>BrickBoard</code>, <code>TargetField</code>, the plugin interface and factory, <code>BackendWorker</code>, devices, the composer, the CUDA+AVX2 pair, benchmark</td><td>common, level, gpu</td></tr>
+<tr><td class="name">sim/kernels</td><td></td><td><code>BallStepCore.h</code>: the step rules, compiled for C++ and CUDA alike</td><td>nothing</td></tr>
+<tr><td class="name">game</td><td>2,382</td><td><code>GameSession</code>, <code>SessionRunner</code>/<code>SessionHost</code>, <code>SessionView</code>, launcher queue, spawning, settings, machine profile, frame timings</td><td>common, level, sim</td></tr>
+<tr><td class="name">editor</td><td>975</td><td><code>LevelEditor</code> (value model, undo/redo, validation) and <code>EditorSession</code> (tools, strokes, shortcuts)</td><td>level, game, ui</td></tr>
+<tr><td class="name">ui</td><td>1,488</td><td><code>ScreenFlow</code>, <code>MenuModel</code>, <code>GameplayLayout</code>, <code>Theme</code>, loading screen text</td><td>common, level, game, sim</td></tr>
+<tr><td class="name">control</td><td>641</td><td>the HTTP automation API: routes, parsing, JSON, independent of any socket</td><td>common, level, game, sim</td></tr>
+<tr><td class="name">gpu</td><td>802</td><td>GPU adapter listing (Vulkan, DXGI) and per-GPU tuning profiles</td><td>common</td></tr>
+</table>
+
+<h3>One game, as objects</h3>
+<svg class="flow" viewBox="0 0 1100 300" role="img" aria-label="Ownership of one game">
+<g class="node"><rect x="20" y="20" width="230" height="56"/><text class="node-title" x="36" y="46">SessionRunner</text><text class="node-sub" x="36" y="64">physics thread · view pool ×3</text></g>
+<g class="node"><rect x="300" y="20" width="230" height="56"/><text class="node-title" x="316" y="46">GameSession</text><text class="node-sub" x="316" y="64">rules of one level</text></g>
+<g class="node"><rect x="580" y="20" width="230" height="56"/><text class="node-title" x="596" y="46">Simulation</text><text class="node-sub" x="596" y="64">fixed ticks, hits, board</text></g>
+<g class="node"><rect x="860" y="20" width="220" height="56"/><text class="node-title" x="876" y="46">BackendHandle</text><text class="node-sub" x="876" y="64">unique_ptr + plugin lifetime</text></g>
+<g class="node"><rect x="300" y="130" width="230" height="44"/><text class="node-title" x="316" y="157">LauncherQueue</text></g>
+<g class="node"><rect x="300" y="186" width="230" height="44"/><text class="node-title" x="316" y="213">SpawnController</text></g>
+<g class="node"><rect x="300" y="242" width="230" height="44"/><text class="node-title" x="316" y="269">LevelData · AdditionGovernor</text></g>
+<g class="node"><rect x="580" y="130" width="230" height="44"/><text class="node-title" x="596" y="157">BrickBoard</text></g>
+<g class="node"><rect x="580" y="186" width="230" height="44"/><text class="node-title" x="596" y="213">TargetField</text></g>
+<g class="node"><rect x="860" y="130" width="220" height="56"/><text class="node-title" x="876" y="156">PhysicsBackend</text><text class="node-sub" x="876" y="174">in a plugin</text></g>
+<g class="node"><rect x="20" y="130" width="230" height="56"/><text class="node-title" x="36" y="156">SessionView</text><text class="node-sub" x="36" y="174">immutable snapshot for the UI</text></g>
+<path class="edge" d="M250 48H300M530 48H580M810 48H860M415 76V130M440 76V186M465 76V242M695 76V130M720 76V186M970 76V130M135 76V130"/>
+</svg>
+<ul class="rules">
+<li><code>GameSession</code> (<code>game/GameSession.h</code>) owns the level's rules by value: a <code>Simulation</code>, a <code>LauncherQueue</code>, a
+<code>SpawnController</code>, the <code>LevelData</code> and an <code>AdditionGovernor</code> that keeps ball additions from stalling a frame. It turns
+player actions (<code>chooseLauncher</code>, <code>startAutoRelease</code>, <code>selectSpawnRate</code>, <code>selectBallLimit</code>, <code>requestBackend</code>, <code>restart</code>)
+into spawns and state.</li>
+<li><code>Simulation</code> (<code>sim/Simulation.h</code>) owns the <code>BrickBoard</code> (hits left, dirty cells, animation), the <code>TargetField</code>
+(a per-colour BFS that tells a bouncing ball where the nearest matching brick is) and the backend through a <code>BackendHandle</code>.</li>
+<li><code>BackendHandle</code> is <code>std::unique_ptr&lt;PhysicsBackend, BackendRelease&gt;</code>; the deleter calls the plugin's own
+<code>ballsDestroyBackend</code> and holds a <code>shared_ptr&lt;DynamicLibrary&gt;</code>, so a plugin stays loaded while any object from it lives.</li>
+<li>Levels are values. <code>loadLevel</code>/<code>saveLevel</code>, <code>LevelRepository</code> (folders), <code>LevelImporter</code> and
+<code>LevelWatcher</code> (hot reload, owned by <code>ScreenFlow</code>) are separate pieces around one plain <code>LevelData</code>.</li>
+</ul>
+
+<h4>Exception-free error propagation with Result&lt;T&gt;</h4>
+<p>The return type of core functions that can fail on bad input, such as level parsing and loading.</p>
+<div class="cap">source/core/common/Result.h:12-31</div>
+<pre>template &lt;typename T&gt;
+class [[nodiscard]] Result {
+public:
+    Result(T value) : storage(std::in_place_index&lt;0&gt;, std::move(value)) {}
+    Result(Error error) : storage(std::in_place_index&lt;1&gt;, std::move(error)) {}
+
+    bool hasValue() const { return storage.index() == 0; }
+    explicit operator bool() const { return hasValue(); }
+
+    T&amp; value() { return std::get&lt;0&gt;(storage); }
+    const T&amp; value() const { return std::get&lt;0&gt;(storage); }
+    T&amp; operator*() { return value(); }
+    const T&amp; operator*() const { return value(); }
+    T* operator-&gt;() { return &amp;value(); }
+    const T* operator-&gt;() const { return &amp;value(); }
+    const std::string&amp; error() const { return std::get&lt;1&gt;(storage).message; }
+
+private:
+    std::variant&lt;T, Error&gt; storage;
+};</pre>
+<p>The class wraps a <code>std::variant&lt;T, Error&gt;</code> to return either a valid result or a diagnostic message without dynamic memory allocations for successful paths. The <code>[[nodiscard]]</code> attribute prevents callers from accidentally ignoring failures, while pointer-style dereference operators (<code>*</code> and <code>-&gt;</code>) allow idiomatic access. The error is a message meant for the player, so a front end can show a level's load error as text without knowing what went wrong.</p>
+<h4>Launcher selection and release queuing</h4>
+<p>Transfers user-clicked launcher slots from the reserve queue into active spawning streams during normal play.</p>
+<div class="cap">source/core/game/GameSession.cpp:83-97</div>
+<pre>void GameSession::releaseLauncher(const Launcher&amp; launcher) {
+    spawnController.enqueue(launcher.color, static_cast&lt;BallCount&gt;(launcher.ballCount));
+}
+
+bool GameSession::chooseLauncher(int column, int row) {
+    if (gameMode != GameMode::Normal || sessionState != SessionState::Running) {
+        return false;
+    }
+    const auto launcher = launcherQueue.take(column, row);
+    if (!launcher) {
+        return false;
+    }
+    releaseLauncher(*launcher);
+    return true;
+}</pre>
+<p>When the player clicks a launcher slot in the HUD, <code>chooseLauncher</code> validates that the session is in an active <code>Normal</code> game before claiming the item from <code>LauncherQueue::take</code>. The claimed launcher is passed to <code>releaseLauncher</code>, which enqueues its ball color and quantity into the <code>SpawnController</code>. Inside <code>LauncherQueue::take</code>, the launchers behind the taken one get <code>riseOffset += 1</code>, which front ends ease back to zero so the column visibly moves up.</p>
+<h4>Adaptive 60 FPS spawn budget throttling</h4>
+<p>Calculates how many balls may be added this frame so stepping plus adding stays inside a share of a 60 FPS frame.</p>
+<div class="cap">source/core/game/AdditionGovernor.cpp:55-69</div>
+<pre>double AdditionGovernor::additionSeconds(BallCount liveBalls, bool freeFlight) const {
+    const double frameBudgetSeconds = (freeFlight ? freeFlightBudgetShare : steppingBudgetShare) / targetFramesPerSecond;
+    const double chargedOtherSeconds = std::min(otherSeconds, frameBudgetSeconds * largestOtherShare);
+    return std::max(0.0, frameBudgetSeconds - chargedOtherSeconds - stepSecondsPerBall() * static_cast&lt;double&gt;(liveBalls));
+}
+
+BallCount AdditionGovernor::allowance(BallCount liveBalls, bool freeFlight) const {
+    const double spare = additionSeconds(liveBalls, freeFlight);
+    if (spare &lt;= 0.0) {
+        return 0;
+    }
+    const double balls = spare / (stepSecondsPerBall() + secondsPerAddedBall);
+    const BallCount most = std::max(liveBalls, smallestScaledBalls);
+    return balls &gt;= static_cast&lt;double&gt;(most) ? most : static_cast&lt;BallCount&gt;(balls);
+}</pre>
+<p>The method <code>additionSeconds</code> reserves frame time by subtracting non-physics overhead (front-end rendering and UI, charged at most half the budget) and projected stepping time from the frame budget. In <code>allowance</code>, remaining spare time is divided by the sum of per-ball step cost and per-ball addition cost to compute a safe addition limit. In free flight (when all bricks are destroyed), a higher budget fraction (0.85 instead of 0.50) is allocated.</p>
+<h4>Multi-source target field BFS per colour</h4>
+<p>Constructs grid guidance fields directing bouncing balls toward the nearest alive brick of their matching color.</p>
+<div class="cap">source/core/sim/TargetField.cpp:166-189</div>
+<pre>    std::vector&lt;int32_t&gt; frontier;
+    for (int row = 1; row &lt;= board.rows; ++row) {
+        for (int column = 1; column &lt;= board.columns; ++column) {
+            const int index = indexOf(column, row);
+            const int brick = board.cells[index];
+            if (brick &gt;= 0 &amp;&amp; board.brickColors[brick] == colorIndex) {
+                colorTargets[index] = index;
+                frontier.push_back(index);
+            }
+        }
+    }
+
+    const std::array&lt;int, 8&gt; neighborOffsets{-1, 1, -paddedWidth, paddedWidth,
+                                             -paddedWidth - 1, -paddedWidth + 1, paddedWidth - 1, paddedWidth + 1};
+    for (size_t head = 0; head &lt; frontier.size(); ++head) {
+        const int index = frontier[head];
+        for (int offset : neighborOffsets) {
+            const int neighbor = index + offset;
+            if (colorTargets[neighbor] == noTarget) {
+                colorTargets[neighbor] = colorTargets[index];
+                frontier.push_back(neighbor);
+            }
+        }
+    }</pre>
+<p>The function <code>TargetField::floodColor</code> seeds a multi-source breadth-first search frontier with all alive brick cells matching <code>colorIndex</code>. As the 8-neighbor expansion propagates across the grid, each unvisited cell receives the seed index of its closest brick, forming a discrete Voronoi diagram for ball steering. Each colour floods on its own <code>std::async</code> task, and a rebuild after the board changes runs in the background (<code>TargetField::launch</code>) while the simulation keeps steering by the previous field.</p>
+<h4>Section and header validation in parseBrickLayout</h4>
+<p>Validates file sections and extracts board dimensions when reading custom level files from disk.</p>
+<div class="cap">source/core/level/LevelParser.cpp:327-351</div>
+<pre>Result&lt;BrickLayout&gt; parseBrickLayout(std::string_view text, MapRepairs* repairs, LoadProgress* progress) {
+    beginLoadStep(progress, "Finding the sections");
+    const SectionMap sections = splitSections(text);
+    auto board = parseBoardSection(sections);
+    if (!board) {
+        return Error{board.error()};
+    }
+    const auto* rows = findSection(sections, layoutSection);
+    if (!rows) {
+        return Error{"missing [Layout] section"};
+    }
+    BrickLayout layout;
+    auto width = requirePositive(*board, "Width");
+    if (!width) {
+        return Error{width.error()};
+    }
+    layout.width = *width;
+    const std::optional&lt;int&gt; declaredHeight = positiveValue(*board, "Height");
+    layout.height = declaredHeight.value_or(static_cast&lt;int&gt;(rows-&gt;size()));
+    const int declaredWidth = layout.width;
+    const std::optional&lt;int&gt; playableHeight = positiveValue(*board, "PlayableHeight");
+    if (const std::string tooLarge = checkBoardSize(layout.width, std::max(layout.height, playableHeight.value_or(0)));
+        !tooLarge.empty()) {
+        return Error{tooLarge};
+    }</pre>
+<p>The parser organizes level text into section maps, verifying mandatory sections like <code>[Board]</code> and <code>[Layout]</code> before reading geometry. Dimensions such as <code>Width</code> are validated with <code>requirePositive</code>, while <code>Height</code> defaults to the row count if omitted. Before allocating cell memory, <code>checkBoardSize</code> enforces engine limits on maximum board extents, returning descriptive <code>Error</code> values if limits are exceeded.</p>
+
+<h3>One tick</h3>
+<p>The simulation advances in fixed 1/120 s ticks with at most four per frame, so a slow frame drops time instead of spiralling.
+All per-ball work is one virtual call.</p>
+<div class="cap">source/core/sim/Simulation.cpp (condensed)</div>
+<pre>void Simulation::advance(float frameSeconds) {
+    accumulator = std::min(accumulator + frameSeconds, tickSeconds * maxTicksPerFrame);
+    const int ticks = int(accumulator / tickSeconds);
+    accumulator -= ticks * tickSeconds;
+    if (ticks > 0) tick(ticks);
+}
+void Simulation::tick(int substeps) {
+    if (!pendingSpawns.empty()) { physics->addBalls(pendingSpawns); pendingSpawns.clear(); }
+    syncBoardIfChanged();                          <span class="cm">// uploads only the changed cells</span>
+    hits.clear();
+    physics->step(stepParams(substeps), hits);     <span class="cm">// the one call that does the per-ball work</span>
+    if (physics->resolvesHitsOnDevice()) applyDeviceHits();   <span class="cm">// a GPU already counted the hits</span>
+    else                                  resolveHits();      <span class="cm">// host applies hits to BrickBoard</span>
+}</pre>
+
+<h4>Resolving brick hits and removing balls</h4>
+<p>Processes collision reports from physics backends, damages bricks, and removes balls in stable reverse order.</p>
+<div class="cap">source/core/sim/Simulation.cpp:316-343 (condensed)</div>
+<pre>void Simulation::resolveHits() {
+    killedBalls.clear();
+    bool anyDestroyed = false;
+    for (const BallHit&amp; hit : hits) {
+        const bool wasAlive = brickBoard.bricks()[hit.brick].isAlive();
+        if (!wasAlive) {
+            continue;
+        }
+        brickBoard.applyHit(hit.brick);
+        anyDestroyed = anyDestroyed || !brickBoard.bricks()[hit.brick].isAlive();
+        killedBalls.push_back(hit.ball);
+        // ...
+    }
+    // Backends report hits in ball order, so this is usually a reversal rather than a sort.
+    if (std::ranges::is_sorted(killedBalls)) {
+        std::ranges::reverse(killedBalls);
+    } else {
+        std::ranges::sort(killedBalls, std::greater&lt;&gt;{});
+    }
+    physics-&gt;removeBalls(killedBalls);
+    if (anyDestroyed) {
+        brickBoard.settleColumns();
+    }
+}</pre>
+<p>Each reported <code>BallHit</code> is checked against <code>BrickBoard::isAlive</code> to ignore redundant hits from balls colliding with the same brick in one tick. The indices of the balls that hit are sorted in descending order (via <code>std::ranges::reverse</code> since physics backends yield hits in ascending index sequence) because <code>PhysicsBackend::removeBalls</code> takes descending indices: removing from the back never moves a ball whose index is still in the list. If any brick was destroyed, <code>BrickBoard::settleColumns</code> moves the bricks behind it into the gap (<code>raiseFully</code>).</p>
+
+<h3>Models the front ends draw</h3>
+<p>These are what make the front ends thin. Each is a plain class a front end calls every frame and renders however its toolkit likes.</p>
+<table>
+<tr><th>Model</th><th>Gives the front end</th></tr>
+<tr><td class="name">ui/ScreenFlow</td><td>which screen is up (<code>MainMenu, LevelSelect, Gameplay, LoadError, MapEditor, Settings, MachineBenchmark</code>), overlays (<code>Pause, Win, Settings</code>), each screen's buttons and level rows, Back/Esc, toasts, and requests the front end must carry out (<code>StartGame</code>, <code>OpenEditor</code>, <code>StartBenchmark</code>, <code>PickLevelFiles</code>, <code>Quit</code>)</td></tr>
+<tr><td class="name">ui/MenuModel</td><td>Settings and gameplay-gadget rows: spawn rates, ball limits, device picks, number formatting</td></tr>
+<tr><td class="name">ui/GameplayLayout</td><td>the rectangles of header, board, gadget and debug strip for landscape and portrait, and the board-to-screen transform</td></tr>
+<tr><td class="name">ui/Theme</td><td>every colour, font size and spacing; each front end converts it once (<code>Palette.h</code>, <code>BallsPalette.h</code>, <code>Palette.cs</code>)</td></tr>
+<tr><td class="name">editor/EditorSession</td><td>the whole map editor minus drawing: tools, brushes, strokes, launcher editing, undo/redo, validation, save</td></tr>
+<tr><td class="name">control/ControlApi</td><td>the automation routes (<code>/state /play /levels /editor /menu /settings /vsync /benchmark /benchmark/skip /benchmark/continue /launch /launcher /start /rate /fill /limit /backend /pause /resume /restart /screenshot /quit</code>) answered against a <code>ControlHost</code> the front end implements</td></tr>
+<tr><td class="name">game/Settings, MachineProfile, FrameTimings</td><td>the settings file, the benchmark record and ball limit, and frame-time statistics</td></tr>
+</table>
+
+<h4>Queuing and dispatching front-end requests in ScreenFlow</h4>
+<p>Buffers screen transitions and lifecycle commands from core UI models for consumption by front ends.</p>
+<div class="cap">source/core/ui/ScreenFlow.cpp:44-55</div>
+<pre>void ScreenFlow::request(FlowRequestKind kind, std::optional&lt;LevelFiles&gt; files, std::filesystem::path folder) {
+    requests.push_back(FlowRequest{kind, currentMode, std::move(files), std::move(folder)});
+}
+
+std::optional&lt;FlowRequest&gt; ScreenFlow::takeRequest() {
+    if (requests.empty()) {
+        return std::nullopt;
+    }
+    FlowRequest next = std::move(requests.front());
+    requests.erase(requests.begin());
+    return next;
+}</pre>
+<p>When user interactions require application-level changes, <code>ScreenFlow::request</code> records a <code>FlowRequest</code> containing the target action (such as <code>StartGame</code> or <code>OpenEditor</code>) and relevant parameters. Front ends drain this queue each frame via <code>takeRequest</code> (e.g., in SDL's <code>App::processFlowRequests</code>), starting a game, opening the editor or showing a file picker.</p>
+<h4>Transactional stroke editing and undo bundling</h4>
+<p>Groups continuous pointer drag events into single undo operations while editing brick layouts.</p>
+<div class="cap">source/core/editor/EditorSession.cpp:113-135</div>
+<pre>void EditorSession::beginStroke(bool erase) {
+    editor.beginEdit();
+    strokeActive = true;
+    strokeErases = erase;
+    strokeDragging = false;
+    lastStrokeCell.reset();
+    confirmLeave = false;
+}
+
+void EditorSession::strokeCell(int column, int row) {
+    const BrickLayout&amp; bricks = editor.level().bricks;
+    if (!strokeActive || column &lt; 0 || row &lt; 0 || column &gt;= bricks.width || row &gt;= bricks.height) {
+        return;
+    }
+    if (lastStrokeCell &amp;&amp; lastStrokeCell-&gt;first == column &amp;&amp; lastStrokeCell-&gt;second == row) {
+        return;
+    }
+    applyBrickTool(column, row);
+    // Extend picks the brick under the first cell of a stroke and grows it over the cells after that.
+    strokeDragging = lastStrokeCell.has_value() || currentTool != EditorTool::Extend || selectedBrickId != emptyBrickId;
+    lastStrokeCell = std::make_pair(column, row);
+    edited();
+}</pre>
+<p>When a pointer click starts a drawing action, <code>beginStroke</code> invokes <code>LevelEditor::beginEdit</code> to push a snapshot of <code>LevelData</code> onto the undo stack, ensuring a multi-cell drag creates only one undo entry. While dragging, <code>strokeCell</code> guards against duplicate edits when the cursor hovers on the same cell and delegates cell modifications to <code>applyBrickTool</code>. Calling <code>endStroke</code> on pointer release only clears the stroke flags; the undo entry was already pushed by <code>beginEdit</code>.</p>
+<h4>HTTP automation route dispatch in handleControlRequest</h4>
+<p>Routes automation requests to host actions and returns structured JSON responses across front ends.</p>
+<div class="cap">source/core/control/ControlApi.cpp:286-308</div>
+<pre>std::optional&lt;ControlResponse&gt; handleControlRequest(ControlHost&amp; host, const ControlRequest&amp; request) {
+    const std::string&amp; path = request.path;
+    if (path == "/state") {
+        return ControlResponse::ok(stateJson(host));
+    }
+    if (path == "/screenshot") {
+        const std::string target = request.text("path").value_or("");
+        if (target.empty()) {
+            return ControlResponse::error(400, "missing path");
+        }
+        return host.takeScreenshot(target);
+    }
+    if (path == "/menu") {
+        host.showMainMenu();
+        return ControlResponse::ok();
+    }
+    if (path == "/quit") {
+        host.quit();
+        return ControlResponse::ok();
+    }
+    if (path == "/settings") {
+        return handleSettings(host, request);
+    }</pre>
+<p>Incoming automation requests are parsed and dispatched against the abstract <code>ControlHost</code> interface, decoupling routing and JSON formatting from network transports. Front ends like SDL and Unreal implement <code>ControlHost</code> to expose windowing, frame timings, and screenshot captures through identical HTTP paths. Paths the core does not know go on to the running game's routes (<code>handleGameRoute</code>) and then to the front end's own (<code>ControlHost::handleOwnRoute</code>) before a 404. <code>host.takeScreenshot</code> may return no response yet; SDL then answers after the frame presents.</p>
+
+<!-- ================================================================== -->
+<h2 id="plugins">4 · The plugin boundary</h2>
+<p>A backend is a C++ abstract class created and destroyed through C entry points. That split keeps the hot interface ergonomic (a
+virtual call per step) while symbol lookup stays name-stable across compilers. The cost is that host and plugins must share a toolchain
+and CRT, which one CMake tree guarantees.</p>
+<div class="cap">source/core/sim/PhysicsBackend.h (trimmed)</div>
+<pre>inline constexpr int physicsPluginInterfaceVersion = 5;
+class PhysicsBackend {
+public:
+    virtual std::string_view name() const = 0;
+    virtual void uploadBoard(const BoardUpload& board) = 0;
+    virtual void addBalls(std::span&lt;const BallSpawn&gt; spawns) = 0;
+    virtual void step(const StepParams& params, std::vector&lt;BallHit&gt;& hits) = 0;
+    virtual size_t ballCount() const = 0;
+    virtual BallSnapshot snapshot() = 0;                <span class="cm">// packed render words</span>
+    virtual std::vector&lt;BallSpawn&gt; exportBalls() = 0;   <span class="cm">// migrate on a backend switch</span>
+    <span class="cm">// ... removeBalls, clear, truncate, takeTail</span>
+    <span class="cm">// Optional abilities have harmless defaults, so a backend overrides only what it can do:</span>
+    virtual bool resolvesHitsOnDevice() const { return false; }
+    virtual bool supportsBallCollisions() const { return false; }
+    virtual size_t ballCapacityLimit() const { return std::numeric_limits&lt;size_t&gt;::max(); }
+    <span class="cm">// ... takeCompactTail/addCompact, setVisibilityGrid, acceptsSparseBoardUpdates, preallocateBalls</span>
+};</pre>
+<p>Every plugin exports ten required entry points (<code>ballsPhysicsInterfaceVersion</code>, <code>ballsCreateBackend</code>,
+<code>ballsDestroyBackend</code>, <code>ballsBackendUnavailableReason</code>, <code>ballsBackendDetail</code>, and the per-device
+<code>ballsDeviceCount</code>, <code>ballsDeviceInfo</code>, <code>ballsDeviceUnavailableReason</code>, <code>ballsDeviceDetail</code>,
+<code>ballsCreateBackendOnDevice</code>) and may export five optional ones (<code>ballsMeasureRoofline</code>, <code>ballsStreamedBytesPerBall</code>,
+<code>ballsSetComputeGpu</code>, <code>ballsReleaseIdleDevice</code>, <code>ballsCreateBackendOnDevices</code>). One library may serve several kinds,
+chosen by the kind string: the cpu plugin makes Scalar, AVX2 and Zen4; the vulkan plugin makes Vulkan and VulkanMulti.</p>
+
+<h3>Loading</h3>
+<pre>createBackend(kind)                                   sim/BackendFactory.cpp
+  → plugin file for kind (balls_physics_cpu|cuda|vulkan|rocm, .dll / lib*.so)
+  → loadPlugin: look beside the configured folder (Unity) or the executable;
+                on Windows load a shadow copy so a rebuild can overwrite the DLL
+  → resolve the 10 required symbols, the optional ones if present, check version == 5
+  → unavailableReason(kind) == "" ?  create(kind)  :  null handle + reason for the UI</pre>
+<p>No step throws. A plugin that will not load, a CPU without AVX2 or a GPU without a driver each become a reason string the Settings
+page shows beside the greyed-out choice. Loaded modules are cached and deliberately never unloaded at exit: unloading GPU plugins from a
+static destructor after the drivers' own exit handlers crashed with RADV and NVIDIA together.</p>
+<p>The web build has no <code>dlopen</code>; <code>sim/BackendFactoryWeb.cpp</code> replaces the factory and links the Scalar backend in.</p>
+
+<h4>Plugin C ABI exports</h4>
+<p>A physics backend plugin exports standard C functions so the engine can check compatibility, query hardware requirements, and instantiate backends without C++ name-mangling dependencies. These functions are resolved dynamically by <code>loadPlugin</code> in the core engine.</p>
+<div class="cap">source/backends/cpu/CpuPlugin.cpp:45-93 (condensed)</div>
+<pre>BALLS_PLUGIN_EXPORT int ballsPhysicsInterfaceVersion() { return physicsPluginInterfaceVersion; }
+
+BALLS_PLUGIN_EXPORT const char* ballsBackendUnavailableReason(const char* kindName) {
+    const std::string_view kind(kindName);
+    if (kind == scalarName) {
+        return noReason;
+    }
+    if (kind == avx2Name) {
+#if defined(BALLS_HAS_AVX2_BACKEND)
+        return Avx2Backend::isSupportedByCpu() ? noReason : missingAvx2;
+#else
+        return avx2NotBuilt;
+#endif
+    }
+    <span class="cm">// ... checks Zen4, else returns unknownKind</span>
+    return unknownKind;
+}
+
+BALLS_PLUGIN_EXPORT PhysicsBackend* ballsCreateBackend(const char* kindName) {
+    <span class="cm">// ... instantiates ScalarBackend, Avx2Backend, or Zen4Backend</span>
+    return nullptr;
+}
+
+BALLS_PLUGIN_EXPORT void ballsDestroyBackend(PhysicsBackend* backend) { delete backend; }</pre>
+<p>The plugin exports unmangled C functions through <code>BALLS_PLUGIN_EXPORT</code>, matching the signature definitions in <code>sim/PhysicsBackend.h</code>. Version mismatches are caught early via <code>ballsPhysicsInterfaceVersion</code> before any backend instance is created. The function <code>ballsBackendUnavailableReason</code> queries instruction set support (such as AVX2 or AVX-512) without throwing or allocating, allowing the UI to display descriptive reasons when a backend is greyed out. Backends are instantiated with <code>ballsCreateBackend</code> and deallocated inside the plugin via <code>ballsDestroyBackend</code> to ensure allocations and deallocations pair across the DLL boundary.</p>
+<h4>Dynamic library loading and shadow copies</h4>
+<p>The core locates, loads, and validates physics plugin libraries dynamically at run time. On Windows, it creates temporary shadow copies of the binaries so that compilers can rebuild plugin DLLs while the game remains running.</p>
+<div class="cap">source/core/sim/BackendFactory.cpp:159-199 (condensed)</div>
+<pre>    auto module = std::make_shared&lt;PluginModule&gt;();
+    const std::filesystem::path configured = pluginSearchDirectory();
+    const std::filesystem::path besideConfigured = configured.empty() ? configured : configured / fileName;
+    <span class="cm">// ... locates plugin binary beside configured path or executable</span>
+    const bool shadow = freshCopy &amp;&amp; usesShadowCopies &amp;&amp; foundBesideExecutable;
+    module-&gt;library = std::make_shared&lt;DynamicLibrary&gt;(shadow ? makeShadowCopy(source) : source);
+    if (!module-&gt;library-&gt;isLoaded()) {
+        module-&gt;error = std::format("cannot load {} (looked next to the executable and on the library path)", fileName);
+        return module;
+    }
+    InterfaceVersionFunction interfaceVersion = nullptr;
+    const DynamicLibrary&amp; library = *module-&gt;library;
+    const bool complete = library.resolve("ballsPhysicsInterfaceVersion", interfaceVersion) &amp;&amp;
+                          library.resolve("ballsCreateBackend", module-&gt;create) &amp;&amp;
+                          library.resolve("ballsDestroyBackend", module-&gt;destroy) &amp;&amp;
+                          library.resolve("ballsBackendUnavailableReason", module-&gt;unavailableReason) &amp;&amp;
+                          <span class="cm">// ... ballsBackendDetail, ballsCreateBackendOnDevice and three device queries</span>
+                          library.resolve("ballsDeviceDetail", module-&gt;deviceDetail);
+    library.resolve("ballsMeasureRoofline", module-&gt;measureRoofline);   <span class="cm">// optional: outside complete</span>
+    <span class="cm">// ... the other four optional entry points</span>
+    if (interfaceVersion &amp;&amp; interfaceVersion() != physicsPluginInterfaceVersion) {
+        module-&gt;error = std::format("{} was built for plugin interface {} (expected {})", fileName, interfaceVersion(),
+                                    physicsPluginInterfaceVersion);
+    } else if (!complete) {
+        module-&gt;error = std::format("{} is missing plugin entry points", fileName);
+    }
+    return module;</pre>
+<p>In <code>loadPlugin</code>, the factory first inspects any configured plugin folder (used by hosts like Unity) before falling back to the directory beside the executable. When <code>usesShadowCopies</code> is true on Windows, <code>makeShadowCopy</code> duplicates the binary into a temporary path so the operating system does not file-lock the original DLL during development. The function resolves each required C symbol and verifies that <code>interfaceVersion()</code> equals <code>physicsPluginInterfaceVersion</code> (version 5). The optional entry points are resolved outside <code>complete</code>, so a plugin without them still loads. Failures populate <code>module-&gt;error</code> rather than throwing exceptions, providing diagnostics directly to the user interface.</p>
+<h4>Library lifetime binding with BackendHandle</h4>
+<p>A <code>BackendHandle</code> owns a physics backend pointer along with a reference-counted handle to the dynamic library that implements it. This guarantees the underlying shared library remains loaded in process memory for the entire lifetime of the backend.</p>
+<div class="cap">source/core/sim/BackendHandle.h:8-19</div>
+<pre>struct BackendRelease {
+    DestroyBackendFunction destroy = nullptr;
+    std::shared_ptr&lt;DynamicLibrary&gt; library;
+
+    void operator()(PhysicsBackend* backend) const {
+        if (backend &amp;&amp; destroy) {
+            destroy(backend);
+        }
+    }
+};
+
+using BackendHandle = std::unique_ptr&lt;PhysicsBackend, BackendRelease&gt;;</pre>
+<p>The custom deleter <code>BackendRelease</code> captures both the plugin's exported <code>destroy</code> function and an ownership reference in <code>std::shared_ptr&lt;DynamicLibrary&gt;</code>. When the <code>std::unique_ptr</code> alias <code>BackendHandle</code> falls out of scope, <code>operator()</code> executes <code>destroy(backend)</code> inside the plugin before the library reference count decrements. This prevents invalid memory accesses and crashes that occur when a shared library is unmapped while virtual dispatch tables or backend destructors are still active. It also ensures that backend memory is deallocated by the same C runtime allocator that allocated it.</p>
+
+<h3>Kinds and devices</h3>
+<table>
+<tr><th>BackendKind</th><th>Where</th><th>Notes</th></tr>
+<tr><td class="name">Scalar</td><td>cpu plugin</td><td>one thread, float store; the only backend with ball-to-ball collisions, and the web build's backend</td></tr>
+<tr><td class="name">Avx2</td><td>cpu plugin</td><td>8 lanes, worker pool; the fallback on any modern x86</td></tr>
+<tr><td class="name">Zen4</td><td>cpu plugin</td><td>the AVX2 algorithm on 16-lane AVX-512, offered when the CPU has it</td></tr>
+<tr><td class="name">Cuda</td><td>cuda plugin</td><td>NVIDIA, a context per device</td></tr>
+<tr><td class="name">Vulkan / VulkanMulti</td><td>vulkan plugin</td><td>any Vulkan GPU; Multi submits several GPUs' steps from one thread</td></tr>
+<tr><td class="name">Rocm</td><td>rocm plugin</td><td>AMD on Linux through HSA (AQL packets, no HIP)</td></tr>
+<tr><td class="name">CudaAvx2</td><td>core: sim/HybridBackend</td><td>the fixed CUDA + AVX2 pair, composed in the core from two handles; hidden from menus</td></tr>
+<tr><td class="name">Hybrid</td><td>core: sim/DeviceComposer</td><td>one backend per picked physical device, stepping in parallel</td></tr>
+</table>
+<p>Plugins list the physical devices they can run on (<code>PhysicsDeviceInfo</code>: name, type, UUID, PCI location, memory).
+<code>DeviceInventory</code> merges those lists by UUID, so a GPU that both CUDA and Vulkan see is one device (<code>cpu</code>, <code>gpu0</code>, <code>gpu1</code>… in PCI order).
+<code>BackendSelection</code> parses and checks picks such as <code>AVX2@cpu+CUDA@gpu1+Vulkan@gpu0</code> (devices match by id, UUID prefix or name substring),
+which is the text used by Settings, <code>--backend</code> and <code>/backend?kind=</code>.</p>
+
+<h4>Physical device deduplication by UUID and PCI location</h4>
+<p>Different graphics APIs like CUDA, ROCm, and Vulkan can discover and report the same underlying GPU. <code>mergePhysicalDevices</code> consolidates these disparate reports into unified <code>PhysicalDevice</code> hardware entries.</p>
+<div class="cap">source/core/sim/DeviceInventory.cpp:79-110 (condensed)</div>
+<pre>std::vector&lt;PhysicalDevice&gt; mergePhysicalDevices(
+    const std::vector&lt;std::pair&lt;BackendKind, std::vector&lt;PhysicsDeviceInfo&gt;&gt;&gt;&amp; kindDevices, std::string_view cpuName) {
+    std::vector&lt;GpuEntry&gt; gpus;
+    for (const auto&amp; [kind, devices] : kindDevices) {
+        for (size_t index = 0; index &lt; devices.size(); ++index) {
+            const PhysicsDeviceInfo&amp; info = devices[index];
+            const DeviceBackendOption option{kind, static_cast&lt;int&gt;(index)};
+            <span class="cm">// ... handles CPU devices</span>
+            std::array&lt;uint8_t, 16&gt; uuid{};
+            std::copy(std::begin(info.uuid), std::end(info.uuid), uuid.begin());
+            const auto same = std::ranges::find_if(gpus, [&amp;](const GpuEntry&amp; entry) {
+                if (info.hasUuid != 0 &amp;&amp; entry.device.hasUuid &amp;&amp; entry.device.uuid == uuid) {
+                    return true;
+                }
+                return info.pciBus &gt;= 0 &amp;&amp; entry.pciLocation &amp;&amp;
+                       *entry.pciLocation == std::tuple{info.pciDomain, info.pciBus, info.pciDevice};
+            });
+            if (same != gpus.end()) {
+                same-&gt;device.backends.push_back(option);
+                continue;
+            }
+            <span class="cm">// ... inserts new GPU entry and sorts by PCI location</span>
+        }
+    }
+    <span class="cm">// ...</span></pre>
+<p>The function queries every plugin for its available devices and checks if an incoming GPU matches an existing entry using its 16-byte device UUID or PCI domain/bus/device tuple. Because driver stacks (such as ROCm HSA agents and Vulkan physical devices) generate differing UUIDs for the same card, matching against the PCI bus address provides a reliable cross-API identity. Matching devices accumulate supported backend options in <code>backends</code>, allowing physical hardware to be assigned canonical IDs (<code>cpu</code>, <code>gpu0</code>, <code>gpu1</code>).</p>
+<h4>Parsing device picks for multi-device backends</h4>
+<p>Settings strings, command-line arguments, and REST control endpoints configure multi-device compositions using pick strings such as <code>"AVX2@cpu+CUDA@gpu0"</code>. The parser translates these declarations into structured <code>BackendPick</code> vectors.</p>
+<div class="cap">source/core/sim/BackendSelection.cpp:75-129 (condensed)</div>
+<pre>std::optional&lt;std::vector&lt;BackendPick&gt;&gt; parseBackendPicks(std::string_view text) {
+    std::vector&lt;BackendPick&gt; picks;
+    while (!trimmedView(text).empty()) {
+        const size_t end = text.find(pickSeparator);
+        const std::string_view item = text.substr(0, end);
+        text = end == std::string_view::npos ? std::string_view{} : text.substr(end + 1);
+        const size_t at = item.find(deviceSeparator);
+        if (at == std::string_view::npos) {
+            return std::nullopt;
+        }
+        const std::optional&lt;BackendKind&gt; kind = backendKindFromName(trimmedView(item.substr(0, at)));
+        if (!kind) {
+            return std::nullopt;
+        }
+        std::string deviceToken = std::string(trimmedView(item.substr(at + 1)));
+        <span class="cm">// ... VulkanMulti takes a '|'-separated device list; every other kind names one device:</span>
+        const PhysicalDevice* device = findPhysicalDevice(deviceToken);
+        if (!device) {
+            return std::nullopt;
+        }
+        picks.push_back({*kind, device-&gt;id});
+    }
+    return picks;
+}</pre>
+<p>The function <code>parseBackendPicks</code> splits a composite string on <code>pickSeparator</code> (<code>'+'</code>) and decomposes each item across <code>deviceSeparator</code> (<code>'@'</code>). It validates the backend kind using <code>backendKindFromName</code> and matches the device token with <code>findPhysicalDevice</code>. Because device matching accepts canonical IDs, UUID prefixes, or case-insensitive name substrings, user inputs like <code>"vulkan@6700"</code> or <code>"cuda@gpu0"</code> resolve cleanly. The parsed picks configure the <code>DeviceComposer</code> to run separate backend instances concurrently across selected physical devices.</p>
+
+<h3>Choosing at start-up</h3>
+<p><code>chooseStartupBackend</code> (<code>game/MachineProfile.cpp</code>) takes, in order: the command line; the saved setting; Hybrid over the fastest
+backend on the CPU and every discrete GPU; the winner in the shipped benchmark record <code>data/assets/target-benchmark.txt</code>; the fastest
+CPU backend (Zen4, AVX2, Scalar).</p>
+
+<h4>Startup backend arbitration hierarchy</h4>
+<p>When the application launches, <code>chooseStartupBackend</code> arbitrates between user command-line overrides, saved preferences, system hardware capabilities, and benchmark profiles to select the best available physics backend.</p>
+<div class="cap">source/core/game/MachineProfile.cpp:38-54</div>
+<pre>BackendKind chooseStartupBackend(std::optional&lt;BackendKind&gt; commandLine, std::string_view settingsDefault,
+                                 const std::filesystem::path&amp; targetRecordFile) {
+    if (commandLine &amp;&amp; isBackendAvailable(*commandLine)) {
+        return *commandLine;
+    }
+    const auto usable = [](BackendKind kind) { return isBackendAvailable(kind) &amp;&amp; isBackendSelectable(kind); };
+    if (const auto saved = parseSavedBackendKind(settingsDefault); saved &amp;&amp; usable(offeredBackend(*saved))) {
+        return offeredBackend(*saved);
+    }
+    if (usable(BackendKind::Hybrid)) {
+        return BackendKind::Hybrid;
+    }
+    if (const auto target = targetMachineWinner(targetRecordFile); target &amp;&amp; usable(offeredBackend(target-&gt;kind))) {
+        return offeredBackend(target-&gt;kind);
+    }
+    return fastestAvailableCpuBackend();
+}</pre>
+<p>Selection proceeds in strict priority: an explicit <code>--backend</code> command-line argument takes precedence if available, followed by the user's saved setting. If there is none, <code>BackendKind::Hybrid</code> is chosen whenever at least two devices have a usable backend (otherwise its unavailable reason is "Hybrid needs two or more devices with a usable backend"). If Hybrid is unavailable, it checks whether a shipped benchmark winner exists in <code>targetRecordFile</code> (such as <code>data/assets/target-benchmark.txt</code>). Finally, it falls back to <code>fastestAvailableCpuBackend()</code>, safely stepping through Zen4, AVX2, and Scalar.</p>
+
+<h3>Building and retiring off the frame</h3>
+<p>Loading a plugin, opening a GPU and compiling pipelines take long enough to drop frames, and so does freeing gigabytes of device memory.
+<code>BackendWorker::shared()</code> is one process-wide thread that does both: <code>build(kind)</code> returns a <code>BackendBuild</code> the session polls each
+frame, and <code>retire(handle)</code> destroys an old backend. The old backend keeps stepping until the new one is ready; then
+<code>Simulation::replaceBackend</code> moves the balls across in chunks of 2<sup>20</sup> (<code>migrationChunkBalls</code>) and hands the old handle to the worker.</p>
+
+<h4>Asynchronous backend compilation and retirement</h4>
+<p>Opening GPU contexts, compiling shader pipelines, and releasing gigabytes of VRAM cause noticeable frame drops. <code>BackendWorker</code> executes these heavy operations on a persistent dedicated background thread.</p>
+<div class="cap">source/core/sim/BackendWorker.cpp:40-68 (condensed)</div>
+<pre>std::shared_ptr&lt;BackendBuild&gt; BackendWorker::build(BackendKind kind) {
+    auto build = std::make_shared&lt;BackendBuild&gt;(kind);
+    {
+        std::lock_guard lock(mutex);
+        jobs.push_back([build] {
+            BackendHandle backend = createBackend(build-&gt;kind());
+            std::lock_guard buildLock(build-&gt;mutex);
+            <span class="cm">// ... stores backend into build-&gt;result unless abandoned</span>
+            build-&gt;result = std::move(backend);
+            build-&gt;finished = true;
+        });
+    }
+    wake.notify_one();
+    return build;
+}
+void BackendWorker::retire(BackendHandle backend) {
+    <span class="cm">// ... returns early if !backend</span>
+    auto retired = std::make_shared&lt;BackendHandle&gt;(std::move(backend));
+    {
+        std::lock_guard lock(mutex);
+        jobs.push_back([retired] { retired-&gt;reset(); });
+    }
+    wake.notify_one();
+}</pre>
+<p>The worker thread manages an internal FIFO job queue guarded by a mutex and condition variable. Calling <code>build</code> enqueues a closure that executes <code>createBackend</code> off-thread and populates a <code>BackendBuild</code> token that the gameplay session polls each frame without blocking. If a user quickly switches choices again, <code>BackendBuild::abandon</code> marks the in-flight build so the resulting backend is retired immediately upon completion. Conversely, <code>retire</code> defers destroying old <code>BackendHandle</code> instances so expensive driver deallocations occur off the rendering and physics threads.</p>
+<h4>Chunked ball migration during backend replacement</h4>
+<p>When switching physics backends during active gameplay, <code>Simulation::replaceBackend</code> transfers existing balls from the retired backend into the newly initialized backend in manageable chunks.</p>
+<div class="cap">source/core/sim/Simulation.cpp:73-104 (condensed)</div>
+<pre>BackendReplacement Simulation::replaceBackend(BackendHandle backend, size_t chunkBalls) {
+    BackendReplacement replacement{std::move(physics), 0};
+    physics = std::move(backend);
+    <span class="cm">// ... synchronizes board state and collision configuration</span>
+    syncBoardIfChanged();
+    PhysicsBackend&amp; previous = *replacement.retired;
+    const size_t total = previous.ballCount();
+    if (total &gt; physics-&gt;ballCapacityLimit()) {
+        replacement.ballsToRefill = total;
+        return replacement;
+    }
+    while (previous.ballCount() &gt; 0 &amp;&amp; physics-&gt;faultMessage().empty()) {
+        const std::vector&lt;BallSpawn&gt; chunk = previous.takeTail(std::min(previous.ballCount(), chunkBalls));
+        if (chunk.empty()) {
+            break;
+        }
+        try {
+            physics-&gt;addBalls(chunk);
+        } catch (const std::bad_alloc&amp;) {
+            break;
+        }
+    }
+    replacement.ballsToRefill = total - std::min(physics-&gt;ballCount(), total);
+    return replacement;
+}</pre>
+<p>The simulation swaps <code>physics</code> with the incoming backend handle and synchronizes brick board revisions. Balls are extracted from the old backend using <code>takeTail</code> in batches of <code>chunkBalls</code> (<code>migrationChunkBalls</code>, 2<sup>20</sup> = 1,048,576) and transferred via <code>addBalls</code>, preventing transient memory spikes from copying all live balls at once. If device memory exhaustion causes <code>addBalls</code> to throw <code>std::bad_alloc</code> or the backend reports a fault through <code>faultMessage</code>, migration halts gracefully. Any balls that could not be transferred are tracked in <code>ballsToRefill</code> and respawned over subsequent frames by <code>GameSession::refillBatch</code>.</p>
+
+<!-- ================================================================== -->
+<h2 id="runtime">5 · Core and front end at run time</h2>
+<h3>Threads</h3>
+<table>
+<tr><th>Thread</th><th>Created by</th><th>Runs</th></tr>
+<tr><td class="name">UI / game thread</td><td>the front end</td><td>input, screen flow, layout, drawing; reads the latest <code>SessionView</code>, posts commands</td></tr>
+<tr><td class="name">physics thread</td><td><code>SessionRunner</code> (game/SessionRunner.cpp)</td><td>posted commands, <code>GameSession::update</code>, <code>Simulation::advance</code>, the backend's step, then publishes a view</td></tr>
+<tr><td class="name">backend worker</td><td><code>BackendWorker::shared()</code></td><td>plugin load, device open, kernel setup; destroying retired backends</td></tr>
+<tr><td class="name">step helpers</td><td>the backend</td><td>AVX2's <code>WorkerPool</code>; the pair and the composer step their parts with <code>std::async</code></td></tr>
+</table>
+<p><code>SessionHost</code> wraps the choice: a host either owns a <code>SessionRunner</code> (physics thread, the default everywhere) or a
+<code>GameSession</code> stepped on the UI thread, with the same <code>post</code>/<code>tick</code>/<code>view</code> calls. Unreal uses it; SDL and the Unity C ABI
+use the runner directly.</p>
+
+<h4>Physics frame execution and triple-buffered view publication</h4>
+<p>The physics thread executes independently of the rendering thread. In <code>runSessionFrame</code>, it drains posted front-end commands, updates the game session, and publishes a new snapshot into a 3-view buffer pool.</p>
+<div class="cap">source/core/game/SessionRunner.cpp:180-239 (condensed)</div>
+<pre>void runSessionFrame(const std::shared_ptr&lt;SessionRunner::Shared&gt;&amp; shared, GameSession&amp; session, LoadProgress* progress,
+                     LoopState&amp; state) {
+    PhysicsFrameInput input;
+    std::vector&lt;SessionRunner::Command&gt; commands;
+    std::shared_ptr&lt;SessionView&gt; view;
+    {
+        std::lock_guard lock(shared-&gt;mutex);
+        input = shared-&gt;input;
+        commands = std::exchange(shared-&gt;commands, {});
+        view = freeView(shared-&gt;pool, shared-&gt;latest);
+    }
+    for (SessionRunner::Command&amp; command : commands) {
+        command(session);
+    }
+    session.pollBackgroundWork();
+    <span class="cm">// ... advances simulation by frameSeconds if unpaused</span>
+    fillView(session, *view, previous.get(), state.boards, input.visibilitySlotCells, state.field);
+    {
+        std::lock_guard lock(shared-&gt;mutex);
+        shared-&gt;latest = view;
+    }
+}</pre>
+<p>Under <code>shared-&gt;mutex</code>, the frame atomically swaps out pending commands from the UI thread and retrieves a recyclable view from the 3-view pool via <code>freeView</code>. It applies all commands to <code>GameSession</code>, polls completed background backend builds, and advances physics with <code>session.update</code>. The state is packaged into the selected view via <code>fillView</code>, updating brick board snapshots and copying packed render words. Finally, <code>shared-&gt;latest</code> is updated under the lock, ensuring the rendering thread always receives an immutable, consistent snapshot without stalling physics.</p>
+<h4>Unified session hosting for threaded and inline execution</h4>
+<p><code>SessionHost</code> provides one interface for a front end (Unreal is the one that uses it), allowing it to drive a simulation identically whether physics runs on a dedicated background thread or inline on the main UI thread.</p>
+<div class="cap">source/core/game/SessionHost.cpp:15-90 (condensed)</div>
+<pre>SessionHost::SessionHost(GameMode mode, LevelFiles files, BackendKind backend, SessionThreading threading,
+                         std::shared_ptr&lt;LoadProgress&gt; progress) {
+    if (threading == SessionThreading::PhysicsThread) {
+        runner = std::make_unique&lt;SessionRunner&gt;(mode, std::move(files), backend, defaultTicksPerSecond,
+                                                 std::move(progress));
+        return;
+    }
+    auto level = loadLevel(files, progress.get());
+    // ...
+    session = std::make_unique&lt;GameSession&gt;(mode, std::move(*level), backend, defaultTicksPerSecond, progress.get());
+    refreshView();
+    // ...
+}
+// ...
+void SessionHost::tick(const PhysicsFrameInput&amp; input, float deltaSeconds) {
+    if (runner) {
+        runner-&gt;tick(input);
+        if (auto newest = runner-&gt;view()) {
+            latest = std::move(newest);
+        }
+        for (SessionEvent&amp; event : runner-&gt;takeEvents()) {
+            events.push_back(event);
+        }
+        return;
+    }
+    // SessionRunner's order: adopt a backend built off the frame before the tick that would run on it.
+    session-&gt;pollBackgroundWork();
+    // ...
+    if (!input.paused) {
+        // ...
+        session-&gt;reportFrameWorkSeconds(input.uiWorkSeconds);
+        session-&gt;update(deltaSeconds);
+        // ...
+    }
+    refreshView();
+}</pre>
+<p>When initialized with <code>SessionThreading::PhysicsThread</code>, <code>SessionHost</code> delegates execution to a <code>SessionRunner</code> and retrieves published <code>SessionView</code> snapshots during <code>tick</code>. In single-threaded mode (<code>SessionThreading::UiThread</code>, Unreal's <code>-BallsPhysicsThread=0</code>), it owns a <code>GameSession</code> directly and steps physics during the UI frame. In both modes, front ends post commands and consume views through identical member functions, decoupling UI rendering from threading architecture.</p>
+
+<h3>What crosses</h3>
+<div class="cap">source/core/game/SessionRunner.h</div>
+<pre>class SessionRunner {
+public:
+    using Command = std::function&lt;void(GameSession&amp;)&gt;;
+    void post(Command command);                       <span class="cm">// UI → physics: runs at the start of the next physics frame</span>
+    void tick(const PhysicsFrameInput&amp; input);        <span class="cm">// pause, last UI frame time, visibility slot size; never blocks</span>
+    std::shared_ptr&lt;const SessionView&gt; view() const;  <span class="cm">// physics → UI: the latest immutable snapshot</span>
+};</pre>
+<ul class="rules">
+<li><span class="kw">UI to physics</span> is only <code>post</code>: a lambda appended under one mutex. The UI never touches a <code>GameSession</code>.</li>
+<li><span class="kw">Physics to UI</span> is one <code>shared_ptr&lt;const SessionView&gt;</code> per physics frame, taken from a pool of three so the UI can keep one for its whole frame while the next is filled. The board inside is shared between views until its revision changes (<code>BoardSnapshots</code>).</li>
+<li><span class="kw">Balls</span> cross as one 32-bit word each (or per visibility-grid slot when the backend fills a screen-sized grid), copied once into the view because the next step may overwrite the backend's buffer.</li>
+</ul>
+<div class="cap">source/core/sim/PhysicsBackend.h: the render word every backend and front end shares</div>
+<pre><span class="cm">// bits 0-13 x, bits 14-27 y (14 bits each over the board), bits 28-30 colour; 0xFFFFFFFF = empty grid slot</span>
+inline uint32_t packCompactForRender(uint32_t position, uint32_t state) {
+    return ((position &amp; 0xFFFFu) &gt;&gt; 2)
+         | ((position &gt;&gt; 16 &gt;&gt; 2) &lt;&lt; renderCoordinateBits)
+         | (((state &gt;&gt; compactColorShift) &amp; compactColorMask) &lt;&lt; renderColorShift);
+}</pre>
+<p>Because every renderer gets packed words through the core instead of shared GPU memory, any front end works with any backend.</p>
+
+<h3>A launcher click, end to end</h3>
+<div class="cap">source/frontends/sdl/screens/GameplayScreen.cpp</div>
+<pre>const LauncherSlotHit hit = findLauncherAt(view-&gt;launchers, grid, mouse);   <span class="cm">// hit-test against the view</span>
+if (hit.column &gt;= 0)
+    runner-&gt;post([hit](GameSession&amp; s) { s.chooseLauncher(hit.column, hit.row); });
+<span class="cm">// physics thread, next frame: chooseLauncher → releaseLauncher → Simulation::launchBalls (pending spawns)
+// → next Simulation::tick → PhysicsBackend::addBalls → stepped from the following step</span></pre>
+<p>Unreal posts the same lambda through <code>SessionHost</code>; Unity calls <code>balls_session_choose_launcher</code>, which posts it.</p>
+
+<h3>Balls from the backend to the screen</h3>
+<table>
+<tr><th>Front end</th><th>Path</th><th>CPU copies</th></tr>
+<tr><td>SDL / web</td><td><code>SessionView::balls</code> → <code>BallView</code> → <code>IRenderer::drawBalls</code> uploads the words; a GPU visibility pass picks what is drawn</td><td>1</td></tr>
+<tr><td>Unreal</td><td><code>FBallsBoardView</code> copies filled slots into <code>FBallsDrawData</code> → render thread → RDG buffer → one triangle per ball in <code>BallsDraw.usf</code></td><td>2</td></tr>
+<tr><td>Unity</td><td><code>balls_session_snapshot</code> pointer → <code>BallBatch</code> singleton → <code>BallRenderSystem</code> decodes into quads → one <code>Graphics.RenderMeshIndirect</code></td><td>2 + decode</td></tr>
+</table>
+
+<!-- ================================================================== -->
+<h2 id="physics">6 · Inside the physics plugins</h2>
+<p>The rules of a step are written once, in <code>source/core/sim/kernels/BallStepCore.h</code>, as <code>BALLS_HOST_DEVICE</code> functions that
+compile both as C++ and under NVRTC. The CUDA kernels, the AVX2 and Zen4 backends, the Scalar backend and the tests include it; the Vulkan
+HLSL and Unity's Burst port mirror it.</p>
+<h3>One ball in 8 bytes</h3>
+<table>
+<tr><th>Word</th><th>Bits</th></tr>
+<tr><td class="name">position</td><td>x and y, 16 bits each over the board</td></tr>
+<tr><td class="name">state</td><td>direction x and y as 13-bit signed components, colour (3 bits from bit 26), bounces since the last brick (2 bits from bit 29)</td></tr>
+</table>
+<p>Speed is not stored (all balls share it). Re-quantising every tick would drift, so rounding adds a dither hashed from the previous
+position (<code>roundingDither</code>), which makes it unbiased. Moving AVX2 from seven float/int arrays to this layout took it from
+650 M to 1,080–1,250 M ball-steps/s. The Scalar backend keeps a float store; it exists for collisions and as the accuracy reference.</p>
+
+<h4>8-byte ball bit packing and unpacking</h4>
+<p>Encodes a ball's floating-point position and velocity into two 32-bit words, and decodes them back when balls are exported or transferred between backends. Used across CPU compact stores to maintain a high-density, cache-friendly ball representation.</p>
+<div class="cap">source/backends/cpu/CompactBallStore.cpp:28-191 (condensed)</div>
+<pre>uint32_t encodeAxis(float value, float extent) {
+    const float scaled = value / extent * compact::positionScale + 0.5f;
+    return static_cast&lt;uint32_t&gt;(std::clamp(scaled, 0.0f, compact::positionScale));
+}
+
+uint32_t encodeComponent(float value) {
+    const int quantized = static_cast&lt;int&gt;(std::lrint(std::clamp(value, -1.0f, 1.0f) * compact::directionScale));
+    return static_cast&lt;uint32_t&gt;(quantized) &amp; compact::directionMask;
+}
+
+int signedComponent(uint32_t bits) {
+    return static_cast&lt;int32_t&gt;(bits &lt;&lt; (32 - compact::directionBits)) &gt;&gt; (32 - compact::directionBits);
+}
+// ...
+BallSpawn CompactBallStore::decode(size_t index) const {
+    const uint32_t bits = state[index];
+    const float dx = static_cast&lt;float&gt;(signedComponent(bits &amp; compact::directionMask));
+    const float dy = static_cast&lt;float&gt;(signedComponent((bits &gt;&gt; compact::directionBits) &amp; compact::directionMask));
+    const float length = std::max(std::hypot(dx, dy), 1.0f);
+    return {static_cast&lt;float&gt;(position[index] &amp; compact::positionMask) * fieldWidth / compact::positionScale,
+            static_cast&lt;float&gt;(position[index] &gt;&gt; 16) * fieldHeight / compact::positionScale,
+            dx / length * speed,
+            dy / length * speed,
+            static_cast&lt;int32_t&gt;(stateColor(bits))};
+}</pre>
+<p>Each ball fits into two 32-bit words: <code>position</code> packs 16 bits for x and 16 bits for y scaled to 65,535, while <code>state</code> stores two 13-bit signed direction components, 3 bits of colour, and 2 bits tracking bounces. The function <code>encodeAxis</code> maps board extents to unsigned 16-bit integers, while <code>encodeComponent</code> and <code>signedComponent</code> quantize unit direction vectors into 13-bit two's complement integers. Because all balls share a global speed parameter, <code>decode</code> reconstitutes full floating-point velocities by multiplying the normalized direction components by <code>speed</code> without storing per-ball magnitudes. Positions use the full 16-bit range (<code>positionScale</code> = 65,535); directions use &#177;4,095 of the 13 bits (<code>directionScale</code>).</p>
+<h4>Dual-target compilation and unbiased position dithering</h4>
+<p>Defines the host/device compilation macros for shared kernel code and computes pseudo-random fractions to eliminate velocity drift during fixed-point quantization. Called every step before truncating updated positions back to 16-bit storage.</p>
+<div class="cap">source/core/sim/kernels/BallStepCore.h:3-121 (condensed)</div>
+<pre>#if defined(__CUDACC_RTC__)
+#define BALLS_HOST_DEVICE __device__ __forceinline__
+#else
+#include &lt;cmath&gt;
+#define BALLS_HOST_DEVICE inline
+#endif
+
+// ...
+
+BALLS_HOST_DEVICE unsigned int roundingDither(unsigned int previousPosition) {
+    unsigned int hash = previousPosition * 0x9E3779B1u;
+    hash ^= hash &gt;&gt; 15;
+    hash *= 0x85EBCA77u;
+    hash ^= hash &gt;&gt; 13;
+    hash *= 0xC2B2AE3Du;
+    hash ^= hash &gt;&gt; 16;
+    return hash;
+}
+
+BALLS_HOST_DEVICE float ditherFraction(unsigned int dither16) {
+    constexpr float sixteenBitUnits = 1.0f / 65536.0f;
+    return static_cast&lt;float&gt;(dither16 &amp; 0xFFFFu) * sixteenBitUnits;
+}</pre>
+<p>The macro <code>BALLS_HOST_DEVICE</code> enables identical kernel logic to compile directly as C++ on CPU backends and as PTX under NVRTC on CUDA. Stepped balls are quantized into 16-bit positions every frame; because balls advance by approximately 255.4 units per tick, conventional truncation or nearest-integer rounding repeatedly drops the same fractional remainder, causing up to 0.2% per-axis velocity drift. The function <code>roundingDither</code> runs a MurmurHash-style mixing step over the previous frame's 32-bit position word, producing pseudo-random dither fractions via <code>ditherFraction</code> for the x and y axes. Adding this unbiased noise prior to truncation eliminates drift against an exact engine (0.12 cells in 10 s, per the source comment) without requiring persistent state per ball.</p>
+<h4>Core per-ball step and early near-brick exit</h4>
+<p>Integrates position over time, reflects velocities against the board boundaries, and queries the spatial grid to bypass contact search in empty space. Executed per ball per substep across all simulation backends.</p>
+<div class="cap">source/core/sim/kernels/BallStepCore.h:213-256 (condensed)</div>
+<pre>template &lt;typename Board&gt;
+BALLS_HOST_DEVICE int stepBall(float&amp; x, float&amp; y, float&amp; vx, float&amp; vy, int color, int&amp; bounces,
+                               const Board&amp; board, const StepParams&amp; params) {
+    const float radius = params.radius;
+    x += vx * params.deltaTime;
+    y += vy * params.deltaTime;
+    // ...
+    const int column = static_cast&lt;int&gt;(floorf(x));
+    const int row = static_cast&lt;int&gt;(floorf(y));
+    if (!board.isNearBrick(paddedCellIndex(column, row, params.paddedWidth))) {
+        if (bounced) {
+            bounces += 1;
+            if (bounces &gt;= params.retargetBounceThreshold) {
+                retargetTowardNearestBrick(x, y, vx, vy, color, normalX, normalY, board, params);
+            }
+        }
+        return noBrickHit;
+    }</pre>
+<p>The function <code>stepBall</code> integrates position along velocity by <code>deltaTime</code> and reflects against boundaries using the ball radius. Boundary bounces increment <code>bounces</code> and trigger <code>retargetTowardNearestBrick</code> if the bounce threshold is met, redirecting stuck balls toward valid bricks. It then reads the precomputed near-brick flag of the ball's cell (<code>board.isNearBrick</code>). If no bricks are nearby, it returns <code>noBrickHit</code> immediately, skipping the contact search for the vast majority of balls flying through open space.</p>
+
+<h3>AVX2: eight balls per instruction</h3>
+<table>
+<tr><th>Technique</th><th>Why</th></tr>
+<tr><td>Parameters broadcast once per step into <code>LaneConstants</code></td><td>no broadcasts inside the loop</td></tr>
+<tr><td>Coast check: all 8 lanes stay in brick-free space for the whole tick → FMAs only</td><td>most balls are in open space most of the time</td></tr>
+<tr><td>Walls with compare + blend; one gather of <code>nearBrickCells</code> and <code>_mm256_testz_si256</code> skips the contact search for the group</td><td>lanes do not diverge; the contact search is the expensive part</td></tr>
+<tr><td>Rare paths (embedded contacts, line-of-sight retargeting) scalar, only for lanes from <code>_mm256_movemask_ps</code></td><td>keeps the common path branch-free</td></tr>
+<tr><td>Masked stores of state only where bounces changed; streaming stores for render words</td><td>halves write traffic; render words skip the cache</td></tr>
+<tr><td>Chunks of 2,048 balls on a <code>WorkerPool</code>, hits gathered per chunk (<code>BALLS_STEP_CHUNK</code> overrides)</td><td>was 16,384; 2,048 is 11% faster on L2's two cores and level elsewhere</td></tr>
+<tr><td>Visibility grid: only a hashed sample of balls bids for a slot, relaxed <code>atomic_ref</code> stores</td><td>threads writing one grid bounced its cache lines: 610 M → 1,200 M in game</td></tr>
+<tr><td>No bricks left: positions in closed form (a triangle wave), 8 lanes at a time</td><td>a cleared board costs only the render pass</td></tr>
+</table>
+<p>On L2 (i7-7500U, 2 cores / 4 threads) AVX2 steps 148–161 M ball-steps/s at 1M balls; threads scale 51 → 99 → 126 → 152 M.</p>
+
+<h4>AVX2 coasting and rare-path vector handling</h4>
+<p>Evaluates whole-tick coasting and performs scalar fallback for rare embedded contacts using AVX2 SIMD instructions across 8 balls simultaneously. Called within <code>stepRange</code> to skip substepping and isolate divergent lanes.</p>
+<div class="cap">source/backends/cpu/Avx2Backend.cpp:702-843 (condensed)</div>
+<pre>bool coastsWholeTick(const LaneState&amp; state, const LaneConstants&amp; k) {
+    const __m256 endX = _mm256_fmadd_ps(state.vx, k.tickTime, state.x);
+    const __m256 endY = _mm256_fmadd_ps(state.vy, k.tickTime, state.y);
+    const __m256 insideX = _mm256_and_ps(greaterThan(endX, k.coastLeft), lessThan(endX, k.coastRight));
+    const __m256 insideY = _mm256_and_ps(greaterThan(_mm256_min_ps(endY, state.y), k.coastTop), lessThan(endY, k.coastBottom));
+    return _mm256_movemask_ps(_mm256_and_ps(insideX, insideY)) == 0xff;
+}
+// ...
+void Avx2Backend::stepRange(const StepParams&amp; params, size_t begin, size_t end, std::vector&lt;BallHit&gt;&amp; hits) {
+    const BoardView board = boardView();
+    const LaneConstants k(params, cells.sentinelBrick(), cells.nearRowsEnd);
+    // ...
+        const bool coasting = coastsWholeTick(state, k);
+        if (coasting) {
+            coast(state, k, params.substeps);
+        }
+        for (int substep = 0; substep &lt; (coasting ? 0 : params.substeps); ++substep) {
+            const LaneStepResult result = stepLanes(state, k, board);
+            // ...
+            const unsigned embeddedLanes =
+                static_cast&lt;unsigned&gt;(_mm256_movemask_ps(_mm256_and_ps(result.embedded, active)));
+            if (embeddedLanes != 0) {
+                resolveEmbeddedLanes(state, embeddedLanes, result, board, params);
+            }
+        }</pre>
+<p>The AVX2 backend processes eight balls per register using broadcast constants in <code>LaneConstants</code>. The function <code>coastsWholeTick</code> tests whether all eight lanes remain within brick-free open space for the entire tick; when <code>_mm256_movemask_ps</code> verifies all 8 bits, <code>coast</code> advances them using simple FMAs, bypassing the substep loop entirely. Inside <code>stepRange</code>, the common vector path stays branch-free while collisions and boundary reflections run across SIMD lanes. When rare conditions like embedded penetration occur, <code>_mm256_movemask_ps</code> extracts a scalar bitmask to run <code>resolveEmbeddedLanes</code> only for the affected lanes without penalizing conforming ones.</p>
+<h4>Thread-pool chunking and relaxed atomic visibility grid bidding</h4>
+<p>Divides ball stepping across worker threads in fixed chunks and uses relaxed atomic stores to write sampled ball positions into visibility grid slots without cache-line bouncing. Invoked by <code>Avx2Backend::step</code> every frame.</p>
+<div class="cap">source/backends/cpu/Avx2Backend.cpp:367-548 (condensed)</div>
+<pre>void storeSlotRelaxed(uint32_t&amp; slot, uint32_t value) {
+#if defined(__cpp_lib_atomic_ref)
+    std::atomic_ref&lt;uint32_t&gt; shared(slot);
+    if (shared.load(std::memory_order_relaxed) == emptyRenderSlot) {
+        shared.store(value, std::memory_order_relaxed);
+    }
+#else
+    if (__atomic_load_n(&amp;slot, __ATOMIC_RELAXED) == emptyRenderSlot) {
+        __atomic_store_n(&amp;slot, value, __ATOMIC_RELAXED);
+    }
+#endif
+}
+
+// ...
+
+    chunkHits.resize(std::max(chunkHits.size(), WorkerPool::chunkCountFor(store.count, stepChunkBalls)));
+    pool-&gt;runChunks(store.count, stepChunkBalls, [&amp;](size_t chunk, size_t begin, size_t end) {
+        chunkHits[chunk].clear();
+        stepRange(params, begin, end, chunkHits[chunk]);
+    });
+    const size_t usedChunks = WorkerPool::chunkCountFor(store.count, stepChunkBalls);
+    for (size_t chunk = 0; chunk &lt; usedChunks; ++chunk) {
+        hits.insert(hits.end(), chunkHits[chunk].begin(), chunkHits[chunk].end());
+    }</pre>
+<p>The backend divides ball simulation into chunks of 2,048 balls across a <code>WorkerPool</code>, allowing each thread to step a contiguous batch into private <code>chunkHits</code> buffers before a serial reduction merges them into the output hit list. To generate render frames at high ball counts, balls bid for slots in a fixed-size visibility grid. When every ball wrote its slot, the worker threads kept taking the grid's cache lines from each other (610 M ball-steps/s in game). Now only a hashed sample of balls bids, and <code>storeSlotRelaxed</code> first reads the slot with a relaxed <code>std::atomic_ref</code> load and writes only if it is still <code>emptyRenderSlot</code>, so a filled slot's line is only read. That reached 1,200 M.</p>
+
+<h3>CUDA</h3>
+<table>
+<tr><th>Technique</th><th>Why</th></tr>
+<tr><td>Brick hits resolved on the GPU: lanes hitting one brick find each other with <code>__match_any_sync</code>, one leader does one <code>atomicSub</code> and refunds the excess</td><td>per-ball CAS loops on a few hot bricks made 150 ms steps</td></tr>
+<tr><td>Killed balls removed in two kernels (collect holes below the survivor count, fill them from the tail)</td><td>no host round trip</td></tr>
+<tr><td>Balls sorted by cell in a fused step-and-sort kernel; <code>SortSchedule</code> tries never / every 8 / every 16 ticks and keeps the cheapest</td><td>unsorted, nearly every warp had a near-brick ball</td></tr>
+<tr><td>Visibility grid of 64-bit slots (hashed priority above the render word), one <code>atomicMax</code> per bid</td><td>constant-size readback whatever the ball count</td></tr>
+<tr><td>Ball arrays in reserved virtual address space, physical memory mapped as they grow (<code>cuMemAddressReserve</code>/<code>cuMemMap</code>)</td><td>growth never moves balls</td></tr>
+<tr><td>A primary context and module per device, made current before every driver call</td><td>two NVIDIA GPUs can run side by side in the composer</td></tr>
+</table>
+<p>CPU memory is reserved the same way (<code>ReservedArray</code>: reserve all physical memory, commit 64 MB granules, pre-fault the next on a helper
+thread), so a step never waits on a page fault. <code>BALLS_PREALLOCATE=1</code> fills both up front.</p>
+
+<h4>Warp-level brick hit reduction and leader atomic subtraction</h4>
+<p>Deduplicates simultaneous brick collisions across threads in a CUDA warp using shuffle intrinsics, issuing a single atomic subtraction with refunds for excess hits. Called from the CUDA step kernel when balls collide with bricks.</p>
+<div class="cap">source/backends/cuda/BallKernels.cu:161-176</div>
+<pre>__device__ __forceinline__ bool consumeBrickHit(int* brickHitsLeft, int brick) {
+    const unsigned int peers = __match_any_sync(__activemask(), brick);
+    const int lane = static_cast&lt;int&gt;(threadIdx.x) &amp; 31;
+    const int leader = __ffs(peers) - 1;
+    const int wanted = __popc(peers);
+    int granted = 0;
+    if (lane == leader) {
+        const int previous = atomicSub(&amp;brickHitsLeft[brick], wanted);
+        granted = max(0, min(previous, wanted));
+        if (granted &lt; wanted) {
+            atomicAdd(&amp;brickHitsLeft[brick], wanted - granted);
+        }
+    }
+    granted = __shfl_sync(peers, granted, leader);
+    return __popc(peers &amp; ((1u &lt;&lt; lane) - 1u)) &lt; granted;
+}</pre>
+<p>When a launch wave reaches a row of bricks, hundreds of thousands of balls hit the same few in one tick; per-ball compare-and-swap (CAS) loops serialized into 150 ms steps. The function <code>consumeBrickHit</code> uses <code>__match_any_sync</code> across active threads in a warp to find all peer lanes colliding with the same brick index. The elected leader thread (found via <code>__ffs</code>) performs a single <code>atomicSub</code> for the aggregate count <code>wanted</code>, and if the brick had fewer hits left than requested, immediately refunds the excess via <code>atomicAdd</code>. The total granted hits are broadcast across the warp with <code>__shfl_sync</code>, and prefix-popcount logic grants hits in lane order without any serialized CAS loops. A build with <code>BALLS_RANK_WITH_ATOMICS</code> uses a plain per-lane subtract-and-refund instead.</p>
+<h4>64-bit atomic visibility grid bidding</h4>
+<p>Maps packed ball render coordinates into visibility grid buckets and uses a 64-bit atomic maximum to select the highest-priority ball per slot. Called per ball from CUDA render and fused step-and-render kernels.</p>
+<div class="cap">source/backends/cuda/BallKernels.cu:125-147</div>
+<pre>__device__ __forceinline__ int slotForPacked(unsigned int packed, const VisibilityGrid&amp; grid) {
+    const int column =
+        min(static_cast&lt;int&gt;(static_cast&lt;float&gt;(packed &amp; renderCoordinateMax) * grid.scaleX), grid.width - 1);
+    const int row = min(
+        static_cast&lt;int&gt;(static_cast&lt;float&gt;((packed &gt;&gt; renderCoordinateBits) &amp; renderCoordinateMax) * grid.scaleY),
+        grid.height - 1);
+    return row * grid.width + column;
+}
+
+__device__ __forceinline__ void bidForSlot(unsigned int packed, unsigned int index, const VisibilityGrid&amp; grid) {
+    const unsigned int priority = slotPriority(index, grid.frameSeed);
+    if ((priority &gt;&gt; 1) &amp; grid.bidderMask) {
+        return;
+    }
+    const int slot = slotForPacked(packed, grid);
+    if (priority &gt; static_cast&lt;unsigned int&gt;(grid.slots[slot] &gt;&gt; 32)) {
+        atomicMax(&amp;grid.slots[slot], (static_cast&lt;unsigned long long&gt;(priority) &lt;&lt; 32) | packed);
+    }
+}</pre>
+<p>To avoid reading back gigabytes of ball coordinates when rendering up to 100M balls, the simulation rasterizes balls into a fixed-resolution visibility grid on the GPU. The function <code>slotForPacked</code> calculates the grid slot corresponding to a ball's 14-bit packed x and y coordinates. In <code>bidForSlot</code>, balls first filter themselves against <code>grid.bidderMask</code> based on a per-frame hashed priority from <code>slotPriority</code>, discarding low-priority candidates. Winning candidates execute a 64-bit <code>atomicMax</code> on the destination slot, packing the 32-bit hash priority in the high bits and the render word in the low bits, so one compare picks both the winner and its render word, and the readback is the grid's size whatever the ball count.</p>
+<h4>In-place GPU memory expansion with CUDA virtual memory management</h4>
+<p>Reserves a large contiguous virtual address space on the GPU at initialization and maps physical memory dynamically as the ball count grows. Implemented in <code>GrowableDeviceArray</code> for all device-side ball buffers.</p>
+<div class="cap">source/backends/cuda/GrowableDeviceArray.cpp:52-77 (condensed)</div>
+<pre>    const size_t added = roundUp(bytes - mapped, granularity);
+    const CUmemAllocationProp properties = deviceAllocation(owner-&gt;cudaDevice());
+    CUmemGenericAllocationHandle handle = 0;
+    if (api.memCreate(&amp;handle, added, &amp;properties, 0) != CUDA_SUCCESS) {
+        return false;
+    }
+    if (api.memMap(base + mapped, added, 0, handle, 0) != CUDA_SUCCESS) {
+        api.memRelease(handle);
+        return false;
+    }
+    CUmemAccessDesc access{};
+    access.location = properties.location;
+    access.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE;
+    if (api.memSetAccess(base + mapped, added, &amp;access, 1) != CUDA_SUCCESS) {
+        api.memUnmap(base + mapped, added);
+        api.memRelease(handle);
+        return false;
+    }
+    mappings.push_back({handle, mapped, added});
+    mapped += added;
+    return true;</pre>
+<p>Growing a buffer with <code>cudaMalloc</code> and a copy needs the old and new buffers at once and moves every ball. The method <code>growTo</code> uses the CUDA low-level virtual memory management API: <code>memAddressReserve</code> reserves the maximum address range upfront, and new physical chunks are allocated via <code>memCreate</code> and mapped into contiguous virtual space with <code>memMap</code>. After setting read/write access permissions via <code>memSetAccess</code>, pointers remain invariant and no existing ball data is ever copied. Unneeded memory can similarly be unmapped and released via <code>memUnmap</code> and <code>memRelease</code> in <code>shrinkTo</code>.</p>
+<h4>Granular page commit and asynchronous pre-faulting</h4>
+<p>Commits virtual memory in 64 MB chunks and pre-faults upcoming pages on a background worker thread. Used in <code>ReservedArray</code> to back host-side ball storage so the stepping thread does not wait on page faults during simulation steps.</p>
+<div class="cap">source/backends/cpu/ReservedArray.h:147-172 (condensed)</div>
+<pre>    void prefaultAhead(size_t usedBytes) {
+        if (preallocated) {
+            return;
+        }
+        // ...
+        if (committed &gt;= usedBytes + commitGranule || committed + commitGranule &gt; reserved ||
+            !commit(committed, commitGranule)) {
+            return;
+        }
+        prefaultBegin = committed;
+        committed += commitGranule;
+        volatile char* const first = reinterpret_cast&lt;char*&gt;(elements) + prefaultBegin;
+        prefault = std::async(std::launch::async, [first] {
+            for (size_t offset = 0; offset &lt; commitGranule; offset += pageBytes) {
+                first[offset] = 0;
+            }
+        });
+    }</pre>
+<p>Host arrays allocate all virtual address space upfront via <code>VirtualAlloc(MEM_RESERVE)</code> or <code>mmap(MAP_NORESERVE)</code>, committing physical pages incrementally in 64 MB granules (<code>commitGranule</code>). Within the last few gigabytes of free memory, Windows can hold a faulting thread for up to a second while it trims working sets. The method <code>prefaultAhead</code> commits the next 64 MB chunk ahead of the active write frontier and launches an asynchronous task via <code>std::async</code> to touch one byte per 4 KB page. This absorbs all OS page-table allocation latencies on a background thread, preventing frame drops during massive ball spawn bursts.</p>
+
+<h3>Running several devices together</h3>
+<p>Balls never collide with each other (unless the player turns collisions on, which needs Scalar), so the set can be split across devices.</p>
+<div class="cap">source/core/sim/DeviceComposer.cpp (condensed)</div>
+<pre>void DeviceComposer::step(const StepParams&amp; params, std::vector&lt;BallHit&gt;&amp; hits) {
+    if (!params.freeFlight) rebalance();          <span class="cm">// move balls toward each part's share, 8-byte records</span>
+    if (deviceParts &gt;= 2) splitBrickBudgets();    <span class="cm">// each brick's remaining hits split per part</span>
+    for (part : parts[1..]) helpers.push_back(std::async(stepPart, part));
+    stepPart(parts[0]);
+    for (helper : helpers) helper.get();
+    if (!params.freeFlight) updateShares();       <span class="cm">// share follows measured balls per ms, smoothed</span>
+    if (deviceParts &gt;= 2) mergeDeviceHits();      <span class="cm">// true brick counts for Simulation</span>
+    for (part : parts) for (hit : part.hits) hits.push_back({hit.ball + offset, hit.brick});
+}</pre>
+<p>Simulation sees one index space; the composer maps hits and removals back by offset. Two parts that resolve hits on their own GPU
+would each spend a brick's hits, so every tick each brick's remaining hits become per-part budgets. The older <code>HybridBackend</code>
+(CUDA + AVX2) needs no budgets, because only one of its parts resolves hits on a device: CUDA spends brick hits on the GPU,
+the AVX2 part returns its hits, and <code>Simulation::tick</code> applies them after the device's. It also takes one worker
+from the AVX2 pool (<code>shareCoresWithGpu</code>) so the thread driving CUDA always has a core.</p>
+<p>Measured on the two-GPU desktop (RTX 2060 + RX 6700 XT + Ryzen 7 7700), ball-steps per second at 96M balls, 1000-brick level:</p>
+<div class="bars">
+<div class="bar"><span>AVX2</span><i style="width:4%"></i><span>1.2 G</span></div>
+<div class="bar"><span>CUDA (RTX 2060)</span><i style="width:63%"></i><span>19.0 G</span></div>
+<div class="bar"><span>Vulkan (RX 6700 XT)</span><i style="width:51%"></i><span>15.2 G</span></div>
+<div class="bar"><span>Hybrid CUDA + Vulkan</span><i style="width:100%" class="alt"></i><span>30.0 G</span></div>
+<div class="bar"><span>Hybrid Vulkan (RX) + Vulkan (RTX)</span><i style="width:88%" class="alt"></i><span>26.5 G</span></div>
+</div>
+<p>Details in <code>data/docs/hybrid-physics.md</code>; the CUDA ceiling in <code>cuda-limits.md</code>.</p>
+
+<h4>Proportional brick hit budget partitioning</h4>
+<p>Splits remaining hit counts for every brick across active devices proportional to their measured throughput shares. Called by <code>DeviceComposer::step</code> each tick when multiple GPUs or CPU/GPU pairs run concurrently.</p>
+<div class="cap">source/core/sim/DeviceComposer.cpp:322-364 (condensed)</div>
+<pre>void DeviceComposer::splitBrickBudgets() {
+    std::vector&lt;double&gt; weights(deviceParts);
+    double totalWeight = 0.0;
+    for (size_t index = 0; index &lt; deviceParts; ++index) {
+        weights[index] = parts[index].backend-&gt;ballCount() &gt; 0 ? parts[index].share : 0.0;
+        totalWeight += weights[index];
+    }
+    // ...
+    for (size_t brick = 0; brick &lt; brickHits.size(); ++brick) {
+        const int32_t hits = std::max(brickHits[brick], 0);
+        int32_t assigned = 0;
+        for (size_t index = 0; index &lt; deviceParts; ++index) {
+            split[index] = static_cast&lt;int32_t&gt;(static_cast&lt;double&gt;(hits) * weights[index] / totalWeight);
+            assigned += split[index];
+        }
+        for (int32_t unit = 0; assigned &lt; hits; ++unit, ++assigned) {
+            const uint32_t draw = mixHash(static_cast&lt;uint32_t&gt;(brick) ^ mixHash(budgetEpoch + static_cast&lt;uint32_t&gt;(unit) * 0x51ed27u));
+            // ...
+            ++split[chosen];
+        }
+        for (size_t index = 0; index &lt; deviceParts; ++index) {
+            changed[index] = changed[index] || parts[index].budget[brick] != split[index];
+            parts[index].budget[brick] = split[index];
+        }
+    }</pre>
+<p>When multiple physical devices (e.g. an NVIDIA GPU and an AMD GPU) step independent partitions of balls, neither device can safely write to a shared brick hit counter without cross-device synchronization stalls. The function <code>splitBrickBudgets</code> divides each brick's remaining hit quota into per-device budgets based on throughput weights (<code>share</code>). Fractional remainders that do not divide evenly are distributed via deterministic pseudo-random draws with <code>mixHash</code> to prevent device starvation on low-hit bricks. Once computed, updated budgets are dispatched via <code>uploadBrickHits</code> only to parts whose quotas changed, allowing each GPU to resolve brick collisions locally without communication until the final merge.</p>
+
+<!-- ================================================================== -->
+<h2 id="sdl">7 · The SDL front end</h2>
+<p>The reference front end, and the one that ships on Windows, Linux, Android and the web. It is SDL3 for the window and input, its own
+renderer interface with three implementations, and a small immediate-mode painter for the UI.</p>
+<table>
+<tr><th>Folder</th><th>Lines</th><th>Holds</th></tr>
+<tr><td class="name">app</td><td>1,722</td><td><code>Main.cpp</code> (SDL callbacks), <code>App</code> (window, loop, navigation, control bridge), launch options, paths, input, <code>Screen</code></td></tr>
+<tr><td class="name">screens</td><td>1,952</td><td>one class per design screen, plus the debug panel, settings panel and device picker they embed</td></tr>
+<tr><td class="name">render</td><td>5,615</td><td><code>IRenderer</code>, <code>RendererFactory</code>, NVRHI (Vulkan/D3D12), WebGPU, SDL_GPU; board, launcher and ball views</td></tr>
+<tr><td class="name">editor</td><td>583</td><td><code>MapEditorScreen</code> over the core's <code>EditorSession</code></td></tr>
+<tr><td class="name">ui</td><td>615</td><td><code>Painter</code> and widgets: rects to the renderer, text through ImGui draw lists and fonts</td></tr>
+<tr><td class="name">control</td><td>274</td><td>the desktop HTTP server; the web bridge and stub</td></tr>
+<tr><td class="name">shaders</td><td>302</td><td>HLSL sources (generated DXIL/SPIR-V/WGSL headers beside them)</td></tr>
+<tr><td class="name">android</td><td></td><td>Gradle project, manifest, SDL's Java activity</td></tr>
+</table>
+
+<h3>Start-up</h3>
+<p><code>Main.cpp</code> uses SDL's callback entry points (<code>SDL_AppInit/Event/Iterate/Quit</code>), which is what lets the same code run under
+Android's activity and the browser's frame callback. <code>App::initialize</code> then:</p>
+<ol class="rules">
+<li>parses launch options: <code>--play &lt;mode&gt; &lt;level&gt;</code>, <code>--editor</code>, <code>--backend</code>, <code>--control-port</code>, <code>--size</code>, <code>--renderer</code>, <code>--api</code>, <code>--gpu</code>, <code>--compute-gpu</code>, <code>--vsync</code>, <code>--hidden</code>, <code>--background</code> (plus <code>BALLS_RENDERER</code>, <code>BALLS_API</code>, <code>BALLS_GPU</code>, <code>BALLS_COMPUTE_GPU</code>);</li>
+<li>loads ImGui fonts and the settings file (saved renderer and API apply unless the command line overrides them);</li>
+<li>opens the window and renderer through <code>createRenderer</code>, falling back from Vulkan to D3D12 or from WebGPU to NVRHI if one fails;</li>
+<li>loads the machine profile and picks the backend with <code>chooseStartupBackend</code>;</li>
+<li>starts the control server if asked;</li>
+<li>asks <code>ScreenFlow</code> for the first screen: the editor, a level, or the main menu.</li>
+</ol>
+
+<h4>SDL3 application callbacks</h4>
+<p>Replaces the traditional blocking main loop with SDL3's non-blocking application callbacks. Called directly by the platform-specific SDL entry point on desktop, mobile, and web.</p>
+<div class="cap">source/frontends/sdl/app/Main.cpp:18-49 (condensed)</div>
+<pre>SDL_AppResult SDL_AppInit(void** appState, int argumentCount, char** arguments) {
+#if !defined(__ANDROID__)
+    SDL_SetLogOutputFunction(logOutput, nullptr);
+#endif
+    SDL_SetAppMetadata("Balls", "0.1.0", "io.github.pipyakas.balls.sdl");
+    SDL_SetHint(SDL_HINT_ORIENTATIONS, "");
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
+        return SDL_APP_FAILURE;
+    }
+    auto* app = new App();
+    *appState = app;
+    std::string error;
+    if (!app-&gt;initialize(parseLaunchOptions(argumentCount, arguments), error)) {
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Balls", error.c_str(), nullptr);
+        return SDL_APP_FAILURE;
+    }
+    return SDL_APP_CONTINUE;
+}
+<span class="cm">// ...</span>
+SDL_AppResult SDL_AppIterate(void* appState) {
+    return static_cast&lt;App*&gt;(appState)-&gt;frame() ? SDL_APP_CONTINUE : SDL_APP_SUCCESS;
+}</pre>
+<p>SDL3 inverts program control through <code>SDL_AppInit</code>, <code>SDL_AppEvent</code>, and <code>SDL_AppIterate</code>, returning status codes rather than running a blocking <code>while(running)</code> loop. <code>SDL_AppInit</code> allocates the <code>App</code> instance on the heap, stores it in the opaque <code>appState</code> pointer, and parses command-line launch options. <code>SDL_AppIterate</code> is called every display tick by the platform runtime, delegating to <code>App::frame</code>. This is what lets Android's activity and the browser's frame callback drive the same code.</p>
+
+<h3>The frame</h3>
+<div class="cap">source/frontends/sdl/app/App.cpp (condensed)</div>
+<pre>bool App::frame() {
+    flowInstance.update(deltaTime);  processFlowRequests();  applyFlowScreen();
+    renderer-&gt;beginFrame();
+    gfx::beginFrame(renderer-&gt;viewWidth(), renderer-&gt;viewHeight(), fonts);
+    currentScreen-&gt;update(deltaTime);
+    currentScreen-&gt;draw();
+    drawToast();
+    controlServer.pump([this](const ControlRequest&amp; r) { return handleControl(r); });
+    renderer-&gt;drawRects(gfx::sceneRects());
+    renderer-&gt;endFrame(clearColor);
+    timings.record(...);
+    applyPendingRendererSwitch();  adoptPreparedRenderer();
+    return running;
+}</pre>
+<p>Screens implement <code>update</code>, <code>draw</code> and <code>name</code>, and optionally <code>stateJson</code>, <code>handleControl</code> and
+<code>importLevels</code>. They never create each other: <code>ScreenFlow</code> decides what comes next and <code>App::applyFlowScreen</code> builds it.
+Six screens: <code>MainMenuScreen</code>, <code>LevelSelectScreen</code>, <code>GameplayScreen</code>, <code>SettingsScreen</code>,
+<code>MachineBenchmarkScreen</code>, <code>MapEditorScreen</code>. <code>GameplayScreen</code> owns the <code>SessionRunner</code> and holds one
+<code>SessionView</code> per frame, so every part of the screen draws the same moment.</p>
+
+<h4>Screen transition management via ScreenFlow</h4>
+<p>Synchronises the active UI screen with the core's logical screen state machine. Called at the start of <code>App::frame</code>, after <code>ScreenFlow::update</code> and <code>processFlowRequests</code>.</p>
+<div class="cap">source/frontends/sdl/app/App.cpp:706-741 (condensed)</div>
+<pre>void App::applyFlowScreen() {
+    switch (flowInstance.screen()) {
+    case FlowScreen::MainMenu:
+        if (!dynamic_cast&lt;MainMenuScreen*&gt;(currentScreen.get())) {
+            currentScreen = std::make_unique&lt;MainMenuScreen&gt;(*this);
+        }
+        break;
+    case FlowScreen::LevelSelect:
+        if (!dynamic_cast&lt;LevelSelectScreen*&gt;(currentScreen.get()) || lastLevelSelectMode != flowInstance.mode()) {
+            lastLevelSelectMode = flowInstance.mode();
+            currentScreen = std::make_unique&lt;LevelSelectScreen&gt;(*this, flowInstance.mode());
+        }
+        break;
+    <span class="cm">// ...</span>
+    case FlowScreen::Gameplay:
+    case FlowScreen::LoadError:
+        if (!dynamic_cast&lt;GameplayScreen*&gt;(currentScreen.get()) &amp;&amp; flowInstance.level()) {
+            currentScreen = std::make_unique&lt;GameplayScreen&gt;(*this, flowInstance.mode(), *flowInstance.level());
+        }
+        break;
+    }
+}</pre>
+<p>The frontend's <code>App</code> holds a polymorphic <code>std::unique_ptr&lt;Screen&gt; currentScreen</code> while the core's engine-agnostic <code>ScreenFlow</code> tracks which logical screen should be active. <code>App::applyFlowScreen</code> queries <code>flowInstance.screen()</code> and uses <code>dynamic_cast</code> to verify whether the matching screen subclass is already instantiated, reallocating only when crossing screen boundaries or when the game mode changes. Screens never construct each other; this switch is the only place they are made.</p>
+
+<h3>Renderers</h3>
+<div class="cap">source/frontends/sdl/render/IRenderer.h (trimmed)</div>
+<pre>class IRenderer {
+public:
+    virtual bool beginFrame() = 0;
+    virtual void drawRects(std::span&lt;const RendererRect&gt; rects) = 0;   <span class="cm">// colour, corner radius, bevel</span>
+    virtual void drawBalls(const BallDrawRequest&amp; request) = 0;        <span class="cm">// packed words + palette</span>
+    virtual void drawCellImage(const CellImageDrawRequest&amp; request) = 0; <span class="cm">// dense boards as one texture</span>
+    virtual void endFrame(ClearColor clearColor) = 0;
+    <span class="cm">// vsync, screenshot, GPU timings; supportsDeferredAttach / attachToWindow for switching off-frame</span>
+};</pre>
+<p>Everything on screen is rectangles, balls or a cell image, so each renderer is one file plus its device code:</p>
+<table>
+<tr><th>Renderer</th><th>API</th><th>Shaders</th><th>Default on</th></tr>
+<tr><td class="name">NvrhiRenderer</td><td>Vulkan (default everywhere) or D3D12 (<code>--api d3d12</code>)</td><td>SPIR-V or DXIL, picked by device API</td><td>Windows, Linux</td></tr>
+<tr><td class="name">WebGpuRenderer</td><td>wgpu-native on desktop and Android; emdawnwebgpu in the browser</td><td>WGSL</td><td>Android, web</td></tr>
+<tr><td class="name">SdlGpuRenderer</td><td>whatever SDL_GPU selects</td><td>SDL picks the native format</td><td>opt-in</td></tr>
+</table>
+<p>Vulkan is the default on Windows too, so the renderer and the Vulkan physics plugin share one driver stack per GPU.
+Each renderer has the same four-pass ball visibility compute (clear, bid, resolve, compact): balls hash a priority, bid with an atomic
+max for a screen-grid slot, the winners are compacted, and the instance count goes straight into an indirect draw with no CPU readback.</p>
+
+<h4>Ball visibility grid bidding compute shader</h4>
+<p>Selects winning balls per screen grid cell when millions overlap and writes winner priorities atomically. Dispatched during the visibility compute pipeline before drawing balls.</p>
+<div class="cap">source/frontends/sdl/shaders/BallVisibility.hlsl:55-68</div>
+<pre>[numthreads(256, 1, 1)]
+void computeMain(uint3 thread : SV_DispatchThreadID) {
+    if (thread.x &gt;= itemCount) {
+        return;
+    }
+    const uint priority = slotPriority(thread.x);
+    if (((priority &gt;&gt; 1) &amp; bidderMask) != 0u) {
+        return;
+    }
+    const uint slot = slotForPacked(balls[thread.x]);
+    if (priority &gt; priorities[slot]) {
+        InterlockedMax(priorities[slot], priority);
+    }
+}</pre>
+<p>Drawing millions of sub-pixel balls creates severe fragment overdraw and vertex bottlenecking. <code>computeMain</code> executes the bidding phase of visibility culling: each ball hashes an instance index into a pseudo-random priority via <code>slotPriority</code>, projects its packed integer coordinates into a screen tile with <code>slotForPacked</code>, and claims the tile using <code>InterlockedMax</code>. Subsequent resolve and compaction passes stream the surviving balls directly into an indirect draw buffer without any CPU readback.</p>
+
+<h3>Control API</h3>
+<p><code>--control-port</code> starts <code>ControlServer</code>, a small HTTP listener on 127.0.0.1. Requests are queued and answered on the UI
+thread in <code>pump</code>: first by the core's <code>handleControlRequest</code> against <code>App</code>'s <code>ControlHost</code>, then by SDL's own routes
+(<code>/hitch</code>, <code>/import</code>, <code>/renderer</code>, <code>/render-gpu</code>, <code>/window</code>), then by the current screen (<code>/compute-gpu</code>).
+Screenshots complete after the frame presents. Every measurement in the docs was taken through this API.</p>
+
+<h4>Main-thread control command dispatch</h4>
+<p>Pumps queued HTTP automation commands onto the main UI thread and captures responses or registers deferred completions. Called once per frame from <code>App::frame</code>, after the screen has drawn.</p>
+<div class="cap">source/frontends/sdl/control/ControlServer.cpp:157-177</div>
+<pre>void ControlServer::pump(const Handler&amp; handler) {
+    std::deque&lt;PendingCommand&gt; commands;
+    {
+        std::lock_guard lock(queueMutex);
+        commands.swap(queue);
+    }
+    for (PendingCommand&amp; command : commands) {
+        if (std::optional&lt;ControlResponse&gt; response = handler(command.request)) {
+            command.response.set_value(std::move(*response));
+        } else {
+            deferred.push_back(std::move(command));
+        }
+    }
+}
+
+void ControlServer::completeDeferred(const Completion&amp; completion) {
+    for (PendingCommand&amp; command : deferred) {
+        command.response.set_value(completion(command.request));
+    }
+    deferred.clear();
+}</pre>
+<p>Network worker threads must not mutate game simulation state directly. <code>ControlServer::pump</code> drains asynchronously queued HTTP requests by swapping <code>queue</code> under <code>queueMutex</code> into a local deque, executing the core's route handler sequentially on the UI thread. Requests requiring a rendered frame (such as a screenshot) return <code>std::nullopt</code> and are placed in the <code>deferred</code> list, where <code>completeDeferred</code> resolves their <code>std::promise</code> once the present call has completed.</p>
+
+<h3>Android</h3>
+<p>The same tree builds as <code>libmain.so</code> for SDL's Java activity, with the cpu backends linked statically and WebGPU as the renderer.
+APK assets cannot be opened with <code>std::filesystem</code>, so <code>Paths.cpp</code> extracts <code>levels/</code> and <code>fonts/</code> to internal
+storage once per version. The core has no Android code at all.</p>
+
+<!-- ================================================================== -->
+<h2 id="web">8 · The web build</h2>
+<p>The SDL tree compiled by Emscripten, served at <a href="https://pipyakas.github.io/balls/">pipyakas.github.io/balls</a> from the
+<code>gh-pages</code> branch (<code>scripts/web/PublishPages.py</code> writes that commit with git plumbing, without touching the worktree).</p>
+<table>
+<tr><th>Concern</th><th>Native</th><th>Web</th></tr>
+<tr><td>Physics</td><td>plugins via <code>dlopen</code></td><td><code>BackendFactoryWeb.cpp</code>; Scalar linked in, <code>-msimd128</code></td></tr>
+<tr><td>Threads</td><td>physics thread</td><td>none (no <code>SharedArrayBuffer</code> needed): <code>SessionRunner::tick</code> runs one physics frame inline (<code>runSessionFrame</code>)</td></tr>
+<tr><td>GPU</td><td>wgpu-native / NVRHI</td><td><code>--use-port=emdawnwebgpu</code>, canvas surface <code>#canvas</code>; ASYNCIFY lets adapter and device requests wait with <code>emscripten_sleep</code></td></tr>
+<tr><td>Assets</td><td>beside the executable</td><td><code>--preload-file</code> into <code>/assets</code> (<code>balls.data</code>)</td></tr>
+<tr><td>Control</td><td>HTTP on a port</td><td><code>window.ballsControl("/route?…")</code> returns the same JSON; <code>window.ballsReady</code> flags readiness; <code>?cmd=/a;/b</code> in the URL runs routes in order</td></tr>
+</table>
+<p>In the core, <code>__EMSCRIPTEN__</code> appears only in <code>SessionRunner.cpp</code>; everything else compiles unchanged.</p>
+
+<h3>In code</h3>
+<h4>Single-threaded WebAssembly physics stepping</h4>
+<p>Runs one physics frame synchronously inside the UI loop when compiled for Emscripten, eliminating web worker and SharedArrayBuffer requirements. Called every frame from <code>SessionRunner::tick</code>.</p>
+<div class="cap">source/core/game/SessionRunner.cpp:305-402 (condensed)</div>
+<pre>void startWebSession(const std::shared_ptr&lt;SessionRunner::Shared&gt;&amp; shared, std::unique_ptr&lt;GameSession&gt; session) {
+    shared-&gt;webSession = std::move(session);
+    shared-&gt;webLoop = std::make_unique&lt;LoopState&gt;();
+    shared-&gt;webLoop-&gt;framePeriod = std::chrono::duration_cast&lt;Clock::duration&gt;(
+        std::chrono::duration&lt;double&gt;(shared-&gt;webSession-&gt;simulation().tuning().tickSeconds));
+}
+<span class="cm">// ...</span>
+void SessionRunner::tick(const PhysicsFrameInput&amp; input) {
+    {
+        std::lock_guard lock(shared-&gt;mutex);
+        shared-&gt;input = input;
+    }
+    <span class="cm">// One physics frame per UI frame, at the loop's own pace: the desktop thread behaves the same way when it is</span>
+    <span class="cm">// slower than the UI.</span>
+    if (shared-&gt;webSession) {
+        runSessionFrame(shared, *shared-&gt;webSession, nullptr, *shared-&gt;webLoop);
+    }
+}</pre>
+<p>On desktop platforms, <code>SessionRunner</code> spawns a dedicated background physics thread that communicates through <code>std::condition_variable</code> and triple-buffered views. In the web build, which has no threads, <code>startWebSession</code> embeds the session directly into <code>SessionRunner::Shared</code>. Each call to <code>SessionRunner::tick</code> executes <code>runSessionFrame</code> inline on the main thread, stepping the exact same physics code synchronously before rendering.</p>
+<h4>WebAssembly control automation bridge</h4>
+<p>Exposes the core's control API directly to browser JavaScript via <code>window.ballsControl</code>. Called by external automated benchmarks and browser test scripts.</p>
+<div class="cap">source/frontends/sdl/control/ControlBridgeWeb.cpp:14-32</div>
+<pre>void setWebControlBridge(std::function&lt;std::optional&lt;ControlResponse&gt;(const ControlRequest&amp;)&gt; newHandler) {
+    handler = std::move(newHandler);
+    SDL_Log("[control] web bridge registered");
+    <span class="cm">// The page can tell when the game is ready to take commands, instead of guessing a delay.</span>
+    EM_ASM(window.ballsReady = true);
+}
+
+<span class="cm">// The page's entry point: the request target of the desktop API ("/play?mode=performance&amp;level=DA_1000Bricks") in,</span>
+<span class="cm">// that route's JSON out. The result stays valid until the next call, which is all a JavaScript string decode needs.</span>
+extern "C" EMSCRIPTEN_KEEPALIVE const char* ballsControl(const char* target) {
+    static std::string response;
+    if (!handler) {
+        response = R"({"ok":false,"error":"the game is still loading"})";
+        return response.c_str();
+    }
+    const std::optional&lt;ControlResponse&gt; answer = handler(parseControlTarget(target));
+    response = answer ? answer-&gt;json : std::string(R"({"ok":false,"error":"unknown route"})");
+    return response.c_str();
+}</pre>
+<p>A page cannot open a listening socket, so <code>ballsControl</code> takes the place of the desktop HTTP server and returns the same JSON. Exported with <code>EMSCRIPTEN_KEEPALIVE</code>, it receives a route query string (such as <code>/play?mode=performance</code>) and queries the internal route table. The function signals readiness to host page scripts via <code>EM_ASM(window.ballsReady = true)</code> and retains the serialized JSON response in a static string until JavaScript finishes reading it.</p>
+<h4>Emscripten compiler and linker flags</h4>
+<p>Configures the CMake build target for WebAssembly, packaging virtual filesystem assets and enabling WebGPU and ASYNCIFY support. Evaluated during CMake configuration when targeting Emscripten.</p>
+<div class="cap">source/frontends/sdl/CMakeLists.txt:260-276</div>
+<pre>if(EMSCRIPTEN)
+    <span class="cm"># The assets are packed into the .wasm's own file system, the physics backend is linked in, and the browser</span>
+    <span class="cm"># supplies WebGPU through Emscripten's port. ASYNCIFY lets adapter and device requests wait without blocking.</span>
+    target_link_libraries(${BALLS_SDL_TARGET} PRIVATE balls_physics_cpu)
+    target_compile_options(${BALLS_SDL_TARGET} PRIVATE --use-port=emdawnwebgpu)
+    target_link_options(${BALLS_SDL_TARGET} PRIVATE
+        --use-port=emdawnwebgpu
+        "--shell-file=${CMAKE_SOURCE_DIR}/scripts/web/shell.html"
+        "--preload-file=${BALLS_ASSET_DIR}@/assets"
+        -sALLOW_MEMORY_GROWTH=1
+        -sASYNCIFY
+        -sASYNCIFY_STACK_SIZE=262144
+        <span class="cm"># _main as well: replacing the list drops emscripten's default, and without it the linker prunes the game.</span>
+        -sEXPORTED_FUNCTIONS=_main,_ballsControl
+        -sEXPORTED_RUNTIME_METHODS=ccall,UTF8ToString
+    )
+endif()</pre>
+<p>The browser build statically links the CPU physics backend and binds WebGPU through <code>--use-port=emdawnwebgpu</code>. Because WebGPU device and adapter requests in the browser are asynchronous, <code>-sASYNCIFY</code> unwinds and restores the C++ call stack across <code>emscripten_sleep</code> without stalling the browser event loop. Game levels are preloaded into virtual filesystem storage at <code>/assets</code> using <code>--preload-file</code>, while <code>_ballsControl</code> is preserved against linker dead-code stripping via <code>-sEXPORTED_FUNCTIONS</code>.</p>
+
+<!-- ================================================================== -->
+<h2 id="unreal">9 · The Unreal front end</h2>
+<p>A UE 5.8 project (<code>source/frontends/unreal/Balls.uproject</code>) with three modules. The core is not built by UnrealBuildTool: it is
+an external library built by the same CMake tree, which keeps one compiler configuration for the core across all front ends.</p>
+<table>
+<tr><th>Module</th><th>Role</th></tr>
+<tr><td class="name">BallsCore</td><td><code>ModuleType.External</code>: adds <code>source/core</code> to the include path, links <code>build/win32-ue/…/balls_core.lib</code> (or <code>linux-ue</code>/<code>android-ue</code> <code>libballs_core.a</code>), stages the physics plugins as <code>RuntimeDependencies</code>, defines <code>BALLS_PLUGIN_DIR</code> and <code>BALLS_ASSET_DIR</code></td></tr>
+<tr><td class="name">BallsRendering</td><td>loads at <code>PostConfigInit</code> to register the <code>/Balls</code> shader directory and a scene view extension</td></tr>
+<tr><td class="name">Balls</td><td>the game: <code>FBallsApp</code>, gameplay, board view, Slate UI, control server, graphics settings</td></tr>
+</table>
+<p>The <code>.uproject</code>'s pre-build steps (<code>BuildCore.bat</code>, <code>BuildCoreLinux.sh</code>, <code>BuildCoreAndroid.bat</code>) run CMake with
+<code>-DBALLS_FRONTEND=none</code> for <code>balls_core</code> and <code>balls_physics_plugins</code>, serialised by a lock directory because UBT may start several.
+On Linux the core is compiled with Unreal's own clang and libc++ so the archive and the game agree on the C++ ABI.</p>
+<div class="cap">Source/Balls/Private/BallsCoreIncludes.h</div>
+<pre>THIRD_PARTY_INCLUDES_START                <span class="cm">// keep UE's warning rules off core headers</span>
+#include "game/GameSession.h"
+#include "game/SessionHost.h"
+#include "ui/ScreenFlow.h"
+#include "editor/EditorSession.h"
+<span class="cm">// ... 26 core headers in all</span>
+THIRD_PARTY_INCLUDES_END</pre>
+<ul class="rules">
+<li><span class="kw">Game loop:</span> <code>FBallsGameplay::Tick</code> calls <code>Host-&gt;tick(...)</code> on a <code>SessionHost</code> (physics thread by default; <code>-BallsPhysicsThread=0</code> steps on the game thread), takes <code>Host-&gt;view()</code>, and turns <code>SessionEvent</code>s into toasts.</li>
+<li><span class="kw">UI:</span> pure Slate, no UMG. <code>SBallsRoot</code> sits in the game viewport; screens (<code>SBallsMainMenu</code>, <code>SBallsLevelSelect</code>, <code>SBallsGameplayHud</code>, <code>SBallsMapEditor</code>, <code>SBallsSettingsPage</code>, <code>SBallsBenchmark</code>) read their buttons, rows and layout from <code>ScreenFlow</code>, <code>MenuModel</code>, <code>GameplayLayout</code> and <code>EditorSession</code>. <code>BallsPalette.h</code> converts <code>Theme</code>.</li>
+<li><span class="kw">Board:</span> <code>FBallsBoardView</code> builds a real scene (camera, light, walls) with one instanced static mesh per brick colour; boards whose cells fall under 4 px switch to one cell image (<code>BallsCells.usf</code>).</li>
+<li><span class="kw">Balls:</span> <code>FBallsRenderer::Submit(FBallsDrawData)</code> hands packed words to the render thread; the scene view extension draws them into HDR scene colour before motion blur (so bloom and tonemapping apply) with <code>BallsDraw.usf</code>: one circumscribing triangle per ball, decoded in the vertex shader, a sphere normal per pixel.</li>
+<li><span class="kw">Control:</span> <code>-BallsControlPort=</code> binds the core's paths on UE's <code>HTTPServer</code> and answers on the game thread; Unreal adds <code>/cvar</code>, <code>/graphics</code> and <code>/profilegpu</code>.</li>
+<li><span class="kw">Showcase:</span> <code>BallsGraphics</code> exposes scalability presets, Lumen, virtual shadow maps, Nanite and TSR/FSR/TAA on a Graphics page. These are deliberate engine features, not duplication to remove.</li>
+</ul>
+
+<h3>In code</h3>
+<h4>BallsCore external module integration</h4>
+<p>Declares the engine-agnostic core as a pre-built third-party external module in UnrealBuildTool and stages platform-specific physics shared libraries. Evaluated by UBT during Unreal compilation and packaging.</p>
+<div class="cap">source/frontends/unreal/Source/BallsCore/BallsCore.Build.cs:7-31 (condensed)</div>
+<pre>    public BallsCore(ReadOnlyTargetRules Target) : base(Target)
+    {
+        Type = ModuleType.External;
+
+        string RepoRoot = Path.GetFullPath(Path.Combine(ModuleDirectory, "..", "..", "..", "..", ".."));
+        PublicSystemIncludePaths.Add(Path.Combine(RepoRoot, "source", "core"));
+        <span class="cm">// ...</span>
+        else if (Target.Platform == UnrealTargetPlatform.Linux)
+        {
+            <span class="cm">// Cross-compiled with Unreal's own Linux toolchain by BuildCoreLinux.bat, so core, plugins and the game</span>
+            <span class="cm">// share one libc++. The physics plugins are .so files the core dlopens from next to the executable.</span>
+            PublicAdditionalLibraries.Add(Path.Combine(RepoRoot, "build", "linux-ue", "source", "core", "libballs_core.a"));
+            string PluginDirectory = Path.Combine(RepoRoot, "build", "linux-ue", "bin");
+            PublicDefinitions.Add("BALLS_PLUGIN_DIR=\"" + PluginDirectory.Replace('\\', '/') + "\"");
+            foreach (string Plugin in new[] { "libballs_physics_cpu.so", "libballs_physics_vulkan.so" })
+            {
+                string PluginPath = Path.Combine(PluginDirectory, Plugin);
+                if (File.Exists(PluginPath))
+                {
+                    RuntimeDependencies.Add("$(BinaryOutputDir)/" + Plugin, PluginPath);
+                }
+            }
+        }</pre>
+<p>Rather than compiling core C++ code with UnrealBuildTool's compiler flags, <code>BallsCore</code> uses <code>ModuleType.External</code> to consume precompiled static libraries (<code>libballs_core.a</code> or <code>balls_core.lib</code>) produced by CMake. This keeps one compiler configuration for the core across all front ends. Physics plugins are declared as <code>RuntimeDependencies</code> and staged beside the binary output directory, with <code>BALLS_PLUGIN_DIR</code> injected as a preprocessor definition so the core's runtime plugin loader locates them seamlessly.</p>
+<h4>SessionHost ticking and event handling in Unreal</h4>
+<p>Drives simulation progress, retrieves the latest session snapshot, and converts core events into Slate notifications. Called every game tick from <code>FBallsGameplay::Tick</code>.</p>
+<div class="cap">source/frontends/unreal/Source/Balls/Private/BallsGameplay.cpp:94-117</div>
+<pre>void FBallsGameplay::Tick(float DeltaSeconds, double WorkSeconds) {
+    if (Host) {
+        AdoptLoadOutcome();
+    }
+    if (!Host) {
+        return;
+    }
+    <span class="cm">// On the game thread this steps the session; on the physics thread it only hands over the frame's timings and</span>
+    <span class="cm">// takes the newest view. A backend switch builds in the background either way.</span>
+    Host-&gt;tick({App.GetScreenFlow().isPaused(), WorkSeconds, VisibilitySlotCells}, DeltaSeconds);
+    View = Host-&gt;view();
+    for (const SessionEvent&amp; Event : Host-&gt;takeEvents()) {
+        if (Event.kind == SessionEventKind::BallCollisionsChanged) {
+            ShowToast(BallsText::FromUtf8(ballCollisionsMessage(Event.collisionsChange)), false);
+        } else if (Event.kind == SessionEventKind::BackendSwitched) {
+            <span class="cm">// A switch inside a game lasts for that game only; the Settings page owns the remembered default.</span>
+            ShowToast(BallsText::FromUtf8(physicsOnMessage(displayedPicks(Event.backend))), false);
+            RefreshAutoBallLimit();
+        } else {
+            ShowToast(BallsText::FromUtf8(backendFailedMessage(Event.backend)), true);
+        }
+    }
+}</pre>
+<p><code>FBallsGameplay::Tick</code> acts as the bridge between Unreal's game loop and the engine's <code>SessionHost</code>. Calling <code>Host-&gt;tick</code> handles both single-threaded execution and asynchronous physics offloading, while <code>Host-&gt;view()</code> atomically grabs the most recent thread-safe state view without stalls. Asynchronous physics events (such as backend switching, collision toggles, or runtime failures) are collected via <code>takeEvents()</code> and turned into toasts, which go through the core's <code>ScreenFlow::showToast</code> as in the other front ends.</p>
+<h4>Constructing Slate UI from ScreenFlow</h4>
+<p>Instantiates main menu Slate widgets dynamically using metadata and button configurations provided by the core's <code>ScreenFlow</code>. Called when constructing the main menu widget in <code>SBallsMainMenu::Construct</code>.</p>
+<div class="cap">source/frontends/unreal/Source/Balls/Private/UI/SBallsMenus.cpp:286-319 (condensed)</div>
+<pre>void SBallsMainMenu::Construct(const FArguments&amp; InArgs) {
+    App = InArgs._App;
+    FBallsApp* Owner = App;
+    <span class="cm">// ...</span>
+    const ScreenFlow&amp; Flow = Owner-&gt;GetScreenFlow();
+    TSharedRef&lt;SVerticalBox&gt; Column = SNew(SVerticalBox)
+        + SVerticalBox::Slot().AutoHeight().HAlign(HAlign_Center).Padding(0.0f, 0.0f, 0.0f, TitleSize * 0.7f)
+        [
+            SNew(STextBlock)
+            .Text(FText::FromString(BallsText::FromUtf8(Flow.title())))
+            .Font(BallsStyle::Font(TitleSize, true))
+            .ColorAndOpacity(BallsPalette::Linear(BallsPalette::Accent))
+        ];
+    for (const FlowButton&amp; Entry : Flow.buttons()) {
+        const FlowAction Action = Entry.action;
+        Column-&gt;AddSlot().AutoHeight().Padding(0.0f, MenuButtonGap * 0.5f)
+        [
+            MenuButton(*BallsText::FromUtf8(Entry.label), [Owner, Action] { Owner-&gt;ActivateFlow(Action); }, Entry.enabled)
+        ];
+    }
+}</pre>
+<p>Rather than defining UI hierarchies in UMG Blueprints, Unreal front-end menus are written directly in C++ using Slate. <code>SBallsMainMenu::Construct</code> reads <code>Flow.title()</code> and iterates across <code>Flow.buttons()</code> from the shared <code>ScreenFlow</code> model, binding each button to <code>Owner-&gt;ActivateFlow(Action)</code>. Labels, order and enabled state therefore come from the core, as they do in SDL and Unity.</p>
+<h4>Ball vertex shader word decoding</h4>
+<p>Expands packed 32-bit ball records into circumscribing triangles in board clip space. Executed per-vertex on the GPU during the ball rendering pass in <code>MainVS</code>.</p>
+<div class="cap">source/frontends/unreal/Shaders/BallsDraw.usf:20-33</div>
+<pre>void MainVS(uint VertexId : SV_VertexID, uint InstanceId : SV_InstanceID,
+            out float4 OutPosition : SV_POSITION, out float2 OutLocal : TEXCOORD0,
+            out nointerpolation float3 OutColor : TEXCOORD1)
+{
+    const uint Packed = PackedBalls[InstanceId];
+    const float2 Center = float2(Packed &amp; 16383u, (Packed &gt;&gt; 14u) &amp; 16383u) * UnpackScale;
+    const float2 Local = QuadCorners[VertexId];
+    OutPosition = mul(float4(Center + Local * Radius, 0.0, 1.0), BoardToClip);
+    <span class="cm">// 0xFFFFFFFF marks a visibility-grid slot no ball won; it must not decode into a ball in the corner.</span>
+    OutPosition = (VertexOnly &gt; 0.5 || Packed == 0xFFFFFFFFu) ? float4(1.0e6, 1.0e6, 0.0, 1.0) : OutPosition;
+    OutLocal = Local;
+    OutColor = Palette[(Packed &gt;&gt; 28u) &amp; 7u].rgb;
+}</pre>
+<p><code>MainVS</code> uses <code>QuadCorners[3]</code> to emit an equilateral circumscribing triangle (3 vertices instead of 4 or 6 for a quad), unpacking integer coordinates (bits 0-13 for X, 14-27 for Y) and the color palette index (bits 28-30) from a single 32-bit integer word. Invalid or empty slots marked with <code>0xFFFFFFFFu</code> are discarded by placing their clip-space positions off-screen.</p>
+
+<!-- ================================================================== -->
+<h2 id="unity">10 · The Unity front end</h2>
+<p>Unity cannot include C++, so the core is wrapped once more: <code>source/plugin/BallsUnityApi.h</code> is a flat C ABI over it, built as
+<code>balls_unity</code> with the core linked in statically. Unity 6000.3.27f2 with Entities 1.5, Burst 1.8.31, Collections 2.7.1, URP 17.3.</p>
+<h3>The C ABI</h3>
+<div class="cap">source/plugin/BallsUnityApi.h (a few of its 169 functions)</div>
+<pre>#define BALLS_UNITY_ABI_VERSION 7
+BALLS_API BallsSession* balls_session_create(int32_t mode, const char* levelDirectory, const char* levelName, ...);
+BALLS_API BallsSession* balls_session_create_threaded(...);           <span class="cm">// SessionRunner on the physics thread</span>
+BALLS_API void    balls_session_update(BallsSession* session, float deltaSeconds);
+BALLS_API int32_t balls_session_choose_launcher(BallsSession* session, int32_t column, int32_t row);
+BALLS_API int32_t balls_session_snapshot(BallsSession* session, BallsSnapshot* snapshot);
+BALLS_API BallsFlow*          balls_flow_create(const char* normalLevels, const char* performanceLevels);                 <span class="cm">// ScreenFlow</span>
+BALLS_API BallsEditorSession* balls_editor_session_create(...);       <span class="cm">// EditorSession</span>
+BALLS_API int32_t balls_control_handle(BallsControl* control, const BallsControlContext* context, const char* target, ...);</pre>
+<ul class="rules">
+<li>Core objects cross as opaque handles (<code>BallsSession*</code>, <code>BallsFlow*</code>, <code>BallsEditorSession*</code>, <code>BallsBenchmark*</code>, <code>BallsControl*</code>…), <code>IntPtr</code> in C# and never dereferenced there.</li>
+<li>Structs are fixed-layout and blittable; strings go in as UTF-8 and come back through caller-owned buffers; arrays the core owns (balls, cells) come back as pointers valid until the next mutating call.</li>
+<li><code>BallsNative.cs</code> holds the <code>DllImport("balls_unity")</code> declarations; <code>BallsBootstrap</code> refuses to start if <code>balls_abi_version()</code> differs from the C# side.</li>
+<li><code>balls_set_plugin_directory</code> tells the factory where Unity keeps the physics plugins, since they are not beside the player executable.</li>
+</ul>
+<h4>Session instantiation across the C ABI</h4>
+<p>Instantiates single-threaded or physics-threaded game sessions across the C ABI export boundary. Called from C# when starting a new game session via <code>balls_session_create</code> or <code>balls_session_create_threaded</code>.</p>
+<div class="cap">source/plugin/BallsUnityApi.cpp:754-783 (condensed)</div>
+<pre>BallsSession* balls_session_create(int32_t mode, const char* levelDirectory, const char* levelName,
+                                   int32_t backend) {
+    const auto level = loadLevelOrReport(levelDirectory, levelName);
+    if (!level) {
+        return nullptr;
+    }
+    auto session = newSession(mode, levelDirectory, levelName, *level);
+    session-&gt;game = std::make_unique&lt;GameSession&gt;(session-&gt;mode, *level, toBackendKind(backend));
+    return session.release();
+}
+
+BallsSession* balls_session_create_threaded(int32_t mode, const char* levelDirectory, const char* levelName,
+                                            int32_t backend) {
+    const auto level = loadLevelOrReport(levelDirectory, levelName);
+    if (!level) {
+        return nullptr;
+    }
+    auto session = newSession(mode, levelDirectory, levelName, *level);
+    session-&gt;runner = std::make_unique&lt;SessionRunner&gt;(session-&gt;mode, *level, toBackendKind(backend));
+    <span class="cm">// ...</span>
+    return session.release();
+}</pre>
+<p>Because Unity C# cannot directly include C++ headers or consume standard library classes, <code>BallsUnityApi.cpp</code> provides a clean C API wrapping the core engine. <code>balls_session_create</code> loads the target level and wraps a synchronous <code>GameSession</code>, while <code>balls_session_create_threaded</code> initialises a threaded <code>SessionRunner</code>. Both return an opaque heap-allocated <code>BallsSession*</code> handle to C#, which treats it as an <code>IntPtr</code> without ever inspecting internal fields.</p>
+
+<h3>The project</h3>
+<table>
+<tr><th>Folder (Assets/Balls/Runtime)</th><th>Lines</th><th>Holds</th></tr>
+<tr><td class="name">App</td><td>5,599</td><td><code>BallsBootstrap</code> (MonoBehaviour entry, <code>OnGUI</code>), <code>BallsApp</code>, <code>SessionSystem</code>, control API transport, <code>ParityProbe</code>, screens</td></tr>
+<tr><td class="name">Native</td><td>1,419</td><td>P/Invoke declarations and the mirrored structs</td></tr>
+<tr><td class="name">Game</td><td>482</td><td><code>GameBackend</code> and <code>NativeGameBackend</code></td></tr>
+<tr><td class="name">Physics/Burst</td><td>3,460</td><td>the C# port of the rules and the step</td></tr>
+<tr><td class="name">Rendering</td><td>845</td><td><code>BallRenderSystem</code>, <code>BoardRenderSystem</code>, <code>EffectsRenderSystem</code></td></tr>
+<tr><td class="name">Ui, Ecs</td><td>1,060</td><td>IMGUI widgets and theme; component data</td></tr>
+</table>
+<ul class="rules">
+<li><span class="kw">Systems see one interface.</span> <code>GameBackend</code> (<code>Update</code>, <code>ChooseLauncher</code>, <code>ReadBalls</code>…) is implemented by <code>NativeGameBackend</code> (the C++ core through <code>balls_unity</code>) and <code>BurstGameBackend</code>; <code>SessionSystem</code> creates one or the other, so Settings can switch between them.</li>
+<li><span class="kw">ECS for data, IMGUI for UI.</span> <code>SessionSystem</code> publishes <code>BallBatch</code> and board singletons; <code>BallRenderSystem</code> copies the packed words, decodes them into quad instances and draws every ball with one <code>Graphics.RenderMeshIndirect</code>. Menus and HUD are <code>OnGUI</code> screens that render the core's <code>ScreenFlow</code> and menu rows.</li>
+<li><span class="kw">Flags:</span> <code>-balls-physics-thread</code> uses the threaded session; <code>-BallsBackend=Burst</code> starts on Burst; <code>-balls-parity</code> runs the parity probe.</li>
+</ul>
+<h4>ECS ball unpacking and indirect mesh rendering</h4>
+<p>Extracts packed 32-bit ball integers from native memory and dispatches a single indirect draw call. Executed inside <code>BallRenderSystem::OnUpdate</code> during Unity's presentation loop.</p>
+<div class="cap">source/frontends/unity/Assets/Balls/Runtime/Rendering/BallRenderSystem.cs:86-128 (condensed)</div>
+<pre>            float scaleX = batch.scaleX &lt;= 0f ? 1f : 1f / batch.scaleX;
+            float scaleY = batch.scaleY &lt;= 0f ? 1f : 1f / batch.scaleY;
+            int count = 0;
+            for (int index = 0; index &lt; batch.count &amp;&amp; count &lt; capacity; ++index)
+            {
+                uint word = packed[index];
+                if ((word &gt;&gt; 28) &gt;= BallPalette.ColorCount)
+                {
+                    continue;
+                }
+                float x = (word &amp; 0x3FFFu) * scaleX;
+                float y = ((word &gt;&gt; 14) &amp; 0x3FFFu) * scaleY;
+                <span class="cm">// ...</span>
+                Color tint = BallPalette.For((int)(word &gt;&gt; 28));
+                scratch[count++] = new QuadInstance
+                {
+                    center = new Unity.Mathematics.float2(x, y),
+                    size = new Unity.Mathematics.float2(BallRadius, BallRadius),
+                    color = new Vector4(tint.r, tint.g, tint.b, 1f),
+                };
+            }
+            <span class="cm">// ...</span>
+            instances.SetData(scratch, 0, 0, count);
+            material.SetBuffer("_Quads", instances);
+            Graphics.RenderMeshIndirect(parameters, RenderPrimitives.UnitDisc, args, 1);</pre>
+<p>In Unity, <code>BallRenderSystem</code> retrieves the native ball array singleton and iterates over the packed 32-bit records. Bit-shifting decodes X and Y position coordinates alongside color palette index, constructing <code>QuadInstance</code> structs within a persistent <code>NativeArray</code>. The entire buffer is copied to a GPU structured buffer and rendered via <code>Graphics.RenderMeshIndirect</code> in a single draw call, eliminating GameObject overhead and draw call scaling.</p>
+
+<h3>The Burst backend</h3>
+<p>Kept on purpose as an engine showcase: the game's rules and ball step rewritten in C#, compiled by Burst and run as
+<code>IJobParallelFor</code> jobs. Each file names the C++ it mirrors (<code>/// Mirrored from:</code>), and <code>ParityProbe</code> spawns identical balls into
+native Scalar and Burst and compares packed words tick by tick.</p>
+<table>
+<tr><th>File (Physics/Burst)</th><th>Mirrors</th></tr>
+<tr><td class="name">BallStep.cs</td><td><code>BallStepCore.h</code>: step, free flight, packing</td></tr>
+<tr><td class="name">BurstBallStepJob.cs</td><td>the CPU backends' step: step, free-flight and pack jobs, hits into a <code>NativeQueue</code></td></tr>
+<tr><td class="name">BurstBallStore.cs</td><td>the ball store, as an array of 24-byte structs (one cache line per worker's scalar loop)</td></tr>
+<tr><td class="name">BurstBoard.cs</td><td><code>BrickBoard</code> and the target field</td></tr>
+<tr><td class="name">BurstGameBackend.cs</td><td><code>GameSession</code> + <code>Simulation</code>: 120 Hz accumulator, hit resolution</td></tr>
+<tr><td class="name">BurstLauncherQueue.cs, BurstSpawnController.cs</td><td>launcher queue and spawn budget</td></tr>
+<tr><td class="name">LevelDocument.cs</td><td>the level parser and writer</td></tr>
+</table>
+<h4>Burst-compiled parallel ball stepping job</h4>
+<p>Simulates ball physics substeps, brick collisions, and render packing as a high-performance C# job. Invoked parallelized across worker threads from <code>BurstGameBackend</code>.</p>
+<div class="cap">source/frontends/unity/Assets/Balls/Runtime/Physics/Burst/BurstBallStepJob.cs:53-86 (condensed)</div>
+<pre>        public void Execute(int index)
+        {
+            BallData ball = balls[index];
+
+            <span class="cm">// Step ball with substep support mirroring ScalarBackend.cpp and BallStepCore.h:254-263</span>
+            int hitBrick = BallStep.stepBallSubsteps(
+                ref ball.x,
+                ref ball.y,
+                ref ball.vx,
+                ref ball.vy,
+                ball.color,
+                ref ball.bounces,
+                board,
+                stepParams);
+
+            balls[index] = ball;
+            <span class="cm">// ...</span>
+            if (hitBrick != BallStep.noBrickHit)
+            {
+                hits.Enqueue(new BallHit((uint)index, hitBrick));
+            }
+        }</pre>
+<p><code>BurstBallStepJob</code> implements <code>IJobParallelFor</code>, where each worker invokes <code>BallStep.stepBallSubsteps</code> to update velocity, integrate position, and handle brick reflections as the native step does (<code>ParityProbe</code> checks this). If a brick is hit, a <code>BallHit</code> event is recorded through a <code>NativeQueue&lt;BallHit&gt;.ParallelWriter</code>, and <code>BurstGameBackend</code> resolves them after the job completes.</p>
+
+<h3>Build</h3>
+<p><code>source/frontends/unity/build.bat</code> builds <code>balls_unity</code> and the plugins with <code>-DBALLS_FRONTEND=none -DBALLS_BUILD_UNITY_PLUGIN=ON</code>,
+copies them into <code>Assets/Plugins/x86_64</code> (<code>ProjectSetup.cs</code>), then runs Unity in batch mode: <code>BallsBuilder.BuildWindows</code> (Mono)
+or <code>BuildLinux</code> (IL2CPP, with Linux-built <code>.so</code> files). The Linux64 player is what runs on L2.</p>
+
+<!-- ================================================================== -->
+<h2 id="shared">11 · What is shared and what is not</h2>
+<table>
+<tr><th>Piece</th><th>SDL / web</th><th>Unreal</th><th>Unity</th></tr>
+<tr><td>Rules and simulation (<code>GameSession</code>, <code>Simulation</code>)</td><td>core</td><td>core</td><td>core via C ABI (or the Burst port)</td></tr>
+<tr><td>Physics thread</td><td>core <code>SessionRunner</code></td><td>core <code>SessionHost</code></td><td>core via C ABI, opt-in</td></tr>
+<tr><td>Levels, repository, watcher, editor model, settings file</td><td>core</td><td>core</td><td>core via C ABI</td></tr>
+<tr><td>Screen order, buttons, rows, toasts (<code>ScreenFlow</code>, <code>MenuModel</code>)</td><td>core</td><td>core</td><td>core via C ABI</td></tr>
+<tr><td>Layout, theme</td><td>core</td><td>core, converted</td><td>core via C ABI, converted</td></tr>
+<tr><td>Backend choice, device picks, benchmark, machine profile</td><td>core</td><td>core</td><td>core via C ABI</td></tr>
+<tr><td>Control API routes</td><td>core + own socket</td><td>core + UE HTTPServer</td><td>core + own TCP transport</td></tr>
+<tr><td>Window, input, widgets</td><td>SDL3 + own painter</td><td>Slate</td><td>IMGUI</td></tr>
+<tr><td>Board and ball drawing</td><td><code>IRenderer</code> × 3</td><td>instanced meshes + scene view extension</td><td>ECS systems, indirect draw</td></tr>
+<tr><td>Kept on purpose</td><td>–</td><td>UE5 renderer features</td><td>Burst rules and step</td></tr>
+</table>
+<p>Adding a front end therefore means: a window, input, a way to draw rectangles, text and packed balls, and a <code>ControlHost</code>.
+Everything a player can do already exists as a core call.</p>
+
+<!-- ================================================================== -->
+<h2 id="workflow">12 · Conventions and workflow</h2>
+<h3>Code</h3>
+<ul class="rules">
+<li>Classes PascalCase; functions and variables camelCase; named constants instead of magic numbers; comments say why.</li>
+<li>Errors: <code>Result&lt;T&gt;</code> in level I/O and the bench, <code>bool</code> + <code>std::string&amp; error</code> elsewhere; nothing across the plugin or C ABI throws.</li>
+<li>Every commit builds and passes <code>balls_tests</code>. Titles are <code>type(scope): summary</code> (feat, fix, perf, refactor, docs, test, build, chore), the body says why.</li>
+</ul>
+<h3>Branches and machines</h3>
+<ul class="rules">
+<li>One trunk, <code>main</code>. Work happens on short <code>feature/</code>, <code>fix/</code>, <code>build/</code> branches merged with <code>--no-ff</code>; <code>main</code> is never force-pushed.</li>
+<li>Unmerged lines kept for reference: <code>feature/backend-zen4</code>, <code>-rocm</code>, <code>-vulkanmulti</code> (now on main in another form), <code>feature/web-wasm</code>, <code>-wgsl</code>, <code>webgpu-compute</code> (the old web attempts, replaced by the web build above), <code>unity</code>, <code>perf/physics-cuts</code>.</li>
+<li>The repository is a bare clone with one worktree per machine: <code>wt-main</code> on L1 (source only) and <code>/mnt/data/balls/wt-main</code> on L2. Builds run on the two-GPU desktop and are tested on L2 (<a href="#build">chapter 1</a>). CMake caches absolute paths, so a moved worktree needs its <code>build/</code> deleted.</li>
+</ul>
+<h3>Publishing</h3>
+<svg class="flow" viewBox="0 0 1100 120" role="img" aria-label="Publishing flow">
+<g class="node"><rect x="20" y="30" width="200" height="60"/><text class="node-title" x="36" y="58">main</text><text class="node-sub" x="36" y="76">--no-ff, never force-pushed</text></g>
+<g class="node"><rect x="290" y="30" width="230" height="60"/><text class="node-title" x="306" y="58">submission</text><text class="node-sub" x="306" y="76">generated, whitelisted, scrubbed</text></g>
+<g class="node"><rect x="590" y="30" width="220" height="60"/><text class="node-title" x="606" y="58">Submission repository</text><text class="node-sub" x="606" y="76">PublishSubmission.py</text></g>
+<g class="node"><rect x="860" y="30" width="220" height="60"/><text class="node-title" x="876" y="58">GitHub main · gh-pages</text><text class="node-sub" x="876" y="76">MinimalGithub.py · PublishPages.py</text></g>
+<path class="edge" d="M220 60H290M520 60H590M520 60C680 0 760 0 860 45"/>
+</svg>
+<ul class="rules">
+<li><code>scripts/submission/BuildSubmission.py</code> regenerates <code>submission</code> from <code>main</code>: <code>whitelist.txt</code> picks the files, <code>scrub.txt</code> rewrites internal names. It is never edited by hand.</li>
+<li><code>PublishSubmission.py &lt;destination&gt;</code> re-attributes every commit to that destination's identity (<code>targets.json</code>), applies its own scrub file if it names one, and pushes.</li>
+<li>GitHub (<code>Pipyakas/balls</code>, public) gets code only: <code>MinimalGithub.py</code> drops documentation, strips comments, writes a minimal README and force-pushes one parentless commit. The web build goes to its <code>gh-pages</code> branch.</li>
+</ul>
+
+</main>
+</body></html>
